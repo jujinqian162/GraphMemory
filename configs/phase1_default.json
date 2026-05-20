@@ -1,0 +1,17 @@
+{
+  "dataset": "hotpotqa_distractor",
+  "dense_encoder": "intfloat/e5-base-v2",
+  "dev_examples": 500,
+  "graph": {
+    "max_bridge_edges": 50,
+    "max_entity_neighbors": 10,
+    "max_query_overlap": 20,
+    "use_spacy": false
+  },
+  "passage_prefix": "passage: ",
+  "query_prefix": "query: ",
+  "seed": 13,
+  "test_examples": 1000,
+  "top_k": 10,
+  "train_examples": 5000
+}

@@ -1,0 +1,40 @@
+{
+  "lambda_bridge": [
+    0.0,
+    0.05,
+    0.1,
+    0.2
+  ],
+  "lambda_init": [
+    1.0
+  ],
+  "lambda_neighbor": [
+    0.05,
+    0.1,
+    0.2,
+    0.4
+  ],
+  "lambda_path": [
+    0.0
+  ],
+  "lambda_query": [
+    0.0,
+    0.05,
+    0.1,
+    0.2
+  ],
+  "max_hops": [
+    1,
+    2
+  ],
+  "seed_top_s": [
+    20,
+    30
+  ],
+  "type_weights": {
+    "bridge": 1.0,
+    "entity_overlap": 0.7,
+    "query_overlap": 0.8,
+    "sequential": 0.3
+  }
+}
