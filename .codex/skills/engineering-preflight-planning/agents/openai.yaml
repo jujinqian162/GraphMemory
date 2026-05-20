@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineering Preflight Planning"
+  short_description: "Prepare implementation-ready project docs before coding."
+  default_prompt: "Use $engineering-preflight-planning to prepare a codebase for implementation."
