@@ -145,6 +145,19 @@ The command documentation should include both:
 - leakage-safe commands using `.input.json` and `.labels.json`
 - compatibility notes for the original project command surface where relevant
 
+The root `README.md` should stay short: project purpose, setup, the fastest safe command path, and a link to `docs/40-operations/commands.md`. Avoid duplicating the full command runbook in both places.
+
+## Tuning Simplicity
+
+Phase 1 intentionally does not require a persistent initial-score cache.
+
+Rules:
+
+- Dev tuning may recompute BM25 or dense initial rankings while the pipeline is being debugged.
+- The rerank function still receives explicit initial scores so future score reuse remains easy to add.
+- Any quick tuning on a reduced dev artifact is a debug aid only; official Phase 1 graph rerank configs must be selected on the documented dev split.
+- If a score cache is added later, it must become a named artifact with validation and run summary fields.
+
 ## Implementation Handoff
 
 The implementation must produce a code review handoff after Phase 1 scripts and core modules exist.

@@ -77,6 +77,7 @@ Fixture rules:
 
 Must test:
 
+- `task_id` is derived from the raw HotpotQA `_id`, not sampled position.
 - `sentence_id` is local to document title.
 - `position` is flattened across all memory items.
 - `m{position}` node IDs are stable.

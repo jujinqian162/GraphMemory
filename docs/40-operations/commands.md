@@ -2,13 +2,15 @@
 
 Date: 2026-05-20
 
-Status: Placeholder. Fill this document after Phase 1 scripts are implemented.
+Status: Pre-implementation placeholder. Fill this document after Phase 1 scripts are implemented.
 
 ## Purpose
 
-This document will contain the exact command sequence for running the Phase 1 experiment.
+This document is the canonical place for the exact command sequence for running the Phase 1 experiment.
 
 It should be updated after the CLI scripts exist so the documented commands match the real implementation.
+
+The root `README.md` should provide a short quick-start and link here instead of duplicating the full runbook.
 
 ## Required Sections
 

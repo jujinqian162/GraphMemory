@@ -24,8 +24,8 @@ Status: Working reference. This document defines the artifact contracts for the 
 | `*_graphs.json` | `build_graphs.py` | graph rerank, evaluation connectivity | Typed graph over question and memory sentence nodes. |
 | `ranked_results_{method}.json` | `run_retrieval.py` | evaluation, analysis | Complete per-task ranking and optional retrieved subgraph. |
 | graph rerank config JSON | `tune_graph_rerank.py` or human | graph rerank retrieval | Fixed graph-rerank parameters selected on dev. |
-| per-method metric CSV | `evaluate_retrieval.py` | aggregation, reporting | Method-level metric rows. |
-| aggregate result CSVs | `aggregate_tables.py` | paper tables, README | Final Phase 1 tables. |
+| per-method metric CSV | `evaluate_retrieval.py` | aggregation, reporting | Wide method-level metric rows used as aggregation input. |
+| aggregate result CSVs | `aggregate_tables.py` | paper tables, README | Final Phase 1 `main_results.csv`, `path_results.csv`, and `efficiency_results.csv` tables. |
 | `run_summary.json` | each runnable script | humans, debugging | Effective config, input/output paths, counts, timings, environment notes. |
 
 ## Shared ID Rules
@@ -36,6 +36,14 @@ Status: Working reference. This document defines the artifact contracts for the 
 - `task_id` must be unique within each artifact.
 - The same split must use the same `task_id` values across all derived artifacts.
 - Missing or duplicate `task_id` values should raise an error.
+- For HotpotQA Phase 1, `task_id` must be derived from the raw HotpotQA `_id`, not from sampled position.
+- Required HotpotQA form:
+
+```text
+task_id = "hotpot_" + raw_example["_id"]
+```
+
+- A raw HotpotQA example without `_id` should fail conversion instead of receiving a generated position-based ID.
 
 ### Node IDs
 
@@ -266,7 +274,7 @@ Required fields:
 
 Invariants:
 
-- `ranked_nodes` should include every memory node exactly once.
+- `ranked_nodes` must include every memory node exactly once.
 - Scores must be finite numbers.
 - Ranking order must be descending by score.
 - Flat methods may output an empty edge list in `retrieved_subgraph`.
@@ -303,7 +311,9 @@ Invariants:
 
 ## Metric CSV Contract
 
-Phase 1 main result columns:
+`evaluate_retrieval.py` should produce a wide per-method metric CSV so aggregation has one complete input row per method.
+
+Wide per-method metric columns:
 
 ```text
 Method
@@ -333,6 +343,63 @@ Invariants:
 - Metrics must be computed from prediction artifacts, label artifacts, and graph artifacts.
 - Metrics must not read gold fields from input task artifacts.
 - All numeric metrics except latency should be in `[0.0, 1.0]`.
+
+### Query-Evidence Connectivity
+
+For `Query-Evidence Connectivity@10`:
+
+```text
+selected_nodes = top-10 ranked memory node IDs
+if any gold evidence node is missing from selected_nodes: score = 0
+otherwise build the induced graph over {"q"} union selected_nodes
+directed edges are traversed source -> target
+undirected edges are traversed both ways
+score = 1 only if every gold evidence node is reachable from q
+otherwise score = 0
+```
+
+HotpotQA Phase 1 label records must contain at least one gold evidence node; an empty gold set is invalid rather than vacuously connected.
+
+### Aggregate Table Outputs
+
+`aggregate_tables.py` must split the wide per-method metric rows into canonical final outputs:
+
+`results/main_results.csv`:
+
+```text
+Method
+Recall@2
+Recall@5
+Recall@10
+Evidence F1@5
+Evidence F1@10
+Full Support@5
+Full Support@10
+MRR
+```
+
+`results/path_results.csv`:
+
+```text
+Method
+Connected Evidence Recall@5
+Connected Evidence Recall@10
+Query-Evidence Connectivity@10
+Path Recall@10
+Edge Recall@10
+```
+
+`results/efficiency_results.csv`:
+
+```text
+Method
+Index Build Time
+Graph Construction Time
+Retrieval Latency / Query
+Memory Size
+Avg Retrieved Nodes
+Avg Retrieved Edges
+```
 
 ## Run Summary Contract
 

@@ -120,6 +120,15 @@ Avoid reverse dependencies:
 - Evaluation must not import raw dataset conversion.
 - Core algorithms must not write files.
 
+## Tuning And Cache Boundary
+
+Phase 1 does not need a persistent score cache. Keep the first implementation simple and debuggable:
+
+- Flat retrievers produce complete initial rankings.
+- Graph rerank consumes an explicit `initial_scores` mapping plus a graph and config.
+- Dev grid search may recompute initial rankings while the system is being debugged.
+- Future score reuse should be added as a named artifact and validation boundary only if full-dev tuning becomes a practical blocker.
+
 ## Script Boundary
 
 Scripts own:

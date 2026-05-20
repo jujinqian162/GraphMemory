@@ -82,6 +82,7 @@ Rules:
 - Does not compute metrics.
 - Uses only initial scores and graph structure.
 - May return optional score components for debug artifacts.
+- Does not own persistent score caching in Phase 1.
 
 Core implementation can be a function:
 
@@ -90,6 +91,8 @@ graph_rerank(initial_scores, graph, config) -> list[RankedNode]
 ```
 
 A thin `GraphReranker` wrapper is acceptable if it makes config/debug handling clearer.
+
+The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
 
 ## Graph Construction
 
@@ -164,6 +167,8 @@ aggregate_tables(...) -> table artifacts
 ```
 
 Service functions may loop over tasks, measure latency, and assemble artifacts. They should not read or write files directly.
+
+Tuning services may call retrieval repeatedly in the first implementation. Prefer correctness and clear run summaries over introducing cache invalidation logic before the pipeline is stable.
 
 ## Anti-Abstractions
 

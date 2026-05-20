@@ -38,6 +38,12 @@ Preserve script names from the experiment plan. The leakage-safe implementation 
   - Add runtime dependencies: `numpy`, `rank-bm25`, `sentence-transformers`, `tqdm`.
   - Add optional dependency group for NER: `spacy`.
 - Create: `graph_memory/__init__.py`
+- Create: `graph_memory/types.py`
+  - Define shared aliases, `TypedDict`s, lightweight dataclasses, and behavior protocols used across the package.
+- Create: `graph_memory/validation.py`
+  - Implement fail-fast artifact validators and `ContractValidationError`.
+- Create: `graph_memory/io.py`
+  - Provide deterministic JSON/CSV/config read-write helpers.
 - Create: `graph_memory/hotpotqa.py`
   - Convert HotpotQA examples into input tasks and label records.
   - Preserve `title`, `sentence_id`, and global `position` for every sentence.
@@ -62,6 +68,8 @@ Preserve script names from the experiment plan. The leakage-safe implementation 
   - Grid-search graph rerank parameters on dev and save selected config.
 - Create: `graph_memory/evaluation.py`
   - Compute node metrics, graph connectivity metrics, and efficiency metrics.
+- Create: `graph_memory/observability.py`
+  - Write run summaries and compact graph/debug summaries at script boundaries.
 - Create: `scripts/prepare_hotpotqa.py`
   - Emit input and label files, with an optional combined compatibility file and leakage-check report.
 - Create: `scripts/build_graphs.py`
@@ -82,6 +90,8 @@ Preserve script names from the experiment plan. The leakage-safe implementation 
   - Test BM25, dense interface, graph rerank, and parameter config behavior.
 - Create: `tests/test_phase1_real_evaluation.py`
   - Test Recall, Evidence F1, Full Support, Connected Evidence Recall, and fair graph connectivity.
+- Optional create: `tests/test_phase1_real_validation.py`
+  - Test validators directly when validation coverage becomes too large for the four main test files.
 
 ## Data Contracts
 
@@ -92,7 +102,7 @@ Compatibility rule:
 - `*_memory_tasks.input.json` is the only file accepted by graph construction and retrieval.
 - `*_memory_tasks.labels.json` is the only file accepted by evaluation and dev tuning for gold labels.
 - `scripts/prepare_hotpotqa.py` may also write `*_memory_tasks.json` as a compatibility artifact for readers of the original plan, but retrieval code must not consume gold fields from that file.
-- README commands must show both the leakage-safe command and the original-plan equivalent paths.
+- `docs/40-operations/commands.md` must show the leakage-safe command path and note the original-plan compatibility artifacts where relevant.
 
 `*_memory_tasks.input.json`:
 
@@ -177,6 +187,15 @@ the metric must be reported explicitly as MRR@k instead of MRR.
 
 ### HotpotQA Conversion
 
+- Require each raw HotpotQA example to contain `_id`.
+- Generate stable task IDs from raw IDs, not from sampled position:
+
+```text
+task_id = "hotpot_" + raw_example["_id"]
+```
+
+- Do not renumber task IDs when the split seed, offset, or count changes.
+- If a raw example lacks `_id`, raise a clear validation/conversion error instead of inventing a position-based ID.
 - Iterate through `context` in the raw example order.
 - For each `(title, sentences)` pair, assign `sentence_id` from the sentence list index.
 - Assign `position` from the flattened memory item index.
@@ -346,6 +365,15 @@ rank all original memory nodes, but only graph bonuses are nonzero inside candid
 
 Use grid search on dev only.
 
+Simplicity-first tuning policy:
+
+- Phase 1 should prioritize debuggability over tuning speed.
+- Do not introduce a persistent score cache in the first implementation.
+- `graph_rerank(initial_scores, graph, config)` remains the lightweight boundary that makes future score reuse possible without changing the rerank formula.
+- It is acceptable for dev grid search to recompute BM25 or dense initial rankings while the pipeline is still being debugged.
+- For quick debugging, use a smaller dev artifact produced through the normal split/conversion path; do not report debug-subset tuning as the official Phase 1 config.
+- If full-dev tuning becomes a practical blocker after the pipeline is correct, add score-artifact reuse as a later optimization with its own validation and run summary fields.
+
 Candidate values:
 
 ```json
@@ -406,8 +434,13 @@ Edge Recall@10 = N/A for HotpotQA-only Phase 1
 For HotpotQA Phase 1, do not report `Path Recall@10` as a gold reasoning-path metric because HotpotQA does not provide explicit dependency paths. Report `Query-Evidence Connectivity@10` instead:
 
 ```text
-Query-Evidence Connectivity@10 = 1 if every gold evidence node retrieved in top 10 is connected to q
-through the constructed graph induced by q plus the method's selected top-10 nodes; otherwise 0.
+Query-Evidence Connectivity@10:
+  selected_nodes = top-10 ranked memory node IDs.
+  If any gold evidence node is missing from selected_nodes, score 0.
+  Otherwise build the induced graph over {"q"} union selected_nodes.
+  Directed edges are traversed source -> target; undirected edges are traversed both ways.
+  Score 1 only if every gold evidence node is reachable from q in that induced graph.
+  Otherwise score 0.
 ```
 
 `Path Recall@10` and `Edge Recall@10` should remain in the table schema as `N/A` for HotpotQA-only Phase 1, then become real metrics when 2Wiki/tool-trajectory data with gold dependency edges is added.
@@ -424,6 +457,54 @@ Avg Retrieved Edges
 ```
 
 ## Tasks
+
+### Task 0: Contract, I/O, And Observability Foundation
+
+**Files:**
+- Create: `graph_memory/types.py`
+- Create: `graph_memory/validation.py`
+- Create: `graph_memory/io.py`
+- Create: `graph_memory/observability.py`
+- Test: existing Phase 1 test files; split to `tests/test_phase1_real_validation.py` only if needed.
+
+- [ ] **Step 1: Define shared data shapes and configs**
+
+Create aliases, `TypedDict`s, and frozen config dataclasses for the contracts already defined in `docs/20-contracts/phase1-data-contracts.md`.
+
+- [ ] **Step 2: Implement fail-fast validators**
+
+At minimum:
+
+```python
+class ContractValidationError(ValueError):
+    ...
+
+def validate_memory_task_inputs(records: list[dict]) -> None:
+    ...
+
+def validate_memory_task_labels(records: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+    ...
+
+def validate_graphs(graphs: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+    ...
+
+def validate_ranked_results(predictions: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+    ...
+```
+
+Validators must not repair, sort, drop, or infer data.
+
+- [ ] **Step 3: Implement boring artifact I/O helpers**
+
+Use UTF-8, deterministic JSON formatting, and explicit CSV column order.
+
+- [ ] **Step 4: Implement run summary helpers**
+
+Every CLI script should be able to write a compact run summary with effective config, paths, counts, timings, and notes.
+
+- [ ] **Step 5: Test the critical negative cases**
+
+Cover label leakage in input artifacts, missing graph endpoints, duplicate ranked nodes, task ID mismatches, and non-finite scores.
 
 ### Task 1: Data Conversion And Leakage Separation
 
@@ -995,7 +1076,7 @@ Connectivity must use the shared constructed graph and the method's selected top
 
 - [ ] **Step 4: Implement efficiency aggregation**
 
-Average retrieval latency from predictions. Read graph construction and index build timing from optional run metadata files when present; use `0.0` only when metadata is absent and record that absence in the README command output.
+Average retrieval latency from predictions. Read graph construction and index build timing from optional run metadata files when present; use `0.0` only when metadata is absent and record that absence in the per-method metric output or run summary notes.
 
 - [ ] **Step 5: Run evaluation tests**
 
@@ -1011,6 +1092,7 @@ Expected: PASS.
 
 **Files:**
 - Modify: `README.md`
+- Modify: `docs/40-operations/commands.md`
 - Create: `configs/phase1_default.json`
 - Create: `configs/phase1_graph_rerank_grid.json`
 - Test: `tests/test_phase1_real_data_structures.py`
@@ -1041,7 +1123,7 @@ Expected: PASS.
 
 - [ ] **Step 2: Document full command sequence**
 
-README must show commands for:
+`docs/40-operations/commands.md` is the canonical runbook and must show commands for:
 
 ```text
 prepare train input and labels from labeled train, offset 0
@@ -1058,9 +1140,11 @@ evaluate all methods
 aggregate tables
 ```
 
+The root `README.md` should provide a short quick-start and link to `docs/40-operations/commands.md` instead of duplicating the full command sequence.
+
 - [ ] **Step 3: Add leakage check command**
 
-README must include:
+`docs/40-operations/commands.md` must include:
 
 ```powershell
 rg "gold_answer|gold_evidence_nodes|supporting_facts|is_gold" data/hotpotqa/processed/*input*.json data/hotpotqa/processed/*graphs*.json
@@ -1087,7 +1171,7 @@ Expected: PASS.
 - Test evaluation reads labels from label artifacts, not from model input artifacts.
 - Final HotpotQA Phase 1 tables include Recall@k, Evidence F1@k, Full Support@k, MRR, Connected Evidence Recall@k, Query-Evidence Connectivity@10, and efficiency metrics.
 - `Path Recall@10` and `Edge Recall@10` are emitted as `N/A` for HotpotQA-only Phase 1 unless a dataset with gold dependency edges is added.
-- README contains exact commands, dataset split sizes, random seed, encoder model, graph settings, top-k, and hardware notes.
+- `docs/40-operations/commands.md` contains exact commands, dataset split sizes, random seed, encoder model, graph settings, top-k, and hardware notes; the root `README.md` links to it.
 - README clearly states this plan satisfies the Phase 1 minimum runnable version, not the full paper-version baseline set with Dense-FT, Memory Stream, GraphRAG, and MemGPT-style memory.
 
 ## Self-Review

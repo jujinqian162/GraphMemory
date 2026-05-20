@@ -166,6 +166,7 @@ Validate:
 Validate:
 
 - labels match known task IDs
+- each label record has at least one gold evidence node for HotpotQA Phase 1
 - every gold node exists in that task input
 - no duplicate gold nodes
 - `gold_dependency_edges` is empty for HotpotQA Phase 1 unless a dependency-labeled dataset is explicitly used
