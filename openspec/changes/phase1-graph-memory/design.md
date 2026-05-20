@@ -68,11 +68,15 @@ graph_memory/
 
 Rationale: Phase 1 benefits from clear files and stable boundaries without a plugin framework. `indexes/` is retained because BM25 and dense are parallel implementations.
 
-### JSON Contracts At Boundaries, Dataclasses For Configs And Algorithm Values
+### JSON Contracts At Boundaries, Dataclasses For Parsed Raw Data And Algorithm Values
 
-Use `TypedDict` records for persisted JSON-like artifacts and frozen dataclasses for configs, ranked nodes, rerank results, and score components.
+Use `TypedDict` records for persisted JSON-like artifacts and frozen dataclasses for parsed raw dataset examples,
+configs, ranked nodes, rerank results, and score components.
 
-Rationale: artifact files remain transparent and validators own correctness, while algorithm signatures stay readable and avoid deeply nested inline types.
+Rationale: artifact files remain transparent and validators own correctness, while algorithm signatures stay readable
+and avoid deeply nested inline types. Raw JSON parsing should be dataset-specific, such as
+`parse_hotpotqa_examples -> list[HotpotQAExample]`; Phase 1 should not introduce a generic JSON parser base class
+that hides field-level semantics.
 
 ### Input And Label Artifacts Are Separate
 

@@ -36,8 +36,8 @@ class MemoryTaskInput(TypedDict):
     task_id: TaskId
     query: str
     memory_items: list[MemoryItem]
-    metadata: NotRequired[dict]
-    debug: NotRequired[dict]
+    metadata: NotRequired[dict[str, object]]
+    debug: NotRequired[dict[str, object]]
 
 
 class MemoryTaskLabels(TypedDict):
@@ -45,8 +45,12 @@ class MemoryTaskLabels(TypedDict):
     gold_answer: str
     gold_evidence_nodes: list[NodeId]
     gold_dependency_edges: list[list[str]]
-    metadata: NotRequired[dict]
-    debug: NotRequired[dict]
+    metadata: NotRequired[dict[str, object]]
+    debug: NotRequired[dict[str, object]]
+
+
+class CombinedMemoryTask(MemoryTaskInput, MemoryTaskLabels):
+    """Compatibility-only artifact shape containing input and label fields."""
 
 
 class QuestionNode(TypedDict):
@@ -74,8 +78,8 @@ class MemoryGraph(TypedDict):
     task_id: TaskId
     nodes: list[GraphNode]
     edges: list[GraphEdge]
-    metadata: NotRequired[dict]
-    debug: NotRequired[dict]
+    metadata: NotRequired[dict[str, object]]
+    debug: NotRequired[dict[str, object]]
 
 
 class RankedNodeRecord(TypedDict):
@@ -95,8 +99,8 @@ class RankedResult(TypedDict):
     retrieved_subgraph: RetrievedSubgraph
     latency_ms: float
     input_tokens: int
-    metadata: NotRequired[dict]
-    debug: NotRequired[dict]
+    metadata: NotRequired[dict[str, object]]
+    debug: NotRequired[dict[str, object]]
 
 
 class EvaluationRow(TypedDict):

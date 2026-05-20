@@ -4,11 +4,13 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.hotpotqa import combined_memory_tasks, convert_hotpotqa_examples
+from graph_memory.hotpotqa import combined_memory_tasks, convert_hotpotqa_examples, parse_hotpotqa_examples
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.splits import sample_split
@@ -17,9 +19,19 @@ from graph_memory.validation import validate_memory_task_inputs, validate_memory
 LOGGER = logging.getLogger("prepare_hotpotqa")
 
 
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
+@dataclass(frozen=True)
+class PrepareHotpotQAArgs:
+    input: str
+    output_input: str
+    output_labels: str
+    output_combined: str | None
+    max_examples: int | None
+    seed: int
+    offset: int
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
@@ -42,15 +54,18 @@ def main() -> int:
         outputs["combined"] = args.output_combined
 
     try:
-        raw_examples = read_json(args.input)
-        if not isinstance(raw_examples, list):
+        raw_records = read_json(args.input)
+        if not isinstance(raw_records, list):
             raise ValueError("HotpotQA raw input must be a JSON list.")
-        LOGGER.info("read raw examples: %s", len(raw_examples))
+        LOGGER.info("read raw examples: %s", len(raw_records))
 
-        selected_examples = select_examples(raw_examples, max_examples=args.max_examples, seed=args.seed, offset=args.offset)
-        LOGGER.info("selected examples: count=%s seed=%s offset=%s", len(selected_examples), args.seed, args.offset)
+        selected_records = select_examples(raw_records, max_examples=args.max_examples, seed=args.seed, offset=args.offset)
+        LOGGER.info("selected examples: count=%s seed=%s offset=%s", len(selected_records), args.seed, args.offset)
 
-        task_inputs, task_labels = convert_hotpotqa_examples(selected_examples)
+        parsed_examples = parse_hotpotqa_examples(selected_records)
+        conversion = convert_hotpotqa_examples(parsed_examples)
+        task_inputs = conversion.task_inputs
+        task_labels = conversion.task_labels
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         validate_memory_task_inputs(task_inputs)
         validate_memory_task_labels(task_labels, inputs_by_task_id)
@@ -72,8 +87,9 @@ def main() -> int:
             inputs=inputs,
             outputs=outputs,
             counts={
-                "raw_examples": len(raw_examples),
-                "selected_examples": len(selected_examples),
+                "raw_examples": len(raw_records),
+                "selected_examples": len(selected_records),
+                "parsed_examples": len(parsed_examples),
                 "task_inputs": len(task_inputs),
                 "task_labels": len(task_labels),
             },
@@ -104,12 +120,12 @@ def main() -> int:
         raise
 
 
-def select_examples(raw_examples: list[dict], *, max_examples: int | None, seed: int, offset: int) -> list[dict]:
+def select_examples(raw_records: Sequence[object], *, max_examples: int | None, seed: int, offset: int) -> list[object]:
     if max_examples is None:
         if offset != 0:
             raise ValueError("--offset requires --max_examples so the split size is explicit.")
-        return raw_examples
-    return sample_split(raw_examples, count=max_examples, seed=seed, offset=offset)
+        return list(raw_records)
+    return sample_split(raw_records, count=max_examples, seed=seed, offset=offset)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -122,6 +138,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=13, help="Random seed for deterministic split sampling.")
     parser.add_argument("--offset", type=int, default=0, help="Offset into the deterministic shuffled example order.")
     return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> PrepareHotpotQAArgs:
+    namespace = build_parser().parse_args(argv)
+    return PrepareHotpotQAArgs(
+        input=namespace.input,
+        output_input=namespace.output_input,
+        output_labels=namespace.output_labels,
+        output_combined=namespace.output_combined,
+        max_examples=namespace.max_examples,
+        seed=namespace.seed,
+        offset=namespace.offset,
+    )
 
 
 if __name__ == "__main__":

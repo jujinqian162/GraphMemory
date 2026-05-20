@@ -4,6 +4,8 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -16,9 +18,21 @@ from graph_memory.validation import validate_memory_task_inputs, validate_ranked
 LOGGER = logging.getLogger("run_retrieval")
 
 
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
+@dataclass(frozen=True)
+class RunRetrievalArgs:
+    method: str
+    tasks: str
+    graphs: str | None
+    output: str
+    top_k: int
+    encoder_model: str
+    query_prefix: str
+    passage_prefix: str
+    graph_config: str | None
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
@@ -113,6 +127,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--passage_prefix", default="passage: ")
     parser.add_argument("--graph_config", default=None, help="Path to graph rerank config JSON.")
     return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> RunRetrievalArgs:
+    namespace = build_parser().parse_args(argv)
+    return RunRetrievalArgs(
+        method=namespace.method,
+        tasks=namespace.tasks,
+        graphs=namespace.graphs,
+        output=namespace.output,
+        top_k=namespace.top_k,
+        encoder_model=namespace.encoder_model,
+        query_prefix=namespace.query_prefix,
+        passage_prefix=namespace.passage_prefix,
+        graph_config=namespace.graph_config,
+    )
 
 
 if __name__ == "__main__":

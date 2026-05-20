@@ -4,6 +4,8 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,9 +19,18 @@ from graph_memory.validation import validate_graphs, validate_memory_task_inputs
 LOGGER = logging.getLogger("build_graphs")
 
 
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
+@dataclass(frozen=True)
+class BuildGraphsArgs:
+    input: str
+    output: str
+    max_query_overlap: int
+    max_entity_neighbors: int
+    max_bridge_edges: int
+    use_spacy: bool
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
@@ -106,6 +117,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_bridge_edges", type=int, default=50)
     parser.add_argument("--use_spacy", action="store_true")
     return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> BuildGraphsArgs:
+    namespace = build_parser().parse_args(argv)
+    return BuildGraphsArgs(
+        input=namespace.input,
+        output=namespace.output,
+        max_query_overlap=namespace.max_query_overlap,
+        max_entity_neighbors=namespace.max_entity_neighbors,
+        max_bridge_edges=namespace.max_bridge_edges,
+        use_spacy=namespace.use_spacy,
+    )
 
 
 if __name__ == "__main__":

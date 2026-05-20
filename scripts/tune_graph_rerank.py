@@ -4,6 +4,8 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -16,9 +18,21 @@ from graph_memory.validation import validate_graphs, validate_memory_task_inputs
 LOGGER = logging.getLogger("tune_graph_rerank")
 
 
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
+@dataclass(frozen=True)
+class TuneGraphRerankArgs:
+    method: str
+    tasks: str
+    labels: str
+    graphs: str
+    output_config: str
+    encoder_model: str
+    query_prefix: str
+    passage_prefix: str
+    top_k: int
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
@@ -113,6 +127,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--passage_prefix", default="passage: ")
     parser.add_argument("--top_k", type=int, default=10)
     return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> TuneGraphRerankArgs:
+    namespace = build_parser().parse_args(argv)
+    return TuneGraphRerankArgs(
+        method=namespace.method,
+        tasks=namespace.tasks,
+        labels=namespace.labels,
+        graphs=namespace.graphs,
+        output_config=namespace.output_config,
+        encoder_model=namespace.encoder_model,
+        query_prefix=namespace.query_prefix,
+        passage_prefix=namespace.passage_prefix,
+        top_k=namespace.top_k,
+    )
 
 
 if __name__ == "__main__":

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
-def sample_split(examples: list[dict], count: int, seed: int, offset: int = 0) -> list[dict]:
+def sample_split(examples: Sequence[T], count: int, seed: int, offset: int = 0) -> list[T]:
     if count < 0:
         raise ValueError("count must be non-negative.")
     if offset < 0:

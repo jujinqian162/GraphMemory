@@ -479,16 +479,16 @@ At minimum:
 class ContractValidationError(ValueError):
     ...
 
-def validate_memory_task_inputs(records: list[dict]) -> None:
+def validate_memory_task_inputs(records: object) -> None:
     ...
 
-def validate_memory_task_labels(records: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+def validate_memory_task_labels(records: object, inputs_by_task_id: Mapping[TaskId, MemoryTaskInput]) -> None:
     ...
 
-def validate_graphs(graphs: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+def validate_graphs(graphs: object, inputs_by_task_id: Mapping[TaskId, MemoryTaskInput]) -> None:
     ...
 
-def validate_ranked_results(predictions: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+def validate_ranked_results(predictions: object, inputs_by_task_id: Mapping[TaskId, MemoryTaskInput]) -> None:
     ...
 ```
 
@@ -530,7 +530,10 @@ def test_supporting_facts_map_title_sentence_to_node_ids():
         ],
         "supporting_facts": [["Eiffel Tower", 0], ["Paris", 1]],
     }]
-    inputs, labels = convert_hotpotqa_examples(raw)
+    parsed_examples = parse_hotpotqa_examples(raw)
+    conversion = convert_hotpotqa_examples(parsed_examples)
+    inputs = conversion.task_inputs
+    labels = conversion.task_labels
     assert inputs[0]["memory_items"][0]["sentence_id"] == 0
     assert inputs[0]["memory_items"][0]["position"] == 0
     assert inputs[0]["memory_items"][3]["sentence_id"] == 1
@@ -550,14 +553,28 @@ uv run pytest tests/test_phase1_real_data_structures.py -q
 
 Expected: FAIL because the current repository has no converter yet.
 
-- [ ] **Step 3: Implement converter returning input and label records**
+- [ ] **Step 3: Implement parser and converter returning named domain records**
 
-Required public signature:
+Required public signatures:
 
 ```python
-def convert_hotpotqa_examples(examples: list[dict], max_examples: int | None = None) -> tuple[list[dict], list[dict]]:
+@dataclass(frozen=True)
+class HotpotQAConversionResult:
+    task_inputs: list[MemoryTaskInput]
+    task_labels: list[MemoryTaskLabels]
+
+
+def parse_hotpotqa_examples(raw_records: Sequence[object]) -> list[HotpotQAExample]:
+    ...
+
+
+def convert_hotpotqa_examples(examples: Sequence[HotpotQAExample]) -> HotpotQAConversionResult:
     ...
 ```
+
+Raw JSON validation belongs in `parse_hotpotqa_examples`. Artifact contract validation still belongs in
+`validate_memory_task_inputs` and `validate_memory_task_labels`. Do not expose
+`tuple[list[dict], list[dict]]` from the converter.
 
 Required behavior:
 
@@ -573,7 +590,7 @@ position is the flattened index across all memory items in the task
 Required public signature:
 
 ```python
-def sample_split(examples: list[dict], count: int, seed: int, offset: int = 0) -> list[dict]:
+def sample_split(examples: Sequence[T], count: int, seed: int, offset: int = 0) -> list[T]:
     ...
 ```
 
@@ -739,7 +756,7 @@ Required public functions:
 def build_graph(task_input: dict, config: GraphBuildConfig) -> dict:
     ...
 
-def build_graphs(task_inputs: list[dict], config: GraphBuildConfig) -> list[dict]:
+def build_graphs(task_inputs: Sequence[MemoryTaskInput], config: GraphBuildConfig) -> list[MemoryGraph]:
     ...
 ```
 
@@ -1053,7 +1070,11 @@ def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
 Required public signature:
 
 ```python
-def evaluate_results(predictions: list[dict], labels: list[dict], graphs: list[dict]) -> list[dict]:
+def evaluate_results(
+    predictions: Sequence[RankedResult],
+    labels: Sequence[MemoryTaskLabels],
+    graphs: Sequence[MemoryGraph],
+) -> list[EvaluationRow]:
     ...
 ```
 

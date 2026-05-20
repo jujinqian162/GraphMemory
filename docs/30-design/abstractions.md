@@ -32,12 +32,22 @@ Recommended forms:
 |---|---|
 | `TaskId`, `NodeId`, `MethodName`, `Score` | simple aliases |
 | node types, edge types, method names | `Literal` first; `Enum` only if needed |
+| parsed raw dataset examples | small frozen dataclasses |
 | `MemoryTaskInput`, `MemoryTaskLabels`, `MemoryGraph` | `TypedDict` |
 | `RankedNode`, `RerankResult`, score components | frozen dataclasses |
 | configs | frozen dataclasses |
 | metric rows and run summaries | JSON/CSV-shaped dicts with validation |
 
 Do not mirror every JSON field with a class. Keep artifact records close to their serialized shape.
+
+Raw JSON parsing should be explicit and dataset-specific. Prefer named functions such as `parse_hotpotqa_examples`
+that turn untrusted JSON objects into small dataclasses before conversion. Do not introduce a generic
+`JsonToDataClass` base class in Phase 1; it would add framework surface without replacing semantic artifact
+validators.
+
+Public core signatures should use project domain types. Avoid `list[dict]`, `tuple[list[dict], list[dict]]`,
+or other unstructured containers in conversion, retrieval, graph, tuning, and evaluation interfaces when a
+`TypedDict`, dataclass, alias, or protocol exists.
 
 ## Retriever
 

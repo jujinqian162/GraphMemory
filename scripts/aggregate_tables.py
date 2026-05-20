@@ -4,6 +4,8 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,9 +22,16 @@ from graph_memory.observability import build_run_summary, collect_environment, n
 LOGGER = logging.getLogger("aggregate_tables")
 
 
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
+@dataclass(frozen=True)
+class AggregateTablesArgs:
+    input_dir: str
+    output_main: str
+    output_path: str
+    output_efficiency: str
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
@@ -101,6 +110,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output_path", required=True)
     parser.add_argument("--output_efficiency", required=True)
     return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> AggregateTablesArgs:
+    namespace = build_parser().parse_args(argv)
+    return AggregateTablesArgs(
+        input_dir=namespace.input_dir,
+        output_main=namespace.output_main,
+        output_path=namespace.output_path,
+        output_efficiency=namespace.output_efficiency,
+    )
 
 
 if __name__ == "__main__":

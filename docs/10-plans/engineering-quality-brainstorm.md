@@ -15,6 +15,11 @@ Status: Draft discussion record. This file captures decisions while we prepare t
 - Code should optimize for experiment correctness and reviewability over cleverness.
 - Public functions should expose clear domain-level types.
 - Complex return values should use named result objects instead of raw tuples.
+- Public core functions should not expose raw `list[dict]` or `tuple[list[dict], list[dict]]` when a domain
+  type exists.
+- Raw JSON should be parsed at the boundary into dataset-specific dataclasses before artifact conversion.
+- Do not add a generic JSON-to-dataclass parser base class in Phase 1; use named parse functions plus
+  artifact validators so type meaning and error ownership stay obvious.
 - Internal local variables do not need excessive type annotations when the meaning is already obvious.
 - Naming conventions are defined in `docs/30-design/naming-conventions.md`.
 

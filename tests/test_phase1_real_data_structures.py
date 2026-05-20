@@ -1,6 +1,6 @@
 import pytest
 
-from graph_memory.hotpotqa import convert_hotpotqa_examples
+from graph_memory.hotpotqa import HotpotQAConversionResult, convert_hotpotqa_examples, parse_hotpotqa_examples
 from graph_memory.splits import sample_split
 
 
@@ -18,8 +18,12 @@ def hotpot_raw_example() -> dict:
 
 
 def test_supporting_facts_map_title_sentence_to_node_ids():
-    inputs, labels = convert_hotpotqa_examples([hotpot_raw_example()])
+    parsed_examples = parse_hotpotqa_examples([hotpot_raw_example()])
+    conversion = convert_hotpotqa_examples(parsed_examples)
 
+    assert isinstance(conversion, HotpotQAConversionResult)
+    inputs = conversion.task_inputs
+    labels = conversion.task_labels
     assert inputs[0]["task_id"] == "hotpot_ex1"
     assert inputs[0]["query"] == "Where is the Eiffel Tower and what river runs through that city?"
     assert inputs[0]["memory_items"][0]["id"] == "m0"
@@ -42,15 +46,25 @@ def test_convert_hotpotqa_requires_raw_id():
     del raw["_id"]
 
     with pytest.raises(ValueError, match="_id"):
-        convert_hotpotqa_examples([raw])
+        parse_hotpotqa_examples([raw])
 
 
 def test_convert_hotpotqa_fails_when_supporting_fact_cannot_map():
     raw = hotpot_raw_example()
     raw["supporting_facts"] = [["Missing Title", 0]]
 
+    parsed_examples = parse_hotpotqa_examples([raw])
     with pytest.raises(ValueError, match="supporting fact"):
-        convert_hotpotqa_examples([raw])
+        convert_hotpotqa_examples(parsed_examples)
+
+
+def test_conversion_api_uses_named_domain_types():
+    parsed_examples = parse_hotpotqa_examples([hotpot_raw_example()])
+
+    conversion = convert_hotpotqa_examples(parsed_examples)
+
+    assert hasattr(conversion, "task_inputs")
+    assert hasattr(conversion, "task_labels")
 
 
 def test_sample_split_is_deterministic_for_same_seed_and_offset():

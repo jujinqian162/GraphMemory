@@ -4,6 +4,8 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -16,9 +18,20 @@ from graph_memory.validation import validate_metric_rows
 LOGGER = logging.getLogger("evaluate_retrieval")
 
 
-def main() -> int:
+@dataclass(frozen=True)
+class EvaluateRetrievalArgs:
+    pred: str
+    labels: str | None
+    gold: str | None
+    graphs: str
+    output: str
+    failure_cases_output: str | None
+    failure_case_limit: int
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
@@ -101,6 +114,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--failure_cases_output", default=None, help="Optional JSONL failure-case debug output.")
     parser.add_argument("--failure_case_limit", type=int, default=0)
     return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> EvaluateRetrievalArgs:
+    namespace = build_parser().parse_args(argv)
+    return EvaluateRetrievalArgs(
+        pred=namespace.pred,
+        labels=namespace.labels,
+        gold=namespace.gold,
+        graphs=namespace.graphs,
+        output=namespace.output,
+        failure_cases_output=namespace.failure_cases_output,
+        failure_case_limit=namespace.failure_case_limit,
+    )
 
 
 if __name__ == "__main__":

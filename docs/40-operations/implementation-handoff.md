@@ -31,8 +31,9 @@ Recommended reading order:
 
 ```text
 scripts/prepare_hotpotqa.py
-  -> graph_memory.hotpotqa.convert_hotpotqa_examples
   -> graph_memory.splits.sample_split
+  -> graph_memory.hotpotqa.parse_hotpotqa_examples
+  -> graph_memory.hotpotqa.convert_hotpotqa_examples
   -> validate_memory_task_inputs
   -> validate_memory_task_labels
 
@@ -67,6 +68,7 @@ scripts/aggregate_tables.py
 |---|---|---|---|---|
 | `MemoryTaskInput` | `graph_memory/types.py` | Input-visible query and memory sentence artifact shape. | Contain labels or answer text. | `tests/test_phase1_real_validation.py`, `tests/test_phase1_real_data_structures.py` |
 | `MemoryTaskLabels` | `graph_memory/types.py` | Gold answer and evidence labels for evaluation/tuning. | Feed graph construction or retrieval. | `tests/test_phase1_real_validation.py` |
+| `HotpotQAExample` / `HotpotQAConversionResult` | `graph_memory/hotpotqa.py` | Typed raw HotpotQA parse result and named conversion output. | Expose raw `dict` records or tuple-packed outputs. | `tests/test_phase1_real_data_structures.py` |
 | `MemoryGraph` | `graph_memory/types.py`, `graph_memory/graphs.py` | Typed graph over `q` and memory sentence nodes. | Read label-only fields. | `tests/test_phase1_real_graphs.py` |
 | `RankedNode` / `RankedResult` | `graph_memory/types.py`, `graph_memory/retrieval.py` | Complete per-task ranking and persisted result schema. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `Retriever` | `graph_memory/types.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
