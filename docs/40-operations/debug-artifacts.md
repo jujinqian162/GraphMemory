@@ -1,0 +1,259 @@
+# Debug Artifacts
+
+Date: 2026-05-20
+
+Status: Working reference.
+
+## Goal
+
+Debug artifacts should make failed or surprising experiment behavior inspectable without bloating standard outputs. They are for diagnosis, not for primary metric reporting.
+
+## Principles
+
+- Debug artifacts are optional unless explicitly listed as required for a script.
+- Debug artifacts should be bounded by `--debug_limit` or equivalent config.
+- Debug artifacts should be structured and machine-readable.
+- Retrieval and graph-construction debug artifacts must not contain gold labels.
+- Evaluation debug artifacts may contain labels because evaluation is label-aware.
+- Debug artifacts should never change algorithm behavior.
+
+## Recommended Format
+
+Use JSONL for per-task debug records.
+
+Reason:
+
+- Easier to stream.
+- Easier to inspect one record at a time.
+- Avoids loading huge arrays for large experiments.
+
+Use JSON for aggregate debug summaries.
+
+Examples:
+
+```text
+results/debug/graph_stats_test.json
+results/debug/score_breakdown_dense_graph_rerank_test.jsonl
+results/debug/failure_cases_dense_graph_rerank_test.jsonl
+results/debug/leakage_check_test.json
+```
+
+## Directory Layout
+
+Recommended:
+
+```text
+results/
+  debug/
+    graph_stats_{split}.json
+    score_breakdown_{method}_{split}.jsonl
+    failure_cases_{method}_{split}.jsonl
+    leakage_check_{split}.json
+```
+
+For processed data:
+
+```text
+data/hotpotqa/processed/debug/
+  graph_stats_{split}.json
+  leakage_check_{split}.json
+```
+
+Keep canonical result files separate from debug files.
+
+## Required Common Fields
+
+Every per-task debug record should include:
+
+| Field | Meaning |
+|---|---|
+| `task_id` | Join key back to task artifacts. |
+| `method` | Method name, if method-specific. |
+| `split` | Dataset split, when known. |
+| `debug_type` | Record type such as `score_breakdown` or `failure_case`. |
+
+Optional but useful:
+
+- `config_digest`
+- `top_k`
+- `notes`
+
+## Graph Stats Debug
+
+Purpose:
+
+- Inspect graph density and edge distribution.
+- Catch unexpected sparse/dense graph construction.
+
+Format: aggregate JSON.
+
+Suggested shape:
+
+```json
+{
+  "split": "test",
+  "graph_config": {},
+  "num_graphs": 1000,
+  "avg_nodes": 52.4,
+  "avg_edges": 311.8,
+  "edge_counts_by_type": {
+    "sequential": 42000,
+    "query_overlap": 20000,
+    "entity_overlap": 180000,
+    "bridge": 50000
+  },
+  "isolated_memory_nodes": 12
+}
+```
+
+No gold labels allowed.
+
+## Score Breakdown Debug
+
+Purpose:
+
+- Explain how graph rerank changed scores.
+- Compare initial retrieval score with graph bonuses.
+
+Format: JSONL, one record per task or selected task.
+
+Suggested shape:
+
+```json
+{
+  "debug_type": "score_breakdown",
+  "task_id": "hotpot_000123",
+  "method": "dense_graph_rerank",
+  "top_k": 10,
+  "ranked_nodes": [
+    {
+      "node_id": "m7",
+      "rank": 1,
+      "score_components": {
+        "initial": 0.82,
+        "query": 0.03,
+        "neighbor": 0.11,
+        "bridge": 0.05,
+        "path": 0.0,
+        "final": 1.01
+      }
+    }
+  ]
+}
+```
+
+Rules:
+
+- No gold labels.
+- Include only top-k or debug-limited nodes, not necessarily all nodes.
+- Use `path = 0.0` for HotpotQA Phase 1 unless path scoring is explicitly implemented.
+
+## Failure Cases Debug
+
+Purpose:
+
+- Support qualitative error analysis.
+- Explain dense failure, graph success, and graph failure cases.
+
+Produced by:
+
+- `evaluate_retrieval.py`
+
+Format: JSONL.
+
+Suggested shape:
+
+```json
+{
+  "debug_type": "failure_case",
+  "task_id": "hotpot_000123",
+  "method": "dense_graph_rerank",
+  "failure_type": "missing_full_support_at_10",
+  "query": "question text",
+  "gold_evidence_nodes": ["m1", "m7"],
+  "retrieved_top_k": ["m7", "m3", "m4"],
+  "missing_gold_nodes": ["m1"],
+  "connected_gold_in_top_k": false,
+  "notes": []
+}
+```
+
+Rules:
+
+- Labels are allowed because this artifact is produced by evaluation.
+- Include node IDs by default.
+- Keep sentence text optional. If included, support a limit to avoid huge files.
+
+## Leakage Check Debug
+
+Purpose:
+
+- Confirm input-visible artifacts do not contain label-only fields.
+
+Format: JSON.
+
+Suggested shape:
+
+```json
+{
+  "debug_type": "leakage_check",
+  "split": "test",
+  "checked_paths": [],
+  "forbidden_fields": [
+    "gold_answer",
+    "gold_evidence_nodes",
+    "gold_dependency_edges",
+    "supporting_facts",
+    "is_gold",
+    "is_gold_evidence",
+    "is_gold_edge"
+  ],
+  "matches": [],
+  "status": "pass"
+}
+```
+
+Rules:
+
+- Any match in input-visible artifacts should fail validation.
+- The report is useful as an audit artifact, but validation should still raise on leakage.
+
+## Debug Limits
+
+Every large per-task debug artifact should support:
+
+```text
+debug_limit
+```
+
+Rules:
+
+- `debug_limit = 0` means no per-task debug records.
+- Positive values cap records.
+- If records are truncated, record that fact in run summary or debug metadata.
+
+## What Not To Put In Debug Artifacts
+
+Avoid:
+
+- full raw dataset examples unless explicitly needed
+- entire dense embedding vectors
+- full ranking for every task in debug files, since ranked results already store rankings
+- gold labels in retrieval-stage debug
+- stack traces as structured debug records; exceptions belong in logs/run summary
+
+## Relationship To Standard Outputs
+
+Debug artifacts must not replace:
+
+- `ranked_results_{method}.json`
+- metric CSVs
+- run summaries
+
+They should explain those outputs, not become another source of truth.
+
+## Extension Decisions
+
+- Failure case debug should include node IDs by default; sentence text is opt-in.
+- `config_digest` should be a stable short hash of the effective config.
+- Debug records may also include a small copied config subset when that improves readability.
