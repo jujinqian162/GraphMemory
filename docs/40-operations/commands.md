@@ -32,3 +32,4 @@ The implemented command guide must include:
 - Include compatibility notes for the original project command surface where relevant.
 - Show the expected output paths for every command.
 - Keep command examples synchronized with actual script arguments.
+- Link to `implementation-handoff.md` so users can move from running the system to reviewing the code.

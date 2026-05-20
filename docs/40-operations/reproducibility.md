@@ -17,6 +17,7 @@ A Phase 1 result should be reproducible from the repository, raw data paths, con
 - Dataset splits must be deterministic and documented.
 - Dev tuning and test evaluation must remain separate.
 - Commands must be documented after implementation so users know exactly how to run the system.
+- Implementation handoff must be documented after implementation so reviewers know how to read and review the system.
 
 ## Reproducibility Chain
 
@@ -143,6 +144,28 @@ The command documentation should include both:
 
 - leakage-safe commands using `.input.json` and `.labels.json`
 - compatibility notes for the original project command surface where relevant
+
+## Implementation Handoff
+
+The implementation must produce a code review handoff after Phase 1 scripts and core modules exist.
+
+Required handoff location:
+
+```text
+docs/40-operations/implementation-handoff.md
+```
+
+It must explain:
+
+- where to start reading the code
+- the main control flow from raw data to final tables
+- where core abstractions live
+- which files are CLI adapters versus core logic
+- which tests cover each major boundary
+- what a reviewer should check first
+- what Phase 1 intentionally excludes
+
+This handoff is required before the implementation is considered review-ready.
 
 ## Environment Recording
 

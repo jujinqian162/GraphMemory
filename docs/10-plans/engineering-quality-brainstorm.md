@@ -98,6 +98,7 @@ Status: Draft discussion record. This file captures decisions while we prepare t
 - Dataset splits must be deterministic and documented.
 - Dev tuning and test evaluation must stay separate.
 - Command usage documentation must be written after implementation in `docs/40-operations/commands.md`.
+- Code review handoff documentation must be written after implementation in `docs/40-operations/implementation-handoff.md`.
 
 ### Validation
 
@@ -202,3 +203,4 @@ The current observability foundation is mandatory `run_summary.json`, graph stat
 - Implementation readiness checklist.
 - Dependency and environment details depend on the actual package setup and local model availability.
 - CLI parameter details are intentionally deferred; command usage documentation must be written after implementation in `docs/40-operations/commands.md`.
+- Implementation review guidance is intentionally deferred; the handoff document must be filled after real file paths and function names exist.

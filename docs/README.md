@@ -29,6 +29,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Reproducibility strategy: `40-operations/reproducibility.md`
 - Validation strategy: `30-design/validation-strategy.md`
 - Debug artifacts: `40-operations/debug-artifacts.md`
+- Implementation handoff: `40-operations/implementation-handoff.md`
 
 ## Maintenance Rules
 
