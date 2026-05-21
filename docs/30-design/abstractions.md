@@ -76,6 +76,77 @@ Rules:
 - Does not write files.
 - May keep explicit model/index state, such as a dense encoder.
 
+## RetrievalMethod
+
+Purpose:
+
+```text
+MemoryTaskInput + optional graph context -> final ranked nodes and retrieved subgraph edges
+```
+
+Contract:
+
+```python
+class RetrievalMethod(Protocol):
+    name: str
+
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+        ...
+```
+
+Rules:
+
+- Is the top-level internal boundary for public baseline names such as `bm25`, `dense`, `bm25_graph_rerank`, and future methods.
+- Owns method-specific requirements such as whether graphs and graph configs are required.
+- Returns every memory node exactly once in the ranked node list.
+- Does not read labels, compute metrics, or write files.
+- May be implemented by a score pipeline, graph traversal method, hierarchical memory method, or trainable graph retriever.
+
+This is the stable abstraction for future baseline growth. Do not make weighted scoring the only top-level model; some later baselines may retrieve communities, paths, buffers, or learned graph neighborhoods before producing compatible ranked nodes.
+
+## ScorePipelineMethod
+
+Purpose:
+
+```text
+NodeScoreComponent[] -> weighted combined node score -> complete ranking
+```
+
+Use this implementation style when a baseline is naturally described as transparent node-score components:
+
+```text
+bm25 = BM25Score
+dense = DenseScore
+bm25_graph_rerank = BM25Score + QueryOverlapScore + NeighborPropagationScore + BridgeScore
+dense_graph_rerank = DenseScore + QueryOverlapScore + NeighborPropagationScore + BridgeScore
+Memory Stream = RelevanceScore + RecencyScore + ImportanceScore
+```
+
+Rules:
+
+- Components produce per-node scores for one task.
+- Component scores declare whether they need normalization before weighting.
+- Baseline BM25/dense scores remain raw for flat methods.
+- Graph-rerank methods normalize the initial baseline score and keep graph edge scores on their configured scale to preserve Phase 1 behavior.
+- Candidate expansion is graph gating, not a score by itself.
+- Retrieved subgraph assembly remains separate from score computation.
+
+## NodeScoreComponent
+
+Purpose:
+
+```text
+ScoreContext -> {node_id: component_score}
+```
+
+Rules:
+
+- Computes one interpretable signal such as initial retrieval score, query-overlap score, neighbor propagation, or bridge score.
+- Does not sort final rankings.
+- Does not assemble retrieved subgraphs.
+- Does not validate artifacts or read labels.
+- Should be small enough to test with tiny task and graph fixtures.
+
 ## Reranker
 
 Graph rerank is a separate reusable module.
@@ -103,6 +174,8 @@ graph_rerank(initial_scores, graph, config) -> list[RankedNode]
 A thin `GraphReranker` wrapper is acceptable if it makes config/debug handling clearer.
 
 The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
+
+After the score-pipeline refactor, `graph_rerank(...)` remains a compatibility helper for direct tests, debug analysis, and any caller that already has initial scores. The public retrieval methods route equivalent graph scoring through `ScorePipelineMethod`.
 
 ## Graph Construction
 

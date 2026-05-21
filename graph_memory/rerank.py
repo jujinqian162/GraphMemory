@@ -28,10 +28,10 @@ def graph_rerank_with_breakdown(
 ) -> tuple[list[RankedNode], ScoreBreakdown]:
     validate_graph_rerank_config(config)
     normalized_initial = normalize_scores(initial_scores)
-    candidate_nodes = _expanded_candidate_nodes(normalized_initial, graph, config)
-    query_scores = _query_scores(graph)
-    neighbor_scores = _neighbor_scores(normalized_initial, graph, config)
-    bridge_scores = _bridge_scores(normalized_initial, graph, config)
+    candidate_nodes = expanded_candidate_nodes(normalized_initial, graph, config)
+    query_scores = query_overlap_scores(graph)
+    neighbor_scores = neighbor_propagation_scores(normalized_initial, graph, config)
+    bridge_scores = bridge_edge_scores(normalized_initial, graph, config)
 
     score_breakdown: ScoreBreakdown = {}
     reranked_nodes: list[RankedNode] = []
@@ -67,7 +67,7 @@ def induced_retrieved_subgraph(graph: MemoryGraph, node_ids: list[str]) -> Retri
     }
 
 
-def _expanded_candidate_nodes(
+def expanded_candidate_nodes(
     normalized_initial: dict[str, float],
     graph: MemoryGraph,
     config: GraphRerankConfig,
@@ -91,7 +91,7 @@ def _expanded_candidate_nodes(
     return candidates
 
 
-def _query_scores(graph: MemoryGraph) -> dict[str, float]:
+def query_overlap_scores(graph: MemoryGraph) -> dict[str, float]:
     scores: dict[str, float] = defaultdict(float)
     for edge in graph.get("edges", []):
         if edge.get("source") == "q" and edge.get("edge_type") == "query_overlap":
@@ -99,7 +99,7 @@ def _query_scores(graph: MemoryGraph) -> dict[str, float]:
     return dict(scores)
 
 
-def _neighbor_scores(
+def neighbor_propagation_scores(
     normalized_initial: dict[str, float],
     graph: MemoryGraph,
     config: GraphRerankConfig,
@@ -118,7 +118,7 @@ def _neighbor_scores(
     return dict(scores)
 
 
-def _bridge_scores(
+def bridge_edge_scores(
     normalized_initial: dict[str, float],
     graph: MemoryGraph,
     config: GraphRerankConfig,

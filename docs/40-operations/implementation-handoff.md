@@ -44,8 +44,10 @@ scripts/build_graphs.py
 
 scripts/run_retrieval.py
   -> graph_memory.retrieval.run_retrieval
-  -> BM25TaskRetriever.rank or DenseTaskRetriever.rank
-  -> graph_memory.rerank.graph_rerank for graph methods
+  -> graph_memory.retrieval.build_retrieval_method
+  -> ScorePipelineMethod for current score-based methods
+  -> BM25TaskRetriever.rank or DenseTaskRetriever.rank as baseline score source
+  -> graph score components for graph methods
   -> validate_ranked_results
 
 scripts/tune_graph_rerank.py
@@ -72,6 +74,8 @@ scripts/aggregate_tables.py
 | `MemoryGraph` | `graph_memory/types.py`, `graph_memory/graphs.py` | Typed graph over `q` and memory sentence nodes. | Read label-only fields. | `tests/test_phase1_real_graphs.py` |
 | `RankedNode` / `RankedResult` | `graph_memory/types.py`, `graph_memory/retrieval.py` | Complete per-task ranking and persisted result schema. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `Retriever` | `graph_memory/types.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
+| `RetrievalMethod` | `graph_memory/retrieval.py` | Internal boundary for a public baseline method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py`, `tests/test_type_contracts.py` |
+| `ScorePipelineMethod` / `NodeScoreComponent` | `graph_memory/retrieval.py` | Composes transparent node-score components for BM25, dense, and current graph-rerank methods. | Own labels, metrics, file I/O, or future non-score baseline behavior. | `tests/test_phase1_real_retrieval.py` |
 | `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores. | Run BM25/Dense itself or use labels. | `tests/test_phase1_real_retrieval.py` |
 | Validators / validation views | `graph_memory/validation.py` | Enforce contracts and provide zero-copy type bridges for domain artifacts. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
@@ -86,8 +90,8 @@ scripts/aggregate_tables.py
 | Data conversion | `graph_memory/hotpotqa.py`, `graph_memory/splits.py` | Stable task IDs, supporting-fact mapping, split determinism, label separation. |
 | Text/entity | `graph_memory/text.py`, `graph_memory/entities.py` | Stopword filtering, lexical scoring, deterministic heuristic entities, optional spaCy behavior. |
 | Graph construction | `graph_memory/graphs.py` | Edge semantics, edge limits, deterministic sorting, no label access. |
-| Retrieval | `graph_memory/indexes/bm25.py`, `graph_memory/indexes/dense.py`, `graph_memory/retrieval.py` | Complete rankings, dense encoder prefixes, method dispatch, graph-method requirements. |
-| Reranking | `graph_memory/rerank.py` | Score normalization, candidate expansion, bridge/query/neighbor components, all-node preservation. |
+| Retrieval | `graph_memory/indexes/bm25.py`, `graph_memory/indexes/dense.py`, `graph_memory/retrieval.py` | Complete rankings, dense encoder prefixes, method construction, score-pipeline recipes, graph-method requirements. |
+| Reranking | `graph_memory/rerank.py` | Score normalization, candidate expansion, graph helper compatibility, all-node preservation. |
 | Evaluation | `graph_memory/evaluation.py` | Metric definitions, exact joins, shared-graph connectivity, N/A path metrics. |
 | Operations | `graph_memory/io.py`, `graph_memory/observability.py`, `configs/*.json` | Deterministic writes, config defaults, run summary fields. |
 
@@ -96,7 +100,8 @@ scripts/aggregate_tables.py
 - Input artifacts contain no label-only fields.
 - Graph construction reads only `*_memory_tasks.input.json` fields.
 - Retrieval methods return complete rankings over every memory node.
-- Graph rerank is independent from BM25/Dense retrievers.
+- Graph score components are independent from BM25/Dense retrievers except for explicit initial scores.
+- Score-pipeline graph-method rankings match `graph_rerank(...)` on controlled artificial scores.
 - Evaluation reads labels from label artifacts only.
 - Dev tuning and test evaluation are separate.
 - Every script writes a run summary when output paths are known.
@@ -174,7 +179,9 @@ Current implementation limitations:
 ## Extension Notes
 
 - Add a new retriever by implementing `Retriever.rank(task_input)` and extending `graph_memory/retrieval.py` dispatch.
-- Add a new graph reranker by keeping the boundary `initial_scores + graph + config -> complete ranking`.
+- Add a new score-based baseline by composing `NodeScoreComponent`s in `build_retrieval_method`.
+- Add a new graph reranker by keeping the boundary `initial_scores + graph + config -> complete ranking` or by adding graph score components to `ScorePipelineMethod`.
+- Add GraphRAG, MemGPT-style, or trainable graph methods as separate `RetrievalMethod` implementations if their core behavior is traversal, hierarchy selection, or learned message passing rather than a weighted score sum.
 - Add graph ablations by extending `GraphBuildConfig` or adding named graph-transform functions before retrieval.
 - Add a new dataset converter by producing the same `MemoryTaskInput` and `MemoryTaskLabels` artifacts.
 - Add new metrics by introducing pure metric primitives first, then adding aggregate columns in `evaluate_results` and table split helpers.

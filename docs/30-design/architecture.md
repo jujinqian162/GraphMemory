@@ -82,8 +82,8 @@ graph_memory/
 | `text.py`, `entities.py` | Text normalization, lexical scoring, and entity extraction. |
 | `graphs.py` | Typed graph construction and graph statistics. |
 | `indexes/` | Flat retriever implementations. |
-| `retrieval.py` | Retrieval method dispatch and ranked-result assembly. |
-| `rerank.py` | Graph reranking and score components. |
+| `retrieval.py` | Retrieval method construction, score-pipeline execution for score-based baselines, and ranked-result assembly. |
+| `rerank.py` | Reusable graph reranking helpers and compatibility functions over explicit initial scores. |
 | `tuning.py` | Dev-set graph rerank parameter selection. |
 | `evaluation.py` | Metrics, aggregation, and failure-case selection. |
 | `observability.py` | Run summaries, graph stats, and debug record builders. |
@@ -102,7 +102,7 @@ graphs
 
 retrieval
   -> indexes
-  -> rerank for graph-aware methods
+  -> rerank helpers for graph score components
 
 evaluation
   -> validation
@@ -126,6 +126,7 @@ Phase 1 does not need a persistent score cache. Keep the first implementation si
 
 - Flat retrievers produce complete initial rankings.
 - Graph rerank consumes an explicit `initial_scores` mapping plus a graph and config.
+- Score-pipeline methods may combine baseline scores and graph scores in memory for one task at a time.
 - Dev grid search may recompute initial rankings while the system is being debugged.
 - Future score reuse should be added as a named artifact and validation boundary only if full-dev tuning becomes a practical blocker.
 
@@ -164,3 +165,15 @@ Optional and bounded:
 ## Future Extraction Rule
 
 Do not create plugin registries or deep package hierarchies in Phase 1. Extract new subpackages only when a module grows multiple independent implementations or becomes hard to navigate.
+
+The retrieval service now has two abstraction levels:
+
+```text
+RetrievalMethod
+  -> produces a ranked result for any baseline
+
+ScorePipelineMethod
+  -> one RetrievalMethod implementation for weighted node-score baselines
+```
+
+Use `ScorePipelineMethod` for BM25, dense, Memory Stream-style scores, and current graph rerank variants. Use a separate `RetrievalMethod` implementation when a future baseline is primarily graph traversal, hierarchical memory selection, or learned message passing rather than a transparent weighted sum.

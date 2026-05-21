@@ -26,7 +26,8 @@ Tests should protect the scientific correctness of the Phase 1 evidence-tracing 
 | Text/entity tests | Unit tests | Ensure stopwords, content tokens, lexical scoring, and heuristic entities are deterministic. |
 | Graph tests | Unit tests with tiny task inputs | Ensure edge types, weights, limits, and no-label graph construction. |
 | Retriever tests | Unit tests with tiny tasks | Ensure all retrievers output complete rankings in a shared shape. |
-| Reranker tests | Unit tests with artificial scores and graphs | Ensure graph propagation, score normalization, and score components work. |
+| Score-pipeline tests | Unit tests with tiny tasks and artificial scores | Ensure method construction, score normalization, graph requirements, and component composition work. |
+| Reranker tests | Unit tests with artificial scores and graphs | Ensure graph propagation, score normalization, and graph helper compatibility work. |
 | Tuning tests | Unit tests with synthetic metric rows | Ensure objective and tie-breaks are deterministic. |
 | Evaluation tests | Unit tests with tiny predictions/labels/graphs | Ensure metrics and connectivity use the correct artifacts. |
 | CLI smoke tests | Small filesystem tests | Ensure scripts parse arguments and write expected artifacts. |
@@ -115,6 +116,18 @@ Must test:
 - output schema is shared across methods.
 - dense test skips clearly if the model is unavailable locally.
 - graph methods require graph inputs and graph rerank config.
+- flat methods do not require graph inputs.
+- `run_retrieval` delegates method-specific control flow to a retrieval-method boundary.
+
+### Score Pipeline
+
+Must test:
+
+- flat methods can run as one-component score pipelines.
+- graph methods combine baseline and graph components with configured weights.
+- graph candidate expansion gates graph component contributions.
+- pipeline graph-method output matches the graph rerank helper on controlled artificial scores.
+- retrieved graph-method subgraphs use induced top-k graph edges.
 
 ### Reranking
 
