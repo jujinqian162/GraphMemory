@@ -69,6 +69,7 @@ def run_retrieval(
         ranked_nodes = initial_ranking
         retrieved_edges: list[GraphEdge] = []
         if _is_graph_method(method):
+            assert rerank_config is not None
             graph = graph_by_task_id[task_input["task_id"]]
             initial_scores = {ranked_node.node_id: ranked_node.score for ranked_node in initial_ranking}
             ranked_nodes = graph_rerank(initial_scores, graph, rerank_config)

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+from typing import get_origin
+
+from graph_memory import retrieval
+from graph_memory.types import JsonObject
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +38,16 @@ def test_non_boundary_annotations_use_named_record_types() -> None:
                     violations.append(f"{relative_path}:{line_number}: {annotation_text}")
 
     assert violations == []
+
+
+def test_json_object_uses_covariant_mapping() -> None:
+    assert get_origin(JsonObject) is Mapping
+
+
+def test_graph_rerank_config_is_narrowed_before_graph_call() -> None:
+    source = inspect.getsource(retrieval.run_retrieval)
+
+    assert "assert rerank_config is not None" in source
 
 
 def _iter_annotations(syntax_tree: ast.AST) -> Iterator[tuple[ast.expr, int]]:

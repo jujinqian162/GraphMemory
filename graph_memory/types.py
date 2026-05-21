@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, NotRequired, Protocol, TypeAlias, TypedDict
 
@@ -7,8 +8,9 @@ TaskId = str
 NodeId = str
 MethodName = str
 Score = float
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
-JsonObject: TypeAlias = dict[str, JsonValue]
+JsonObject: TypeAlias = Mapping[str, "JsonValue"]
+JsonArray: TypeAlias = Sequence["JsonValue"]
+JsonValue: TypeAlias = str | int | float | bool | None | JsonArray | JsonObject
 
 NodeType = Literal["question", "document_sentence"]
 EdgeType = Literal["sequential", "query_overlap", "entity_overlap", "bridge"]
