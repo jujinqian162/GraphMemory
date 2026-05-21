@@ -6,9 +6,31 @@ from typing import get_type_hints
 import scripts.aggregate_tables as aggregate_tables
 import scripts.build_graphs as build_graphs
 import scripts.evaluate_retrieval as evaluate_retrieval
+import scripts.prepare_dataset as prepare_dataset
 import scripts.prepare_hotpotqa as prepare_hotpotqa
 import scripts.run_retrieval as run_retrieval
 import scripts.tune_graph_rerank as tune_graph_rerank
+
+
+def test_prepare_dataset_uses_typed_args_dataclass() -> None:
+    args = prepare_dataset.parse_args(
+        [
+            "--dataset",
+            "hotpotqa-v1",
+            "--name",
+            "hotpotqa",
+            "--data_dir",
+            "data",
+            "--force",
+        ]
+    )
+
+    assert is_dataclass(args)
+    assert type(args).__name__ == "PrepareDatasetArgs"
+    assert args.dataset == "hotpotqa-v1"
+    assert args.name == "hotpotqa"
+    assert args.data_dir == "data"
+    assert args.force is True
 
 
 def test_prepare_hotpotqa_uses_typed_args_dataclass() -> None:

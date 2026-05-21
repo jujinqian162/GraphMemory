@@ -26,6 +26,18 @@ If the local sandbox blocks `uv` cache access, an already prepared local virtual
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
+## Download Raw Dataset
+
+Download HotpotQA v1 raw files into `data/hotpotqa/raw/`:
+
+```powershell
+python scripts/prepare_dataset.py `
+  --dataset hotpotqa-v1 `
+  --name hotpotqa
+```
+
+`--dataset` selects the registered source bundle. `--name` controls the local directory under `data/`, so `--name hotpotqa` writes to `data/hotpotqa/raw/`.
+
 ## Prepare HotpotQA Splits
 
 Train from labeled HotpotQA train:
