@@ -5,6 +5,7 @@ from graph_memory.rerank import graph_rerank, induced_retrieved_subgraph, normal
 from graph_memory.retrieval import run_retrieval
 from graph_memory.tuning import graph_rerank_grid, select_best_config, tuning_objective
 from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput
+from graph_memory.validation import ContractValidationError
 
 
 class FakeEncoder:
@@ -98,6 +99,48 @@ def test_bm25_and_dense_emit_same_ranked_schema():
         assert result[0]["retrieved_subgraph"]["edges"] == []
 
 
+def test_flat_methods_accept_missing_graph_inputs():
+    for method in ["bm25", "dense"]:
+        result = run_retrieval(
+            method=method,
+            task_inputs=retrieval_task_inputs(),
+            graphs=None,
+            top_k=2,
+            encoder_model="fake-model",
+            dense_encoder=FakeEncoder(),
+        )
+
+        assert result[0]["method"] == method
+        assert result[0]["retrieved_subgraph"]["edges"] == []
+
+
+def test_graph_pipeline_requires_graph_config_before_processing():
+    with pytest.raises(ValueError, match="Graph rerank methods require graph_config"):
+        run_retrieval(
+            method="bm25_graph_rerank",
+            task_inputs=retrieval_task_inputs(),
+            graphs=retrieval_graphs(),
+            top_k=2,
+        )
+
+
+def test_graph_pipeline_requires_graph_for_every_task():
+    task_inputs = retrieval_task_inputs()
+    second_task = {
+        **task_inputs[0],
+        "task_id": "hotpot_ex2",
+    }
+
+    with pytest.raises(ContractValidationError, match="task_id alignment mismatch"):
+        run_retrieval(
+            method="bm25_graph_rerank",
+            task_inputs=[*task_inputs, second_task],
+            graphs=retrieval_graphs(),
+            top_k=2,
+            graph_config={"lambda_init": 1.0, "lambda_query": 0.1, "lambda_neighbor": 0.2, "lambda_bridge": 0.1},
+        )
+
+
 def test_normalize_scores_handles_equal_values():
     assert normalize_scores({"m0": 3.0, "m1": 3.0}) == {"m0": 0.0, "m1": 0.0}
 
@@ -154,18 +197,28 @@ def test_induced_retrieved_subgraph_keeps_edges_inside_selected_nodes():
     ]
 
 
-def test_graph_rerank_methods_emit_ranked_schema_with_induced_edges():
+def test_graph_rerank_retrieval_promotes_bridge_neighbor_and_emits_induced_edge():
     result = run_retrieval(
         method="bm25_graph_rerank",
         task_inputs=retrieval_task_inputs(),
         graphs=retrieval_graphs(),
         top_k=2,
-        graph_config={"lambda_init": 1.0, "lambda_query": 0.1, "lambda_neighbor": 0.2, "lambda_bridge": 0.1},
+        graph_config=GraphRerankConfig(
+            lambda_init=0.0,
+            lambda_query=0.1,
+            lambda_neighbor=0.0,
+            lambda_bridge=1.0,
+            seed_top_s=1,
+            max_hops=1,
+        ),
     )
 
     assert result[0]["method"] == "bm25_graph_rerank"
     assert len(result[0]["ranked_nodes"]) == 3
-    assert result[0]["retrieved_subgraph"]["edges"]
+    assert {ranked_node["node_id"] for ranked_node in result[0]["ranked_nodes"][:2]} == {"m0", "m1"}
+    assert result[0]["retrieved_subgraph"]["edges"] == [
+        {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 2.0, "directed": False}
+    ]
 
 
 def test_tuning_objective_weights_full_support_recall_and_connected_evidence():

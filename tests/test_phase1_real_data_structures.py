@@ -62,15 +62,6 @@ def test_convert_hotpotqa_fails_when_supporting_fact_cannot_map():
         convert_hotpotqa_examples(parsed_examples)
 
 
-def test_conversion_api_uses_named_domain_types():
-    parsed_examples = parse_hotpotqa_examples([hotpot_raw_example()])
-
-    conversion = convert_hotpotqa_examples(parsed_examples)
-
-    assert hasattr(conversion, "task_inputs")
-    assert hasattr(conversion, "task_labels")
-
-
 def test_sample_split_is_deterministic_for_same_seed_and_offset():
     examples = [{"_id": str(index)} for index in range(10)]
 

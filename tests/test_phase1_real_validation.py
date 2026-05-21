@@ -3,8 +3,6 @@ import math
 import pytest
 
 from graph_memory.validation import (
-    as_validation_record_map,
-    as_validation_records,
     ContractValidationError,
     validate_graphs,
     validate_memory_task_inputs,
@@ -51,18 +49,6 @@ def test_input_validation_rejects_label_leakage():
 
     with pytest.raises(ContractValidationError, match="gold_evidence_nodes"):
         validate_memory_task_inputs(task_inputs)
-
-
-def test_validation_type_bridge_accepts_typed_task_inputs_without_copy():
-    task_inputs: list[MemoryTaskInput] = valid_task_inputs()
-    inputs_by_id: dict[str, MemoryTaskInput] = {task_input["task_id"]: task_input for task_input in task_inputs}
-
-    validation_records = as_validation_records(task_inputs)
-    validation_record_map = as_validation_record_map(inputs_by_id)
-
-    assert validation_records is task_inputs
-    assert validation_record_map is inputs_by_id
-    validate_memory_task_inputs(validation_records)
 
 
 def test_label_validation_rejects_task_id_mismatch():
