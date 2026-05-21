@@ -73,7 +73,7 @@ scripts/aggregate_tables.py
 | `RankedNode` / `RankedResult` | `graph_memory/types.py`, `graph_memory/retrieval.py` | Complete per-task ranking and persisted result schema. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `Retriever` | `graph_memory/types.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
 | `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores. | Run BM25/Dense itself or use labels. | `tests/test_phase1_real_retrieval.py` |
-| Validators | `graph_memory/validation.py` | Enforce contracts and fail fast. | Repair, sort, drop, or infer data. | `tests/test_phase1_real_validation.py` |
+| Validators / validation views | `graph_memory/validation.py` | Enforce contracts and provide zero-copy type bridges for domain artifacts. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
 | Run summaries | `graph_memory/observability.py` | Preserve config, paths, counts, timings, environment, and notes. | Change algorithm behavior. | `tests/test_phase1_real_io_observability.py` |
 

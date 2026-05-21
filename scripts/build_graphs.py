@@ -14,7 +14,12 @@ from graph_memory.graphs import build_graphs
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, graph_statistics, now_iso, write_run_summary
 from graph_memory.types import GraphBuildConfig
-from graph_memory.validation import validate_graphs, validate_memory_task_inputs
+from graph_memory.validation import (
+    as_validation_record_map,
+    as_validation_records,
+    validate_graphs,
+    validate_memory_task_inputs,
+)
 
 LOGGER = logging.getLogger("build_graphs")
 
@@ -55,12 +60,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         task_inputs = read_json(args.input)
-        validate_memory_task_inputs(task_inputs)
+        validate_memory_task_inputs(as_validation_records(task_inputs))
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         LOGGER.info("read task inputs: %s", len(task_inputs))
 
         graphs = build_graphs(task_inputs, config)
-        validate_graphs(graphs, inputs_by_task_id)
+        validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
         stats = graph_statistics(graphs, graph_config=effective_config)
         write_json(args.output, graphs)
         write_json(stats_path, stats)

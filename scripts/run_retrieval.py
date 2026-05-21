@@ -13,7 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.retrieval import run_retrieval
-from graph_memory.validation import validate_memory_task_inputs, validate_ranked_results
+from graph_memory.validation import (
+    as_validation_record_map,
+    as_validation_records,
+    validate_memory_task_inputs,
+    validate_ranked_results,
+)
 
 LOGGER = logging.getLogger("run_retrieval")
 
@@ -56,7 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         task_inputs = read_json(args.tasks)
-        validate_memory_task_inputs(task_inputs)
+        validate_memory_task_inputs(as_validation_records(task_inputs))
         graphs = read_json(args.graphs) if args.graphs is not None else []
         predictions = run_retrieval(
             method=args.method,
@@ -69,7 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             graph_config=graph_config,
         )
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_ranked_results(predictions, inputs_by_task_id)
+        validate_ranked_results(as_validation_records(predictions), as_validation_record_map(inputs_by_task_id))
         write_json(args.output, predictions)
 
         avg_latency = (

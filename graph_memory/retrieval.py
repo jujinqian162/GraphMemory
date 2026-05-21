@@ -8,7 +8,13 @@ from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.text import content_tokens
 from graph_memory.rerank import graph_rerank, induced_retrieved_subgraph
 from graph_memory.types import GraphRerankConfig, RankedNode
-from graph_memory.validation import validate_graphs, validate_memory_task_inputs, validate_ranked_results
+from graph_memory.validation import (
+    as_validation_record_map,
+    as_validation_records,
+    validate_graphs,
+    validate_memory_task_inputs,
+    validate_ranked_results,
+)
 
 
 def run_retrieval(
@@ -25,7 +31,7 @@ def run_retrieval(
 ) -> list[dict]:
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")
-    validate_memory_task_inputs(task_inputs)
+    validate_memory_task_inputs(as_validation_records(task_inputs))
 
     if method in {"bm25", "bm25_graph_rerank"}:
         retriever = BM25TaskRetriever()
@@ -45,7 +51,7 @@ def run_retrieval(
     if _is_graph_method(method):
         if not graphs:
             raise ValueError(f"Graph rerank method={method} requires graph inputs.")
-        validate_graphs(graphs, inputs_by_task_id)
+        validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
         graph_by_task_id = {graph["task_id"]: graph for graph in graphs}
 
     predictions: list[dict] = []
@@ -72,7 +78,7 @@ def run_retrieval(
             )
         )
 
-    validate_ranked_results(predictions, inputs_by_task_id)
+    validate_ranked_results(as_validation_records(predictions), as_validation_record_map(inputs_by_task_id))
     return predictions
 
 

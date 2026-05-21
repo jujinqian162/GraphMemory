@@ -14,7 +14,12 @@ from graph_memory.hotpotqa import combined_memory_tasks, convert_hotpotqa_exampl
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.splits import sample_split
-from graph_memory.validation import validate_memory_task_inputs, validate_memory_task_labels
+from graph_memory.validation import (
+    as_validation_record_map,
+    as_validation_records,
+    validate_memory_task_inputs,
+    validate_memory_task_labels,
+)
 
 LOGGER = logging.getLogger("prepare_hotpotqa")
 
@@ -67,8 +72,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = conversion.task_inputs
         task_labels = conversion.task_labels
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_memory_task_inputs(task_inputs)
-        validate_memory_task_labels(task_labels, inputs_by_task_id)
+        validate_memory_task_inputs(as_validation_records(task_inputs))
+        validate_memory_task_labels(as_validation_records(task_labels), as_validation_record_map(inputs_by_task_id))
 
         write_json(args.output_input, task_inputs)
         write_json(args.output_labels, task_labels)

@@ -13,7 +13,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.tuning import graph_rerank_grid, tune_graph_rerank
-from graph_memory.validation import validate_graphs, validate_memory_task_inputs, validate_memory_task_labels
+from graph_memory.validation import (
+    as_validation_record_map,
+    as_validation_records,
+    validate_graphs,
+    validate_memory_task_inputs,
+    validate_memory_task_labels,
+)
 
 LOGGER = logging.getLogger("tune_graph_rerank")
 
@@ -58,10 +64,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = read_json(args.tasks)
         labels = read_json(args.labels)
         graphs = read_json(args.graphs)
-        validate_memory_task_inputs(task_inputs)
+        validate_memory_task_inputs(as_validation_records(task_inputs))
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_memory_task_labels(labels, inputs_by_task_id)
-        validate_graphs(graphs, inputs_by_task_id)
+        validation_inputs_by_task_id = as_validation_record_map(inputs_by_task_id)
+        validate_memory_task_labels(as_validation_records(labels), validation_inputs_by_task_id)
+        validate_graphs(as_validation_records(graphs), validation_inputs_by_task_id)
 
         grid = graph_rerank_grid()
         selected_config, candidate_rows = tune_graph_rerank(

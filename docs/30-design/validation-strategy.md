@@ -58,6 +58,11 @@ validate_xxx(...) -> None
 
 Validators raise exceptions. They do not return cleaned data.
 
+Typed artifact lists may need an explicit static-type bridge before validation because `TypedDict` and `dict`
+containers are invariant in common type checkers. Use `as_validation_records(...)` and
+`as_validation_record_map(...)` at call sites when passing domain-typed artifacts into validators. These helpers are
+zero-copy casts for IDE/type-checker clarity; runtime correctness still comes from the validators.
+
 ## Error Message Style
 
 Validation errors should include:

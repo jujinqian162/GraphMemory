@@ -165,6 +165,9 @@ Rules:
 - Raise `ContractValidationError` for artifact contract violations.
 - Do not clean, repair, drop, sort, or infer data.
 - Transformation must be a separate named step.
+- When a typed artifact such as `list[MemoryTaskInput]` crosses into a validator typed as raw validation records,
+  use the zero-copy `as_validation_records(...)` or `as_validation_record_map(...)` boundary helper. Do not copy
+  records through `dict(...)` or `dataclasses.asdict(...)` just to satisfy a type checker.
 
 ## Experiment Services
 

@@ -2,13 +2,30 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import Any, TypeAlias, cast
 
 from graph_memory.types import ALLOWED_EDGE_TYPES, ALLOWED_NODE_TYPES, SUPPORTED_METHODS
 
 
 class ContractValidationError(ValueError):
     """Raised when an artifact violates a documented Phase 1 contract."""
+
+
+ValidationRecord: TypeAlias = dict[str, Any]
+ValidationRecords: TypeAlias = list[ValidationRecord]
+ValidationRecordMap: TypeAlias = dict[str, ValidationRecord]
+
+
+def as_validation_records(records: object) -> ValidationRecords:
+    """Return a zero-copy validation view for TypedDict artifact records."""
+
+    return cast(ValidationRecords, records)
+
+
+def as_validation_record_map(records_by_key: object) -> ValidationRecordMap:
+    """Return a zero-copy validation view for maps keyed by task id."""
+
+    return cast(ValidationRecordMap, records_by_key)
 
 
 FORBIDDEN_LABEL_FIELDS: set[str] = {
@@ -58,12 +75,11 @@ METRIC_COLUMNS = [
     "Retrieval Latency / Query",
 ]
 
-
 def validate_no_label_fields(value: Any, *, artifact_name: str = "artifact", task_id: str | None = None) -> None:
     _walk_forbidden_fields(value, artifact_name=artifact_name, task_id=task_id, path=artifact_name)
 
 
-def validate_memory_task_inputs(records: list[dict]) -> None:
+def validate_memory_task_inputs(records: ValidationRecords) -> None:
     if not isinstance(records, list):
         raise ContractValidationError("Invalid memory task inputs: artifact must be a list.")
 
@@ -108,7 +124,7 @@ def validate_memory_task_inputs(records: list[dict]) -> None:
                 )
 
 
-def validate_memory_task_labels(records: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+def validate_memory_task_labels(records: ValidationRecords, inputs_by_task_id: ValidationRecordMap) -> None:
     if not isinstance(records, list):
         raise ContractValidationError("Invalid memory task labels: artifact must be a list.")
 
@@ -149,7 +165,7 @@ def validate_memory_task_labels(records: list[dict], inputs_by_task_id: dict[str
             )
 
 
-def validate_graphs(graphs: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+def validate_graphs(graphs: ValidationRecords, inputs_by_task_id: ValidationRecordMap) -> None:
     if not isinstance(graphs, list):
         raise ContractValidationError("Invalid graphs: artifact must be a list.")
 
@@ -176,7 +192,7 @@ def validate_graphs(graphs: list[dict], inputs_by_task_id: dict[str, dict]) -> N
             _validate_graph_edge(edge, graph_node_ids, task_id)
 
 
-def validate_ranked_results(predictions: list[dict], inputs_by_task_id: dict[str, dict]) -> None:
+def validate_ranked_results(predictions: ValidationRecords, inputs_by_task_id: ValidationRecordMap) -> None:
     if not isinstance(predictions, list):
         raise ContractValidationError("Invalid ranked results: artifact must be a list.")
 
@@ -259,7 +275,7 @@ def validate_graph_rerank_config(config: dict | object) -> None:
             )
 
 
-def validate_metric_rows(rows: list[dict]) -> None:
+def validate_metric_rows(rows: ValidationRecords) -> None:
     if not isinstance(rows, list):
         raise ContractValidationError("Invalid metric rows: artifact must be a list.")
     for row in rows:
