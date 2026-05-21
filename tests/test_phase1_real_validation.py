@@ -14,7 +14,7 @@ from graph_memory.validation import (
 from graph_memory.types import MemoryTaskInput
 
 
-def valid_task_inputs() -> list[dict]:
+def valid_task_inputs() -> list[MemoryTaskInput]:
     return [
         {
             "task_id": "hotpot_ex1",
@@ -41,7 +41,7 @@ def valid_task_inputs() -> list[dict]:
     ]
 
 
-def inputs_by_task_id() -> dict[str, dict]:
+def inputs_by_task_id() -> dict[str, MemoryTaskInput]:
     return {task_input["task_id"]: task_input for task_input in valid_task_inputs()}
 
 

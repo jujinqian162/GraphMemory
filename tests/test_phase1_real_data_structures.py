@@ -1,10 +1,14 @@
+from typing import TypeAlias
+
 import pytest
 
 from graph_memory.hotpotqa import HotpotQAConversionResult, convert_hotpotqa_examples, parse_hotpotqa_examples
 from graph_memory.splits import sample_split
 
+RawHotpotQARecord: TypeAlias = dict[str, object]
 
-def hotpot_raw_example() -> dict:
+
+def hotpot_raw_example() -> RawHotpotQARecord:
     return {
         "_id": "ex1",
         "question": "Where is the Eiffel Tower and what river runs through that city?",

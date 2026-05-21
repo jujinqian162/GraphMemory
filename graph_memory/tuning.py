@@ -2,13 +2,21 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from itertools import product
-from typing import Any
+from typing import Any, cast
 
 from graph_memory.retrieval import run_retrieval
-from graph_memory.types import GraphRerankConfig
+from graph_memory.types import (
+    GraphRerankConfig,
+    GraphRerankConfigRecord,
+    MemoryGraph,
+    MemoryTaskInput,
+    MemoryTaskLabels,
+    MetricRow,
+    TuningCandidateRow,
+)
 
 
-def tuning_objective(row: dict) -> float:
+def tuning_objective(row: MetricRow) -> float:
     return (
         0.50 * float(row["Full Support@5"])
         + 0.30 * float(row["Recall@5"])
@@ -39,11 +47,11 @@ def graph_rerank_grid() -> list[GraphRerankConfig]:
     return configs
 
 
-def select_best_config(rows: list[dict]) -> dict:
+def select_best_config(rows: list[TuningCandidateRow]) -> GraphRerankConfigRecord:
     if not rows:
         raise ValueError("Cannot select best graph rerank config from empty rows.")
 
-    def sort_key(row: dict) -> tuple[float, float, float, float]:
+    def sort_key(row: TuningCandidateRow) -> tuple[float, float, float, float]:
         return (
             tuning_objective(row),
             float(row.get("Full Support@10", 0.0)),
@@ -52,30 +60,30 @@ def select_best_config(rows: list[dict]) -> dict:
         )
 
     best_row = max(rows, key=sort_key)
-    return dict(best_row["config"])
+    return best_row["config"]
 
 
 def tune_graph_rerank(
     *,
     method: str,
-    task_inputs: list[dict],
-    labels: list[dict],
-    graphs: list[dict],
+    task_inputs: list[MemoryTaskInput],
+    labels: list[MemoryTaskLabels],
+    graphs: list[MemoryGraph],
     grid: list[GraphRerankConfig] | None = None,
     encoder_model: str = "intfloat/e5-base-v2",
     query_prefix: str = "query: ",
     passage_prefix: str = "passage: ",
     top_k: int = 10,
     dense_encoder: Any | None = None,
-) -> tuple[dict, list[dict]]:
+) -> tuple[GraphRerankConfigRecord, list[TuningCandidateRow]]:
     from graph_memory.evaluation import evaluate_results
 
     if method not in {"bm25_graph_rerank", "dense_graph_rerank"}:
         raise ValueError(f"Tuning requires a graph rerank method, got method={method}.")
 
-    candidate_rows: list[dict] = []
+    candidate_rows: list[TuningCandidateRow] = []
     for config in grid or graph_rerank_grid():
-        config_dict = asdict(config)
+        config_dict = cast(GraphRerankConfigRecord, asdict(config))
         predictions = run_retrieval(
             method=method,
             task_inputs=task_inputs,
@@ -90,6 +98,6 @@ def tune_graph_rerank(
         metric_rows = evaluate_results(predictions, labels, graphs)
         if len(metric_rows) != 1:
             raise ValueError("Expected one aggregate metric row per tuning candidate.")
-        candidate_row = {**metric_rows[0], "config": config_dict}
+        candidate_row: TuningCandidateRow = {**metric_rows[0], "config": config_dict}
         candidate_rows.append(candidate_row)
     return select_best_config(candidate_rows), candidate_rows

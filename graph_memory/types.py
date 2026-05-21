@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, NotRequired, Protocol, TypedDict
+from typing import Literal, NotRequired, Protocol, TypeAlias, TypedDict
 
 TaskId = str
 NodeId = str
 MethodName = str
 Score = float
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject: TypeAlias = dict[str, JsonValue]
 
 NodeType = Literal["question", "document_sentence"]
 EdgeType = Literal["sequential", "query_overlap", "entity_overlap", "bridge"]
@@ -103,22 +105,67 @@ class RankedResult(TypedDict):
     debug: NotRequired[dict[str, object]]
 
 
-class EvaluationRow(TypedDict):
-    Method: str
-    Recall_at_2: float
-    Recall_at_5: float
-    Recall_at_10: float
-    Evidence_F1_at_5: float
-    Evidence_F1_at_10: float
-    Full_Support_at_5: float
-    Full_Support_at_10: float
-    MRR: float
-    Connected_Evidence_Recall_at_5: float
-    Connected_Evidence_Recall_at_10: float
-    Query_Evidence_Connectivity_at_10: float
-    Path_Recall_at_10: str | float
-    Edge_Recall_at_10: str | float
-    Retrieval_Latency_per_Query: float
+MetricValue: TypeAlias = str | float
+
+MetricRow = TypedDict(
+    "MetricRow",
+    {
+        "Method": str,
+        "Recall@2": float,
+        "Recall@5": float,
+        "Recall@10": float,
+        "Evidence F1@5": float,
+        "Evidence F1@10": float,
+        "Full Support@5": float,
+        "Full Support@10": float,
+        "MRR": float,
+        "Connected Evidence Recall@5": float,
+        "Connected Evidence Recall@10": float,
+        "Query-Evidence Connectivity@10": float,
+        "Path Recall@10": MetricValue,
+        "Edge Recall@10": MetricValue,
+        "Retrieval Latency / Query": float,
+        "Index Build Time": float,
+        "Graph Construction Time": float,
+        "Memory Size": float,
+        "Avg Retrieved Nodes": float,
+        "Avg Retrieved Edges": float,
+    },
+)
+
+MetricTableRow: TypeAlias = dict[str, MetricValue]
+
+TaskMetricRow = TypedDict(
+    "TaskMetricRow",
+    {
+        "Recall@2": float,
+        "Recall@5": float,
+        "Recall@10": float,
+        "Evidence F1@5": float,
+        "Evidence F1@10": float,
+        "Full Support@5": float,
+        "Full Support@10": float,
+        "MRR": float,
+        "Connected Evidence Recall@5": float,
+        "Connected Evidence Recall@10": float,
+        "Query-Evidence Connectivity@10": float,
+        "Retrieval Latency / Query": float,
+        "Memory Size": float,
+        "Avg Retrieved Nodes": float,
+        "Avg Retrieved Edges": float,
+    },
+)
+
+
+class FailureCase(TypedDict):
+    debug_type: str
+    task_id: TaskId
+    method: MethodName
+    failure_type: str
+    gold_evidence_nodes: list[NodeId]
+    retrieved_top_k: list[NodeId]
+    missing_gold_nodes: list[NodeId]
+    connected_gold_in_top_k: bool
 
 
 @dataclass(frozen=True)
@@ -138,6 +185,60 @@ class ScoreComponents:
 
 
 ScoreBreakdown = dict[NodeId, ScoreComponents]
+
+
+class GraphRerankConfigRecord(TypedDict, total=False):
+    lambda_init: float
+    lambda_query: float
+    lambda_neighbor: float
+    lambda_bridge: float
+    lambda_path: float
+    seed_top_s: int
+    max_hops: int
+    type_weights: dict[str, float]
+
+
+class TuningCandidateRow(MetricRow):
+    config: GraphRerankConfigRecord
+
+
+class GraphStatistics(TypedDict, total=False):
+    num_graphs: int
+    avg_nodes: float
+    avg_edges: float
+    edge_counts_by_type: dict[str, int]
+    isolated_memory_nodes: int
+    split: str
+    graph_config: JsonObject
+
+
+class RunSummary(TypedDict, total=False):
+    script: str
+    started_at: str
+    finished_at: str
+    status: str
+    effective_config: JsonObject
+    inputs: JsonObject
+    outputs: JsonObject
+    counts: JsonObject
+    timings: JsonObject
+    environment: dict[str, str]
+    notes: list[str]
+    error: str
+
+
+class RankedNodeDebugRecord(RankedNodeRecord, total=False):
+    score_components: ScoreComponents
+
+
+class ScoreDebugRecord(TypedDict, total=False):
+    debug_type: str
+    task_id: TaskId
+    method: MethodName
+    top_k: int
+    ranked_nodes: list[RankedNodeDebugRecord]
+    split: str
+    config_digest: str
 
 
 @dataclass(frozen=True)

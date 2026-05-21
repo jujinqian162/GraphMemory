@@ -7,6 +7,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,6 +19,7 @@ from graph_memory.evaluation import (
 )
 from graph_memory.io import read_csv, write_csv
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.types import MetricRow
 
 LOGGER = logging.getLogger("aggregate_tables")
 
@@ -53,9 +55,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             for path in sorted(Path(args.input_dir).glob("*.csv"))
             if path not in output_paths and _looks_like_metric_file(path)
         ]
-        rows: list[dict] = []
+        rows: list[MetricRow] = []
         for metric_file in metric_files:
-            rows.extend(read_csv(metric_file))
+            rows.extend(cast(list[MetricRow], read_csv(metric_file)))
         main_rows, path_rows, efficiency_rows = split_metric_tables(rows)
         write_csv(args.output_main, main_rows, MAIN_RESULT_COLUMNS)
         write_csv(args.output_path, path_rows, PATH_RESULT_COLUMNS)

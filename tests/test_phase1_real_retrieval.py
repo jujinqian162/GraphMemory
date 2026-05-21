@@ -4,7 +4,7 @@ import pytest
 from graph_memory.rerank import graph_rerank, induced_retrieved_subgraph, normalize_scores
 from graph_memory.retrieval import run_retrieval
 from graph_memory.tuning import graph_rerank_grid, select_best_config, tuning_objective
-from graph_memory.types import GraphRerankConfig
+from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput
 
 
 class FakeEncoder:
@@ -27,7 +27,7 @@ class FakeEncoder:
         return array
 
 
-def retrieval_task_inputs() -> list[dict]:
+def retrieval_task_inputs() -> list[MemoryTaskInput]:
     return [
         {
             "task_id": "hotpot_ex1",
@@ -62,7 +62,7 @@ def retrieval_task_inputs() -> list[dict]:
     ]
 
 
-def retrieval_graphs() -> list[dict]:
+def retrieval_graphs() -> list[MemoryGraph]:
     task_input = retrieval_task_inputs()[0]
     return [
         {

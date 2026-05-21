@@ -3,10 +3,10 @@ import json
 from graph_memory.entities import heuristic_entities, title_aliases
 from graph_memory.graphs import build_graph
 from graph_memory.text import content_tokens, lexical_score
-from graph_memory.types import GraphBuildConfig
+from graph_memory.types import GraphBuildConfig, MemoryTaskInput
 
 
-def graph_task_input() -> dict:
+def graph_task_input() -> MemoryTaskInput:
     return {
         "task_id": "hotpot_ex1",
         "query": "Which river runs through the city that hosts the Eiffel Tower?",

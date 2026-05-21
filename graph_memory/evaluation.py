@@ -3,6 +3,17 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from typing import Iterable
 
+from graph_memory.types import (
+    FailureCase,
+    GraphEdge,
+    MemoryGraph,
+    MemoryTaskLabels,
+    MetricRow,
+    MetricTableRow,
+    NodeId,
+    RankedResult,
+    TaskMetricRow,
+)
 from graph_memory.validation import ContractValidationError, validate_task_id_alignment
 
 MAIN_RESULT_COLUMNS = [
@@ -81,7 +92,7 @@ def mrr(ranked_nodes: list[str], gold_nodes: set[str]) -> float:
     return 0.0
 
 
-def connected_evidence_at(ranked_nodes: list[str], gold_nodes: set[str], graph: dict, k: int) -> float:
+def connected_evidence_at(ranked_nodes: list[NodeId], gold_nodes: set[NodeId], graph: MemoryGraph, k: int) -> float:
     _require_gold_nodes(gold_nodes)
     selected = set(ranked_nodes[:k])
     if not gold_nodes.issubset(selected):
@@ -94,7 +105,7 @@ def connected_evidence_at(ranked_nodes: list[str], gold_nodes: set[str], graph: 
     return 1.0 if gold_nodes.issubset(reachable) else 0.0
 
 
-def query_evidence_connectivity_at(ranked_nodes: list[str], gold_nodes: set[str], graph: dict, k: int) -> float:
+def query_evidence_connectivity_at(ranked_nodes: list[NodeId], gold_nodes: set[NodeId], graph: MemoryGraph, k: int) -> float:
     _require_gold_nodes(gold_nodes)
     selected = set(ranked_nodes[:k])
     if not gold_nodes.issubset(selected):
@@ -105,7 +116,9 @@ def query_evidence_connectivity_at(ranked_nodes: list[str], gold_nodes: set[str]
     return 1.0 if gold_nodes.issubset(reachable) else 0.0
 
 
-def evaluate_results(predictions: list[dict], labels: list[dict], graphs: list[dict]) -> list[dict]:
+def evaluate_results(
+    predictions: list[RankedResult], labels: list[MemoryTaskLabels], graphs: list[MemoryGraph]
+) -> list[MetricRow]:
     prediction_task_ids = {prediction["task_id"] for prediction in predictions}
     label_task_ids = {label["task_id"] for label in labels}
     graph_task_ids = {graph["task_id"] for graph in graphs}
@@ -119,7 +132,7 @@ def evaluate_results(predictions: list[dict], labels: list[dict], graphs: list[d
         raise ContractValidationError(f"Invalid evaluation input: expected one method per file, got methods={sorted(methods)}.")
     method = next(iter(methods)) if methods else ""
 
-    per_task_rows = []
+    per_task_rows: list[TaskMetricRow] = []
     for prediction in predictions:
         task_id = prediction["task_id"]
         ranked_node_ids = [ranked_node["node_id"] for ranked_node in prediction["ranked_nodes"]]
@@ -147,7 +160,7 @@ def evaluate_results(predictions: list[dict], labels: list[dict], graphs: list[d
             }
         )
 
-    aggregate_row = {
+    aggregate_row: MetricRow = {
         "Method": method,
         "Path Recall@10": "N/A",
         "Edge Recall@10": "N/A",
@@ -175,7 +188,9 @@ def evaluate_results(predictions: list[dict], labels: list[dict], graphs: list[d
     return [aggregate_row]
 
 
-def split_metric_tables(rows: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+def split_metric_tables(
+    rows: list[MetricRow],
+) -> tuple[list[MetricTableRow], list[MetricTableRow], list[MetricTableRow]]:
     main_rows = [_select_columns(row, MAIN_RESULT_COLUMNS) for row in rows]
     path_rows = [_select_columns(row, PATH_RESULT_COLUMNS) for row in rows]
     efficiency_rows = [_select_columns(row, EFFICIENCY_RESULT_COLUMNS) for row in rows]
@@ -183,18 +198,18 @@ def split_metric_tables(rows: list[dict]) -> tuple[list[dict], list[dict], list[
 
 
 def build_failure_cases(
-    predictions: list[dict],
-    labels: list[dict],
-    graphs: list[dict],
+    predictions: list[RankedResult],
+    labels: list[MemoryTaskLabels],
+    graphs: list[MemoryGraph],
     *,
     top_k: int = 10,
     limit: int = 0,
-) -> list[dict]:
+) -> list[FailureCase]:
     if limit <= 0:
         return []
     labels_by_task_id = {label["task_id"]: label for label in labels}
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
-    cases: list[dict] = []
+    cases: list[FailureCase] = []
     for prediction in predictions:
         task_id = prediction["task_id"]
         ranked_node_ids = [ranked_node["node_id"] for ranked_node in prediction["ranked_nodes"]]
@@ -221,7 +236,7 @@ def build_failure_cases(
     return cases
 
 
-def _undirected_adjacency(edges: list[dict], allowed_nodes: set[str]) -> dict[str, set[str]]:
+def _undirected_adjacency(edges: list[GraphEdge], allowed_nodes: set[str]) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
     for edge in edges:
         source = str(edge.get("source"))
@@ -232,7 +247,7 @@ def _undirected_adjacency(edges: list[dict], allowed_nodes: set[str]) -> dict[st
     return adjacency
 
 
-def _directed_adjacency(edges: list[dict], allowed_nodes: set[str]) -> dict[str, set[str]]:
+def _directed_adjacency(edges: list[GraphEdge], allowed_nodes: set[str]) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
     for edge in edges:
         source = str(edge.get("source"))
@@ -263,14 +278,14 @@ def _require_gold_nodes(gold_nodes: set[str]) -> None:
         raise ContractValidationError("Gold evidence nodes must be non-empty.")
 
 
-def _validate_gold_nodes_exist(task_id: str, gold_nodes: set[str], graph: dict) -> None:
+def _validate_gold_nodes_exist(task_id: str, gold_nodes: set[str], graph: MemoryGraph) -> None:
     graph_node_ids = {str(node.get("id")) for node in graph.get("nodes", [])}
     missing = sorted(gold_nodes - graph_node_ids)
     if missing:
         raise ContractValidationError(f"Invalid evaluation input: task_id={task_id} gold nodes missing from graph: {missing}.")
 
 
-def _memory_node_count(graph: dict) -> int:
+def _memory_node_count(graph: MemoryGraph) -> int:
     return sum(1 for node in graph.get("nodes", []) if node.get("id") != "q")
 
 
@@ -281,5 +296,5 @@ def _mean(values: Iterable[float]) -> float:
     return sum(materialized) / len(materialized)
 
 
-def _select_columns(row: dict, columns: list[str]) -> dict:
+def _select_columns(row: MetricRow, columns: list[str]) -> MetricTableRow:
     return {column: row[column] for column in columns}

@@ -7,7 +7,15 @@ from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.text import content_tokens
 from graph_memory.rerank import graph_rerank, induced_retrieved_subgraph
-from graph_memory.types import GraphRerankConfig, RankedNode
+from graph_memory.types import (
+    GraphEdge,
+    GraphRerankConfig,
+    GraphRerankConfigRecord,
+    MemoryGraph,
+    MemoryTaskInput,
+    RankedNode,
+    RankedResult,
+)
 from graph_memory.validation import (
     as_validation_record_map,
     as_validation_records,
@@ -20,15 +28,15 @@ from graph_memory.validation import (
 def run_retrieval(
     *,
     method: str,
-    task_inputs: list[dict],
-    graphs: list[dict] | None,
+    task_inputs: list[MemoryTaskInput],
+    graphs: list[MemoryGraph] | None,
     top_k: int,
     encoder_model: str = "intfloat/e5-base-v2",
     query_prefix: str = "query: ",
     passage_prefix: str = "passage: ",
-    graph_config: dict | None = None,
+    graph_config: GraphRerankConfig | GraphRerankConfigRecord | None = None,
     dense_encoder: Any | None = None,
-) -> list[dict]:
+) -> list[RankedResult]:
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")
     validate_memory_task_inputs(as_validation_records(task_inputs))
@@ -45,7 +53,7 @@ def run_retrieval(
     else:
         raise ValueError(f"Unsupported retrieval method: {method}")
 
-    graph_by_task_id: dict[str, dict] = {}
+    graph_by_task_id: dict[str, MemoryGraph] = {}
     rerank_config = _graph_rerank_config_from_value(graph_config) if _is_graph_method(method) else None
     inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
     if _is_graph_method(method):
@@ -54,12 +62,12 @@ def run_retrieval(
         validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
         graph_by_task_id = {graph["task_id"]: graph for graph in graphs}
 
-    predictions: list[dict] = []
+    predictions: list[RankedResult] = []
     for task_input in task_inputs:
         started = time.perf_counter()
         initial_ranking = retriever.rank(task_input)
         ranked_nodes = initial_ranking
-        retrieved_edges: list[dict] = []
+        retrieved_edges: list[GraphEdge] = []
         if _is_graph_method(method):
             graph = graph_by_task_id[task_input["task_id"]]
             initial_scores = {ranked_node.node_id: ranked_node.score for ranked_node in initial_ranking}
@@ -84,13 +92,13 @@ def run_retrieval(
 
 def assemble_ranked_result(
     *,
-    task_input: dict,
+    task_input: MemoryTaskInput,
     method: str,
     ranked_nodes: list[RankedNode],
     top_k: int,
     latency_ms: float,
-    retrieved_edges: list[dict],
-) -> dict:
+    retrieved_edges: list[GraphEdge],
+) -> RankedResult:
     top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:top_k]]
     return {
         "task_id": task_input["task_id"],
@@ -108,7 +116,7 @@ def assemble_ranked_result(
     }
 
 
-def _approx_input_tokens(task_input: dict) -> int:
+def _approx_input_tokens(task_input: MemoryTaskInput) -> int:
     query_tokens = content_tokens(task_input["query"])
     memory_tokens = [
         token
@@ -122,7 +130,7 @@ def _is_graph_method(method: str) -> bool:
     return method in {"bm25_graph_rerank", "dense_graph_rerank"}
 
 
-def _graph_rerank_config_from_value(value: dict | GraphRerankConfig | None) -> GraphRerankConfig:
+def _graph_rerank_config_from_value(value: GraphRerankConfig | GraphRerankConfigRecord | None) -> GraphRerankConfig:
     if value is None:
         raise ValueError("Graph rerank methods require graph_config.")
     if isinstance(value, GraphRerankConfig):

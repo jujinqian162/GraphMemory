@@ -465,6 +465,6 @@ def _memory_node_ids(task_input: dict) -> set[str]:
 def _to_plain_dict(config: dict | object) -> dict:
     if isinstance(config, dict):
         return config
-    if is_dataclass(config):
+    if is_dataclass(config) and not isinstance(config, type):
         return asdict(config)
     raise ContractValidationError("Invalid config: expected dict or dataclass instance.")

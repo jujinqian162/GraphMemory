@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 
-from graph_memory.types import GraphRerankConfig, RankedNode, ScoreComponents
+from graph_memory.types import GraphRerankConfig, MemoryGraph, RankedNode, RetrievedSubgraph, ScoreBreakdown, ScoreComponents
 from graph_memory.validation import validate_graph_rerank_config
 
 
@@ -16,16 +16,16 @@ def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
     return {node_id: (score - min_score) / (max_score - min_score) for node_id, score in scores.items()}
 
 
-def graph_rerank(initial_scores: dict[str, float], graph: dict, config: GraphRerankConfig) -> list[RankedNode]:
+def graph_rerank(initial_scores: dict[str, float], graph: MemoryGraph, config: GraphRerankConfig) -> list[RankedNode]:
     ranked_nodes, _ = graph_rerank_with_breakdown(initial_scores, graph, config)
     return ranked_nodes
 
 
 def graph_rerank_with_breakdown(
     initial_scores: dict[str, float],
-    graph: dict,
+    graph: MemoryGraph,
     config: GraphRerankConfig,
-) -> tuple[list[RankedNode], dict[str, ScoreComponents]]:
+) -> tuple[list[RankedNode], ScoreBreakdown]:
     validate_graph_rerank_config(config)
     normalized_initial = normalize_scores(initial_scores)
     candidate_nodes = _expanded_candidate_nodes(normalized_initial, graph, config)
@@ -33,7 +33,7 @@ def graph_rerank_with_breakdown(
     neighbor_scores = _neighbor_scores(normalized_initial, graph, config)
     bridge_scores = _bridge_scores(normalized_initial, graph, config)
 
-    score_breakdown: dict[str, ScoreComponents] = {}
+    score_breakdown: ScoreBreakdown = {}
     reranked_nodes: list[RankedNode] = []
     for node_id in initial_scores:
         initial_component = config.lambda_init * normalized_initial[node_id]
@@ -55,7 +55,7 @@ def graph_rerank_with_breakdown(
     return sorted(reranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id)), score_breakdown
 
 
-def induced_retrieved_subgraph(graph: dict, node_ids: list[str]) -> dict:
+def induced_retrieved_subgraph(graph: MemoryGraph, node_ids: list[str]) -> RetrievedSubgraph:
     selected = set(node_ids)
     return {
         "nodes": list(node_ids),
@@ -69,7 +69,7 @@ def induced_retrieved_subgraph(graph: dict, node_ids: list[str]) -> dict:
 
 def _expanded_candidate_nodes(
     normalized_initial: dict[str, float],
-    graph: dict,
+    graph: MemoryGraph,
     config: GraphRerankConfig,
 ) -> set[str]:
     seeds = [
@@ -91,7 +91,7 @@ def _expanded_candidate_nodes(
     return candidates
 
 
-def _query_scores(graph: dict) -> dict[str, float]:
+def _query_scores(graph: MemoryGraph) -> dict[str, float]:
     scores: dict[str, float] = defaultdict(float)
     for edge in graph.get("edges", []):
         if edge.get("source") == "q" and edge.get("edge_type") == "query_overlap":
@@ -101,7 +101,7 @@ def _query_scores(graph: dict) -> dict[str, float]:
 
 def _neighbor_scores(
     normalized_initial: dict[str, float],
-    graph: dict,
+    graph: MemoryGraph,
     config: GraphRerankConfig,
 ) -> dict[str, float]:
     scores: dict[str, float] = defaultdict(float)
@@ -120,7 +120,7 @@ def _neighbor_scores(
 
 def _bridge_scores(
     normalized_initial: dict[str, float],
-    graph: dict,
+    graph: MemoryGraph,
     config: GraphRerankConfig,
 ) -> dict[str, float]:
     scores: dict[str, float] = defaultdict(float)
@@ -138,7 +138,7 @@ def _bridge_scores(
     return dict(scores)
 
 
-def _traversal_adjacency(graph: dict) -> dict[str, set[str]]:
+def _traversal_adjacency(graph: MemoryGraph) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
     for edge in graph.get("edges", []):
         source = str(edge.get("source"))

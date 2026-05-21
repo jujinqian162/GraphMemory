@@ -7,9 +7,18 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from graph_memory.io import write_json
+from graph_memory.types import (
+    GraphStatistics,
+    JsonObject,
+    MemoryGraph,
+    RankedNodeDebugRecord,
+    RankedNodeRecord,
+    RunSummary,
+    ScoreBreakdown,
+    ScoreDebugRecord,
+)
 
 
 def now_iso() -> str:
@@ -29,16 +38,16 @@ def build_run_summary(
     started_at: str,
     finished_at: str,
     status: str,
-    effective_config: dict,
-    inputs: dict,
-    outputs: dict,
-    counts: dict,
-    timings: dict,
-    environment: dict | None = None,
+    effective_config: JsonObject,
+    inputs: JsonObject,
+    outputs: JsonObject,
+    counts: JsonObject,
+    timings: JsonObject,
+    environment: dict[str, str] | None = None,
     notes: list[str] | None = None,
     error: str | None = None,
-) -> dict:
-    summary = {
+) -> RunSummary:
+    summary: RunSummary = {
         "script": script,
         "started_at": started_at,
         "finished_at": finished_at,
@@ -56,11 +65,13 @@ def build_run_summary(
     return summary
 
 
-def write_run_summary(path: str | Path, summary: dict) -> None:
+def write_run_summary(path: str | Path, summary: RunSummary) -> None:
     write_json(path, summary)
 
 
-def graph_statistics(graphs: list[dict], *, split: str | None = None, graph_config: dict | None = None) -> dict:
+def graph_statistics(
+    graphs: list[MemoryGraph], *, split: str | None = None, graph_config: JsonObject | None = None
+) -> GraphStatistics:
     edge_counts: Counter[str] = Counter()
     total_nodes = 0
     total_edges = 0
@@ -83,7 +94,7 @@ def graph_statistics(graphs: list[dict], *, split: str | None = None, graph_conf
                 isolated_memory_nodes += 1
 
     num_graphs = len(graphs)
-    stats = {
+    stats: GraphStatistics = {
         "num_graphs": num_graphs,
         "avg_nodes": total_nodes / num_graphs if num_graphs else 0.0,
         "avg_edges": total_edges / num_graphs if num_graphs else 0.0,
@@ -97,7 +108,7 @@ def graph_statistics(graphs: list[dict], *, split: str | None = None, graph_conf
     return stats
 
 
-def config_digest(config: dict) -> str:
+def config_digest(config: JsonObject) -> str:
     encoded = json.dumps(config, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:12]
 
@@ -107,24 +118,28 @@ def build_score_debug_record(
     task_id: str,
     method: str,
     top_k: int,
-    ranked_nodes: list[dict],
-    score_breakdown: dict[str, Any],
+    ranked_nodes: list[RankedNodeRecord],
+    score_breakdown: ScoreBreakdown,
     split: str | None = None,
-    config: dict | None = None,
-) -> dict:
-    record = {
+    config: JsonObject | None = None,
+) -> ScoreDebugRecord:
+    debug_ranked_nodes: list[RankedNodeDebugRecord] = []
+    for ranked_node in ranked_nodes[:top_k]:
+        debug_node: RankedNodeDebugRecord = {"node_id": ranked_node["node_id"], "score": ranked_node["score"]}
+        node_id = ranked_node["node_id"]
+        if node_id in score_breakdown:
+            debug_node["score_components"] = score_breakdown[node_id]
+        debug_ranked_nodes.append(debug_node)
+
+    record: ScoreDebugRecord = {
         "debug_type": "score_breakdown",
         "task_id": task_id,
         "method": method,
         "top_k": top_k,
-        "ranked_nodes": ranked_nodes[:top_k],
+        "ranked_nodes": debug_ranked_nodes,
     }
     if split is not None:
         record["split"] = split
     if config is not None:
         record["config_digest"] = config_digest(config)
-    for ranked_node in record["ranked_nodes"]:
-        node_id = ranked_node["node_id"]
-        if node_id in score_breakdown:
-            ranked_node["score_components"] = score_breakdown[node_id]
     return record

@@ -4,19 +4,18 @@ from collections import defaultdict
 from itertools import combinations
 
 from graph_memory.entities import extract_entities, title_aliases
-from graph_memory.observability import graph_statistics
 from graph_memory.text import compute_idf, lexical_score
-from graph_memory.types import GraphBuildConfig
+from graph_memory.types import EdgeType, GraphBuildConfig, GraphEdge, GraphNode, MemoryGraph, MemoryItem, MemoryTaskInput, NodeId
 
 
-def build_graph(task_input: dict, config: GraphBuildConfig) -> dict:
-    memory_items = task_input["memory_items"]
-    nodes = [{"id": "q", "node_type": "question", "text": task_input["query"]}, *memory_items]
+def build_graph(task_input: MemoryTaskInput, config: GraphBuildConfig) -> MemoryGraph:
+    memory_items: list[MemoryItem] = task_input["memory_items"]
+    nodes: list[GraphNode] = [{"id": "q", "node_type": "question", "text": task_input["query"]}, *memory_items]
     documents = [f'{item["source"]}. {item["text"]}' for item in memory_items]
     idf = compute_idf([task_input["query"], *documents])
     entities_by_node_id = _entities_by_node(memory_items, config=config)
 
-    edges: list[dict] = []
+    edges: list[GraphEdge] = []
     seen_edges: set[tuple[str, str, str]] = set()
     _add_sequential_edges(edges, seen_edges, memory_items)
     _add_query_overlap_edges(edges, seen_edges, task_input, idf, entities_by_node_id, config)
@@ -30,12 +29,14 @@ def build_graph(task_input: dict, config: GraphBuildConfig) -> dict:
     }
 
 
-def build_graphs(task_inputs: list[dict], config: GraphBuildConfig) -> list[dict]:
+def build_graphs(task_inputs: list[MemoryTaskInput], config: GraphBuildConfig) -> list[MemoryGraph]:
     return [build_graph(task_input, config) for task_input in task_inputs]
 
 
-def _add_sequential_edges(edges: list[dict], seen_edges: set[tuple[str, str, str]], memory_items: list[dict]) -> None:
-    items_by_source: dict[str, list[dict]] = defaultdict(list)
+def _add_sequential_edges(
+    edges: list[GraphEdge], seen_edges: set[tuple[str, str, str]], memory_items: list[MemoryItem]
+) -> None:
+    items_by_source: dict[str, list[MemoryItem]] = defaultdict(list)
     for item in memory_items:
         items_by_source[item["source"]].append(item)
 
@@ -47,11 +48,11 @@ def _add_sequential_edges(edges: list[dict], seen_edges: set[tuple[str, str, str
 
 
 def _add_query_overlap_edges(
-    edges: list[dict],
+    edges: list[GraphEdge],
     seen_edges: set[tuple[str, str, str]],
-    task_input: dict,
+    task_input: MemoryTaskInput,
     idf: dict[str, float],
-    entities_by_node_id: dict[str, set[str]],
+    entities_by_node_id: dict[NodeId, set[str]],
     config: GraphBuildConfig,
 ) -> None:
     query_entities = extract_entities(task_input["query"], use_spacy=config.use_spacy)
@@ -74,10 +75,10 @@ def _add_query_overlap_edges(
 
 
 def _add_entity_overlap_edges(
-    edges: list[dict],
+    edges: list[GraphEdge],
     seen_edges: set[tuple[str, str, str]],
-    memory_items: list[dict],
-    entities_by_node_id: dict[str, set[str]],
+    memory_items: list[MemoryItem],
+    entities_by_node_id: dict[NodeId, set[str]],
     config: GraphBuildConfig,
 ) -> None:
     candidates: list[tuple[float, str, str]] = []
@@ -96,10 +97,10 @@ def _add_entity_overlap_edges(
 
 
 def _add_bridge_edges(
-    edges: list[dict],
+    edges: list[GraphEdge],
     seen_edges: set[tuple[str, str, str]],
-    memory_items: list[dict],
-    entities_by_node_id: dict[str, set[str]],
+    memory_items: list[MemoryItem],
+    entities_by_node_id: dict[NodeId, set[str]],
     config: GraphBuildConfig,
 ) -> None:
     candidates: list[tuple[float, str, str]] = []
@@ -118,8 +119,8 @@ def _add_bridge_edges(
         _append_edge(edges, seen_edges, source, target, "bridge", score, directed=False)
 
 
-def _entities_by_node(memory_items: list[dict], config: GraphBuildConfig) -> dict[str, set[str]]:
-    entities_by_node_id: dict[str, set[str]] = {}
+def _entities_by_node(memory_items: list[MemoryItem], config: GraphBuildConfig) -> dict[NodeId, set[str]]:
+    entities_by_node_id: dict[NodeId, set[str]] = {}
     for item in memory_items:
         entities = extract_entities(f'{item["source"]}. {item["text"]}', use_spacy=config.use_spacy)
         entities.update(title_aliases(item["source"]))
@@ -127,17 +128,17 @@ def _entities_by_node(memory_items: list[dict], config: GraphBuildConfig) -> dic
     return entities_by_node_id
 
 
-def _title_mention_score(left: dict, right: dict) -> float:
+def _title_mention_score(left: MemoryItem, right: MemoryItem) -> float:
     right_text = right["text"].lower()
     return float(sum(1 for alias in title_aliases(left["source"]) if alias and alias in right_text))
 
 
 def _append_edge(
-    edges: list[dict],
+    edges: list[GraphEdge],
     seen_edges: set[tuple[str, str, str]],
     source: str,
     target: str,
-    edge_type: str,
+    edge_type: EdgeType,
     weight: float,
     *,
     directed: bool,
