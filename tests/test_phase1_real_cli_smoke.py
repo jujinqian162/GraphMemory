@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from graph_memory.io import read_json
 import scripts.aggregate_tables as aggregate_tables
 import scripts.build_graphs as build_graphs
@@ -117,3 +119,151 @@ def test_phase1_cli_pipeline_writes_contract_artifacts(tmp_path):
     assert "bm25" in aggregate_main_path.read_text(encoding="utf-8")
     assert aggregate_path_path.exists()
     assert aggregate_efficiency_path.exists()
+
+
+def test_prepare_hotpotqa_drops_invalid_examples_before_sampling(tmp_path):
+    raw_path = tmp_path / "raw.json"
+    valid_first = {
+        "_id": "valid-first",
+        "question": "Where is the Eiffel Tower?",
+        "answer": "Paris",
+        "context": [["Eiffel Tower", ["The Eiffel Tower is in Paris."]]],
+        "supporting_facts": [["Eiffel Tower", 0]],
+    }
+    malformed = {
+        "question": "Missing id",
+        "answer": "nowhere",
+        "context": [["Missing", ["This record has no id."]]],
+        "supporting_facts": [["Missing", 0]],
+    }
+    unconvertible = {
+        "_id": "bad-support",
+        "question": "Which support is missing?",
+        "answer": "missing",
+        "context": [["Known", ["Only this sentence exists."]]],
+        "supporting_facts": [["Unknown", 0]],
+    }
+    valid_second = {
+        "_id": "valid-second",
+        "question": "Where is the Louvre?",
+        "answer": "Paris",
+        "context": [["Louvre", ["The Louvre is in Paris."]]],
+        "supporting_facts": [["Louvre", 0]],
+    }
+    raw_path.write_text(json.dumps([valid_first, malformed, unconvertible, valid_second]), encoding="utf-8")
+
+    task_inputs_path = tmp_path / "memory_tasks.input.json"
+    labels_path = tmp_path / "memory_tasks.labels.json"
+
+    assert prepare_hotpotqa.main(
+        [
+            "--input",
+            str(raw_path),
+            "--output_input",
+            str(task_inputs_path),
+            "--output_labels",
+            str(labels_path),
+            "--max_examples",
+            "2",
+            "--seed",
+            "13",
+            "--offset",
+            "0",
+        ]
+    ) == 0
+
+    task_inputs = read_json(task_inputs_path)
+    summary = read_json(tmp_path / "memory_tasks.input.run_summary.json")
+
+    assert {task_input["task_id"] for task_input in task_inputs} == {"hotpot_valid-first", "hotpot_valid-second"}
+    assert summary["counts"]["raw_examples"] == 4
+    assert summary["counts"]["valid_examples"] == 2
+    assert summary["counts"]["invalid_examples_dropped"] == 2
+    assert summary["counts"]["selected_examples"] == 2
+    assert any("_id" in reason for reason in summary["counts"]["invalid_example_reasons"])
+    assert any("supporting fact" in reason for reason in summary["counts"]["invalid_example_reasons"])
+
+
+def test_prepare_hotpotqa_drops_examples_that_fail_output_validation(tmp_path):
+    raw_path = tmp_path / "raw.json"
+    raw_path.write_text(
+        json.dumps(
+            [
+                {
+                    "_id": "empty-text",
+                    "question": "Which sentence is empty?",
+                    "answer": "empty",
+                    "context": [["Empty", [""]]],
+                    "supporting_facts": [["Empty", 0]],
+                },
+                {
+                    "_id": "valid",
+                    "question": "Where is the Eiffel Tower?",
+                    "answer": "Paris",
+                    "context": [["Eiffel Tower", ["The Eiffel Tower is in Paris."]]],
+                    "supporting_facts": [["Eiffel Tower", 0]],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    task_inputs_path = tmp_path / "memory_tasks.input.json"
+    labels_path = tmp_path / "memory_tasks.labels.json"
+
+    assert prepare_hotpotqa.main(
+        [
+            "--input",
+            str(raw_path),
+            "--output_input",
+            str(task_inputs_path),
+            "--output_labels",
+            str(labels_path),
+        ]
+    ) == 0
+
+    task_inputs = read_json(task_inputs_path)
+    summary = read_json(tmp_path / "memory_tasks.input.run_summary.json")
+
+    assert [task_input["task_id"] for task_input in task_inputs] == ["hotpot_valid"]
+    assert summary["counts"]["valid_examples"] == 1
+    assert summary["counts"]["invalid_examples_dropped"] == 1
+    assert any("field=text" in reason for reason in summary["counts"]["invalid_example_reasons"])
+
+
+def test_prepare_hotpotqa_strict_mode_fails_on_invalid_example(tmp_path):
+    raw_path = tmp_path / "raw.json"
+    raw_path.write_text(
+        json.dumps(
+            [
+                {
+                    "_id": "valid",
+                    "question": "Where is the Eiffel Tower?",
+                    "answer": "Paris",
+                    "context": [["Eiffel Tower", ["The Eiffel Tower is in Paris."]]],
+                    "supporting_facts": [["Eiffel Tower", 0]],
+                },
+                {
+                    "_id": "bad-support",
+                    "question": "Which support is missing?",
+                    "answer": "missing",
+                    "context": [["Known", ["Only this sentence exists."]]],
+                    "supporting_facts": [["Unknown", 0]],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="index=1"):
+        prepare_hotpotqa.main(
+            [
+                "--input",
+                str(raw_path),
+                "--output_input",
+                str(tmp_path / "memory_tasks.input.json"),
+                "--output_labels",
+                str(tmp_path / "memory_tasks.labels.json"),
+                "--strict_invalid_examples",
+            ]
+        )

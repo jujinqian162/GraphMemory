@@ -4,13 +4,20 @@ import argparse
 import logging
 import sys
 import time
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.hotpotqa import combined_memory_tasks, convert_hotpotqa_examples, parse_hotpotqa_examples
+from graph_memory.hotpotqa import (
+    combined_memory_tasks,
+    convert_hotpotqa_example,
+    convert_hotpotqa_examples,
+    parse_hotpotqa_example,
+    parse_hotpotqa_examples,
+)
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.splits import sample_split
@@ -33,6 +40,13 @@ class PrepareHotpotQAArgs:
     max_examples: int | None
     seed: int
     offset: int
+    strict_invalid_examples: bool
+
+
+@dataclass(frozen=True)
+class ValidRawExamples:
+    records: list[object]
+    invalid_reason_counts: dict[str, int]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -48,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "seed": args.seed,
         "offset": args.offset,
         "write_combined": args.output_combined is not None,
+        "drop_invalid_examples": not args.strict_invalid_examples,
+        "strict_invalid_examples": args.strict_invalid_examples,
     }
     inputs = {"raw": args.input}
     outputs = {
@@ -64,7 +80,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("HotpotQA raw input must be a JSON list.")
         LOGGER.info("read raw examples: %s", len(raw_records))
 
-        selected_records = select_examples(raw_records, max_examples=args.max_examples, seed=args.seed, offset=args.offset)
+        valid_raw_examples = select_valid_raw_examples(raw_records, strict=args.strict_invalid_examples)
+        invalid_examples_dropped = len(raw_records) - len(valid_raw_examples.records)
+        if invalid_examples_dropped:
+            LOGGER.info("dropped invalid raw examples: %s", invalid_examples_dropped)
+
+        selected_records = select_examples(
+            valid_raw_examples.records,
+            max_examples=args.max_examples,
+            seed=args.seed,
+            offset=args.offset,
+        )
         LOGGER.info("selected examples: count=%s seed=%s offset=%s", len(selected_records), args.seed, args.offset)
 
         parsed_examples = parse_hotpotqa_examples(selected_records)
@@ -93,6 +119,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             outputs=outputs,
             counts={
                 "raw_examples": len(raw_records),
+                "valid_examples": len(valid_raw_examples.records),
+                "invalid_examples_dropped": invalid_examples_dropped,
+                "invalid_example_reasons": valid_raw_examples.invalid_reason_counts,
                 "selected_examples": len(selected_records),
                 "parsed_examples": len(parsed_examples),
                 "task_inputs": len(task_inputs),
@@ -125,6 +154,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise
 
 
+def select_valid_raw_examples(raw_records: Sequence[object], *, strict: bool) -> ValidRawExamples:
+    valid_records: list[object] = []
+    invalid_reason_counts: Counter[str] = Counter()
+    for record_index, raw_record in enumerate(raw_records):
+        try:
+            parsed_example = parse_hotpotqa_example(raw_record, record_index=record_index)
+            converted_example = convert_hotpotqa_example(parsed_example)
+            input_by_task_id = {converted_example.task_input["task_id"]: converted_example.task_input}
+            validate_memory_task_inputs(as_validation_records([converted_example.task_input]))
+            validate_memory_task_labels(
+                as_validation_records([converted_example.task_labels]),
+                as_validation_record_map(input_by_task_id),
+            )
+        except ValueError as error:
+            if strict:
+                raise ValueError(f"Invalid HotpotQA raw example index={record_index}: {error}") from error
+            invalid_reason_counts[str(error)] += 1
+            continue
+        valid_records.append(raw_record)
+    return ValidRawExamples(records=valid_records, invalid_reason_counts=dict(invalid_reason_counts))
+
+
 def select_examples(raw_records: Sequence[object], *, max_examples: int | None, seed: int, offset: int) -> list[object]:
     if max_examples is None:
         if offset != 0:
@@ -142,6 +193,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_examples", type=int, default=None, help="Number of examples to sample after deterministic shuffling.")
     parser.add_argument("--seed", type=int, default=13, help="Random seed for deterministic split sampling.")
     parser.add_argument("--offset", type=int, default=0, help="Offset into the deterministic shuffled example order.")
+    parser.add_argument(
+        "--strict_invalid_examples",
+        action="store_true",
+        help="Fail on the first invalid raw HotpotQA example instead of dropping invalid examples.",
+    )
     return parser
 
 
@@ -155,6 +211,7 @@ def parse_args(argv: Sequence[str] | None = None) -> PrepareHotpotQAArgs:
         max_examples=namespace.max_examples,
         seed=namespace.seed,
         offset=namespace.offset,
+        strict_invalid_examples=namespace.strict_invalid_examples,
     )
 
 

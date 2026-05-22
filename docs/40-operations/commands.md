@@ -40,6 +40,9 @@ python scripts/prepare_dataset.py `
 
 ## Prepare HotpotQA Splits
 
+`prepare_hotpotqa.py` drops invalid raw HotpotQA examples by default before split sampling; pass
+`--strict_invalid_examples` to fail on the first invalid raw record when auditing data quality.
+
 Train from labeled HotpotQA train:
 
 ```powershell
