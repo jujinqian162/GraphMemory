@@ -3,20 +3,12 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Protocol
 
 from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.text import content_tokens
-from graph_memory.rerank import (
-    bridge_edge_scores,
-    expanded_candidate_nodes,
-    induced_retrieved_subgraph,
-    normalize_component_scores,
-    neighbor_propagation_scores,
-    normalize_scores,
-    query_overlap_scores,
-)
+from graph_memory.rerank import rank_graph_from_initial_scores
 from graph_memory.types import (
     GraphEdge,
     GraphRerankConfig,
@@ -26,6 +18,7 @@ from graph_memory.types import (
     RankedNode,
     RankedResult,
     Retriever,
+    graph_rerank_config_from_value,
 )
 from graph_memory.validation import (
     as_validation_record_map,
@@ -35,8 +28,6 @@ from graph_memory.validation import (
     validate_ranked_results,
     validate_task_id_alignment,
 )
-
-NormalizationMode = Literal["none", "minmax"]
 
 
 class DenseEncoder(Protocol):
@@ -51,29 +42,6 @@ class RetrievalMethod(Protocol):
         ...
 
 
-class NodeScoreComponent(Protocol):
-    @property
-    def weight(self) -> float:
-        ...
-
-    @property
-    def normalization(self) -> NormalizationMode:
-        ...
-
-    def scores(self, context: ScoreContext) -> dict[str, float]:
-        ...
-
-
-@dataclass(frozen=True)
-class ScoreContext:
-    task_input: MemoryTaskInput
-    initial_scores: dict[str, float]
-    normalized_initial: dict[str, float]
-    graph: MemoryGraph | None = None
-    graph_config: GraphRerankConfig | None = None
-    candidate_nodes: set[str] | None = None
-
-
 @dataclass(frozen=True)
 class InitialScoreCache:
     scores_by_task_id: dict[str, dict[str, float]]
@@ -81,56 +49,20 @@ class InitialScoreCache:
 
 
 @dataclass(frozen=True)
-class InitialScoreComponent:
-    weight: float
-    normalization: NormalizationMode
-
-    def scores(self, context: ScoreContext) -> dict[str, float]:
-        return context.initial_scores
-
-
-@dataclass(frozen=True)
-class QueryOverlapScoreComponent:
-    weight: float
-    normalization: NormalizationMode = "minmax"
-
-    def scores(self, context: ScoreContext) -> dict[str, float]:
-        if context.graph is None:
-            return {}
-        return _filter_candidate_scores(query_overlap_scores(context.graph), context.candidate_nodes)
-
-
-@dataclass(frozen=True)
-class NeighborPropagationScoreComponent:
-    weight: float
-    normalization: NormalizationMode = "minmax"
-
-    def scores(self, context: ScoreContext) -> dict[str, float]:
-        if context.graph is None or context.graph_config is None:
-            return {}
-        scores = neighbor_propagation_scores(context.normalized_initial, context.graph, context.graph_config)
-        return _filter_candidate_scores(scores, context.candidate_nodes)
-
-
-@dataclass(frozen=True)
-class BridgeScoreComponent:
-    weight: float
-    normalization: NormalizationMode = "minmax"
-
-    def scores(self, context: ScoreContext) -> dict[str, float]:
-        if context.graph is None or context.graph_config is None:
-            return {}
-        scores = bridge_edge_scores(context.normalized_initial, context.graph, context.graph_config)
-        return _filter_candidate_scores(scores, context.candidate_nodes)
-
-
-@dataclass(frozen=True)
 class ScorePipelineMethod:
     name: str
     retriever: Retriever
-    components: Sequence[NodeScoreComponent]
+
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+        return self.retriever.rank(task_input), []
+
+
+@dataclass(frozen=True)
+class GraphRerankMethod:
+    name: str
+    retriever: Retriever
     graph_by_task_id: dict[str, MemoryGraph]
-    graph_config: GraphRerankConfig | None = None
+    graph_config: GraphRerankConfig
 
     def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
         initial_ranking = self.retriever.rank(task_input)
@@ -145,24 +77,15 @@ class ScorePipelineMethod:
         top_k: int,
     ) -> tuple[list[RankedNode], list[GraphEdge]]:
         graph = self.graph_by_task_id.get(task_input["task_id"])
-        normalized_initial = normalize_scores(initial_scores)
-        candidate_nodes = (
-            expanded_candidate_nodes(normalized_initial, graph, self.graph_config)
-            if graph is not None and self.graph_config is not None
-            else set(initial_scores)
+        if graph is None:
+            raise ValueError(f"Missing graph for task_id={task_input['task_id']}.")
+        result = rank_graph_from_initial_scores(
+            initial_scores,
+            graph,
+            self.graph_config,
+            top_k=top_k,
         )
-        context = ScoreContext(
-            task_input=task_input,
-            initial_scores=initial_scores,
-            normalized_initial=normalized_initial,
-            graph=graph,
-            graph_config=self.graph_config,
-            candidate_nodes=candidate_nodes,
-        )
-        ranked_nodes = _combine_component_scores(initial_scores, context, self.components)
-        top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:top_k]]
-        retrieved_edges = induced_retrieved_subgraph(graph, top_node_ids)["edges"] if graph is not None else []
-        return ranked_nodes, retrieved_edges
+        return result.ranked_nodes, result.retrieved_subgraph["edges"]
 
 
 class PrecomputedInitialRetriever:
@@ -182,25 +105,19 @@ def build_retrieval_method(
     passage_prefix: str = "passage: ",
     graph_config: GraphRerankConfig | GraphRerankConfigRecord | None = None,
     dense_encoder: DenseEncoder | None = None,
-) -> ScorePipelineMethod:
-    if method in {"bm25", "bm25_graph_rerank"}:
-        retriever: Retriever = BM25TaskRetriever()
-    elif method in {"dense", "dense_graph_rerank"}:
-        retriever = DenseTaskRetriever(
-            model_name=encoder_model,
-            query_prefix=query_prefix,
-            passage_prefix=passage_prefix,
-            encoder=dense_encoder,
-        )
-    else:
-        raise ValueError(f"Unsupported retrieval method: {method}")
+) -> RetrievalMethod:
+    retriever = _build_seed_retriever(
+        method=method,
+        encoder_model=encoder_model,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
+        dense_encoder=dense_encoder,
+    )
 
     if method in {"bm25", "dense"}:
         return ScorePipelineMethod(
             name=method,
             retriever=retriever,
-            components=[InitialScoreComponent(weight=1.0, normalization="none")],
-            graph_by_task_id={},
         )
 
     return _build_graph_rerank_score_pipeline(
@@ -222,10 +139,8 @@ def precompute_initial_score_cache(
     dense_encoder: DenseEncoder | None = None,
 ) -> InitialScoreCache:
     seed_method = _seed_method_for(method)
-    seed_retrieval_method = build_retrieval_method(
+    seed_retriever = _build_seed_retriever(
         method=seed_method,
-        task_inputs=task_inputs,
-        graphs=None,
         encoder_model=encoder_model,
         query_prefix=query_prefix,
         passage_prefix=passage_prefix,
@@ -235,7 +150,7 @@ def precompute_initial_score_cache(
     latency_ms_by_task_id: dict[str, float] = {}
     for task_input in task_inputs:
         started = time.perf_counter()
-        ranked_nodes = seed_retrieval_method.retriever.rank(task_input)
+        ranked_nodes = seed_retriever.rank(task_input)
         latency_ms_by_task_id[task_input["task_id"]] = (time.perf_counter() - started) * 1000.0
         scores_by_task_id[task_input["task_id"]] = {
             ranked_node.node_id: ranked_node.score for ranked_node in ranked_nodes
@@ -384,10 +299,10 @@ def _build_graph_rerank_score_pipeline(
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph] | None,
     graph_config: GraphRerankConfig | GraphRerankConfigRecord | None,
-) -> ScorePipelineMethod:
+) -> GraphRerankMethod:
     if not graphs:
         raise ValueError(f"Graph rerank method={method} requires graph inputs.")
-    rerank_config = _graph_rerank_config_from_value(graph_config)
+    rerank_config = graph_rerank_config_from_value(graph_config)
     inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
     validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
     validate_task_id_alignment(
@@ -395,22 +310,32 @@ def _build_graph_rerank_score_pipeline(
         set(inputs_by_task_id),
         {graph["task_id"] for graph in graphs},
     )
-    return ScorePipelineMethod( # score = lambda_init * init + lambda_query * query_overlap...
+    return GraphRerankMethod(
         name=method,
         retriever=retriever,
-        components=_graph_rerank_components(rerank_config),
         graph_by_task_id={graph["task_id"]: graph for graph in graphs},
         graph_config=rerank_config,
     )
 
 
-def _graph_rerank_components(rerank_config: GraphRerankConfig) -> list[NodeScoreComponent]:
-    return [
-        InitialScoreComponent(weight=rerank_config.lambda_init, normalization="minmax"),
-        QueryOverlapScoreComponent(weight=rerank_config.lambda_query),
-        NeighborPropagationScoreComponent(weight=rerank_config.lambda_neighbor),
-        BridgeScoreComponent(weight=rerank_config.lambda_bridge),
-    ]
+def _build_seed_retriever(
+    *,
+    method: str,
+    encoder_model: str,
+    query_prefix: str,
+    passage_prefix: str,
+    dense_encoder: DenseEncoder | None,
+) -> Retriever:
+    if method in {"bm25", "bm25_graph_rerank"}:
+        return BM25TaskRetriever()
+    if method in {"dense", "dense_graph_rerank"}:
+        return DenseTaskRetriever(
+            model_name=encoder_model,
+            query_prefix=query_prefix,
+            passage_prefix=passage_prefix,
+            encoder=dense_encoder,
+        )
+    raise ValueError(f"Unsupported retrieval method: {method}")
 
 
 def _seed_method_for(method: str) -> str:
@@ -422,47 +347,3 @@ def _seed_method_for(method: str) -> str:
         return method
     raise ValueError(f"Unsupported retrieval method: {method}")
 
-
-def _graph_rerank_config_from_value(value: GraphRerankConfig | GraphRerankConfigRecord | None) -> GraphRerankConfig:
-    if value is None:
-        raise ValueError("Graph rerank methods require graph_config.")
-    if isinstance(value, GraphRerankConfig):
-        return value
-    return GraphRerankConfig(**value)
-
-
-def _combine_component_scores(
-    node_scores: dict[str, float],
-    context: ScoreContext,
-    components: Sequence[NodeScoreComponent],
-) -> list[RankedNode]:
-    combined_scores = {node_id: 0.0 for node_id in node_scores}
-    for component in components:
-        component_scores = _normalize_component_scores(
-            component.scores(context),
-            component.normalization,
-            set(combined_scores),
-        )
-        for node_id in combined_scores:
-            combined_scores[node_id] += component.weight * component_scores.get(node_id, 0.0)
-    ranked_nodes = [
-        RankedNode(node_id=node_id, score=score)
-        for node_id, score in combined_scores.items()
-    ]
-    return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
-
-
-def _normalize_component_scores(
-    scores: dict[str, float],
-    mode: NormalizationMode,
-    node_ids: set[str],
-) -> dict[str, float]:
-    if mode == "none":
-        return scores
-    return normalize_component_scores(scores, node_ids)
-
-
-def _filter_candidate_scores(scores: dict[str, float], candidate_nodes: set[str] | None) -> dict[str, float]:
-    if candidate_nodes is None:
-        return scores
-    return {node_id: score for node_id, score in scores.items() if node_id in candidate_nodes}

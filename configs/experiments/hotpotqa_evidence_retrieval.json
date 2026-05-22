@@ -1,0 +1,58 @@
+{
+  "dataset": "hotpotqa",
+  "defaults": {
+    "dense_encoder": "intfloat/e5-base-v2",
+    "passage_prefix": "passage: ",
+    "query_prefix": "query: ",
+    "seed": 13,
+    "top_k": 10
+  },
+  "graph": {
+    "max_bridge_edges": 50,
+    "max_entity_neighbors": 10,
+    "max_query_overlap": 20,
+    "use_spacy": false
+  },
+  "methods": [
+    "bm25",
+    "dense",
+    "bm25_graph_rerank",
+    "dense_graph_rerank"
+  ],
+  "profiles": {
+    "full": {
+      "dev_examples": 500,
+      "test_examples": 1000,
+      "train_examples": 5000
+    },
+    "quick": {
+      "dev_examples": 100,
+      "test_examples": 100,
+      "train_examples": 100
+    },
+    "smoke": {
+      "dev_examples": 1,
+      "test_examples": 1,
+      "train_examples": 1
+    }
+  },
+  "raw": {
+    "dev": "data/hotpotqa/raw/dev.json",
+    "train": "data/hotpotqa/raw/train.json"
+  },
+  "recipe": "hotpotqa_evidence_retrieval",
+  "search_spaces": {
+    "graph_rerank": "configs/search_spaces/graph_rerank.json"
+  },
+  "split_offsets": {
+    "dev": 0,
+    "test": 500,
+    "train": 0
+  },
+  "split_sources": {
+    "dev": "dev",
+    "test": "dev",
+    "train": "train"
+  },
+  "task": "evidence_retrieval"
+}

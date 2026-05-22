@@ -25,6 +25,7 @@ SUPPORTED_METHODS: set[str] = {
 
 ALLOWED_NODE_TYPES: set[str] = {"question", "document_sentence"}
 ALLOWED_EDGE_TYPES: set[str] = {"sequential", "query_overlap", "entity_overlap", "bridge"}
+NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES: set[str] = {"sequential", "entity_overlap", "bridge"}
 
 
 class MemoryItem(TypedDict):
@@ -197,6 +198,8 @@ class GraphRerankConfigRecord(TypedDict, total=False):
     lambda_path: float
     seed_top_s: int
     max_hops: int
+    neighbor_type_weights: dict[str, float]
+    # Deprecated compatibility input. New artifacts should write neighbor_type_weights.
     type_weights: dict[str, float]
 
 
@@ -259,13 +262,18 @@ class DenseConfig:
     batch_size: int = 64
 
 
-def default_type_weights() -> dict[str, float]:
+def default_neighbor_type_weights() -> dict[str, float]:
     return {
-        "query_overlap": 0.8,
         "sequential": 0.3,
         "entity_overlap": 0.7,
         "bridge": 1.0,
     }
+
+
+def default_type_weights() -> dict[str, float]:
+    """Deprecated alias for historical callers; returns neighbor type weights."""
+
+    return default_neighbor_type_weights()
 
 
 @dataclass(frozen=True)
@@ -277,7 +285,33 @@ class GraphRerankConfig:
     lambda_path: float = 0.0
     seed_top_s: int = 30
     max_hops: int = 2
-    type_weights: dict[str, float] = field(default_factory=default_type_weights)
+    neighbor_type_weights: dict[str, float] = field(default_factory=default_neighbor_type_weights)
+
+
+def graph_rerank_config_from_value(
+    value: GraphRerankConfig | Mapping[str, object] | None,
+) -> GraphRerankConfig:
+    if value is None:
+        raise ValueError("Graph rerank methods require graph_config.")
+    if isinstance(value, GraphRerankConfig):
+        return value
+    if not isinstance(value, Mapping):
+        raise ValueError("Graph rerank config must be a GraphRerankConfig or mapping.")
+
+    kwargs = dict(value)
+    deprecated_type_weights = kwargs.pop("type_weights", None)
+    if "neighbor_type_weights" not in kwargs and isinstance(deprecated_type_weights, Mapping):
+        kwargs["neighbor_type_weights"] = {
+            str(edge_type): float(weight)
+            for edge_type, weight in deprecated_type_weights.items()
+            if str(edge_type) != "query_overlap"
+        }
+    if isinstance(kwargs.get("neighbor_type_weights"), Mapping):
+        kwargs["neighbor_type_weights"] = {
+            str(edge_type): float(weight)
+            for edge_type, weight in dict(kwargs["neighbor_type_weights"]).items()
+        }
+    return GraphRerankConfig(**kwargs)
 
 
 @dataclass(frozen=True)

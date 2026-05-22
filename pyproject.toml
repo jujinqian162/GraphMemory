@@ -18,7 +18,9 @@ ner = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.5",
     "pytest>=8.0",
+    "ruff>=0.15.13",
 ]
 
 [tool.pytest.ini_options]

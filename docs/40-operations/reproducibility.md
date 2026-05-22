@@ -37,6 +37,17 @@ raw data
 
 Every arrow should be recoverable from either command documentation or run summaries.
 
+For experiment-runner runs, the chain also includes:
+
+```text
+experiment config + profile + CLI overrides
+  -> runs/<experiment_name>/manifest.json
+  -> runs/<experiment_name>/config/effective_config.json
+  -> run-local artifacts
+```
+
+The manifest records generated paths, selected stages, selected methods, and status metadata. It is the first file to inspect when reproducing or debugging a named run.
+
 ## Required Stable Inputs
 
 Record these for every experiment:
@@ -59,26 +70,45 @@ Record these for every experiment:
 Priority:
 
 ```text
-CLI overrides > config file > code defaults
+CLI overrides > experiment config/profile > code defaults
 ```
 
 Rules:
 
 - Config files are for repeatable runs.
 - CLI overrides are for temporary changes.
-- The final `effective_config` must be written into run summaries.
+- The final `effective_config` must be written into run summaries and, for experiment-runner runs, into `runs/<experiment_name>/config/effective_config.json`.
 - If a CLI override changes a scientific setting, the run summary must make that visible.
 
-The default Phase 1 config should remain stable:
+Stable experiment defaults live under:
 
 ```text
-configs/phase1_default.json
+configs/experiments/
 ```
 
-The dev-selected graph rerank config should be a separate artifact:
+Tuning search spaces live under:
 
 ```text
-configs/phase1_graph_rerank_dev_selected.json
+configs/search_spaces/
+```
+
+Published, curated selected configs live under:
+
+```text
+configs/published/
+```
+
+Ordinary runs should write selected tuning outputs under:
+
+```text
+runs/<experiment_name>/tuned/
+```
+
+The current HotpotQA evidence-retrieval defaults are:
+
+```text
+configs/experiments/hotpotqa_evidence_retrieval.json
+configs/search_spaces/graph_rerank.json
 ```
 
 ## Split Reproducibility
@@ -209,7 +239,20 @@ results/ranked_results_dense_graph_rerank.json
 results/main_results.csv
 ```
 
-For exploratory runs, prefer an explicit output directory or suffix rather than overwriting canonical outputs.
+For normal exploratory and repeatable runs, prefer the experiment-runner layout:
+
+```text
+runs/<experiment_name>/manifest.json
+runs/<experiment_name>/config/effective_config.json
+runs/<experiment_name>/inputs/test.input.json
+runs/<experiment_name>/graphs/test.graphs.json
+runs/<experiment_name>/tuned/dense_graph_rerank.dev_selected.json
+runs/<experiment_name>/predictions/test.dense_graph_rerank.ranked.json
+runs/<experiment_name>/metrics/test.dense_graph_rerank.metrics.csv
+runs/<experiment_name>/tables/main_results.csv
+```
+
+The older `data/hotpotqa/processed` and `results` examples remain useful for low-level contract debugging, but named runs should avoid overwriting shared canonical paths.
 
 ## Dev/Test Separation
 

@@ -109,27 +109,21 @@ This is the stable abstraction for future baseline growth. Do not make weighted 
 Purpose:
 
 ```text
-NodeScoreComponent[] -> weighted combined node score -> complete ranking
+Retriever.rank(task_input) -> complete flat ranking
 ```
 
-Use this implementation style when a baseline is naturally described as transparent node-score components:
+Use this implementation for public flat baselines whose final ranking is exactly the seed retriever output:
 
 ```text
 bm25 = BM25Score
 dense = DenseScore
-bm25_graph_rerank = BM25Score + QueryOverlapScore + NeighborPropagationScore + BridgeScore
-dense_graph_rerank = DenseScore + QueryOverlapScore + NeighborPropagationScore + BridgeScore
-Memory Stream = RelevanceScore + RecencyScore + ImportanceScore
 ```
 
 Rules:
 
-- Components produce per-node scores for one task.
-- Component scores declare whether they need normalization before weighting.
 - Baseline BM25/dense scores remain raw for flat methods.
-- Graph-rerank methods normalize the initial baseline score and keep graph edge scores on their configured scale to preserve Phase 1 behavior.
-- Candidate expansion is graph gating, not a score by itself.
-- Retrieved subgraph assembly remains separate from score computation.
+- Does not own graph candidate expansion or graph component combination.
+- Returns no retrieved edges for flat methods.
 
 ## NodeScoreComponent
 
@@ -141,9 +135,9 @@ ScoreContext -> {node_id: component_score}
 
 Rules:
 
+- Lives in `graph_memory/rerank.py` with the graph scoring helpers.
 - Computes one interpretable signal such as initial retrieval score, query-overlap score, neighbor propagation, or bridge score.
 - Does not sort final rankings.
-- Does not assemble retrieved subgraphs.
 - Does not validate artifacts or read labels.
 - Should be small enough to test with tiny task and graph fixtures.
 
@@ -169,13 +163,14 @@ Core implementation can be a function:
 
 ```text
 graph_rerank(initial_scores, graph, config) -> list[RankedNode]
+rank_graph_from_initial_scores(initial_scores, graph, config, top_k) -> RerankResult
 ```
 
-A thin `GraphReranker` wrapper is acceptable if it makes config/debug handling clearer.
+Graph-rerank methods in `retrieval.py` select the BM25/Dense seed retriever, compute explicit initial scores, and delegate candidate expansion, component normalization, weighted combination, and top-k induced subgraph extraction to `graph_memory/rerank.py`.
 
 The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
 
-After the score-pipeline refactor, `graph_rerank(...)` remains a compatibility helper for direct tests, debug analysis, and any caller that already has initial scores. The public retrieval methods route equivalent graph scoring through `ScorePipelineMethod`.
+`graph_rerank(...)` and `graph_rerank_with_breakdown(...)` remain compatibility helpers for direct tests, debug analysis, and callers that already have initial scores.
 
 ## Graph Construction
 

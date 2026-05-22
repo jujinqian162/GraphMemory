@@ -1,17 +1,27 @@
 import numpy as np
 import pytest
+import graph_memory.rerank as rerank_module
+import graph_memory.types as types_module
+from dataclasses import asdict, fields
 
 from graph_memory.rerank import (
     graph_rerank,
+    graph_rerank_with_breakdown,
     induced_retrieved_subgraph,
     neighbor_propagation_scores,
     normalize_scores,
 )
 from graph_memory.evaluation import evaluate_results
 from graph_memory.retrieval import InitialScoreCache, run_graph_rerank_from_initial_score_cache, run_retrieval
-from graph_memory.tuning import graph_rerank_grid, select_best_config, tune_graph_rerank, tuning_objective
+from graph_memory.tuning import (
+    graph_rerank_grid,
+    graph_rerank_grid_from_record,
+    select_best_config,
+    tune_graph_rerank,
+    tuning_objective,
+)
 from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput
-from graph_memory.validation import ContractValidationError
+from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
 
 
 class FakeEncoder:
@@ -150,6 +160,92 @@ def test_graph_pipeline_requires_graph_config_before_processing():
         )
 
 
+def test_graph_rerank_config_uses_neighbor_type_weights_as_canonical_field():
+    config_fields = {field.name for field in fields(GraphRerankConfig)}
+
+    assert "neighbor_type_weights" in config_fields
+    assert "type_weights" not in config_fields
+
+    config = GraphRerankConfig(
+        neighbor_type_weights={
+            "sequential": 0.3,
+            "entity_overlap": 0.7,
+            "bridge": 1.0,
+        }
+    )
+    config_record = asdict(config)
+
+    assert "neighbor_type_weights" in config_record
+    assert "type_weights" not in config_record
+    assert "query_overlap" not in config.neighbor_type_weights
+    validate_graph_rerank_config(config_record)
+
+
+def test_deprecated_type_weights_record_is_readable_and_ignores_query_overlap():
+    loader = getattr(types_module, "graph_rerank_config_from_value", None)
+
+    assert callable(loader)
+
+    config = loader(
+        {
+            "lambda_init": 1.0,
+            "lambda_query": 0.1,
+            "lambda_neighbor": 0.2,
+            "lambda_bridge": 0.1,
+            "lambda_path": 0.0,
+            "seed_top_s": 30,
+            "max_hops": 2,
+            "type_weights": {
+                "query_overlap": 0.0,
+                "sequential": 0.3,
+                "entity_overlap": 0.7,
+                "bridge": 1.0,
+            },
+        }
+    )
+
+    assert config.neighbor_type_weights == {
+        "sequential": 0.3,
+        "entity_overlap": 0.7,
+        "bridge": 1.0,
+    }
+
+
+def test_neighbor_type_weights_take_precedence_over_deprecated_type_weights():
+    loader = getattr(types_module, "graph_rerank_config_from_value", None)
+
+    assert callable(loader)
+
+    config = loader(
+        {
+            "lambda_init": 1.0,
+            "lambda_query": 0.1,
+            "lambda_neighbor": 0.2,
+            "lambda_bridge": 0.1,
+            "lambda_path": 0.0,
+            "seed_top_s": 30,
+            "max_hops": 2,
+            "neighbor_type_weights": {
+                "sequential": 0.1,
+                "entity_overlap": 0.2,
+                "bridge": 0.3,
+            },
+            "type_weights": {
+                "query_overlap": 99.0,
+                "sequential": 9.0,
+                "entity_overlap": 9.0,
+                "bridge": 9.0,
+            },
+        }
+    )
+
+    assert config.neighbor_type_weights == {
+        "sequential": 0.1,
+        "entity_overlap": 0.2,
+        "bridge": 0.3,
+    }
+
+
 def test_graph_pipeline_requires_graph_for_every_task():
     task_inputs = retrieval_task_inputs()
     second_task = {
@@ -165,6 +261,78 @@ def test_graph_pipeline_requires_graph_for_every_task():
             top_k=2,
             graph_config={"lambda_init": 1.0, "lambda_query": 0.1, "lambda_neighbor": 0.2, "lambda_bridge": 0.1},
         )
+
+
+def test_query_overlap_does_not_require_neighbor_type_weight_and_uses_lambda_query_only():
+    loader = getattr(types_module, "graph_rerank_config_from_value", None)
+
+    assert callable(loader)
+
+    graph = {
+        "task_id": "hotpot_ex1",
+        "nodes": [],
+        "edges": [
+            {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
+        ],
+    }
+    config = GraphRerankConfig(
+        lambda_init=0.0,
+        lambda_query=1.0,
+        lambda_neighbor=0.0,
+        lambda_bridge=0.0,
+        seed_top_s=2,
+        max_hops=1,
+        neighbor_type_weights={"sequential": 0.0, "entity_overlap": 0.0, "bridge": 0.0},
+    )
+
+    ranked, breakdown = graph_rerank_with_breakdown({"m0": 1.0, "m1": 0.0}, graph, config)
+
+    assert [node.node_id for node in ranked] == ["m1", "m0"]
+    assert breakdown["m1"].query == pytest.approx(1.0)
+    assert breakdown["m1"].final == pytest.approx(1.0)
+
+    ablated_config = loader({**asdict(config), "lambda_query": 0.0})
+    ablated_ranked = graph_rerank({"m0": 1.0, "m1": 0.0}, graph, ablated_config)
+
+    assert [node.node_id for node in ablated_ranked] == ["m0", "m1"]
+
+
+def test_deprecated_query_overlap_type_weight_does_not_ablate_query_overlap_component():
+    loader = getattr(types_module, "graph_rerank_config_from_value", None)
+
+    assert callable(loader)
+
+    config = loader(
+        {
+            "lambda_init": 0.0,
+            "lambda_query": 1.0,
+            "lambda_neighbor": 0.0,
+            "lambda_bridge": 0.0,
+            "lambda_path": 0.0,
+            "seed_top_s": 2,
+            "max_hops": 1,
+            "type_weights": {
+                "query_overlap": 0.0,
+                "sequential": 0.0,
+                "entity_overlap": 0.0,
+                "bridge": 0.0,
+            },
+        }
+    )
+
+    ranked = graph_rerank(
+        {"m0": 1.0, "m1": 0.0},
+        {
+            "task_id": "hotpot_ex1",
+            "nodes": [],
+            "edges": [
+                {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
+            ],
+        },
+        config,
+    )
+
+    assert [node.node_id for node in ranked] == ["m1", "m0"]
 
 
 def test_normalize_scores_handles_equal_values():
@@ -353,6 +521,39 @@ def test_graph_rerank_retrieval_promotes_bridge_neighbor_and_emits_induced_edge(
     ]
 
 
+def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
+    rank_graph_from_initial_scores = getattr(rerank_module, "rank_graph_from_initial_scores", None)
+
+    assert callable(rank_graph_from_initial_scores)
+
+    config = GraphRerankConfig(
+        lambda_init=0.0,
+        lambda_query=0.1,
+        lambda_neighbor=0.0,
+        lambda_bridge=1.0,
+        seed_top_s=1,
+        max_hops=1,
+    )
+    initial_scores = {"m0": 3.0, "m1": 0.1, "m2": 0.0}
+    direct_result = rank_graph_from_initial_scores(initial_scores, retrieval_graphs()[0], config, top_k=2)
+    retrieval_result = run_graph_rerank_from_initial_score_cache(
+        method="bm25_graph_rerank",
+        task_inputs=retrieval_task_inputs(),
+        graphs=retrieval_graphs(),
+        initial_score_cache=InitialScoreCache(
+            scores_by_task_id={"hotpot_ex1": initial_scores},
+            latency_ms_by_task_id={"hotpot_ex1": 0.0},
+        ),
+        top_k=2,
+        graph_config=config,
+    )[0]
+
+    assert [node.node_id for node in direct_result.ranked_nodes] == [
+        record["node_id"] for record in retrieval_result["ranked_nodes"]
+    ]
+    assert direct_result.retrieved_subgraph == retrieval_result["retrieved_subgraph"]
+
+
 def test_tuning_objective_weights_full_support_recall_and_connected_evidence():
     row = {"Full Support@5": 0.6, "Recall@5": 0.5, "Connected Evidence Recall@10": 0.25}
 
@@ -400,6 +601,49 @@ def test_graph_rerank_grid_includes_pure_initial_score_fallback():
         and config.lambda_bridge == 0.0
         for config in grid
     )
+
+
+def test_graph_rerank_grid_from_record_reads_neighbor_type_weights_and_deprecated_type_weights():
+    canonical_grid = graph_rerank_grid_from_record(
+        {
+            "lambda_init": [1.0],
+            "lambda_query": [0.0],
+            "lambda_neighbor": [0.1],
+            "lambda_bridge": [0.0],
+            "lambda_path": [0.0],
+            "seed_top_s": [1],
+            "max_hops": [1],
+            "neighbor_type_weights": {
+                "sequential": 0.1,
+                "entity_overlap": 0.2,
+                "bridge": 0.3,
+            },
+        }
+    )
+    deprecated_grid = graph_rerank_grid_from_record(
+        {
+            "lambda_init": [1.0],
+            "lambda_query": [0.0],
+            "lambda_neighbor": [0.1],
+            "lambda_bridge": [0.0],
+            "lambda_path": [0.0],
+            "seed_top_s": [1],
+            "max_hops": [1],
+            "type_weights": {
+                "query_overlap": 99.0,
+                "sequential": 0.1,
+                "entity_overlap": 0.2,
+                "bridge": 0.3,
+            },
+        }
+    )
+
+    assert canonical_grid[0].neighbor_type_weights == {
+        "sequential": 0.1,
+        "entity_overlap": 0.2,
+        "bridge": 0.3,
+    }
+    assert deprecated_grid[0].neighbor_type_weights == canonical_grid[0].neighbor_type_weights
 
 
 def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():
@@ -457,3 +701,29 @@ def test_tuning_candidate_metrics_match_normal_retrieval_path():
             assert candidate_rows[0][key] == pytest.approx(value)
         else:
             assert candidate_rows[0][key] == value
+
+
+def test_tuning_records_write_neighbor_type_weights_only():
+    config = GraphRerankConfig(
+        lambda_query=0.1,
+        lambda_neighbor=0.05,
+        lambda_bridge=0.0,
+        seed_top_s=1,
+        max_hops=1,
+        neighbor_type_weights={"sequential": 0.3, "entity_overlap": 0.7, "bridge": 1.0},
+    )
+
+    selected_config, candidate_rows = tune_graph_rerank(
+        method="bm25_graph_rerank",
+        task_inputs=retrieval_task_inputs(),
+        labels=retrieval_task_labels(),
+        graphs=retrieval_graphs(),
+        grid=[config],
+        top_k=2,
+    )
+
+    assert "neighbor_type_weights" in selected_config
+    assert "type_weights" not in selected_config
+    assert "query_overlap" not in selected_config["neighbor_type_weights"]
+    assert "neighbor_type_weights" in candidate_rows[0]["config"]
+    assert "type_weights" not in candidate_rows[0]["config"]

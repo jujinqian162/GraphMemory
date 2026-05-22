@@ -11,6 +11,7 @@ import scripts.build_graphs as build_graphs
 import scripts.evaluate_retrieval as evaluate_retrieval
 import scripts.prepare_hotpotqa as prepare_hotpotqa
 import scripts.run_retrieval as run_retrieval
+import scripts.tune_graph_rerank as tune_graph_rerank
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hotpotqa_smoke.json"
@@ -119,6 +120,117 @@ def test_phase1_cli_pipeline_writes_contract_artifacts(tmp_path):
     assert "bm25" in aggregate_main_path.read_text(encoding="utf-8")
     assert aggregate_path_path.exists()
     assert aggregate_efficiency_path.exists()
+
+
+def test_tune_graph_rerank_cli_reads_search_space_and_writes_neighbor_type_weights(tmp_path):
+    task_inputs_path = tmp_path / "dev_memory_tasks.input.json"
+    labels_path = tmp_path / "dev_memory_tasks.labels.json"
+    graphs_path = tmp_path / "dev_graphs.json"
+    grid_path = tmp_path / "graph_rerank.search_space.json"
+    selected_config_path = tmp_path / "dense_graph_rerank.dev_selected.json"
+
+    assert prepare_hotpotqa.main(
+        [
+            "--input",
+            str(FIXTURE),
+            "--output_input",
+            str(task_inputs_path),
+            "--output_labels",
+            str(labels_path),
+            "--max_examples",
+            "1",
+            "--seed",
+            "13",
+            "--offset",
+            "0",
+        ]
+    ) == 0
+    assert build_graphs.main(
+        [
+            "--input",
+            str(task_inputs_path),
+            "--output",
+            str(graphs_path),
+        ]
+    ) == 0
+    grid_path.write_text(
+        json.dumps(
+            {
+                "lambda_init": [1.0],
+                "lambda_query": [0.0],
+                "lambda_neighbor": [0.0],
+                "lambda_bridge": [0.0],
+                "lambda_path": [0.0],
+                "seed_top_s": [1],
+                "max_hops": [1],
+                "neighbor_type_weights": {
+                    "sequential": 0.3,
+                    "entity_overlap": 0.7,
+                    "bridge": 1.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert tune_graph_rerank.main(
+        [
+            "--method",
+            "bm25_graph_rerank",
+            "--tasks",
+            str(task_inputs_path),
+            "--labels",
+            str(labels_path),
+            "--graphs",
+            str(graphs_path),
+            "--output_config",
+            str(selected_config_path),
+            "--top_k",
+            "2",
+            "--grid_config",
+            str(grid_path),
+        ]
+    ) == 0
+
+    selected_config = read_json(selected_config_path)
+    candidate_rows = read_json(selected_config_path.with_name(f"{selected_config_path.stem}.candidates.json"))
+
+    assert "neighbor_type_weights" in selected_config
+    assert "type_weights" not in selected_config
+    assert "query_overlap" not in selected_config["neighbor_type_weights"]
+    assert "neighbor_type_weights" in candidate_rows[0]["config"]
+    assert "type_weights" not in candidate_rows[0]["config"]
+
+
+def test_aggregate_tables_includes_experiment_runner_metric_filenames(tmp_path):
+    metrics_path = tmp_path / "test.dense.metrics.csv"
+    metrics_path.write_text(
+        "\n".join(
+            [
+                "Method,Recall@2,Recall@5,Recall@10,Evidence F1@5,Evidence F1@10,Full Support@5,Full Support@10,MRR,Connected Evidence Recall@5,Connected Evidence Recall@10,Query-Evidence Connectivity@10,Path Recall@10,Edge Recall@10,Retrieval Latency / Query,Index Build Time,Graph Construction Time,Memory Size,Avg Retrieved Nodes,Avg Retrieved Edges",
+                "dense,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,0.11,N/A,N/A,12.3,0.0,0.0,42.0,10.0,0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    aggregate_main_path = tmp_path / "main_results.csv"
+    aggregate_path_path = tmp_path / "path_results.csv"
+    aggregate_efficiency_path = tmp_path / "efficiency_results.csv"
+
+    assert aggregate_tables.main(
+        [
+            "--input_dir",
+            str(tmp_path),
+            "--output_main",
+            str(aggregate_main_path),
+            "--output_path",
+            str(aggregate_path_path),
+            "--output_efficiency",
+            str(aggregate_efficiency_path),
+        ]
+    ) == 0
+
+    assert "dense,0.1,0.2,0.3" in aggregate_main_path.read_text(encoding="utf-8")
 
 
 def test_prepare_hotpotqa_drops_invalid_examples_before_sampling(tmp_path):

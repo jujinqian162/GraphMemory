@@ -21,4 +21,13 @@ Install dependencies with your preferred Python 3.12 environment manager, then r
 uv run pytest tests -q
 ```
 
-The full experiment command sequence is maintained in `docs/40-operations/commands.md`. It uses leakage-safe `.input.json` and `.labels.json` artifacts rather than passing combined gold-containing task files to retrieval or graph construction.
+Use the experiment runner for normal runs:
+
+```powershell
+python scripts/experiment.py init quick_valid_100 --profile quick --methods bm25
+python scripts/experiment.py plan quick_valid_100 --stages prepare,graphs,retrieve,evaluate,aggregate
+python scripts/experiment.py run quick_valid_100 --stages prepare,graphs,retrieve,evaluate,aggregate
+python scripts/experiment.py status quick_valid_100
+```
+
+Run artifacts are isolated under `runs/<experiment_name>/`. The low-level command sequence is maintained in `docs/40-operations/commands.md` for contract review and debugging.

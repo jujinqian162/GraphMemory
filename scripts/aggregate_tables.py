@@ -102,7 +102,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _looks_like_metric_file(path: Path) -> bool:
-    return path.name.startswith("main_results_") or path.name.startswith("metrics_")
+    return (
+        path.name.startswith("main_results_")
+        or path.name.startswith("metrics_")
+        or path.name.endswith(".metrics.csv")
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

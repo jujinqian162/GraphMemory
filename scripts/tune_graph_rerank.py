@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.tuning import graph_rerank_grid, tune_graph_rerank
+from graph_memory.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
 from graph_memory.validation import (
     as_validation_record_map,
     as_validation_records,
@@ -35,6 +35,7 @@ class TuneGraphRerankArgs:
     query_prefix: str
     passage_prefix: str
     top_k: int
+    grid_config: str | None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -52,8 +53,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "query_prefix": args.query_prefix,
         "passage_prefix": args.passage_prefix,
         "top_k": args.top_k,
+        "grid_config": args.grid_config,
     }
     inputs = {"tasks": args.tasks, "labels": args.labels, "graphs": args.graphs}
+    if args.grid_config is not None:
+        inputs["grid_config"] = args.grid_config
     outputs = {
         "selected_config": args.output_config,
         "candidate_rows": str(candidates_path),
@@ -70,7 +74,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_memory_task_labels(as_validation_records(labels), validation_inputs_by_task_id)
         validate_graphs(as_validation_records(graphs), validation_inputs_by_task_id)
 
-        grid = graph_rerank_grid()
+        grid = (
+            graph_rerank_grid_from_record(read_json(args.grid_config))
+            if args.grid_config is not None
+            else graph_rerank_grid()
+        )
         selected_config, candidate_rows = tune_graph_rerank(
             method=args.method,
             task_inputs=task_inputs,
@@ -133,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--query_prefix", default="query: ")
     parser.add_argument("--passage_prefix", default="passage: ")
     parser.add_argument("--top_k", type=int, default=10)
+    parser.add_argument("--grid_config", default=None, help="Optional graph-rerank tuning search-space JSON.")
     return parser
 
 
@@ -148,6 +157,7 @@ def parse_args(argv: Sequence[str] | None = None) -> TuneGraphRerankArgs:
         query_prefix=namespace.query_prefix,
         passage_prefix=namespace.passage_prefix,
         top_k=namespace.top_k,
+        grid_config=namespace.grid_config,
     )
 
 

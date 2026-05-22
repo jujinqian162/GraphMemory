@@ -2,17 +2,65 @@
 
 Date: 2026-05-20
 
-Status: Phase 1 implementation runbook.
+Status: Experiment runner runbook with low-level Phase 1 command reference.
 
 ## Purpose
 
-This is the canonical command sequence for the Phase 1 HotpotQA evidence-tracing pipeline. Commands should be run from the repository root.
+This document shows the recommended experiment runner path and the low-level Phase 1 HotpotQA evidence-tracing commands. Commands should be run from the repository root.
 
 The safe path uses separate input and label artifacts:
 
 - Retrieval and graph construction read `*_memory_tasks.input.json`.
 - Evaluation and dev tuning read `*_memory_tasks.labels.json`.
 - Combined `*_memory_tasks.json` files are compatibility artifacts for humans and original-plan readers only.
+
+## Recommended Experiment Runner
+
+Use `scripts/experiment.py` for normal runs. It creates an isolated directory under `runs/<experiment_name>/`, writes `manifest.json`, writes `config/effective_config.json`, and generates all low-level script paths.
+
+Initialize a run:
+
+```powershell
+python scripts/experiment.py init quick_valid_100 `
+  --config configs/experiments/hotpotqa_evidence_retrieval.json `
+  --profile quick `
+  --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank
+```
+
+Plan without executing:
+
+```powershell
+python scripts/experiment.py plan quick_valid_100 `
+  --run-root runs `
+  --stages prepare,graphs,retrieve,evaluate,aggregate `
+  --methods bm25
+```
+
+Run a BM25-only quick path:
+
+```powershell
+python scripts/experiment.py run quick_valid_100 `
+  --config configs/experiments/hotpotqa_evidence_retrieval.json `
+  --profile quick `
+  --methods bm25 `
+  --stages prepare,graphs,retrieve,evaluate,aggregate
+```
+
+Resume from retrieval for selected methods:
+
+```powershell
+python scripts/experiment.py run quick_valid_100 `
+  --from retrieve `
+  --methods dense,dense_graph_rerank
+```
+
+Inspect artifact status:
+
+```powershell
+python scripts/experiment.py status quick_valid_100
+```
+
+The low-level commands below remain useful for debugging, contract review, and manually reproducing one stage. They deliberately keep explicit input and output paths.
 
 ## Verify The Environment
 
@@ -142,6 +190,8 @@ Dense retrieval requires the Sentence-Transformers model to be available locally
 
 Graph-rerank tuning computes the seed retriever's complete initial scores once per task in memory, then reuses those scores across the graph-rerank grid. This keeps `dense_graph_rerank` tuning compatible with the existing CLI while avoiding one dense encoding pass per candidate. No persistent score-cache artifact is written.
 
+New search-space and selected-config artifacts use `neighbor_type_weights` for memory-to-memory graph edge calibration. Historical configs with `type_weights` remain readable as compatibility input; `type_weights.query_overlap` is ignored because query-overlap strength is controlled only by `lambda_query`.
+
 BM25-seeded graph rerank:
 
 ```powershell
@@ -150,8 +200,9 @@ python scripts/tune_graph_rerank.py `
   --tasks data/hotpotqa/processed/dev_memory_tasks.input.json `
   --labels data/hotpotqa/processed/dev_memory_tasks.labels.json `
   --graphs data/hotpotqa/processed/dev_graphs.json `
-  --output_config configs/phase1_bm25_graph_rerank_dev_selected.json `
-  --top_k 10
+  --output_config runs/manual_hotpotqa/tuned/bm25_graph_rerank.dev_selected.json `
+  --top_k 10 `
+  --grid_config configs/search_spaces/graph_rerank.json
 ```
 
 Dense-seeded graph rerank:
@@ -162,11 +213,12 @@ python scripts/tune_graph_rerank.py `
   --tasks data/hotpotqa/processed/dev_memory_tasks.input.json `
   --labels data/hotpotqa/processed/dev_memory_tasks.labels.json `
   --graphs data/hotpotqa/processed/dev_graphs.json `
-  --output_config configs/phase1_dense_graph_rerank_dev_selected.json `
+  --output_config runs/manual_hotpotqa/tuned/dense_graph_rerank.dev_selected.json `
   --encoder_model intfloat/e5-base-v2 `
   --query_prefix "query: " `
   --passage_prefix "passage: " `
-  --top_k 10
+  --top_k 10 `
+  --grid_config configs/search_spaces/graph_rerank.json
 ```
 
 ## Run Fixed Graph Rerank On Test
@@ -178,7 +230,7 @@ python scripts/run_retrieval.py `
   --method bm25_graph_rerank `
   --tasks data/hotpotqa/processed/test_memory_tasks.input.json `
   --graphs data/hotpotqa/processed/test_graphs.json `
-  --graph_config configs/phase1_bm25_graph_rerank_dev_selected.json `
+  --graph_config runs/manual_hotpotqa/tuned/bm25_graph_rerank.dev_selected.json `
   --output results/ranked_results_bm25_graph_rerank.json `
   --top_k 10
 ```
@@ -190,7 +242,7 @@ python scripts/run_retrieval.py `
   --method dense_graph_rerank `
   --tasks data/hotpotqa/processed/test_memory_tasks.input.json `
   --graphs data/hotpotqa/processed/test_graphs.json `
-  --graph_config configs/phase1_dense_graph_rerank_dev_selected.json `
+  --graph_config runs/manual_hotpotqa/tuned/dense_graph_rerank.dev_selected.json `
   --output results/ranked_results_dense_graph_rerank.json `
   --encoder_model intfloat/e5-base-v2 `
   --query_prefix "query: " `

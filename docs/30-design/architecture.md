@@ -175,7 +175,10 @@ RetrievalMethod
   -> produces a ranked result for any baseline
 
 ScorePipelineMethod
-  -> one RetrievalMethod implementation for weighted node-score baselines
+  -> one RetrievalMethod implementation for flat seed-retriever baselines
+
+GraphRerankMethod
+  -> selects a seed retriever, then delegates graph score composition to rerank.py
 ```
 
-Use `ScorePipelineMethod` for BM25, dense, Memory Stream-style scores, and current graph rerank variants. Use a separate `RetrievalMethod` implementation when a future baseline is primarily graph traversal, hierarchical memory selection, or learned message passing rather than a transparent weighted sum.
+Use `ScorePipelineMethod` for BM25 and dense flat baselines. Current graph rerank variants use `GraphRerankMethod` in `retrieval.py` for orchestration and `graph_memory/rerank.py` for candidate expansion, graph component scoring, normalization, weighted combination, and top-k induced subgraph extraction. Use a separate `RetrievalMethod` implementation when a future baseline is primarily graph traversal, hierarchical memory selection, or learned message passing rather than a transparent weighted sum.

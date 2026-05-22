@@ -4,7 +4,7 @@ import math
 from dataclasses import asdict, is_dataclass
 from typing import Any, TypeAlias, cast
 
-from graph_memory.types import ALLOWED_EDGE_TYPES, ALLOWED_NODE_TYPES, SUPPORTED_METHODS
+from graph_memory.types import ALLOWED_EDGE_TYPES, ALLOWED_NODE_TYPES, NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES, SUPPORTED_METHODS
 
 
 class ContractValidationError(ValueError):
@@ -262,16 +262,23 @@ def validate_graph_rerank_config(config: dict | object) -> None:
         value = config_dict.get(field_name)
         if not isinstance(value, int) or value <= 0:
             raise ContractValidationError(f"Invalid graph rerank config: {field_name} must be a positive integer.")
-    type_weights = config_dict.get("type_weights")
-    if not isinstance(type_weights, dict):
-        raise ContractValidationError("Invalid graph rerank config: type_weights must be an object.")
-    for edge_type in ALLOWED_EDGE_TYPES:
-        if edge_type not in type_weights:
-            raise ContractValidationError(f"Invalid graph rerank config: missing type weight for edge_type={edge_type}.")
-        value = type_weights[edge_type]
+    neighbor_type_weights = config_dict.get("neighbor_type_weights")
+    if not isinstance(neighbor_type_weights, dict):
+        raise ContractValidationError("Invalid graph rerank config: neighbor_type_weights must be an object.")
+    unknown_neighbor_types = sorted(set(neighbor_type_weights) - NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES)
+    if unknown_neighbor_types:
+        raise ContractValidationError(
+            f"Invalid graph rerank config: unsupported neighbor_type_weights entries={unknown_neighbor_types}."
+        )
+    for edge_type in sorted(NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES):
+        if edge_type not in neighbor_type_weights:
+            raise ContractValidationError(
+                f"Invalid graph rerank config: missing neighbor type weight for edge_type={edge_type}."
+            )
+        value = neighbor_type_weights[edge_type]
         if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) < 0.0:
             raise ContractValidationError(
-                f"Invalid graph rerank config: type_weights[{edge_type}] must be a finite non-negative number."
+                f"Invalid graph rerank config: neighbor_type_weights[{edge_type}] must be a finite non-negative number."
             )
 
 

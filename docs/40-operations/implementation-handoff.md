@@ -24,7 +24,9 @@ Recommended reading order:
    Enforces fail-fast artifact contracts and leakage checks.
 6. `graph_memory/hotpotqa.py`, `graph_memory/graphs.py`, `graph_memory/retrieval.py`, `graph_memory/rerank.py`, `graph_memory/evaluation.py`
    Core Phase 1 control flow from conversion to metrics.
-7. `scripts/*.py`
+7. `graph_memory/experiment.py` and `scripts/experiment.py`
+   High-level experiment runner, manifest generation, stage planning, and status inspection.
+8. `scripts/*.py`
    CLI adapters that parse arguments, call core functions, validate artifacts, and write run summaries.
 
 ## Main Control Flow
@@ -45,9 +47,9 @@ scripts/build_graphs.py
 scripts/run_retrieval.py
   -> graph_memory.retrieval.run_retrieval
   -> graph_memory.retrieval.build_retrieval_method
-  -> ScorePipelineMethod for current score-based methods
+  -> ScorePipelineMethod for flat seed-retriever methods
   -> BM25TaskRetriever.rank or DenseTaskRetriever.rank as baseline score source
-  -> graph score components for graph methods
+  -> GraphRerankMethod delegates graph scoring to graph_memory.rerank
   -> validate_ranked_results
 
 scripts/tune_graph_rerank.py
@@ -63,6 +65,13 @@ scripts/evaluate_retrieval.py
 
 scripts/aggregate_tables.py
   -> graph_memory.evaluation.split_metric_tables
+
+scripts/experiment.py
+  -> graph_memory.experiment.load_experiment_config
+  -> graph_memory.experiment.initialize_experiment
+  -> graph_memory.experiment.build_stage_plan
+  -> existing low-level scripts with explicit generated input/output paths
+  -> graph_memory.experiment.inspect_experiment_status
 ```
 
 ## Key Abstractions
@@ -76,17 +85,20 @@ scripts/aggregate_tables.py
 | `RankedNode` / `RankedResult` | `graph_memory/types.py`, `graph_memory/retrieval.py` | Complete per-task ranking and persisted result schema. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `Retriever` | `graph_memory/types.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
 | `RetrievalMethod` | `graph_memory/retrieval.py` | Internal boundary for a public baseline method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py`, `tests/test_type_contracts.py` |
-| `ScorePipelineMethod` / `NodeScoreComponent` | `graph_memory/retrieval.py` | Composes transparent node-score components for BM25, dense, and current graph-rerank methods. | Own labels, metrics, file I/O, or future non-score baseline behavior. | `tests/test_phase1_real_retrieval.py` |
+| `ScorePipelineMethod` | `graph_memory/retrieval.py` | Wraps BM25 and dense seed retrievers for flat public methods. | Own graph-rerank score composition, labels, metrics, or file I/O. | `tests/test_phase1_real_retrieval.py` |
 | `InitialScoreCache` | `graph_memory/retrieval.py` | Holds per-task seed scores for one tuning invocation so graph-rerank grid search does not rerun BM25/Dense for every candidate. | Persist scores, read labels, or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
-| `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores, with per-task graph-component normalization and degree-normalized neighbor propagation. | Run BM25/Dense itself or use labels. | `tests/test_phase1_real_retrieval.py` |
+| `NodeScoreComponent` / `ScoreContext` | `graph_memory/rerank.py` | Compose initial, query-overlap, neighbor-propagation, and bridge graph score components. | Select BM25/Dense retrievers, assemble persisted ranked-result records, or read labels. | `tests/test_phase1_real_retrieval.py` |
+| `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores, with per-task graph-component normalization and degree-normalized neighbor propagation. `neighbor_type_weights` calibrates memory-to-memory graph edges; deprecated `type_weights` is read only as compatibility input. | Run BM25/Dense itself, use labels, or treat `query_overlap` as a neighbor type weight. | `tests/test_phase1_real_retrieval.py` |
 | Validators / validation views | `graph_memory/validation.py` | Enforce contracts and provide zero-copy type bridges for domain artifacts. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
 | Run summaries | `graph_memory/observability.py` | Preserve config, paths, counts, timings, environment, and notes. | Change algorithm behavior. | `tests/test_phase1_real_io_observability.py` |
+| Experiment manifest | `graph_memory/experiment.py` | Records named run config, generated artifact paths, selected methods/stages, and status metadata. | Replace low-level artifact validators or hide script input/output contracts. | `tests/test_experiment_runner.py` |
 
 ## File Map
 
 | Area | Files | What to review |
 |---|---|---|
+| Experiment runner | `graph_memory/experiment.py`, `scripts/experiment.py`, `configs/experiments/*.json`, `configs/search_spaces/*.json` | Manifest paths, config precedence, stage planning, method filtering, status/stale detection. |
 | CLI adapters | `scripts/prepare_hotpotqa.py`, `scripts/build_graphs.py`, `scripts/run_retrieval.py`, `scripts/tune_graph_rerank.py`, `scripts/evaluate_retrieval.py`, `scripts/aggregate_tables.py` | Argument names, config visibility, validation calls, run summaries, output paths. |
 | Contracts/types | `graph_memory/types.py`, `graph_memory/validation.py` | Field names, forbidden fields, strict invariants, readable type annotations. |
 | Data conversion | `graph_memory/hotpotqa.py`, `graph_memory/splits.py` | Stable task IDs, supporting-fact mapping, split determinism, label separation. |
@@ -105,10 +117,13 @@ scripts/aggregate_tables.py
 - Graph score components are independent from BM25/Dense retrievers except for explicit initial scores.
 - Graph-rerank tuning reuses seed-retriever scores across candidate configs without writing a persistent score-cache artifact.
 - Graph-rerank tuning can select the pure initial-score fallback when graph bonuses hurt dev metrics.
-- Score-pipeline graph-method rankings match `graph_rerank(...)` on controlled artificial scores.
+- Retrieval graph-method rankings and induced edges match `rerank.rank_graph_from_initial_scores(...)` on controlled artificial scores.
+- Newly written graph-rerank configs use `neighbor_type_weights`; old `type_weights` artifacts are accepted as read-only compatibility input.
 - Evaluation reads labels from label artifacts only.
 - Dev tuning and test evaluation are separate.
 - Every script writes a run summary when output paths are known.
+- Experiment-runner paths stay under `runs/<experiment_name>/` and run-local tuned configs stay under `runs/<experiment_name>/tuned/`.
+- `scripts/experiment.py plan` renders explicit low-level commands instead of hiding artifact contracts.
 - `docs/40-operations/commands.md` matches actual script arguments.
 - Tests pass or skip only for documented local-model reasons.
 - Phase 1 scope exclusions are preserved.
@@ -123,6 +138,7 @@ Focused verification commands run during implementation:
 .\.venv\Scripts\python.exe -m pytest tests/test_phase1_real_graphs.py -q -p no:cacheprovider
 .\.venv\Scripts\python.exe -m pytest tests/test_phase1_real_retrieval.py -q -p no:cacheprovider
 .\.venv\Scripts\python.exe -m pytest tests/test_phase1_real_evaluation.py -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/test_experiment_runner.py -q -p no:cacheprovider --basetemp .pytest-tmp
 ```
 
 Full-suite verification run during final implementation check:
@@ -134,7 +150,7 @@ Full-suite verification run during final implementation check:
 Result:
 
 ```text
-46 passed in 0.53s
+63 passed in 4.86s
 ```
 
 `uv run pytest` was attempted earlier, but this sandbox could not access the local uv cache and global pytest temp directories. The verified fallback uses the repository-local `.venv` and a repository-local pytest base temp.
@@ -183,9 +199,11 @@ Current implementation limitations:
 ## Extension Notes
 
 - Add a new retriever by implementing `Retriever.rank(task_input)` and extending `graph_memory/retrieval.py` dispatch.
-- Add a new score-based baseline by composing `NodeScoreComponent`s in `build_retrieval_method`.
-- Add a new graph reranker by keeping the boundary `initial_scores + graph + config -> complete ranking` or by adding graph score components to `ScorePipelineMethod`.
+- Add a new flat score-based baseline by adding a seed `Retriever` and a `RetrievalMethod` wrapper in `graph_memory/retrieval.py`.
+- Add a new graph reranker by keeping the boundary `initial_scores + graph + config -> complete ranking` and adding graph score components in `graph_memory/rerank.py`.
 - Add GraphRAG, MemGPT-style, or trainable graph methods as separate `RetrievalMethod` implementations if their core behavior is traversal, hierarchy selection, or learned message passing rather than a weighted score sum.
 - Add graph ablations by extending `GraphBuildConfig` or adding named graph-transform functions before retrieval.
 - Add a new dataset converter by producing the same `MemoryTaskInput` and `MemoryTaskLabels` artifacts.
 - Add new metrics by introducing pure metric primitives first, then adding aggregate columns in `evaluate_results` and table split helpers.
+- Add new experiment stages by extending the small recipe in `graph_memory/experiment.py` only when the underlying low-level script or service exists.
+- Add new experiment defaults under `configs/experiments/`; keep tuning grids under `configs/search_spaces/` and curated result configs under `configs/published/`.
