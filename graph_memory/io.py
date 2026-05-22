@@ -25,7 +25,7 @@ def read_csv(path: str | Path) -> list[dict[str, str]]:
         return list(csv.DictReader(file))
 
 
-def write_csv(path: str | Path, rows: list[dict], fieldnames: list[str]) -> None:
+def write_csv(path: str | Path, rows: list[Any], fieldnames: list[str]) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as file:
@@ -35,7 +35,7 @@ def write_csv(path: str | Path, rows: list[dict], fieldnames: list[str]) -> None
             writer.writerow(row)
 
 
-def write_jsonl(path: str | Path, records: list[dict]) -> None:
+def write_jsonl(path: str | Path, records: list[Any]) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="\n") as file:

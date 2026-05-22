@@ -14,7 +14,6 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.io import read_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 
 LOGGER = logging.getLogger("prepare_dataset")

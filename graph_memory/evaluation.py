@@ -162,10 +162,25 @@ def evaluate_results(
 
     aggregate_row: MetricRow = {
         "Method": method,
+        "Recall@2": 0.0,
+        "Recall@5": 0.0,
+        "Recall@10": 0.0,
+        "Evidence F1@5": 0.0,
+        "Evidence F1@10": 0.0,
+        "Full Support@5": 0.0,
+        "Full Support@10": 0.0,
+        "MRR": 0.0,
+        "Connected Evidence Recall@5": 0.0,
+        "Connected Evidence Recall@10": 0.0,
+        "Query-Evidence Connectivity@10": 0.0,
         "Path Recall@10": "N/A",
         "Edge Recall@10": "N/A",
+        "Retrieval Latency / Query": 0.0,
         "Index Build Time": 0.0,
         "Graph Construction Time": 0.0,
+        "Memory Size": 0.0,
+        "Avg Retrieved Nodes": 0.0,
+        "Avg Retrieved Edges": 0.0,
     }
     for column in [
         "Recall@2",
