@@ -1,0 +1,33 @@
+[
+  {
+    "_id": "smoke1",
+    "question": "Which river runs through the city with the Eiffel Tower?",
+    "answer": "The Seine",
+    "context": [
+      [
+        "Eiffel Tower",
+        [
+          "The Eiffel Tower is in Paris.",
+          "It opened in 1889."
+        ]
+      ],
+      [
+        "Paris",
+        [
+          "Paris is a city in France.",
+          "The Seine runs through Paris."
+        ]
+      ]
+    ],
+    "supporting_facts": [
+      [
+        "Eiffel Tower",
+        0
+      ],
+      [
+        "Paris",
+        1
+      ]
+    ]
+  }
+]

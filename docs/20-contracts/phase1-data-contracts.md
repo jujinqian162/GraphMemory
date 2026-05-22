@@ -293,8 +293,7 @@ Shape:
   "lambda_path": 0.0,
   "seed_top_s": 30,
   "max_hops": 2,
-  "type_weights": {
-    "query_overlap": 0.8,
+  "neighbor_type_weights": {
     "sequential": 0.3,
     "entity_overlap": 0.7,
     "bridge": 1.0
@@ -307,7 +306,10 @@ Invariants:
 - All lambda values must be finite non-negative numbers.
 - `lambda_path` must remain `0.0` for HotpotQA-only Phase 1 unless a fully unsupervised path bonus is explicitly documented and tested.
 - `seed_top_s` and `max_hops` must be positive integers.
-- Every graph edge type used by rerank should have a `type_weights` entry or a documented default.
+- `lambda_*` fields weight final score components after normalization.
+- `neighbor_type_weights` calibrates memory-to-memory graph edge types used by neighbor propagation and bridge-neighbor scoring.
+- `query_overlap` is not a neighbor type weight; query-overlap contribution is controlled by `lambda_query`.
+- Deprecated `type_weights` input remains readable for historical run artifacts. Compatibility loading ignores historical `type_weights.query_overlap` and newly written configs must use `neighbor_type_weights`.
 
 ## Metric CSV Contract
 

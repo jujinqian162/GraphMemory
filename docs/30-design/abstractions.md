@@ -32,12 +32,22 @@ Recommended forms:
 |---|---|
 | `TaskId`, `NodeId`, `MethodName`, `Score` | simple aliases |
 | node types, edge types, method names | `Literal` first; `Enum` only if needed |
+| parsed raw dataset examples | small frozen dataclasses |
 | `MemoryTaskInput`, `MemoryTaskLabels`, `MemoryGraph` | `TypedDict` |
 | `RankedNode`, `RerankResult`, score components | frozen dataclasses |
 | configs | frozen dataclasses |
 | metric rows and run summaries | JSON/CSV-shaped dicts with validation |
 
 Do not mirror every JSON field with a class. Keep artifact records close to their serialized shape.
+
+Raw JSON parsing should be explicit and dataset-specific. Prefer named functions such as `parse_hotpotqa_examples`
+that turn untrusted JSON objects into small dataclasses before conversion. Do not introduce a generic
+`JsonToDataClass` base class in Phase 1; it would add framework surface without replacing semantic artifact
+validators.
+
+Public core signatures should use project domain types. Avoid `list[dict]`, `tuple[list[dict], list[dict]]`,
+or other unstructured containers in conversion, retrieval, graph, tuning, and evaluation interfaces when a
+`TypedDict`, dataclass, alias, or protocol exists.
 
 ## Retriever
 
@@ -66,6 +76,71 @@ Rules:
 - Does not write files.
 - May keep explicit model/index state, such as a dense encoder.
 
+## RetrievalMethod
+
+Purpose:
+
+```text
+MemoryTaskInput + optional graph context -> final ranked nodes and retrieved subgraph edges
+```
+
+Contract:
+
+```python
+class RetrievalMethod(Protocol):
+    name: str
+
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+        ...
+```
+
+Rules:
+
+- Is the top-level internal boundary for public baseline names such as `bm25`, `dense`, `bm25_graph_rerank`, and future methods.
+- Owns method-specific requirements such as whether graphs and graph configs are required.
+- Returns every memory node exactly once in the ranked node list.
+- Does not read labels, compute metrics, or write files.
+- May be implemented by a score pipeline, graph traversal method, hierarchical memory method, or trainable graph retriever.
+
+This is the stable abstraction for future baseline growth. Do not make weighted scoring the only top-level model; some later baselines may retrieve communities, paths, buffers, or learned graph neighborhoods before producing compatible ranked nodes.
+
+## ScorePipelineMethod
+
+Purpose:
+
+```text
+Retriever.rank(task_input) -> complete flat ranking
+```
+
+Use this implementation for public flat baselines whose final ranking is exactly the seed retriever output:
+
+```text
+bm25 = BM25Score
+dense = DenseScore
+```
+
+Rules:
+
+- Baseline BM25/dense scores remain raw for flat methods.
+- Does not own graph candidate expansion or graph component combination.
+- Returns no retrieved edges for flat methods.
+
+## NodeScoreComponent
+
+Purpose:
+
+```text
+ScoreContext -> {node_id: component_score}
+```
+
+Rules:
+
+- Lives in `graph_memory/rerank.py` with the graph scoring helpers.
+- Computes one interpretable signal such as initial retrieval score, query-overlap score, neighbor propagation, or bridge score.
+- Does not sort final rankings.
+- Does not validate artifacts or read labels.
+- Should be small enough to test with tiny task and graph fixtures.
+
 ## Reranker
 
 Graph rerank is a separate reusable module.
@@ -88,11 +163,14 @@ Core implementation can be a function:
 
 ```text
 graph_rerank(initial_scores, graph, config) -> list[RankedNode]
+rank_graph_from_initial_scores(initial_scores, graph, config, top_k) -> RerankResult
 ```
 
-A thin `GraphReranker` wrapper is acceptable if it makes config/debug handling clearer.
+Graph-rerank methods in `retrieval.py` select the BM25/Dense seed retriever, compute explicit initial scores, and delegate candidate expansion, component normalization, weighted combination, and top-k induced subgraph extraction to `graph_memory/rerank.py`.
 
 The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
+
+`graph_rerank(...)` and `graph_rerank_with_breakdown(...)` remain compatibility helpers for direct tests, debug analysis, and callers that already have initial scores.
 
 ## Graph Construction
 
@@ -155,6 +233,9 @@ Rules:
 - Raise `ContractValidationError` for artifact contract violations.
 - Do not clean, repair, drop, sort, or infer data.
 - Transformation must be a separate named step.
+- When a typed artifact such as `list[MemoryTaskInput]` crosses into a validator typed as raw validation records,
+  use the zero-copy `as_validation_records(...)` or `as_validation_record_map(...)` boundary helper. Do not copy
+  records through `dict(...)` or `dataclasses.asdict(...)` just to satisfy a type checker.
 
 ## Experiment Services
 

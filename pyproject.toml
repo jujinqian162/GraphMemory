@@ -1,7 +1,27 @@
 [project]
 name = "graph-memory"
 version = "0.1.0"
-description = "Add your description here"
+description = "Execution-Provenance Graph Memory Phase 1 evidence-tracing experiment"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=1.26",
+    "rank-bm25>=0.2.2",
+    "sentence-transformers>=3.0",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+ner = [
+    "spacy>=3.7",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.5",
+    "pytest>=8.0",
+    "ruff>=0.15.13",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
