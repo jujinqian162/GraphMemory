@@ -16,6 +16,13 @@ def normalize_scores(scores: dict[str, float]) -> dict[str, float]:
     return {node_id: (score - min_score) / (max_score - min_score) for node_id, score in scores.items()}
 
 
+def normalize_component_scores(scores: dict[str, float], node_ids: set[str]) -> dict[str, float]:
+    """Normalize one score component against every memory node in a task."""
+
+    zero_filled_scores = {node_id: scores.get(node_id, 0.0) for node_id in node_ids}
+    return normalize_scores(zero_filled_scores)
+
+
 def graph_rerank(initial_scores: dict[str, float], graph: MemoryGraph, config: GraphRerankConfig) -> list[RankedNode]:
     ranked_nodes, _ = graph_rerank_with_breakdown(initial_scores, graph, config)
     return ranked_nodes
@@ -29,9 +36,19 @@ def graph_rerank_with_breakdown(
     validate_graph_rerank_config(config)
     normalized_initial = normalize_scores(initial_scores)
     candidate_nodes = expanded_candidate_nodes(normalized_initial, graph, config)
-    query_scores = query_overlap_scores(graph)
-    neighbor_scores = neighbor_propagation_scores(normalized_initial, graph, config)
-    bridge_scores = bridge_edge_scores(normalized_initial, graph, config)
+    memory_node_ids = set(initial_scores)
+    query_scores = normalize_component_scores(
+        _filter_candidate_scores(query_overlap_scores(graph), candidate_nodes),
+        memory_node_ids,
+    )
+    neighbor_scores = normalize_component_scores(
+        _filter_candidate_scores(neighbor_propagation_scores(normalized_initial, graph, config), candidate_nodes),
+        memory_node_ids,
+    )
+    bridge_scores = normalize_component_scores(
+        _filter_candidate_scores(bridge_edge_scores(normalized_initial, graph, config), candidate_nodes),
+        memory_node_ids,
+    )
 
     score_breakdown: ScoreBreakdown = {}
     reranked_nodes: list[RankedNode] = []
@@ -105,17 +122,26 @@ def neighbor_propagation_scores(
     config: GraphRerankConfig,
 ) -> dict[str, float]:
     scores: dict[str, float] = defaultdict(float)
+    normalizers: dict[str, float] = defaultdict(float)
     for edge in graph.get("edges", []):
         source = str(edge.get("source"))
         target = str(edge.get("target"))
         if source == "q" or target == "q":
             continue
         weight = float(edge.get("weight", 0.0)) * config.type_weights.get(str(edge.get("edge_type")), 0.0)
+        if weight <= 0.0:
+            continue
         if source in normalized_initial and target in normalized_initial:
             scores[target] += normalized_initial[source] * weight
+            normalizers[target] += weight
             if not edge.get("directed", False):
                 scores[source] += normalized_initial[target] * weight
-    return dict(scores)
+                normalizers[source] += weight
+    return {
+        node_id: score / normalizers[node_id]
+        for node_id, score in scores.items()
+        if normalizers[node_id] > 0.0
+    }
 
 
 def bridge_edge_scores(
@@ -147,3 +173,7 @@ def _traversal_adjacency(graph: MemoryGraph) -> dict[str, set[str]]:
         if not edge.get("directed", False):
             adjacency[target].add(source)
     return adjacency
+
+
+def _filter_candidate_scores(scores: dict[str, float], candidate_nodes: set[str]) -> dict[str, float]:
+    return {node_id: score for node_id, score in scores.items() if node_id in candidate_nodes}

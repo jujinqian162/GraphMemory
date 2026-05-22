@@ -28,7 +28,7 @@ def graph_rerank_grid() -> list[GraphRerankConfig]:
     configs: list[GraphRerankConfig] = []
     for lambda_query, lambda_neighbor, lambda_bridge, seed_top_s, max_hops in product(
         [0.0, 0.05, 0.1, 0.2],
-        [0.05, 0.1, 0.2, 0.4],
+        [0.0, 0.05, 0.1, 0.2, 0.4],
         [0.0, 0.05, 0.1, 0.2],
         [20, 30],
         [1, 2],

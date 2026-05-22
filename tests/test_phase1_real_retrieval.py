@@ -1,9 +1,14 @@
 import numpy as np
 import pytest
 
-from graph_memory.rerank import graph_rerank, induced_retrieved_subgraph, normalize_scores
+from graph_memory.rerank import (
+    graph_rerank,
+    induced_retrieved_subgraph,
+    neighbor_propagation_scores,
+    normalize_scores,
+)
 from graph_memory.evaluation import evaluate_results
-from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval import InitialScoreCache, run_graph_rerank_from_initial_score_cache, run_retrieval
 from graph_memory.tuning import graph_rerank_grid, select_best_config, tune_graph_rerank, tuning_objective
 from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput
 from graph_memory.validation import ContractValidationError
@@ -200,6 +205,112 @@ def test_graph_rerank_returns_all_original_nodes():
     assert {node.node_id for node in ranked} == {"m0", "m1", "m2"}
 
 
+def test_graph_rerank_normalizes_graph_components_before_combining():
+    ranked = graph_rerank(
+        {"m0": 1.0, "m1": 0.95},
+        {
+            "task_id": "hotpot_ex1",
+            "nodes": [],
+            "edges": [
+                {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 10_000.0, "directed": True},
+                {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 10_000.0, "directed": False},
+            ],
+        },
+        GraphRerankConfig(
+            lambda_init=1.0,
+            lambda_query=0.2,
+            lambda_neighbor=0.0,
+            lambda_bridge=0.2,
+            seed_top_s=2,
+            max_hops=1,
+        ),
+    )
+
+    assert [node.node_id for node in ranked] == ["m0", "m1"]
+
+
+def test_retrieval_pipeline_normalizes_graph_components_before_combining():
+    task_inputs = [
+        {
+            "task_id": "hotpot_ex1",
+            "query": "Which city has the landmark?",
+            "memory_items": [
+                {
+                    "id": "m0",
+                    "node_type": "document_sentence",
+                    "text": "The best evidence sentence.",
+                    "source": "Evidence",
+                    "sentence_id": 0,
+                    "position": 0,
+                },
+                {
+                    "id": "m1",
+                    "node_type": "document_sentence",
+                    "text": "A noisy graph distractor.",
+                    "source": "Noise",
+                    "sentence_id": 0,
+                    "position": 1,
+                },
+            ],
+        }
+    ]
+    graphs = [
+        {
+            "task_id": "hotpot_ex1",
+            "nodes": [
+                {"id": "q", "node_type": "question", "text": task_inputs[0]["query"]},
+                *task_inputs[0]["memory_items"],
+            ],
+            "edges": [
+                {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 10_000.0, "directed": True},
+            ],
+        }
+    ]
+
+    result = run_graph_rerank_from_initial_score_cache(
+        method="dense_graph_rerank",
+        task_inputs=task_inputs,
+        graphs=graphs,
+        initial_score_cache=InitialScoreCache(
+            scores_by_task_id={"hotpot_ex1": {"m0": 1.0, "m1": 0.95}},
+            latency_ms_by_task_id={"hotpot_ex1": 0.0},
+        ),
+        top_k=1,
+        graph_config=GraphRerankConfig(
+            lambda_init=1.0,
+            lambda_query=0.2,
+            lambda_neighbor=0.0,
+            lambda_bridge=0.0,
+            seed_top_s=2,
+            max_hops=1,
+        ),
+    )
+
+    assert result[0]["ranked_nodes"][0]["node_id"] == "m0"
+
+
+def test_neighbor_propagation_uses_weighted_average_not_edge_count():
+    graph = {
+        "task_id": "hotpot_ex1",
+        "nodes": [],
+        "edges": [
+            {"source": "m0", "target": "m3", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
+            {"source": "m1", "target": "m3", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
+            {"source": "m2", "target": "m3", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
+            {"source": "m0", "target": "m4", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
+        ],
+    }
+
+    scores = neighbor_propagation_scores(
+        {"m0": 1.0, "m1": 1.0, "m2": 1.0, "m3": 0.0, "m4": 0.0},
+        graph,
+        GraphRerankConfig(),
+    )
+
+    assert scores["m3"] == pytest.approx(scores["m4"])
+    assert scores["m3"] <= 1.0
+
+
 def test_induced_retrieved_subgraph_keeps_edges_inside_selected_nodes():
     graph = {
         "task_id": "hotpot_ex1",
@@ -278,6 +389,17 @@ def test_graph_rerank_grid_keeps_lambda_path_zero_for_hotpotqa():
 
     assert grid
     assert {config.lambda_path for config in grid} == {0.0}
+
+
+def test_graph_rerank_grid_includes_pure_initial_score_fallback():
+    grid = graph_rerank_grid()
+
+    assert any(
+        config.lambda_query == 0.0
+        and config.lambda_neighbor == 0.0
+        and config.lambda_bridge == 0.0
+        for config in grid
+    )
 
 
 def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():

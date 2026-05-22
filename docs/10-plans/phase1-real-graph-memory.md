@@ -333,11 +333,13 @@ Definitions:
 
 ```text
 S_init(v): normalized BM25 or dense score.
-S_query(v): normalized weight of q -> v query_overlap edge.
-S_neighbor(v): sum over neighbors u of S_init(u) * edge_weight(u, v) * type_weight(edge_type).
-S_bridge(v): bridge-specific score from high-scoring cross-document neighbors.
+S_query(v): per-task normalized weight of q -> v query_overlap edge.
+S_neighbor(v): degree-normalized weighted average over neighbors u using S_init(u), edge_weight(u, v), and type_weight(edge_type).
+S_bridge(v): per-task normalized bridge-specific score from high-scoring cross-document neighbors.
 S_path(v): bonus when v helps connect two high-scoring seed components through entity_overlap or bridge edges.
 ```
+
+`S_query`, `S_neighbor`, and `S_bridge` must be normalized per task before weighted combination so raw graph edge magnitudes cannot dominate `S_init`. `S_neighbor` must divide by the total incoming weighted edge mass for the target node so high-degree clusters do not receive a score simply because they have more edges.
 
 For HotpotQA-only Phase 1, keep `lambda_path = 0.0` because HotpotQA does not provide gold dependency paths. `S_path` is reserved for later 2Wiki/tool-trajectory experiments unless it is implemented as a fully unsupervised, leakage-safe structural bonus with its own tests.
 
@@ -380,13 +382,15 @@ Candidate values:
 {
   "lambda_init": [1.0],
   "lambda_query": [0.0, 0.05, 0.1, 0.2],
-  "lambda_neighbor": [0.05, 0.1, 0.2, 0.4],
+  "lambda_neighbor": [0.0, 0.05, 0.1, 0.2, 0.4],
   "lambda_bridge": [0.0, 0.05, 0.1, 0.2],
   "lambda_path": [0.0],
   "seed_top_s": [20, 30],
   "max_hops": [1, 2]
 }
 ```
+
+The all-zero graph-lambda candidate (`lambda_query = lambda_neighbor = lambda_bridge = 0.0`) is an intentional pure initial-score fallback. Tuning may select it when graph features hurt dev-set retrieval.
 
 Selection objective:
 

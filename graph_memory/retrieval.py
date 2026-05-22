@@ -12,6 +12,7 @@ from graph_memory.rerank import (
     bridge_edge_scores,
     expanded_candidate_nodes,
     induced_retrieved_subgraph,
+    normalize_component_scores,
     neighbor_propagation_scores,
     normalize_scores,
     query_overlap_scores,
@@ -91,7 +92,7 @@ class InitialScoreComponent:
 @dataclass(frozen=True)
 class QueryOverlapScoreComponent:
     weight: float
-    normalization: NormalizationMode = "none"
+    normalization: NormalizationMode = "minmax"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         if context.graph is None:
@@ -102,7 +103,7 @@ class QueryOverlapScoreComponent:
 @dataclass(frozen=True)
 class NeighborPropagationScoreComponent:
     weight: float
-    normalization: NormalizationMode = "none"
+    normalization: NormalizationMode = "minmax"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         if context.graph is None or context.graph_config is None:
@@ -114,7 +115,7 @@ class NeighborPropagationScoreComponent:
 @dataclass(frozen=True)
 class BridgeScoreComponent:
     weight: float
-    normalization: NormalizationMode = "none"
+    normalization: NormalizationMode = "minmax"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         if context.graph is None or context.graph_config is None:
@@ -437,7 +438,11 @@ def _combine_component_scores(
 ) -> list[RankedNode]:
     combined_scores = {node_id: 0.0 for node_id in node_scores}
     for component in components:
-        component_scores = _normalize_component_scores(component.scores(context), component.normalization)
+        component_scores = _normalize_component_scores(
+            component.scores(context),
+            component.normalization,
+            set(combined_scores),
+        )
         for node_id in combined_scores:
             combined_scores[node_id] += component.weight * component_scores.get(node_id, 0.0)
     ranked_nodes = [
@@ -447,10 +452,14 @@ def _combine_component_scores(
     return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
 
 
-def _normalize_component_scores(scores: dict[str, float], mode: NormalizationMode) -> dict[str, float]:
+def _normalize_component_scores(
+    scores: dict[str, float],
+    mode: NormalizationMode,
+    node_ids: set[str],
+) -> dict[str, float]:
     if mode == "none":
         return scores
-    return normalize_scores(scores)
+    return normalize_component_scores(scores, node_ids)
 
 
 def _filter_candidate_scores(scores: dict[str, float], candidate_nodes: set[str] | None) -> dict[str, float]:

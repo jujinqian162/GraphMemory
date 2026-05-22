@@ -78,7 +78,7 @@ scripts/aggregate_tables.py
 | `RetrievalMethod` | `graph_memory/retrieval.py` | Internal boundary for a public baseline method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py`, `tests/test_type_contracts.py` |
 | `ScorePipelineMethod` / `NodeScoreComponent` | `graph_memory/retrieval.py` | Composes transparent node-score components for BM25, dense, and current graph-rerank methods. | Own labels, metrics, file I/O, or future non-score baseline behavior. | `tests/test_phase1_real_retrieval.py` |
 | `InitialScoreCache` | `graph_memory/retrieval.py` | Holds per-task seed scores for one tuning invocation so graph-rerank grid search does not rerun BM25/Dense for every candidate. | Persist scores, read labels, or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
-| `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores. | Run BM25/Dense itself or use labels. | `tests/test_phase1_real_retrieval.py` |
+| `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores, with per-task graph-component normalization and degree-normalized neighbor propagation. | Run BM25/Dense itself or use labels. | `tests/test_phase1_real_retrieval.py` |
 | Validators / validation views | `graph_memory/validation.py` | Enforce contracts and provide zero-copy type bridges for domain artifacts. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
 | Run summaries | `graph_memory/observability.py` | Preserve config, paths, counts, timings, environment, and notes. | Change algorithm behavior. | `tests/test_phase1_real_io_observability.py` |
@@ -104,6 +104,7 @@ scripts/aggregate_tables.py
 - Retrieval methods return complete rankings over every memory node.
 - Graph score components are independent from BM25/Dense retrievers except for explicit initial scores.
 - Graph-rerank tuning reuses seed-retriever scores across candidate configs without writing a persistent score-cache artifact.
+- Graph-rerank tuning can select the pure initial-score fallback when graph bonuses hurt dev metrics.
 - Score-pipeline graph-method rankings match `graph_rerank(...)` on controlled artificial scores.
 - Evaluation reads labels from label artifacts only.
 - Dev tuning and test evaluation are separate.

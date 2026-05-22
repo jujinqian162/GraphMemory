@@ -128,6 +128,8 @@ Phase 1 does not use a persistent score cache. Keep score reuse explicit and bou
 - Graph rerank consumes an explicit `initial_scores` mapping plus a graph and config.
 - Score-pipeline methods may combine baseline scores and graph scores in memory for one task at a time.
 - Dev grid search precomputes seed-retriever scores once per tuning invocation and reuses them across graph-rerank candidates.
+- Graph score components are calibrated per task before weighted combination, and neighbor propagation is degree-normalized before component normalization.
+- The graph-rerank tuning grid includes a pure initial-score fallback so dev tuning can select "no graph bonus" without changing public method names or artifacts.
 - Persistent score reuse should be added as a named artifact and validation boundary only if full-dev tuning still becomes a practical blocker.
 
 ## Script Boundary
