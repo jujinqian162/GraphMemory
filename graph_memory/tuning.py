@@ -4,7 +4,7 @@ from dataclasses import asdict
 from itertools import product
 from typing import Any, cast
 
-from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval import precompute_initial_score_cache, run_graph_rerank_from_initial_score_cache
 from graph_memory.types import (
     GraphRerankConfig,
     GraphRerankConfigRecord,
@@ -82,18 +82,23 @@ def tune_graph_rerank(
         raise ValueError(f"Tuning requires a graph rerank method, got method={method}.")
 
     candidate_rows: list[TuningCandidateRow] = []
+    initial_score_cache = precompute_initial_score_cache(
+        method=method,
+        task_inputs=task_inputs,
+        encoder_model=encoder_model,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
+        dense_encoder=dense_encoder,
+    )
     for config in grid or graph_rerank_grid():
         config_dict = cast(GraphRerankConfigRecord, asdict(config))
-        predictions = run_retrieval(
+        predictions = run_graph_rerank_from_initial_score_cache(
             method=method,
             task_inputs=task_inputs,
             graphs=graphs,
+            initial_score_cache=initial_score_cache,
             top_k=top_k,
-            encoder_model=encoder_model,
-            query_prefix=query_prefix,
-            passage_prefix=passage_prefix,
             graph_config=config,
-            dense_encoder=dense_encoder,
         )
         metric_rows = evaluate_results(predictions, labels, graphs)
         if len(metric_rows) != 1:

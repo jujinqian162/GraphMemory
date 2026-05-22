@@ -74,6 +74,12 @@ class ScoreContext:
 
 
 @dataclass(frozen=True)
+class InitialScoreCache:
+    scores_by_task_id: dict[str, dict[str, float]]
+    latency_ms_by_task_id: dict[str, float]
+
+
+@dataclass(frozen=True)
 class InitialScoreComponent:
     weight: float
     normalization: NormalizationMode
@@ -158,6 +164,13 @@ class ScorePipelineMethod:
         return ranked_nodes, retrieved_edges
 
 
+class PrecomputedInitialRetriever:
+    method_name = "precomputed_initial_scores"
+
+    def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
+        raise RuntimeError("Precomputed initial score pipelines require rank_task_from_scores.")
+
+
 def build_retrieval_method(
     *,
     method: str,
@@ -189,28 +202,95 @@ def build_retrieval_method(
             graph_by_task_id={},
         )
 
-    if not graphs:
-        raise ValueError(f"Graph rerank method={method} requires graph inputs.")
-    rerank_config = _graph_rerank_config_from_value(graph_config)
-    inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-    validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
-    validate_task_id_alignment(
-        "retrieval graph inputs",
-        set(inputs_by_task_id),
-        {graph["task_id"] for graph in graphs},
-    )
-    return ScorePipelineMethod(
-        name=method,
+    return _build_graph_rerank_score_pipeline(
+        method=method,
         retriever=retriever,
-        components=[
-            InitialScoreComponent(weight=rerank_config.lambda_init, normalization="minmax"),
-            QueryOverlapScoreComponent(weight=rerank_config.lambda_query),
-            NeighborPropagationScoreComponent(weight=rerank_config.lambda_neighbor),
-            BridgeScoreComponent(weight=rerank_config.lambda_bridge),
-        ],
-        graph_by_task_id={graph["task_id"]: graph for graph in graphs},
-        graph_config=rerank_config,
+        task_inputs=task_inputs,
+        graphs=graphs,
+        graph_config=graph_config,
     )
+
+
+def precompute_initial_score_cache(
+    *,
+    method: str,
+    task_inputs: list[MemoryTaskInput],
+    encoder_model: str = "intfloat/e5-base-v2",
+    query_prefix: str = "query: ",
+    passage_prefix: str = "passage: ",
+    dense_encoder: DenseEncoder | None = None,
+) -> InitialScoreCache:
+    seed_method = _seed_method_for(method)
+    seed_retrieval_method = build_retrieval_method(
+        method=seed_method,
+        task_inputs=task_inputs,
+        graphs=None,
+        encoder_model=encoder_model,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
+        dense_encoder=dense_encoder,
+    )
+    scores_by_task_id: dict[str, dict[str, float]] = {}
+    latency_ms_by_task_id: dict[str, float] = {}
+    for task_input in task_inputs:
+        started = time.perf_counter()
+        ranked_nodes = seed_retrieval_method.retriever.rank(task_input)
+        latency_ms_by_task_id[task_input["task_id"]] = (time.perf_counter() - started) * 1000.0
+        scores_by_task_id[task_input["task_id"]] = {
+            ranked_node.node_id: ranked_node.score for ranked_node in ranked_nodes
+        }
+    return InitialScoreCache(scores_by_task_id=scores_by_task_id, latency_ms_by_task_id=latency_ms_by_task_id)
+
+
+def run_graph_rerank_from_initial_score_cache(
+    *,
+    method: str,
+    task_inputs: list[MemoryTaskInput],
+    graphs: list[MemoryGraph],
+    initial_score_cache: InitialScoreCache,
+    top_k: int,
+    graph_config: GraphRerankConfig | GraphRerankConfigRecord,
+) -> list[RankedResult]:
+    if method not in {"bm25_graph_rerank", "dense_graph_rerank"}:
+        raise ValueError(f"Precomputed graph rerank requires a graph rerank method, got method={method}.")
+    if top_k <= 0:
+        raise ValueError("top_k must be a positive integer.")
+    validate_memory_task_inputs(as_validation_records(task_inputs))
+
+    inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
+    retrieval_method = _build_graph_rerank_score_pipeline(
+        method=method,
+        retriever=PrecomputedInitialRetriever(),
+        task_inputs=task_inputs,
+        graphs=graphs,
+        graph_config=graph_config,
+    )
+    predictions: list[RankedResult] = []
+    for task_input in task_inputs:
+        task_id = task_input["task_id"]
+        if task_id not in initial_score_cache.scores_by_task_id:
+            raise ValueError(f"Missing precomputed initial scores for task_id={task_id}.")
+        started = time.perf_counter()
+        ranked_nodes, retrieved_edges = retrieval_method.rank_task_from_scores(
+            task_input,
+            initial_score_cache.scores_by_task_id[task_id],
+            top_k=top_k,
+        )
+        rerank_latency_ms = (time.perf_counter() - started) * 1000.0
+        latency_ms = initial_score_cache.latency_ms_by_task_id.get(task_id, 0.0) + rerank_latency_ms
+        predictions.append(
+            assemble_ranked_result(
+                task_input=task_input,
+                method=method,
+                ranked_nodes=ranked_nodes,
+                top_k=top_k,
+                latency_ms=latency_ms,
+                retrieved_edges=retrieved_edges,
+            )
+        )
+
+    validate_ranked_results(as_validation_records(predictions), as_validation_record_map(inputs_by_task_id))
+    return predictions
 
 
 def run_retrieval(
@@ -294,6 +374,52 @@ def _approx_input_tokens(task_input: MemoryTaskInput) -> int:
         for token in content_tokens(f'{memory_item["source"]}. {memory_item["text"]}')
     ]
     return len(query_tokens) + len(memory_tokens)
+
+
+def _build_graph_rerank_score_pipeline(
+    *,
+    method: str,
+    retriever: Retriever,
+    task_inputs: list[MemoryTaskInput],
+    graphs: list[MemoryGraph] | None,
+    graph_config: GraphRerankConfig | GraphRerankConfigRecord | None,
+) -> ScorePipelineMethod:
+    if not graphs:
+        raise ValueError(f"Graph rerank method={method} requires graph inputs.")
+    rerank_config = _graph_rerank_config_from_value(graph_config)
+    inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
+    validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
+    validate_task_id_alignment(
+        "retrieval graph inputs",
+        set(inputs_by_task_id),
+        {graph["task_id"] for graph in graphs},
+    )
+    return ScorePipelineMethod( # score = lambda_init * init + lambda_query * query_overlap...
+        name=method,
+        retriever=retriever,
+        components=_graph_rerank_components(rerank_config),
+        graph_by_task_id={graph["task_id"]: graph for graph in graphs},
+        graph_config=rerank_config,
+    )
+
+
+def _graph_rerank_components(rerank_config: GraphRerankConfig) -> list[NodeScoreComponent]:
+    return [
+        InitialScoreComponent(weight=rerank_config.lambda_init, normalization="minmax"),
+        QueryOverlapScoreComponent(weight=rerank_config.lambda_query),
+        NeighborPropagationScoreComponent(weight=rerank_config.lambda_neighbor),
+        BridgeScoreComponent(weight=rerank_config.lambda_bridge),
+    ]
+
+
+def _seed_method_for(method: str) -> str:
+    if method == "bm25_graph_rerank":
+        return "bm25"
+    if method == "dense_graph_rerank":
+        return "dense"
+    if method in {"bm25", "dense"}:
+        return method
+    raise ValueError(f"Unsupported retrieval method: {method}")
 
 
 def _graph_rerank_config_from_value(value: GraphRerankConfig | GraphRerankConfigRecord | None) -> GraphRerankConfig:

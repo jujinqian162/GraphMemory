@@ -137,6 +137,8 @@ Dense retrieval requires the Sentence-Transformers model to be available locally
 
 ## Tune Graph Rerank On Dev
 
+Graph-rerank tuning computes the seed retriever's complete initial scores once per task in memory, then reuses those scores across the graph-rerank grid. This keeps `dense_graph_rerank` tuning compatible with the existing CLI while avoiding one dense encoding pass per candidate. No persistent score-cache artifact is written.
+
 BM25-seeded graph rerank:
 
 ```powershell

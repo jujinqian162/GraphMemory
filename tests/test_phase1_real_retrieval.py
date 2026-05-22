@@ -2,8 +2,9 @@ import numpy as np
 import pytest
 
 from graph_memory.rerank import graph_rerank, induced_retrieved_subgraph, normalize_scores
+from graph_memory.evaluation import evaluate_results
 from graph_memory.retrieval import run_retrieval
-from graph_memory.tuning import graph_rerank_grid, select_best_config, tuning_objective
+from graph_memory.tuning import graph_rerank_grid, select_best_config, tune_graph_rerank, tuning_objective
 from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput
 from graph_memory.validation import ContractValidationError
 
@@ -26,6 +27,15 @@ class FakeEncoder:
             norms[norms == 0.0] = 1.0
             array = array / norms
         return array
+
+
+class CountingFakeEncoder(FakeEncoder):
+    def __init__(self) -> None:
+        self.encode_calls = 0
+
+    def encode(self, texts, batch_size=64, normalize_embeddings=True):
+        self.encode_calls += 1
+        return super().encode(texts, batch_size=batch_size, normalize_embeddings=normalize_embeddings)
 
 
 def retrieval_task_inputs() -> list[MemoryTaskInput]:
@@ -59,6 +69,17 @@ def retrieval_task_inputs() -> list[MemoryTaskInput]:
                     "position": 2,
                 },
             ],
+        }
+    ]
+
+
+def retrieval_task_labels():
+    return [
+        {
+            "task_id": "hotpot_ex1",
+            "gold_answer": "Seine",
+            "gold_evidence_nodes": ["m0", "m1"],
+            "gold_dependency_edges": [],
         }
     ]
 
@@ -257,3 +278,60 @@ def test_graph_rerank_grid_keeps_lambda_path_zero_for_hotpotqa():
 
     assert grid
     assert {config.lambda_path for config in grid} == {0.0}
+
+
+def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():
+    encoder = CountingFakeEncoder()
+    grid = [
+        GraphRerankConfig(lambda_query=0.0, lambda_neighbor=0.05, lambda_bridge=0.0, seed_top_s=1, max_hops=1),
+        GraphRerankConfig(lambda_query=0.1, lambda_neighbor=0.05, lambda_bridge=0.0, seed_top_s=1, max_hops=1),
+    ]
+
+    tune_graph_rerank(
+        method="dense_graph_rerank",
+        task_inputs=retrieval_task_inputs(),
+        labels=retrieval_task_labels(),
+        graphs=retrieval_graphs(),
+        grid=grid,
+        top_k=2,
+        encoder_model="fake-model",
+        dense_encoder=encoder,
+    )
+
+    assert encoder.encode_calls == 2
+
+
+def test_tuning_candidate_metrics_match_normal_retrieval_path():
+    config = GraphRerankConfig(lambda_query=0.1, lambda_neighbor=0.05, lambda_bridge=0.0, seed_top_s=1, max_hops=1)
+    graphs = retrieval_graphs()
+    _, candidate_rows = tune_graph_rerank(
+        method="dense_graph_rerank",
+        task_inputs=retrieval_task_inputs(),
+        labels=retrieval_task_labels(),
+        graphs=graphs,
+        grid=[config],
+        top_k=2,
+        encoder_model="fake-model",
+        dense_encoder=FakeEncoder(),
+    )
+    expected_rows = evaluate_results(
+        run_retrieval(
+            method="dense_graph_rerank",
+            task_inputs=retrieval_task_inputs(),
+            graphs=graphs,
+            top_k=2,
+            encoder_model="fake-model",
+            dense_encoder=FakeEncoder(),
+            graph_config=config,
+        ),
+        retrieval_task_labels(),
+        graphs,
+    )
+
+    for key, value in expected_rows[0].items():
+        if key == "Retrieval Latency / Query":
+            continue
+        if isinstance(value, float):
+            assert candidate_rows[0][key] == pytest.approx(value)
+        else:
+            assert candidate_rows[0][key] == value

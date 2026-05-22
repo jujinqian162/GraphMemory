@@ -122,13 +122,13 @@ Avoid reverse dependencies:
 
 ## Tuning And Cache Boundary
 
-Phase 1 does not need a persistent score cache. Keep the first implementation simple and debuggable:
+Phase 1 does not use a persistent score cache. Keep score reuse explicit and bounded:
 
 - Flat retrievers produce complete initial rankings.
 - Graph rerank consumes an explicit `initial_scores` mapping plus a graph and config.
 - Score-pipeline methods may combine baseline scores and graph scores in memory for one task at a time.
-- Dev grid search may recompute initial rankings while the system is being debugged.
-- Future score reuse should be added as a named artifact and validation boundary only if full-dev tuning becomes a practical blocker.
+- Dev grid search precomputes seed-retriever scores once per tuning invocation and reuses them across graph-rerank candidates.
+- Persistent score reuse should be added as a named artifact and validation boundary only if full-dev tuning still becomes a practical blocker.
 
 ## Script Boundary
 

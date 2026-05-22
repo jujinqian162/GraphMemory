@@ -52,7 +52,8 @@ scripts/run_retrieval.py
 
 scripts/tune_graph_rerank.py
   -> graph_memory.tuning.tune_graph_rerank
-  -> run_retrieval on dev configs
+  -> precompute seed retriever scores once per dev task
+  -> graph rerank each dev config from the in-memory initial-score cache
   -> graph_memory.evaluation.evaluate_results
   -> graph_memory.tuning.select_best_config
 
@@ -76,6 +77,7 @@ scripts/aggregate_tables.py
 | `Retriever` | `graph_memory/types.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
 | `RetrievalMethod` | `graph_memory/retrieval.py` | Internal boundary for a public baseline method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py`, `tests/test_type_contracts.py` |
 | `ScorePipelineMethod` / `NodeScoreComponent` | `graph_memory/retrieval.py` | Composes transparent node-score components for BM25, dense, and current graph-rerank methods. | Own labels, metrics, file I/O, or future non-score baseline behavior. | `tests/test_phase1_real_retrieval.py` |
+| `InitialScoreCache` | `graph_memory/retrieval.py` | Holds per-task seed scores for one tuning invocation so graph-rerank grid search does not rerun BM25/Dense for every candidate. | Persist scores, read labels, or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
 | `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores. | Run BM25/Dense itself or use labels. | `tests/test_phase1_real_retrieval.py` |
 | Validators / validation views | `graph_memory/validation.py` | Enforce contracts and provide zero-copy type bridges for domain artifacts. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
@@ -101,6 +103,7 @@ scripts/aggregate_tables.py
 - Graph construction reads only `*_memory_tasks.input.json` fields.
 - Retrieval methods return complete rankings over every memory node.
 - Graph score components are independent from BM25/Dense retrievers except for explicit initial scores.
+- Graph-rerank tuning reuses seed-retriever scores across candidate configs without writing a persistent score-cache artifact.
 - Score-pipeline graph-method rankings match `graph_rerank(...)` on controlled artificial scores.
 - Evaluation reads labels from label artifacts only.
 - Dev tuning and test evaluation are separate.
@@ -130,7 +133,7 @@ Full-suite verification run during final implementation check:
 Result:
 
 ```text
-37 passed in 0.21s
+46 passed in 0.53s
 ```
 
 `uv run pytest` was attempted earlier, but this sandbox could not access the local uv cache and global pytest temp directories. The verified fallback uses the repository-local `.venv` and a repository-local pytest base temp.
@@ -168,13 +171,13 @@ Phase 1 intentionally does not implement:
 - 2WikiMultiHopQA
 - MuSiQue
 - tool trajectories
-- persistent score caching
+- persistent score-cache artifacts
 
 Current implementation limitations:
 
 - Dense retrieval uses Sentence-Transformers at runtime and needs the configured model available locally or downloadable.
 - Entity extraction is heuristic unless the caller explicitly enables spaCy and provides an environment with spaCy installed.
-- Graph-rerank dev tuning recomputes initial rankings for clarity; no score cache is introduced in Phase 1.
+- Graph-rerank dev tuning uses an in-memory initial-score cache only for the current process; no persistent score-cache artifact is introduced in Phase 1.
 
 ## Extension Notes
 
