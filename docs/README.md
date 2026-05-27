@@ -23,8 +23,10 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Architecture: `30-design/architecture.md`
 - Abstractions: `30-design/abstractions.md`
 - Architecture and abstraction discussion history: `10-plans/architecture-abstraction-brainstorm.md`
-- Phase 1 data contracts: `20-contracts/phase1-data-contracts.md`
-- Phase 2 trainable retriever contracts: `20-contracts/phase2-trainable-retriever-contracts.md`
+- Contract documentation guide: `20-contracts/README.md`
+- Data contracts: `20-contracts/data-contracts.md`
+- Retrieval contracts: `20-contracts/retrieval-contracts.md`
+- Model contracts: `20-contracts/model-contracts.md`
 - Naming conventions: `30-design/naming-conventions.md`
 - Logging and run records: `40-operations/logging.md`
 - Testing strategy: `30-design/testing-strategy.md`
@@ -62,6 +64,8 @@ Use stable semantic names for durable docs:
 
 ```text
 data-contracts.md
+retrieval-contracts.md
+model-contracts.md
 architecture.md
 observability.md
 commands.md

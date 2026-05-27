@@ -6,7 +6,7 @@ Status: Working reference.
 
 ## Goal
 
-Tests should protect the scientific correctness of the Phase 1 evidence-tracing pipeline. The aim is not high coverage for its own sake, but confidence that data conversion, graph construction, retrieval, reranking, tuning, and evaluation obey their contracts.
+Tests should protect the scientific correctness of the evidence-tracing pipeline across supported phases. The aim is not high coverage for its own sake, but confidence that data conversion, graph construction, retrieval, reranking, trainable retrieval, tuning, and evaluation obey their contracts.
 
 ## Principles
 
@@ -28,6 +28,9 @@ Tests should protect the scientific correctness of the Phase 1 evidence-tracing 
 | Retriever tests | Unit tests with tiny tasks | Ensure all retrievers output complete rankings in a shared shape. |
 | Score-pipeline tests | Unit tests with tiny tasks and artificial scores | Ensure method construction, score normalization, graph requirements, and component composition work. |
 | Reranker tests | Unit tests with artificial scores and graphs | Ensure graph propagation, score normalization, and graph helper compatibility work. |
+| Train pair tests | Unit tests with tiny labels, rankings, and graphs | Ensure positive and negative training samples obey the artifact contract. |
+| Tensorization tests | Unit tests with tiny graphs | Ensure message edges, relation IDs, edge weights, and ablation filters are deterministic. |
+| Trainable model tests | Unit tests with fake embeddings and tiny tensors | Ensure model forward/backward, checkpoint metadata, and batch contracts work without real encoders. |
 | Tuning tests | Unit tests with synthetic metric rows | Ensure objective and tie-breaks are deterministic. |
 | Evaluation tests | Unit tests with tiny predictions/labels/graphs | Ensure metrics and connectivity use the correct artifacts. |
 | CLI smoke tests | Small filesystem tests | Ensure scripts parse arguments and write expected artifacts. |
@@ -51,6 +54,11 @@ Possible additions if the implementation needs them:
 tests/test_phase1_real_validation.py
 tests/test_phase1_real_reproducibility.py
 tests/test_phase1_real_cli_smoke.py
+tests/test_phase2_rgcn_pairs.py
+tests/test_phase2_rgcn_tensorize.py
+tests/test_phase2_rgcn_model.py
+tests/test_phase2_rgcn_training.py
+tests/test_phase2_rgcn_retrieval.py
 ```
 
 Do not add many tiny test files too early. Start with the planned files and split only when a file becomes hard to navigate.
@@ -149,6 +157,22 @@ Must test:
 - prediction/label/graph task ID mismatch raises.
 - missing gold node references raise.
 
+### Trainable Retrieval
+
+Must test:
+
+- train pairs contain no `q` samples
+- positives exactly match gold evidence nodes
+- negatives never include gold evidence nodes
+- hard negative sampling is deterministic for a fixed seed
+- graph tensorization has stable relation vocab and message edge direction
+- disabled edge types are filtered before message edge expansion
+- `GraphBatch` and `TrainingBatch` shapes match contract expectations
+- model forward returns one logit per supervised sample
+- BCE loss can backpropagate through at least one trainable parameter
+- checkpoint metadata validates before inference
+- trainable retrieval emits the standard ranked result shape and does not read labels
+
 ## Network And Model Policy
 
 Tests must not require network access.
@@ -203,22 +227,24 @@ test_graph
 test_eval
 ```
 
-## What Not To Test Heavily In Phase 1
+## What Not To Test Heavily
 
 - Exact dense model ranking quality on real data.
 - Large-scale runtime performance.
 - End-to-end paper-quality metrics.
-- Phase 2/3 baselines.
+- Unimplemented future baselines.
 - Cached artifacts.
 
 Those are experiment verification concerns, not unit test targets.
 
 ## Implementation Readiness Criteria
 
-Before trusting a Phase 1 run:
+Before trusting an experiment run:
 
 - All unit tests pass.
 - CLI smoke tests write expected artifact files.
 - Dense tests either pass with a cached model or skip with a clear reason.
 - No retrieval or graph artifact contains label-only fields.
 - Evaluation tests prove labels are read from label artifacts only.
+- Trainable runs validate train pairs, tensor batches, and checkpoint metadata before training or inference.
+- Retrieval-only trainable inference tests prove labels and train pairs are not read.

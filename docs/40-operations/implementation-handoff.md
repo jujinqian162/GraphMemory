@@ -14,8 +14,8 @@ Recommended reading order:
 
 1. `docs/00-overview/project-overview.md`
    Confirms the Phase 1 scientific boundary: HotpotQA evidence tracing, not answer generation.
-2. `docs/20-contracts/phase1-data-contracts.md`
-   Defines the artifact schemas that validators enforce.
+2. `docs/20-contracts/data-contracts.md`
+   Defines the artifact schemas that validators enforce, including the Phase 1 artifacts used by this handoff.
 3. `docs/30-design/architecture.md` and `docs/30-design/abstractions.md`
    Explains the library-core, thin-CLI design and abstraction boundaries.
 4. `graph_memory/types.py`

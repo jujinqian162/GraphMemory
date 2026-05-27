@@ -182,3 +182,43 @@ GraphRerankMethod
 ```
 
 Use `ScorePipelineMethod` for BM25 and dense flat baselines. Current graph rerank variants use `GraphRerankMethod` in `retrieval.py` for orchestration and `graph_memory/rerank.py` for candidate expansion, graph component scoring, normalization, weighted combination, and top-k induced subgraph extraction. Use a separate `RetrievalMethod` implementation when a future baseline is primarily graph traversal, hierarchical memory selection, or learned message passing rather than a transparent weighted sum.
+
+## Trainable Retriever Extension
+
+Phase 2 may add a focused learned subpackage because trainable graph retrieval has independent data preparation, tensorization, model, checkpoint, training, and inference responsibilities.
+
+Allowed package shape:
+
+```text
+graph_memory/learned/
+  __init__.py
+  data.py
+  features.py
+  tensorize.py
+  model.py
+  checkpoint.py
+  training.py
+  inference.py
+```
+
+Responsibilities:
+
+| Module | Responsibility |
+|---|---|
+| `learned.data` | Join already-loaded tasks, labels, graphs, and train pairs into typed training examples; no file IO. |
+| `learned.features` | Build seed signals and ordered numeric node features. |
+| `learned.tensorize` | Convert validated graph artifacts into message-passing tensors. |
+| `learned.model` | Trainable graph encoder and evidence scorer modules. |
+| `learned.checkpoint` | Checkpoint metadata validation, save, and load helpers. |
+| `learned.training` | Training loop, dev evaluation loop, loss, optimizer, and checkpoint selection. |
+| `learned.inference` | Trainable `RetrievalMethod` wrapper loaded from checkpoint. |
+
+Dependency rules:
+
+- `scripts/*` own CLI parsing, paths, artifact IO, and run summaries.
+- `learned.*` modules receive parsed records, validated records, config objects, or tensors.
+- `learned.training` must not read input artifacts directly.
+- `learned.checkpoint` may read and write PyTorch checkpoints because checkpoint state is model runtime state, not generic JSON artifact IO.
+- Trainable inference must still emit the standard ranked result contract from `docs/20-contracts/data-contracts.md`.
+
+Public retrieval dispatch should use the static registry defined in `docs/20-contracts/retrieval-contracts.md`. The registry is allowed because method requirements now vary across flat retrieval, graph rerank, and trainable checkpoint-backed retrieval. It is still not a dynamic plugin system.

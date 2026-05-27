@@ -49,6 +49,10 @@ Public core signatures should use project domain types. Avoid `list[dict]`, `tup
 or other unstructured containers in conversion, retrieval, graph, tuning, and evaluation interfaces when a
 `TypedDict`, dataclass, alias, or protocol exists.
 
+Concrete types that define stable contracts must follow the bilingual triple-quoted docstring rule in
+`docs/20-contracts/README.md`. Field meaning belongs in the type docstring and contract document, not only in
+inline comments.
+
 ## Retriever
 
 Purpose:
@@ -125,6 +129,27 @@ Rules:
 - Does not own graph candidate expansion or graph component combination.
 - Returns no retrieved edges for flat methods.
 
+## RetrievalMethodSpec Registry
+
+Public method dispatch should use a static registry once methods have different required inputs.
+
+Purpose:
+
+```text
+method name -> method metadata + builder
+```
+
+Rules:
+
+- Registry keys define supported public method names.
+- CLI choices should be derived from registry keys.
+- Registry metadata declares whether graphs, graph rerank config, or checkpoint are required.
+- Builders receive explicit build context objects, not raw CLI args.
+- Heavy learned imports may be lazy inside the trainable method builder.
+- This is a local dispatch table, not dynamic plugin discovery.
+
+The field contract lives in `docs/20-contracts/retrieval-contracts.md`.
+
 ## NodeScoreComponent
 
 Purpose:
@@ -171,6 +196,26 @@ Graph-rerank methods in `retrieval.py` select the BM25/Dense seed retriever, com
 The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
 
 `graph_rerank(...)` and `graph_rerank_with_breakdown(...)` remain compatibility helpers for direct tests, debug analysis, and callers that already have initial scores.
+
+## SeedSignalProvider
+
+Trainable graph retrieval needs a shared abstraction for frozen baseline retrieval signals.
+
+Purpose:
+
+```text
+MemoryTaskInput -> one seed score/rank signal per memory node
+```
+
+Rules:
+
+- Used by hard negative sampling, node feature construction, and trainable retrieval inference.
+- Returns every memory node exactly once and never returns `q`.
+- Does not read labels.
+- Uses deterministic tie-breaking.
+- Keeps score, rank, and rank-percentile semantics explicit.
+
+The field contract lives in `docs/20-contracts/retrieval-contracts.md`.
 
 ## Graph Construction
 
@@ -250,6 +295,27 @@ aggregate_tables(...) -> table artifacts
 Service functions may loop over tasks, measure latency, and assemble artifacts. They should not read or write files directly.
 
 Tuning services may call retrieval repeatedly in the first implementation. Prefer correctness and clear run summaries over introducing cache invalidation logic before the pipeline is stable.
+
+## Trainable Graph Components
+
+Trainable graph retrieval should keep replaceable behavior small:
+
+| Concept | Form | Reason |
+|---|---|---|
+| `GraphBatch`, `TrainingBatch` | frozen dataclasses | Prevent raw dicts from leaking into model code. |
+| `GraphEncoder` | small protocol or `nn.Module` boundary | Allows identity, R-GCN, and future GAT encoders. |
+| `MessageTransform` | concrete strategy class | Keeps edge-type ablation out of the training loop. |
+| `EdgeWeightPolicy` | small function or class | Keeps edge-weight ablation in tensorization. |
+| `NodeFeatureBuilder` | concrete class with config | Keeps feature-order changes explicit and checkpointable. |
+
+Rules:
+
+- `EvidenceScoringModel.forward` should only express tensor data flow.
+- Ablations should be handled by construction-time component replacement or tensorization filtering.
+- Training loops should not know R-GCN relation math.
+- Model internals should not receive raw JSON artifact records.
+
+Tensor and checkpoint contracts live in `docs/20-contracts/model-contracts.md`.
 
 ## Anti-Abstractions
 

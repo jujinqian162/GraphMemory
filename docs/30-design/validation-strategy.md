@@ -45,7 +45,13 @@ predictions + labels + graphs
 | `validate_memory_task_labels(records, inputs_by_task_id)` | Gold labels match known task and node IDs. |
 | `validate_graphs(graphs, inputs_by_task_id)` | Graph nodes/edges are complete, endpoint-safe, and label-free. |
 | `validate_ranked_results(predictions, inputs_by_task_id)` | Rankings are complete, finite, duplicate-free, and method-consistent. |
+| `validate_train_pairs(records, inputs_by_task_id, labels_by_task_id, graphs_by_task_id)` | Train pairs match task, label, and graph artifacts without invalid negatives. |
+| `validate_train_pair_build_summary(summary)` | Negative sampling summary matches the documented artifact shape. |
 | `validate_graph_rerank_config(config)` | Rerank parameters are finite and valid. |
+| `validate_negative_sampling_config(config)` | Pair-builder sampling counts and hard-pool settings are valid. |
+| `validate_trainable_model_config(config)` | Trainable model dimensions and semantic config fields are present and valid. |
+| `validate_trainable_training_config(config)` | Train loop config fields are finite and reproducible. |
+| `validate_trainable_checkpoint_metadata(checkpoint)` | Checkpoint metadata can reconstruct the model and matches the requested method. |
 | `validate_metric_rows(rows)` | Metric rows have expected columns and valid value ranges. |
 | `validate_task_id_alignment(...)` | Artifacts match exactly where exact joins are required. |
 | `validate_no_label_fields(records)` | Input-visible artifacts contain no forbidden gold fields. |
@@ -209,6 +215,28 @@ Validate:
 - numeric metrics are in `[0.0, 1.0]`
 - latency is non-negative
 - HotpotQA-only `Path Recall@10` and `Edge Recall@10` are `N/A`
+
+### Train Pairs
+
+Validate:
+
+- pair task IDs exist in input, label, and graph artifacts
+- pair node IDs are memory nodes, never `q`
+- positive rows exactly come from gold evidence nodes
+- negative rows never include gold evidence nodes
+- `sample_type="positive"` only appears with `label=1`
+- negative sample types only appear with `label=0`
+- duplicate `(task_id, node_id, sample_type)` rows are invalid
+
+### Trainable Configs And Checkpoints
+
+Validate:
+
+- feature names and relation vocab order are explicit
+- config values needed for tensor dimensions are present
+- checkpoint `method_name` matches the requested retrieval method
+- checkpoint metadata contains model and training config
+- loading fails before model construction when metadata is incomplete
 
 ## What Validation Should Not Do
 

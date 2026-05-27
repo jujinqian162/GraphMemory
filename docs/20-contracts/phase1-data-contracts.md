@@ -2,7 +2,9 @@
 
 Date: 2026-05-20
 
-Status: Working reference. This document defines the artifact contracts for the Phase 1 HotpotQA evidence-tracing system. Future OpenSpec changes may refine it, but implementation should treat this document as the current source of truth.
+Status: Historical Phase 1 reference. The maintained project-level artifact contracts now live in `data-contracts.md`.
+
+This document is preserved for Phase 1 provenance and implementation history. Do not treat it as the current source of truth for new work; promote stable schema changes into `data-contracts.md`, `retrieval-contracts.md`, or `model-contracts.md` as appropriate.
 
 ## Contract Principles
 

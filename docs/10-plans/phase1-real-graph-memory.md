@@ -473,7 +473,7 @@ Avg Retrieved Edges
 
 - [ ] **Step 1: Define shared data shapes and configs**
 
-Create aliases, `TypedDict`s, and frozen config dataclasses for the contracts already defined in `docs/20-contracts/phase1-data-contracts.md`.
+Create aliases, `TypedDict`s, and frozen config dataclasses for the artifact contracts. The current project-level source is `docs/20-contracts/data-contracts.md`; the original Phase 1 contract document is preserved for provenance.
 
 - [ ] **Step 2: Implement fail-fast validators**
 

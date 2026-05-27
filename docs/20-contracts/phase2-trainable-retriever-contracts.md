@@ -2,9 +2,9 @@
 
 Date: 2026-05-27
 
-Status: Working contract for the first Phase 2 R-GCN trainable retriever implementation.
+Status: Historical Phase 2 planning contract. The maintained project-level contracts now live in `data-contracts.md`, `retrieval-contracts.md`, and `model-contracts.md`.
 
-This document is the canonical home for Phase 2 trainable retriever artifact schemas, internal batch contracts, model config contracts, and retrieval method registration rules. The Phase 2 implementation plan should link here instead of duplicating these field definitions.
+This document is preserved for Phase 2 design provenance. Do not treat it as the current source of truth for new work; promote stable schema, retrieval, or model changes into the project-level contract documents.
 
 ## Contract Principles
 

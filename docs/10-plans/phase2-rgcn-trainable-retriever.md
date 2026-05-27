@@ -38,7 +38,7 @@ Status: Discussion plan. This document records the current Phase 2 R-GCN design 
 - R-GCN 不复用 `graph_memory/rerank.py` 的手写图分数组件。
 - R-GCN 可以复用 seed retriever 的初始语义信号，尤其是 dense score/rank feature。
 - ablation 通过结构性组件替换或 tensorization 过滤完成，不在模型 forward 里堆叠大量 `if` 分支。
-- Phase 2 的具体 artifact、batch、config、checkpoint 类型契约维护在 `docs/20-contracts/phase2-trainable-retriever-contracts.md`，本 plan 不重复维护完整字段表。
+- Phase 2 的稳定契约维护在项目级 contract 文档中：artifact schema 见 `docs/20-contracts/data-contracts.md`，retrieval method 和 seed signal 见 `docs/20-contracts/retrieval-contracts.md`，batch/config/checkpoint 见 `docs/20-contracts/model-contracts.md`。本 plan 不重复维护完整字段表。
 - `scripts/*` 负责文件 IO；`graph_memory/learned/*` 只接收已读取、已验证或待验证的 Python 对象和 tensor，不直接读写训练输入 artifact。
 - 第一版不新增正式 `dev_pairs.json` artifact；dev evaluation 对所有 memory nodes 做 full ranking。
 - retrieval method 接入改为轻量静态 registry，避免继续扩散 `method in {...}` 判断。
@@ -190,7 +190,7 @@ scripts/build_train_pairs.py
 | `label` | `1` 表示 gold evidence，`0` 表示负样本。 |
 | `sample_type` | `positive`、`easy_random`、`hard_bm25`、`hard_dense`、`hard_graph_neighbor` 等。 |
 
-完整类型、validator、负采样 config 和 summary 字段以 `docs/20-contracts/phase2-trainable-retriever-contracts.md` 为准。
+完整 artifact 类型、validator、负采样 config 和 summary 字段以 `docs/20-contracts/data-contracts.md` 和 `docs/20-contracts/model-contracts.md` 为准。
 
 初版负样本策略：
 
@@ -250,7 +250,7 @@ training_config
 created_at
 ```
 
-`best.pt` 用于推理；epoch checkpoint 用于恢复训练和排查。`model_config` 至少必须能恢复模型维度和语义：encoder 名称、文本 prefix、hidden dim、layer 数、dropout、feature names/order、relation vocab/order、graph encoder 类型、message transform 类型、edge weight policy、canonical ablation name。详细 schema 维护在 Phase 2 contract 文档。
+`best.pt` 用于推理；epoch checkpoint 用于恢复训练和排查。`model_config` 至少必须能恢复模型维度和语义：encoder 名称、文本 prefix、hidden dim、layer 数、dropout、feature names/order、relation vocab/order、graph encoder 类型、message transform 类型、edge weight policy、canonical ablation name。详细 schema 维护在 `docs/20-contracts/model-contracts.md`。
 
 ### train_metrics.jsonl
 
@@ -313,7 +313,7 @@ graph_memory/learned/
 
 ## 核心抽象
 
-具体类型字段和双语 docstring 示例见 `docs/20-contracts/phase2-trainable-retriever-contracts.md`。
+具体类型字段见 `docs/20-contracts/data-contracts.md`、`docs/20-contracts/retrieval-contracts.md` 和 `docs/20-contracts/model-contracts.md`；双语 docstring 规则见 `docs/20-contracts/README.md`。
 
 ### GraphEncoder
 
@@ -585,7 +585,7 @@ samples = selected query-node pair rows from these tasks
 - 同一 task 中多个 positive/negative node 共享图编码结果。
 - 避免同一图重复 forward 造成浪费。
 
-`GraphBatch` 和 `TrainingBatch` 必须是 dataclass，不允许用裸 `dict` 传入 model。所有 tensor index 默认为 batch-flattened global index。具体字段定义维护在 Phase 2 contract 文档。
+`GraphBatch` 和 `TrainingBatch` 必须是 dataclass，不允许用裸 `dict` 传入 model。所有 tensor index 默认为 batch-flattened global index。具体字段定义维护在 `docs/20-contracts/model-contracts.md`。
 
 ### 训练步骤
 
