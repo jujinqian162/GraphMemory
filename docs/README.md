@@ -18,11 +18,13 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Project overview: `00-overview/project-overview.md`
 - Original student experiment plan: `archive/original-student-experiment-plan.md`
 - Phase 1 implementation plan: `10-plans/phase1-real-graph-memory.md`
+- Phase 2 R-GCN trainable retriever plan: `10-plans/phase2-rgcn-trainable-retriever.md`
 - Engineering quality discussion log: `10-plans/engineering-quality-brainstorm.md`
 - Architecture: `30-design/architecture.md`
 - Abstractions: `30-design/abstractions.md`
 - Architecture and abstraction discussion history: `10-plans/architecture-abstraction-brainstorm.md`
 - Phase 1 data contracts: `20-contracts/phase1-data-contracts.md`
+- Phase 2 trainable retriever contracts: `20-contracts/phase2-trainable-retriever-contracts.md`
 - Naming conventions: `30-design/naming-conventions.md`
 - Logging and run records: `40-operations/logging.md`
 - Testing strategy: `30-design/testing-strategy.md`
