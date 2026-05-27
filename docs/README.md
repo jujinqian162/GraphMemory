@@ -34,6 +34,13 @@ This directory is organized by abstraction level. Read from top to bottom when o
 
 ## Maintenance Rules
 
+### Phase Separation Policy
+
+- Phase-specific documents are allowed in `10-plans/` because plans record time-bounded execution scope, acceptance criteria, and implementation history.
+- Non-plan layers should be integrated project-level references. `00-overview/`, `20-contracts/`, `30-design/`, and `40-operations/` should evolve to cover the currently supported phases instead of creating parallel `phase1-*` and `phase2-*` documents.
+- When a non-plan document needs phase-specific details, keep them as clearly labeled sections inside the same maintained document.
+- If an existing non-plan document was originally phase-specific, update or rename it when the next phase depends on the same topic, then update all links.
+
 ### Choose The Right Layer
 
 - Put stable background, goals, and cross-phase requirements in `00-overview/`.
@@ -52,13 +59,13 @@ High-level docs should explain intent and decisions, not implementation minutiae
 Use stable semantic names for durable docs:
 
 ```text
-phase1-data-contracts.md
+data-contracts.md
 architecture.md
 observability.md
 commands.md
 ```
 
-Use dates only for discussion logs, meeting notes, or one-off historical records. Once a document becomes a maintained reference, remove `draft` and date noise from the file name.
+Use phase names for plan documents. Use dates only for discussion logs, meeting notes, or one-off historical records. Once a document becomes a maintained non-plan reference, remove `draft`, date noise, and phase-specific naming unless the document is being kept as historical plan material.
 
 ### Track Provenance Without Polluting The Main Path
 
@@ -92,7 +99,7 @@ Brainstorm records are allowed to be messy while decisions are forming. Once a d
 
 Examples:
 
-- Data schema discussion -> `20-contracts/phase1-data-contracts.md`
+- Data schema discussion -> `20-contracts/data-contracts.md`
 - Abstraction discussion -> `30-design/abstractions.md`
 - Logging discussion -> `40-operations/logging.md`
 
