@@ -34,6 +34,8 @@ class TrainableModelConfig:
       method_name：公开检索方法名。
     - encoder_model: Frozen text encoder model name.
       encoder_model：冻结文本 encoder 的模型名。
+    - encoder_dim: Frozen text embedding dimension used by the model input projection.
+      encoder_dim：模型 input projection 使用的冻结文本 embedding 维度。
     - query_prefix: Prefix applied to query text before encoding.
       query_prefix：编码 query 文本前添加的前缀。
     - passage_prefix: Prefix applied to memory text before encoding.
@@ -54,12 +56,15 @@ class TrainableModelConfig:
       message_transform_type：relation transform 组件名，例如 `typed` 或 `shared`。
     - edge_weight_policy: Edge weight policy name, such as `artifact` or `uniform`.
       edge_weight_policy：edge weight policy 名称，例如 `artifact` 或 `uniform`。
+    - enabled_edge_types: Ordered graph artifact edge types enabled during tensorization.
+      enabled_edge_types：tensorization 时启用的有序 graph artifact edge type。
     - ablation_name: Canonical experiment or ablation name.
       ablation_name：规范化的实验或 ablation 名称。
     """
 
     method_name: MethodName
     encoder_model: str
+    encoder_dim: int
     query_prefix: str
     passage_prefix: str
     hidden_dim: int
@@ -70,6 +75,7 @@ class TrainableModelConfig:
     graph_encoder_type: str
     message_transform_type: str
     edge_weight_policy: str
+    enabled_edge_types: tuple[str, ...]
     ablation_name: str
 ```
 
@@ -79,6 +85,7 @@ Rules:
 - `method_name` must match the public retrieval method used for inference.
 - `num_layers=0` is the canonical identity graph encoder ablation.
 - `ablation_name` is a stable experiment label, not an arbitrary run note.
+- `encoder_dim` and `enabled_edge_types` are required because they affect model reconstruction and graph tensorization.
 
 ## Training Config
 
@@ -102,6 +109,8 @@ class TrainableTrainingConfig:
       random_seed：运行级随机种子。
     - pos_weight_enabled: Whether BCE positive weighting was enabled.
       pos_weight_enabled：是否启用 BCE 正例权重。
+    - epochs: Number of training epochs.
+      epochs：训练 epoch 数量。
     """
 
     optimizer_name: str
@@ -110,6 +119,7 @@ class TrainableTrainingConfig:
     max_grad_norm: float
     random_seed: int
     pos_weight_enabled: bool
+    epochs: int
 ```
 
 Rules:

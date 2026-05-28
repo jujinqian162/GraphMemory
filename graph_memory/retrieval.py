@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
@@ -29,6 +30,9 @@ from graph_memory.validation import (
     validate_ranked_results,
     validate_task_id_alignment,
 )
+
+if TYPE_CHECKING:
+    from graph_memory.learned.features import SeedSignalProvider, TextEmbeddingProvider
 
 
 class DenseEncoder(Protocol):
@@ -68,6 +72,14 @@ class RetrievalBuildContext:
       graph_config：可选 graph rerank config 对象或 record。
     - dense_encoder: Optional injected dense encoder for tests or cached runtime state.
       dense_encoder：测试或缓存运行状态注入的可选 dense encoder。
+    - checkpoint_path: Optional trainable model checkpoint path.
+      checkpoint_path：可选可训练模型 checkpoint 路径。
+    - text_embedding_provider: Optional injected text embedding provider for trainable methods.
+      text_embedding_provider：可训练方法使用的可选文本 embedding provider 注入。
+    - seed_signal_provider: Optional injected seed signal provider for trainable methods.
+      seed_signal_provider：可训练方法使用的可选 seed signal provider 注入。
+    - device: Torch device string for trainable retrieval inference.
+      device：可训练检索推理使用的 torch device 字符串。
     """
 
     method: str
@@ -78,6 +90,10 @@ class RetrievalBuildContext:
     passage_prefix: str
     graph_config: GraphRerankConfig | Mapping[str, object] | None
     dense_encoder: DenseEncoder | None
+    checkpoint_path: str | Path | None
+    text_embedding_provider: "TextEmbeddingProvider | None"
+    seed_signal_provider: "SeedSignalProvider | None"
+    device: str
 
 
 @dataclass(frozen=True)
@@ -179,6 +195,23 @@ def _build_graph_rerank_method(context: RetrievalBuildContext) -> RetrievalMetho
     )
 
 
+def _build_trainable_graph_method(context: RetrievalBuildContext) -> RetrievalMethod:
+    if context.checkpoint_path is None:
+        raise ValueError(f"Trainable graph method={context.method} requires a checkpoint path.")
+    if not context.graphs:
+        raise ValueError(f"Trainable graph method={context.method} requires graph inputs.")
+    from graph_memory.learned.inference import TrainableGraphRetriever
+
+    return TrainableGraphRetriever.from_checkpoint(
+        context.checkpoint_path,
+        graphs=context.graphs,
+        text_embedding_provider=context.text_embedding_provider,
+        seed_signal_provider=context.seed_signal_provider,
+        dense_encoder=context.dense_encoder,
+        device=context.device,
+    )
+
+
 def _build_method_from_spec(spec: RetrievalMethodSpec, context: RetrievalBuildContext) -> RetrievalMethod:
     if spec.builder_id == "bm25":
         return _build_bm25_method(context)
@@ -186,6 +219,8 @@ def _build_method_from_spec(spec: RetrievalMethodSpec, context: RetrievalBuildCo
         return _build_dense_method(context)
     if spec.builder_id == "graph_rerank":
         return _build_graph_rerank_method(context)
+    if spec.builder_id == "trainable_graph":
+        return _build_trainable_graph_method(context)
     raise ValueError(f"Unsupported retrieval method builder={spec.builder_id} for method={spec.name}.")
 
 
@@ -199,6 +234,10 @@ def build_retrieval_method(
     passage_prefix: str = "passage: ",
     graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
     dense_encoder: DenseEncoder | None = None,
+    checkpoint_path: str | Path | None = None,
+    text_embedding_provider: "TextEmbeddingProvider | None" = None,
+    seed_signal_provider: "SeedSignalProvider | None" = None,
+    device: str = "cpu",
 ) -> RetrievalMethod:
     context = RetrievalBuildContext(
         method=method,
@@ -209,6 +248,10 @@ def build_retrieval_method(
         passage_prefix=passage_prefix,
         graph_config=graph_config,
         dense_encoder=dense_encoder,
+        checkpoint_path=checkpoint_path,
+        text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
+        device=device,
     )
     spec = get_method_spec(method)
     return _build_method_from_spec(spec, context)
@@ -306,6 +349,10 @@ def run_retrieval(
     passage_prefix: str = "passage: ",
     graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
     dense_encoder: DenseEncoder | None = None,
+    checkpoint_path: str | Path | None = None,
+    text_embedding_provider: "TextEmbeddingProvider | None" = None,
+    seed_signal_provider: "SeedSignalProvider | None" = None,
+    device: str = "cpu",
 ) -> list[RankedResult]:
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")
@@ -321,6 +368,10 @@ def run_retrieval(
         passage_prefix=passage_prefix,
         graph_config=graph_config,
         dense_encoder=dense_encoder,
+        checkpoint_path=checkpoint_path,
+        text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
+        device=device,
     )
     predictions: list[RankedResult] = []
     for task_input in task_inputs:

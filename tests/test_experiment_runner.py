@@ -14,6 +14,9 @@ from graph_memory.experiment import (
 import scripts.experiment as experiment_script
 
 
+TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
+
+
 def _write_experiment_config(path: Path, raw_path: Path) -> None:
     payload = {
         "recipe": "hotpotqa_evidence_retrieval",
@@ -56,6 +59,82 @@ def _write_experiment_config(path: Path, raw_path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_trainable_experiment_config(path: Path, raw_path: Path, training_config_path: Path) -> None:
+    _write_experiment_config(path, raw_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["methods"] = ["bm25", TRAINABLE_METHOD]
+    payload["training_configs"] = {TRAINABLE_METHOD: str(training_config_path)}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _write_rgcn_training_config(path: Path) -> None:
+    payload = {
+        "schema_version": 1,
+        "method": TRAINABLE_METHOD,
+        "default_profile": "quick",
+        "defaults": {
+            "encoder": {
+                "model": "intfloat/e5-base-v2",
+                "query_prefix": "query: ",
+                "passage_prefix": "passage: ",
+            },
+            "model": {
+                "hidden_dim": 128,
+                "num_layers": 2,
+                "dropout": 0.1,
+                "ablation": "full_rgcn",
+            },
+            "optimization": {
+                "optimizer": "AdamW",
+                "epochs": 5,
+                "batch_size": 8,
+                "learning_rate": 0.0001,
+                "max_grad_norm": 1.0,
+                "random_seed": 13,
+                "pos_weight": True,
+                "device": "cpu",
+            },
+            "pair_sampling": {
+                "random_seed": 13,
+                "easy_random_per_positive": 2,
+                "hard_bm25_per_positive": 2,
+                "hard_dense_per_positive": 0,
+                "hard_graph_neighbor_per_positive": 1,
+                "hard_pool_size": 30,
+            },
+            "selection": {
+                "best_metric": "dev_composite",
+                "higher_is_better": True,
+            },
+            "reporting": {
+                "render_training_curves": True,
+            },
+        },
+        "profiles": {
+            "smoke": {
+                "model": {"hidden_dim": 32, "num_layers": 1},
+                "optimization": {"epochs": 1, "batch_size": 1, "device": "cpu"},
+                "pair_sampling": {
+                    "easy_random_per_positive": 1,
+                    "hard_bm25_per_positive": 1,
+                    "hard_dense_per_positive": 0,
+                    "hard_graph_neighbor_per_positive": 1,
+                },
+            },
+            "quick": {
+                "optimization": {"epochs": 5, "batch_size": 16, "device": "cpu"},
+            },
+            "full": {
+                "model": {"hidden_dim": 256, "num_layers": 2},
+                "optimization": {"epochs": 10, "batch_size": 32, "device": "cuda"},
+                "pair_sampling": {"hard_dense_per_positive": 2},
+            },
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def test_initialize_experiment_merges_profile_and_cli_overrides(tmp_path):
     raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
     config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
@@ -80,6 +159,35 @@ def test_initialize_experiment_merges_profile_and_cli_overrides(tmp_path):
     assert effective_config["splits"]["test"]["max_examples"] == 1
     assert manifest["profile"] == "quick"
     assert manifest_json["effective_config"]["top_k"] == 5
+
+
+def test_training_config_resolves_profile_over_defaults(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    training_config_path = tmp_path / "configs" / "training" / TRAINABLE_METHOD / "base.json"
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_rgcn_training_config(training_config_path)
+    _write_trainable_experiment_config(config_path, raw_path, training_config_path)
+
+    manifest = initialize_experiment(
+        "quick_rgcn",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    resolved = manifest["effective_config"]["training"][TRAINABLE_METHOD]
+    learned = manifest["artifacts"]["learned"][TRAINABLE_METHOD]
+    effective_training_config_path = tmp_path / "runs" / "quick_rgcn" / "learned" / TRAINABLE_METHOD / "effective_training_config.json"
+
+    assert resolved["profile"] == "quick"
+    assert resolved["optimization"]["batch_size"] == 16
+    assert resolved["optimization"]["epochs"] == 5
+    assert resolved["model"]["hidden_dim"] == 128
+    assert Path(learned["train_pairs"]) == tmp_path / "runs" / "quick_rgcn" / "learned" / TRAINABLE_METHOD / "train.pairs.json"
+    assert Path(learned["best_checkpoint"]) == tmp_path / "runs" / "quick_rgcn" / "learned" / TRAINABLE_METHOD / "checkpoints" / "best.pt"
+    assert Path(learned["effective_training_config"]) == effective_training_config_path
+    assert json.loads(effective_training_config_path.read_text(encoding="utf-8")) == resolved
 
 
 def test_initialize_experiment_generates_deterministic_run_paths(tmp_path):
@@ -108,6 +216,41 @@ def test_initialize_experiment_generates_deterministic_run_paths(tmp_path):
         == run_dir / "predictions" / "test.dense_graph_rerank.ranked.json"
     )
     assert Path(manifest["artifacts"]["tables"]["main"]) == run_dir / "tables" / "main_results.csv"
+
+
+def test_experiment_plan_uses_config_not_training_cli_sprawl(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    training_config_path = tmp_path / "configs" / "training" / TRAINABLE_METHOD / "base.json"
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_rgcn_training_config(training_config_path)
+    _write_trainable_experiment_config(config_path, raw_path, training_config_path)
+    manifest = initialize_experiment(
+        "quick_rgcn",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    commands = build_stage_plan(
+        manifest,
+        stages=["pairs", "train", "retrieve"],
+        methods=[TRAINABLE_METHOD],
+    )
+    rendered_by_stage = {command.stage: " ".join(command.argv) for command in commands}
+
+    assert "scripts/build_train_pairs.py" in rendered_by_stage["pairs"]
+    assert "--config" in rendered_by_stage["pairs"]
+    assert "effective_training_config.json" in rendered_by_stage["pairs"]
+    assert "--easy_random_per_positive" not in rendered_by_stage["pairs"]
+    assert "scripts/train_graph_retriever.py" in rendered_by_stage["train"]
+    assert "--config" in rendered_by_stage["train"]
+    assert "effective_training_config.json" in rendered_by_stage["train"]
+    for training_flag in ("--batch_size", "--epochs", "--hidden_dim", "--learning_rate", "--device"):
+        assert training_flag not in rendered_by_stage["train"]
+    assert "--checkpoint" in rendered_by_stage["retrieve"]
+    assert "checkpoints/best.pt" in rendered_by_stage["retrieve"]
+    assert "--device cpu" in rendered_by_stage["retrieve"]
 
 
 def test_plan_generates_low_level_commands_without_outputs(tmp_path):
@@ -206,8 +349,41 @@ def test_retrieve_graph_rerank_requires_tune_stage_or_existing_tuned_config(tmp_
     assert [command.stage for command in commands_after_tune] == ["retrieve"]
 
 
+def test_trainable_retrieve_requires_checkpoint_or_train_stage(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    training_config_path = tmp_path / "configs" / "training" / TRAINABLE_METHOD / "base.json"
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_rgcn_training_config(training_config_path)
+    _write_trainable_experiment_config(config_path, raw_path, training_config_path)
+    manifest = initialize_experiment(
+        "quick_rgcn",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    with pytest.raises(ValueError, match="requires a trained checkpoint"):
+        build_stage_plan(manifest, stages=["retrieve"], methods=[TRAINABLE_METHOD])
+
+    commands_with_train = build_stage_plan(
+        manifest,
+        stages=["pairs", "train", "retrieve"],
+        methods=[TRAINABLE_METHOD],
+    )
+    assert [command.stage for command in commands_with_train] == ["pairs", "train", "retrieve"]
+
+    checkpoint_path = Path(manifest["artifacts"]["learned"][TRAINABLE_METHOD]["best_checkpoint"])
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_bytes(b"placeholder")
+
+    commands_after_train = build_stage_plan(manifest, stages=["retrieve"], methods=[TRAINABLE_METHOD])
+    assert [command.stage for command in commands_after_train] == ["retrieve"]
+
+
 def test_repository_experiment_configs_have_clear_roles():
     assert Path("configs/experiments/hotpotqa_evidence_retrieval.json").exists()
+    assert Path("configs/training/dense_rgcn_graph_retriever/base.json").exists()
     assert Path("configs/search_spaces/graph_rerank.json").exists()
     assert Path("configs/published/README.md").exists()
 

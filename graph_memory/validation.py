@@ -68,6 +68,47 @@ NEGATIVE_SAMPLING_CONFIG_FIELDS = {
     "hard_graph_neighbor_per_positive",
     "hard_pool_size",
 }
+NODE_FEATURE_CONFIG_FIELDS = {"node_feature_names", "scorer_feature_names"}
+TRAINABLE_MODEL_CONFIG_FIELDS = {
+    "method_name",
+    "encoder_model",
+    "encoder_dim",
+    "query_prefix",
+    "passage_prefix",
+    "hidden_dim",
+    "num_layers",
+    "dropout",
+    "feature_config",
+    "relation_vocab",
+    "graph_encoder_type",
+    "message_transform_type",
+    "edge_weight_policy",
+    "enabled_edge_types",
+    "ablation_name",
+}
+TRAINABLE_TRAINING_CONFIG_FIELDS = {
+    "optimizer_name",
+    "learning_rate",
+    "batch_size",
+    "max_grad_norm",
+    "random_seed",
+    "pos_weight_enabled",
+    "epochs",
+}
+TRAINABLE_CHECKPOINT_FIELDS = {
+    "checkpoint_version",
+    "method_name",
+    "model_state_dict",
+    "optimizer_state_dict",
+    "scheduler_state_dict",
+    "epoch",
+    "global_step",
+    "best_dev_metric",
+    "model_config",
+    "training_config",
+    "created_at",
+}
+KNOWN_NODE_FEATURES = {"seed_score", "seed_rank_percentile", "is_question_node"}
 
 METRIC_COLUMNS = [
     "Method",
@@ -394,6 +435,142 @@ def validate_train_pair_build_summary(summary: object) -> None:
     validate_negative_sampling_config(sampling_config)
 
 
+def validate_trainable_model_config(config: object) -> None:
+    config_dict = _to_plain_dict(config)
+    _reject_unknown_fields(config_dict, TRAINABLE_MODEL_CONFIG_FIELDS, "trainable model config")
+    _required_string(config_dict, "method_name", "trainable model config")
+    _required_string(config_dict, "encoder_model", "trainable model config")
+    _required_int(config_dict, "encoder_dim", "trainable model config", minimum=1)
+    _required_string(config_dict, "query_prefix", "trainable model config")
+    _required_string(config_dict, "passage_prefix", "trainable model config")
+    _required_int(config_dict, "hidden_dim", "trainable model config", minimum=1)
+    _required_int(config_dict, "num_layers", "trainable model config", minimum=0)
+    dropout = _required_finite_number(config_dict, "dropout", "trainable model config", minimum=0.0)
+    if dropout >= 1.0:
+        raise ContractValidationError("Invalid trainable model config: dropout must be < 1.0.")
+
+    _validate_node_feature_config(config_dict.get("feature_config"))
+    _validate_string_sequence(config_dict.get("relation_vocab"), "relation_vocab", allow_empty=False)
+    graph_encoder_type = _required_string(config_dict, "graph_encoder_type", "trainable model config")
+    if graph_encoder_type not in {"identity", "rgcn"}:
+        raise ContractValidationError("Invalid trainable model config: graph_encoder_type must be identity or rgcn.")
+    message_transform_type = _required_string(config_dict, "message_transform_type", "trainable model config")
+    if message_transform_type not in {"typed", "shared"}:
+        raise ContractValidationError("Invalid trainable model config: message_transform_type must be typed or shared.")
+    edge_weight_policy = _required_string(config_dict, "edge_weight_policy", "trainable model config")
+    if edge_weight_policy not in {"artifact", "uniform"}:
+        raise ContractValidationError("Invalid trainable model config: edge_weight_policy must be artifact or uniform.")
+    enabled_edge_types = set(_validate_string_sequence(config_dict.get("enabled_edge_types"), "enabled_edge_types", allow_empty=True))
+    unknown_edge_types = sorted(enabled_edge_types - ALLOWED_EDGE_TYPES)
+    if unknown_edge_types:
+        raise ContractValidationError(
+            f"Invalid trainable model config: unsupported enabled_edge_types={unknown_edge_types}."
+        )
+    _required_string(config_dict, "ablation_name", "trainable model config")
+
+
+def validate_trainable_training_config(config: object) -> None:
+    config_dict = _to_plain_dict(config)
+    _reject_unknown_fields(config_dict, TRAINABLE_TRAINING_CONFIG_FIELDS, "trainable training config")
+    if _required_string(config_dict, "optimizer_name", "trainable training config") != "AdamW":
+        raise ContractValidationError("Invalid trainable training config: optimizer_name must be AdamW.")
+    _required_finite_number(config_dict, "learning_rate", "trainable training config", minimum=0.0)
+    _required_int(config_dict, "batch_size", "trainable training config", minimum=1)
+    _required_finite_number(config_dict, "max_grad_norm", "trainable training config", minimum=0.0)
+    _required_int(config_dict, "random_seed", "trainable training config")
+    if not isinstance(config_dict.get("pos_weight_enabled"), bool):
+        raise ContractValidationError("Invalid trainable training config: pos_weight_enabled must be boolean.")
+    _required_int(config_dict, "epochs", "trainable training config", minimum=1)
+
+
+def validate_trainable_checkpoint_metadata(checkpoint: object, *, expected_method: str | None = None) -> None:
+    checkpoint = _require_record(checkpoint, "trainable checkpoint")
+    _reject_unknown_fields(checkpoint, TRAINABLE_CHECKPOINT_FIELDS, "trainable checkpoint")
+    version = _required_int(checkpoint, "checkpoint_version", "trainable checkpoint", minimum=1)
+    if version != 1:
+        raise ContractValidationError(f"Invalid trainable checkpoint: unsupported checkpoint_version={version}.")
+    method_name = _required_string(checkpoint, "method_name", "trainable checkpoint")
+    if expected_method is not None and method_name != expected_method:
+        raise ContractValidationError(
+            f"Invalid trainable checkpoint: method_name={method_name} does not match expected_method={expected_method}."
+        )
+    if not isinstance(checkpoint.get("model_state_dict"), dict):
+        raise ContractValidationError("Invalid trainable checkpoint: model_state_dict must be present.")
+    if not isinstance(checkpoint.get("optimizer_state_dict"), dict):
+        raise ContractValidationError("Invalid trainable checkpoint: optimizer_state_dict must be present.")
+    if not isinstance(checkpoint.get("scheduler_state_dict"), dict):
+        raise ContractValidationError("Invalid trainable checkpoint: scheduler_state_dict must be present.")
+    _required_int(checkpoint, "epoch", "trainable checkpoint", minimum=0)
+    _required_int(checkpoint, "global_step", "trainable checkpoint", minimum=0)
+    _required_finite_number(checkpoint, "best_dev_metric", "trainable checkpoint")
+    validate_trainable_model_config(checkpoint.get("model_config"))
+    validate_trainable_training_config(checkpoint.get("training_config"))
+    _required_string(checkpoint, "created_at", "trainable checkpoint")
+
+
+def validate_graph_batch(batch: object) -> None:
+    total_nodes = _require_tensor_2d(batch, "node_embeddings", "graph batch").shape[0]
+    node_features_shape = _require_tensor_2d(batch, "node_features", "graph batch").shape
+    if node_features_shape[0] != total_nodes:
+        raise ContractValidationError("Invalid graph batch: node_features first dimension must match node_embeddings.")
+    edge_index_shape = _require_tensor_2d(batch, "edge_index", "graph batch").shape
+    if edge_index_shape[0] != 2:
+        raise ContractValidationError("Invalid graph batch: edge_index must have shape [2, num_message_edges].")
+    relation_ids_shape = _require_tensor_1d(batch, "relation_ids", "graph batch").shape
+    edge_weights_shape = _require_tensor_1d(batch, "edge_weights", "graph batch").shape
+    if relation_ids_shape[0] != edge_index_shape[1]:
+        raise ContractValidationError("Invalid graph batch: relation_ids length must match edge_index columns.")
+    if edge_weights_shape[0] != edge_index_shape[1]:
+        raise ContractValidationError("Invalid graph batch: edge_weights length must match edge_index columns.")
+
+    query_indices_shape = _require_tensor_1d(batch, "query_node_indices", "graph batch").shape
+    task_ids = _required_attr(batch, "task_ids", "graph batch")
+    task_node_offsets = _required_attr(batch, "task_node_offsets", "graph batch")
+    node_ids_by_task = _required_attr(batch, "node_ids_by_task", "graph batch")
+    if not isinstance(task_ids, list) or not all(isinstance(task_id, str) and task_id for task_id in task_ids):
+        raise ContractValidationError("Invalid graph batch: task_ids must be a list of non-empty strings.")
+    if query_indices_shape[0] != len(task_ids):
+        raise ContractValidationError("Invalid graph batch: query_node_indices length must match task_ids.")
+    if not isinstance(task_node_offsets, list) or len(task_node_offsets) != len(task_ids) + 1:
+        raise ContractValidationError("Invalid graph batch: task_node_offsets length must be len(task_ids) + 1.")
+    if task_node_offsets[0] != 0 or task_node_offsets[-1] != total_nodes:
+        raise ContractValidationError("Invalid graph batch: task_node_offsets must start at 0 and end at total_nodes.")
+    if any(not isinstance(offset, int) for offset in task_node_offsets):
+        raise ContractValidationError("Invalid graph batch: task_node_offsets entries must be integers.")
+    if any(left > right for left, right in zip(task_node_offsets, task_node_offsets[1:])):
+        raise ContractValidationError("Invalid graph batch: task_node_offsets must be monotonic.")
+    if not isinstance(node_ids_by_task, list) or len(node_ids_by_task) != len(task_ids):
+        raise ContractValidationError("Invalid graph batch: node_ids_by_task length must match task_ids.")
+    for index, node_ids in enumerate(node_ids_by_task):
+        if not isinstance(node_ids, list) or "q" not in node_ids:
+            raise ContractValidationError("Invalid graph batch: every node_ids_by_task entry must be a list containing q.")
+        expected_length = task_node_offsets[index + 1] - task_node_offsets[index]
+        if len(node_ids) != expected_length:
+            raise ContractValidationError("Invalid graph batch: node_ids_by_task lengths must match task_node_offsets.")
+
+
+def validate_training_batch(batch: object) -> None:
+    graph_batch = _required_attr(batch, "graph_batch", "training batch")
+    validate_graph_batch(graph_batch)
+    num_samples = _require_tensor_1d(batch, "sample_node_indices", "training batch").shape[0]
+    if _require_tensor_1d(batch, "sample_query_indices", "training batch").shape[0] != num_samples:
+        raise ContractValidationError("Invalid training batch: sample_query_indices length must match samples.")
+    if _require_tensor_1d(batch, "labels", "training batch").shape[0] != num_samples:
+        raise ContractValidationError("Invalid training batch: labels length must match samples.")
+    sample_node_features_shape = _require_tensor_2d(batch, "sample_node_features", "training batch").shape
+    if sample_node_features_shape[0] != num_samples:
+        raise ContractValidationError("Invalid training batch: sample_node_features first dimension must match samples.")
+    sample_node_ids: list[object] | None = None
+    for field_name in ["sample_task_ids", "sample_node_ids", "sample_types"]:
+        value = _required_attr(batch, field_name, "training batch")
+        if not isinstance(value, list) or len(value) != num_samples:
+            raise ContractValidationError(f"Invalid training batch: {field_name} must be a list matching samples.")
+        if field_name == "sample_node_ids":
+            sample_node_ids = value
+    if sample_node_ids is not None and any(node_id == "q" for node_id in sample_node_ids):
+        raise ContractValidationError("Invalid training batch: sample_node_ids must not contain q.")
+
+
 def validate_graph_rerank_config(config: object) -> None:
     config_dict = _to_plain_dict(config)
     if "type_weights" in config_dict:
@@ -665,3 +842,48 @@ def _to_plain_dict(config: object) -> ValidationRecord:
     if is_dataclass(config) and not isinstance(config, type):
         return cast(ValidationRecord, asdict(config))
     raise ContractValidationError("Invalid config: expected dict or dataclass instance.")
+
+
+def _validate_node_feature_config(value: object) -> None:
+    feature_config = _to_plain_dict(value)
+    _reject_unknown_fields(feature_config, NODE_FEATURE_CONFIG_FIELDS, "node feature config")
+    for field_name in ["node_feature_names", "scorer_feature_names"]:
+        feature_names = _validate_string_sequence(feature_config.get(field_name), field_name, allow_empty=True)
+        unknown = sorted(set(feature_names) - KNOWN_NODE_FEATURES)
+        if unknown:
+            raise ContractValidationError(f"Invalid node feature config: unsupported {field_name}={unknown}.")
+
+
+def _validate_string_sequence(value: object, field_name: str, *, allow_empty: bool) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ContractValidationError(f"Invalid trainable model config: {field_name} must be a list or tuple.")
+    if not allow_empty and not value:
+        raise ContractValidationError(f"Invalid trainable model config: {field_name} must be non-empty.")
+    strings: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise ContractValidationError(f"Invalid trainable model config: {field_name} entries must be non-empty strings.")
+        strings.append(item)
+    if len(strings) != len(set(strings)):
+        raise ContractValidationError(f"Invalid trainable model config: {field_name} contains duplicate entries.")
+    return tuple(strings)
+
+
+def _required_attr(value: object, field_name: str, artifact_name: str) -> Any:
+    if not hasattr(value, field_name):
+        raise ContractValidationError(f"Invalid {artifact_name}: missing field={field_name}.")
+    return getattr(value, field_name)
+
+
+def _require_tensor_1d(value: object, field_name: str, artifact_name: str) -> Any:
+    tensor = _required_attr(value, field_name, artifact_name)
+    if getattr(tensor, "ndim", None) != 1:
+        raise ContractValidationError(f"Invalid {artifact_name}: {field_name} must be a 1D tensor.")
+    return tensor
+
+
+def _require_tensor_2d(value: object, field_name: str, artifact_name: str) -> Any:
+    tensor = _required_attr(value, field_name, artifact_name)
+    if getattr(tensor, "ndim", None) != 2:
+        raise ContractValidationError(f"Invalid {artifact_name}: {field_name} must be a 2D tensor.")
+    return tensor

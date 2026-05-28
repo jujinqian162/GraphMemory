@@ -1,1 +1,1 @@
-"""Trainable graph retrieval helpers."""
+"""Trainable graph retrieval helpers for Phase 2 R-GCN scoring."""

@@ -358,6 +358,150 @@ class NodeFeatureConfig:
 
 
 @dataclass(frozen=True)
+class TrainableModelConfig:
+    """
+    Minimal model reconstruction config saved in every trainable checkpoint.
+    每个可训练 checkpoint 中保存的最小模型重建配置。
+
+    Fields / 字段:
+    - method_name: Public retrieval method name.
+      method_name：公开检索方法名。
+    - encoder_model: Frozen text encoder model name.
+      encoder_model：冻结文本 encoder 的模型名。
+    - encoder_dim: Frozen text embedding dimension used by the model input projection.
+      encoder_dim：模型 input projection 使用的冻结文本 embedding 维度。
+    - query_prefix: Prefix applied to query text before encoding.
+      query_prefix：编码 query 文本前添加的前缀。
+    - passage_prefix: Prefix applied to memory text before encoding.
+      passage_prefix：编码 memory 文本前添加的前缀。
+    - hidden_dim: Hidden dimension used by graph encoder and scorer.
+      hidden_dim：graph encoder 和 scorer 使用的隐藏维度。
+    - num_layers: Number of R-GCN layers; 0 means identity graph encoder.
+      num_layers：R-GCN 层数；0 表示 identity graph encoder。
+    - dropout: Dropout probability.
+      dropout：dropout 概率。
+    - feature_config: Ordered node and scorer feature names.
+      feature_config：有序的 node 和 scorer 特征名。
+    - relation_vocab: Ordered relation names used by relation ids.
+      relation_vocab：relation id 使用的有序 relation 名称。
+    - graph_encoder_type: Graph encoder component name, such as `rgcn` or `identity`.
+      graph_encoder_type：graph encoder 组件名，例如 `rgcn` 或 `identity`。
+    - message_transform_type: Relation transform component name, such as `typed` or `shared`.
+      message_transform_type：relation transform 组件名，例如 `typed` 或 `shared`。
+    - edge_weight_policy: Edge weight policy name, such as `artifact` or `uniform`.
+      edge_weight_policy：edge weight policy 名称，例如 `artifact` 或 `uniform`。
+    - enabled_edge_types: Ordered graph artifact edge types enabled during tensorization.
+      enabled_edge_types：tensorization 时启用的有序 graph artifact edge type。
+    - ablation_name: Canonical experiment or ablation name.
+      ablation_name：规范化的实验或 ablation 名称。
+    """
+
+    method_name: MethodName
+    encoder_model: str
+    encoder_dim: int
+    query_prefix: str
+    passage_prefix: str
+    hidden_dim: int
+    num_layers: int
+    dropout: float
+    feature_config: NodeFeatureConfig
+    relation_vocab: tuple[str, ...]
+    graph_encoder_type: str
+    message_transform_type: str
+    edge_weight_policy: str
+    enabled_edge_types: tuple[str, ...]
+    ablation_name: str
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "method_name": self.method_name,
+            "encoder_model": self.encoder_model,
+            "encoder_dim": self.encoder_dim,
+            "query_prefix": self.query_prefix,
+            "passage_prefix": self.passage_prefix,
+            "hidden_dim": self.hidden_dim,
+            "num_layers": self.num_layers,
+            "dropout": self.dropout,
+            "feature_config": {
+                "node_feature_names": list(self.feature_config.node_feature_names),
+                "scorer_feature_names": list(self.feature_config.scorer_feature_names),
+            },
+            "relation_vocab": list(self.relation_vocab),
+            "graph_encoder_type": self.graph_encoder_type,
+            "message_transform_type": self.message_transform_type,
+            "edge_weight_policy": self.edge_weight_policy,
+            "enabled_edge_types": list(self.enabled_edge_types),
+            "ablation_name": self.ablation_name,
+        }
+
+
+@dataclass(frozen=True)
+class TrainableTrainingConfig:
+    """
+    Minimal training config needed to resume or audit a trainable run.
+    用于恢复或审计可训练运行的最小训练配置。
+
+    Fields / 字段:
+    - optimizer_name: Optimizer name, default `AdamW`.
+      optimizer_name：优化器名称，默认 `AdamW`。
+    - learning_rate: Graph/scorer learning rate.
+      learning_rate：graph/scorer 学习率。
+    - batch_size: Number of task graphs per training batch.
+      batch_size：每个 training batch 中的 task graph 数量。
+    - max_grad_norm: Gradient clipping maximum norm.
+      max_grad_norm：梯度裁剪最大 norm。
+    - random_seed: Run-level random seed.
+      random_seed：运行级随机种子。
+    - pos_weight_enabled: Whether BCE positive weighting was enabled.
+      pos_weight_enabled：是否启用 BCE 正例权重。
+    - epochs: Number of training epochs.
+      epochs：训练 epoch 数量。
+    """
+
+    optimizer_name: str = "AdamW"
+    learning_rate: float = 1e-4
+    batch_size: int = 1
+    max_grad_norm: float = 1.0
+    random_seed: int = 13
+    pos_weight_enabled: bool = False
+    epochs: int = 1
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "optimizer_name": self.optimizer_name,
+            "learning_rate": self.learning_rate,
+            "batch_size": self.batch_size,
+            "max_grad_norm": self.max_grad_norm,
+            "random_seed": self.random_seed,
+            "pos_weight_enabled": self.pos_weight_enabled,
+            "epochs": self.epochs,
+        }
+
+
+@dataclass(frozen=True)
+class SeedSignal:
+    """
+    Frozen seed retrieval signal for one memory node.
+    一个 memory node 的冻结初始检索信号。
+
+    Fields / 字段:
+    - node_id: Memory node id receiving this seed signal.
+      node_id：该 seed signal 对应的 memory node id。
+    - score: Raw seed retriever score.
+      score：seed retriever 原始分数。
+    - rank: One-based rank after descending score and ascending node id tie-break.
+      rank：从 1 开始的排名；按 score 降序、node id 升序打破平局。
+    - rank_percentile: Rank percentile in [0, 1], where 0 means best and 1 means worst.
+      rank_percentile：范围 [0, 1] 的排名百分位，0 表示最好，1 表示最差。
+    """
+
+    node_id: NodeId
+    score: float
+    rank: int
+    rank_percentile: float
+
+
+@dataclass(frozen=True)
 class GraphBatch:
     """
     Tensorized batch of one or more task graphs for message passing.

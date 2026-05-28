@@ -13,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from graph_memory.io import read_json, write_json
 from graph_memory.learned.data import build_train_pairs
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.training_config import (
+    load_trainable_training_config,
+    negative_sampling_config_from_training_config,
+)
 from graph_memory.types import NegativeSamplingConfig
 
 LOGGER = logging.getLogger("build_train_pairs")
@@ -45,6 +49,8 @@ class BuildTrainPairsArgs:
       hard_graph_neighbor_per_positive：每个正例对应的 graph-neighbor 负例数量。
     - hard_pool_size: Candidate pool size for hard retriever negatives.
       hard_pool_size：hard retriever 负例候选池大小。
+    - config: Optional resolved trainable training config path.
+      config：可选的已解析可训练 training config 路径。
     """
 
     tasks: str
@@ -57,6 +63,7 @@ class BuildTrainPairsArgs:
     hard_dense_per_positive: int
     hard_graph_neighbor_per_positive: int
     hard_pool_size: int
+    config: str | None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -68,14 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_path = Path(args.output)
     summary_path = output_path.with_name(f"{output_path.stem}.summary.json")
     run_summary_path = output_path.with_name(f"{output_path.stem}.run_summary.json")
-    sampling_config = NegativeSamplingConfig(
-        random_seed=args.random_seed,
-        easy_random_per_positive=args.easy_random_per_positive,
-        hard_bm25_per_positive=args.hard_bm25_per_positive,
-        hard_dense_per_positive=args.hard_dense_per_positive,
-        hard_graph_neighbor_per_positive=args.hard_graph_neighbor_per_positive,
-        hard_pool_size=args.hard_pool_size,
-    )
+    sampling_config = _sampling_config_from_args(args)
     effective_config = {
         "random_seed": sampling_config.random_seed,
         "easy_random_per_positive": sampling_config.easy_random_per_positive,
@@ -157,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=defaults.hard_graph_neighbor_per_positive,
     )
     parser.add_argument("--hard_pool_size", type=int, default=defaults.hard_pool_size)
+    parser.add_argument("--config", default=None, help="Path to resolved trainable training config JSON.")
     return parser
 
 
@@ -173,6 +174,21 @@ def parse_args(argv: Sequence[str] | None = None) -> BuildTrainPairsArgs:
         hard_dense_per_positive=namespace.hard_dense_per_positive,
         hard_graph_neighbor_per_positive=namespace.hard_graph_neighbor_per_positive,
         hard_pool_size=namespace.hard_pool_size,
+        config=namespace.config,
+    )
+
+
+def _sampling_config_from_args(args: BuildTrainPairsArgs) -> NegativeSamplingConfig:
+    if args.config is not None:
+        training_config = load_trainable_training_config(args.config, required_sections=("pair_sampling",))
+        return negative_sampling_config_from_training_config(training_config)
+    return NegativeSamplingConfig(
+        random_seed=args.random_seed,
+        easy_random_per_positive=args.easy_random_per_positive,
+        hard_bm25_per_positive=args.hard_bm25_per_positive,
+        hard_dense_per_positive=args.hard_dense_per_positive,
+        hard_graph_neighbor_per_positive=args.hard_graph_neighbor_per_positive,
+        hard_pool_size=args.hard_pool_size,
     )
 
 

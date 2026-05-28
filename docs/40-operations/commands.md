@@ -24,7 +24,7 @@ Initialize a run:
 python scripts/experiment.py init quick_valid_100 `
   --config configs/experiments/hotpotqa_evidence_retrieval.json `
   --profile quick `
-  --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank
+  --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever
 ```
 
 Plan without executing:
@@ -42,8 +42,8 @@ Run a BM25-only quick path:
 python scripts/experiment.py run quick_valid_100 `
   --config configs/experiments/hotpotqa_evidence_retrieval.json `
   --profile quick `
-  --methods bm25 `
-  --stages prepare,graphs,retrieve,evaluate,aggregate
+  --methods dense_rgcn_graph_retriever `
+  --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate
 ```
 
 Resume from retrieval for selected methods:
@@ -169,15 +169,29 @@ python scripts/build_train_pairs.py `
   --labels data/hotpotqa/processed/train_memory_tasks.labels.json `
   --graphs data/hotpotqa/processed/train_graphs.json `
   --output data/hotpotqa/processed/train_pairs.json `
-  --random_seed 13 `
-  --easy_random_per_positive 2 `
-  --hard_bm25_per_positive 2 `
-  --hard_dense_per_positive 0 `
-  --hard_graph_neighbor_per_positive 1 `
-  --hard_pool_size 30
+  --config configs/training/dense_rgcn_graph_retriever/base.json
 ```
 
-Set `--hard_dense_per_positive` above `0` only when the configured dense encoder is available in the environment.
+For normal experiment runs, edit `configs/training/dense_rgcn_graph_retriever/base.json` instead of passing negative-sampling flags directly. For example, change `profiles.quick.pair_sampling.hard_dense_per_positive` only when the configured dense encoder is available in the environment.
+
+## Train Phase 2 R-GCN Retriever
+
+`train_graph_retriever.py` reads train input/label/graph/pair artifacts and dev input/label/graph artifacts. It writes `train_metrics.jsonl`, `train_run_summary.json`, `checkpoints/checkpoint_epoch_<n>.pt`, and `checkpoints/best.pt` under `--output_dir`.
+
+```powershell
+python scripts/train_graph_retriever.py `
+  --train_tasks data/hotpotqa/processed/train_memory_tasks.input.json `
+  --train_labels data/hotpotqa/processed/train_memory_tasks.labels.json `
+  --train_graphs data/hotpotqa/processed/train_graphs.json `
+  --train_pairs data/hotpotqa/processed/train_pairs.json `
+  --dev_tasks data/hotpotqa/processed/dev_memory_tasks.input.json `
+  --dev_labels data/hotpotqa/processed/dev_memory_tasks.labels.json `
+  --dev_graphs data/hotpotqa/processed/dev_graphs.json `
+  --output_dir runs/manual_rgcn `
+  --config configs/training/dense_rgcn_graph_retriever/base.json
+```
+
+Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Supported structural ablations for the same training path are `wo_graph`, `wo_edge_type`, `wo_bridge`, `wo_edge_weight`, and `wo_seed_score`.
 
 ## Run Flat Retrieval On Test
 
@@ -270,6 +284,33 @@ python scripts/run_retrieval.py `
   --top_k 10
 ```
 
+## Run Trainable R-GCN Retrieval On Test
+
+The retrieval-only path reads only task inputs, graphs, and checkpoint. It must not read labels or train pairs.
+
+Dedicated Phase 2 script:
+
+```powershell
+python scripts/run_trainable_retrieval.py `
+  --tasks data/hotpotqa/processed/test_memory_tasks.input.json `
+  --graphs data/hotpotqa/processed/test_graphs.json `
+  --checkpoint runs/manual_rgcn/checkpoints/best.pt `
+  --output results/ranked_results_dense_rgcn_graph_retriever.json `
+  --top_k 10
+```
+
+The shared retrieval script also accepts the registered method:
+
+```powershell
+python scripts/run_retrieval.py `
+  --method dense_rgcn_graph_retriever `
+  --tasks data/hotpotqa/processed/test_memory_tasks.input.json `
+  --graphs data/hotpotqa/processed/test_graphs.json `
+  --checkpoint runs/manual_rgcn/checkpoints/best.pt `
+  --output results/ranked_results_dense_rgcn_graph_retriever.json `
+  --top_k 10
+```
+
 ## Evaluate Methods
 
 ```powershell
@@ -287,6 +328,7 @@ Repeat the same command shape for:
 - `results/ranked_results_dense.json` -> `results/main_results_dense.csv`
 - `results/ranked_results_bm25_graph_rerank.json` -> `results/main_results_bm25_graph_rerank.csv`
 - `results/ranked_results_dense_graph_rerank.json` -> `results/main_results_dense_graph_rerank.csv`
+- `results/ranked_results_dense_rgcn_graph_retriever.json` -> `results/main_results_dense_rgcn_graph_retriever.csv`
 
 The compatibility alias `--gold` is accepted, but `--labels` is preferred.
 

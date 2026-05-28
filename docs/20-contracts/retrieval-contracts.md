@@ -29,11 +29,6 @@ Current registry methods:
 | `dense` | flat seed retrieval | no | no | no | yes | none |
 | `bm25_graph_rerank` | graph rerank | yes | yes | no | no | `bm25` |
 | `dense_graph_rerank` | graph rerank | yes | yes | no | yes | `dense` |
-
-Planned Phase 2 method:
-
-| Method | Kind | Required graph | Required config | Required checkpoint | Dense encoder args | Seed method |
-|---|---|---:|---:|---:|---:|---|
 | `dense_rgcn_graph_retriever` | trainable graph retrieval | yes | no | yes | yes | `dense` |
 
 Method names are artifact-level contract values. Renaming a method creates a new result namespace and must be treated as a compatibility change.

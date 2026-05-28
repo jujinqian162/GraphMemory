@@ -72,6 +72,15 @@ METHOD_REGISTRY: dict[str, RetrievalMethodSpec] = {
         seed_method="dense",
         builder_id="graph_rerank",
     ),
+    "dense_rgcn_graph_retriever": RetrievalMethodSpec(
+        name="dense_rgcn_graph_retriever",
+        requires_graphs=True,
+        requires_graph_config=False,
+        requires_checkpoint=True,
+        requires_dense_encoder=True,
+        seed_method="dense",
+        builder_id="trainable_graph",
+    ),
 }
 
 

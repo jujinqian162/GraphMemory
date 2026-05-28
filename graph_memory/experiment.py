@@ -11,11 +11,13 @@ from graph_memory.io import merge_config, read_json, write_json
 from graph_memory.observability import now_iso
 from graph_memory.retrieval_registry import (
     get_graph_rerank_methods,
+    get_method_spec,
     get_methods_requiring_dense_encoder,
     get_supported_methods,
 )
+from graph_memory.training_config import load_trainable_training_config, device_from_training_config
 
-STAGE_ORDER = ("prepare", "graphs", "tune", "retrieve", "evaluate", "aggregate")
+STAGE_ORDER = ("prepare", "graphs", "pairs", "tune", "train", "retrieve", "evaluate", "aggregate")
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
 DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
 
@@ -59,6 +61,7 @@ def initialize_experiment(
     effective_config = build_effective_config(config, profile=profile, cli_overrides=cli_overrides)
     selected_methods = list(methods) if methods is not None else list(effective_config["methods"])
     _validate_methods(selected_methods)
+    _attach_resolved_training_configs(effective_config, selected_methods)
     selected_stages = _select_stages(stages, from_stage=None)
     artifacts = _build_artifact_paths(run_dir, selected_methods)
     manifest = {
@@ -79,6 +82,7 @@ def initialize_experiment(
         "artifacts": artifacts,
         "stage_status": {},
     }
+    _write_resolved_training_configs(manifest)
     write_json(run_dir / "config" / "effective_config.json", effective_config)
     write_json(manifest_path, manifest)
     return manifest
@@ -116,6 +120,7 @@ def build_effective_config(
         "graph": config.get("graph", {}),
         "methods": config.get("methods", list(get_supported_methods())),
         "search_spaces": config.get("search_spaces", {"graph_rerank": str(DEFAULT_SEARCH_SPACE_CONFIG)}),
+        "training_configs": config.get("training_configs", {}),
         **defaults,
         "splits": {
             "train": {
@@ -141,6 +146,39 @@ def build_effective_config(
     return merge_config(base_config, None, cli_overrides)
 
 
+def _attach_resolved_training_configs(effective_config: dict[str, Any], selected_methods: Sequence[str]) -> None:
+    training_config_paths = effective_config.get("training_configs", {})
+    if not isinstance(training_config_paths, dict):
+        raise ValueError("Experiment config training_configs must be an object.")
+
+    resolved_by_method: dict[str, Any] = {}
+    for method in selected_methods:
+        spec = get_method_spec(method)
+        if not spec.requires_checkpoint:
+            continue
+        config_path = training_config_paths.get(method)
+        if not isinstance(config_path, str) or not config_path:
+            raise ValueError(f"Trainable method={method} requires a training config path.")
+        resolved = load_trainable_training_config(config_path, profile=str(effective_config["profile"]))
+        if resolved["method"] != method:
+            raise ValueError(
+                f"Training config method={resolved['method']} does not match selected method={method}."
+            )
+        resolved_by_method[method] = resolved
+
+    if resolved_by_method:
+        effective_config["training"] = resolved_by_method
+
+
+def _write_resolved_training_configs(manifest: dict[str, Any]) -> None:
+    training_configs = manifest["effective_config"].get("training", {})
+    if not isinstance(training_configs, dict):
+        return
+    for method, training_config in training_configs.items():
+        learned_artifacts = manifest["artifacts"]["learned"][method]
+        write_json(learned_artifacts["effective_training_config"], training_config)
+
+
 def build_stage_plan(
     manifest: dict[str, Any],
     *,
@@ -158,8 +196,12 @@ def build_stage_plan(
         commands.extend(_prepare_commands(manifest))
     if "graphs" in selected_stages:
         commands.extend(_graph_commands(manifest))
+    if "pairs" in selected_stages:
+        commands.extend(_pair_commands(manifest, selected_methods))
     if "tune" in selected_stages:
         commands.extend(_tune_commands(manifest, selected_methods))
+    if "train" in selected_stages:
+        commands.extend(_train_commands(manifest, selected_methods))
     if "retrieve" in selected_stages:
         commands.extend(_retrieve_commands(manifest, selected_methods))
     if "evaluate" in selected_stages:
@@ -189,6 +231,10 @@ def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
         rows.append(_artifact_status(stage="prepare", split=split, path=manifest["artifacts"]["inputs"][split]["input"]))
         rows.append(_artifact_status(stage="graphs", split=split, path=manifest["artifacts"]["graphs"][split]))
     for method in manifest["selected_methods"]:
+        if get_method_spec(method).requires_checkpoint:
+            learned = manifest["artifacts"]["learned"][method]
+            rows.append(_artifact_status(stage="pairs", method=method, path=learned["train_pairs"]))
+            rows.append(_artifact_status(stage="train", method=method, path=learned["best_checkpoint"]))
         if method in graph_rerank_methods:
             rows.append(_artifact_status(stage="tune", method=method, path=manifest["artifacts"]["tuned"][method]))
         rows.append(_retrieval_status(manifest, method))
@@ -237,10 +283,25 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
         method: _path_str(run_dir / "debug" / f"failure_cases_{method}.jsonl")
         for method in methods
     }
+    learned = {
+        method: {
+            "train_pairs": _path_str(run_dir / "learned" / method / "train.pairs.json"),
+            "train_pair_summary": _path_str(run_dir / "learned" / method / "train.pairs.summary.json"),
+            "train_pair_run_summary": _path_str(run_dir / "learned" / method / "train.pairs.run_summary.json"),
+            "effective_training_config": _path_str(run_dir / "learned" / method / "effective_training_config.json"),
+            "training_output_dir": _path_str(run_dir / "learned" / method),
+            "train_metrics": _path_str(run_dir / "learned" / method / "train_metrics.jsonl"),
+            "train_run_summary": _path_str(run_dir / "learned" / method / "train_run_summary.json"),
+            "best_checkpoint": _path_str(run_dir / "learned" / method / "checkpoints" / "best.pt"),
+        }
+        for method in methods
+        if get_method_spec(method).requires_checkpoint
+    }
     return {
         "inputs": inputs,
         "graphs": graphs,
         "tuned": tuned,
+        "learned": learned,
         "predictions": predictions,
         "metrics": metrics,
         "failure_cases": failures,
@@ -309,6 +370,72 @@ def _graph_commands(manifest: dict[str, Any]) -> list[StageCommand]:
     return commands
 
 
+def _pair_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
+    commands: list[StageCommand] = []
+    for method in methods:
+        if not get_method_spec(method).requires_checkpoint:
+            continue
+        learned = manifest["artifacts"]["learned"][method]
+        commands.append(
+            StageCommand(
+                stage="pairs",
+                method=method,
+                argv=[
+                    sys.executable,
+                    "scripts/build_train_pairs.py",
+                    "--tasks",
+                    manifest["artifacts"]["inputs"]["train"]["input"],
+                    "--labels",
+                    manifest["artifacts"]["inputs"]["train"]["labels"],
+                    "--graphs",
+                    manifest["artifacts"]["graphs"]["train"],
+                    "--output",
+                    learned["train_pairs"],
+                    "--config",
+                    learned["effective_training_config"],
+                ],
+            )
+        )
+    return commands
+
+
+def _train_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
+    commands: list[StageCommand] = []
+    for method in methods:
+        if not get_method_spec(method).requires_checkpoint:
+            continue
+        learned = manifest["artifacts"]["learned"][method]
+        commands.append(
+            StageCommand(
+                stage="train",
+                method=method,
+                argv=[
+                    sys.executable,
+                    "scripts/train_graph_retriever.py",
+                    "--train_tasks",
+                    manifest["artifacts"]["inputs"]["train"]["input"],
+                    "--train_labels",
+                    manifest["artifacts"]["inputs"]["train"]["labels"],
+                    "--train_graphs",
+                    manifest["artifacts"]["graphs"]["train"],
+                    "--train_pairs",
+                    learned["train_pairs"],
+                    "--dev_tasks",
+                    manifest["artifacts"]["inputs"]["dev"]["input"],
+                    "--dev_labels",
+                    manifest["artifacts"]["inputs"]["dev"]["labels"],
+                    "--dev_graphs",
+                    manifest["artifacts"]["graphs"]["dev"],
+                    "--output_dir",
+                    learned["training_output_dir"],
+                    "--config",
+                    learned["effective_training_config"],
+                ],
+            )
+        )
+    return commands
+
+
 def _tune_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     graph_rerank_methods = set(get_graph_rerank_methods())
@@ -343,6 +470,7 @@ def _retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list
     graph_rerank_methods = set(get_graph_rerank_methods())
     dense_methods = set(get_methods_requiring_dense_encoder())
     for method in methods:
+        spec = get_method_spec(method)
         argv = [
             sys.executable,
             "scripts/run_retrieval.py",
@@ -355,16 +483,26 @@ def _retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list
             "--top_k",
             str(manifest["effective_config"]["top_k"]),
         ]
+        if spec.requires_graphs:
+            argv.extend(["--graphs", manifest["artifacts"]["graphs"]["test"]])
         if method in graph_rerank_methods:
             argv.extend(
                 [
-                    "--graphs",
-                    manifest["artifacts"]["graphs"]["test"],
                     "--graph_config",
                     manifest["artifacts"]["tuned"][method],
                 ]
             )
-        if method in dense_methods:
+        if spec.requires_checkpoint:
+            learned = manifest["artifacts"]["learned"][method]
+            argv.extend(
+                [
+                    "--checkpoint",
+                    learned["best_checkpoint"],
+                    "--device",
+                    device_from_training_config(manifest["effective_config"]["training"][method]),
+                ]
+            )
+        if method in dense_methods and not spec.requires_checkpoint:
             _append_dense_args(argv, manifest)
         commands.append(StageCommand(stage="retrieve", method=method, argv=argv))
     return commands
@@ -458,21 +596,51 @@ def _validate_stage_dependencies(
     selected_stages: Sequence[str],
     selected_methods: Sequence[str],
 ) -> None:
-    if "retrieve" not in selected_stages or "tune" in selected_stages:
-        return
-    graph_rerank_methods = set(get_graph_rerank_methods())
-    missing_tuned = [
-        method
-        for method in selected_methods
-        if method in graph_rerank_methods and not Path(manifest["artifacts"]["tuned"][method]).exists()
-    ]
-    if missing_tuned:
-        missing_paths = ", ".join(manifest["artifacts"]["tuned"][method] for method in missing_tuned)
-        raise ValueError(
-            "Graph rerank retrieval requires tuned graph config. "
-            "Add the tune stage or run tune first. "
-            f"Missing: {missing_paths}"
-        )
+    if "retrieve" in selected_stages and "tune" not in selected_stages:
+        graph_rerank_methods = set(get_graph_rerank_methods())
+        missing_tuned = [
+            method
+            for method in selected_methods
+            if method in graph_rerank_methods and not Path(manifest["artifacts"]["tuned"][method]).exists()
+        ]
+        if missing_tuned:
+            missing_paths = ", ".join(manifest["artifacts"]["tuned"][method] for method in missing_tuned)
+            raise ValueError(
+                "Graph rerank retrieval requires tuned graph config. "
+                "Add the tune stage or run tune first. "
+                f"Missing: {missing_paths}"
+            )
+
+    trainable_methods = [method for method in selected_methods if get_method_spec(method).requires_checkpoint]
+    if "train" in selected_stages and "pairs" not in selected_stages:
+        missing_pairs = [
+            method
+            for method in trainable_methods
+            if not Path(manifest["artifacts"]["learned"][method]["train_pairs"]).exists()
+        ]
+        if missing_pairs:
+            missing_paths = ", ".join(manifest["artifacts"]["learned"][method]["train_pairs"] for method in missing_pairs)
+            raise ValueError(
+                "Trainable training requires train pairs. "
+                "Add the pairs stage or run pairs first. "
+                f"Missing: {missing_paths}"
+            )
+
+    if "retrieve" in selected_stages and "train" not in selected_stages:
+        missing_checkpoints = [
+            method
+            for method in trainable_methods
+            if not Path(manifest["artifacts"]["learned"][method]["best_checkpoint"]).exists()
+        ]
+        if missing_checkpoints:
+            missing_paths = ", ".join(
+                manifest["artifacts"]["learned"][method]["best_checkpoint"] for method in missing_checkpoints
+            )
+            raise ValueError(
+                "Trainable retrieval requires a trained checkpoint. "
+                "Add the train stage or run train first. "
+                f"Missing: {missing_paths}"
+            )
 
 
 def _artifact_status(
@@ -529,6 +697,7 @@ def _reject_config_change(
 ) -> None:
     requested_config = build_effective_config(config, profile=profile, cli_overrides=cli_overrides)
     requested_methods = list(methods) if methods is not None else list(requested_config["methods"])
+    _attach_resolved_training_configs(requested_config, requested_methods)
     if requested_config != existing.get("effective_config") or requested_methods != existing.get("selected_methods"):
         raise ValueError("Existing experiment manifest uses a different config; pass force=True to reinitialize.")
 

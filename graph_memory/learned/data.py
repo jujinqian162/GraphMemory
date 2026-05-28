@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 
 from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
+from graph_memory.learned.features import RetrieverSeedSignalProvider, SeedSignalProvider
 from graph_memory.types import (
     MemoryGraph,
     MemoryTaskInput,
@@ -54,6 +55,7 @@ def build_train_pairs(
     *,
     bm25_retriever: Retriever | None = None,
     dense_retriever: Retriever | None = None,
+    dense_seed_signal_provider: SeedSignalProvider | None = None,
 ) -> TrainPairBuildResult:
     """
     Build validated train pair records from already-loaded artifacts.
@@ -72,6 +74,8 @@ def build_train_pairs(
       bm25_retriever：用于 BM25 hard negative 的可选 retriever 覆盖。
     - dense_retriever: Optional retriever override for dense hard negatives.
       dense_retriever：用于 dense hard negative 的可选 retriever 覆盖。
+    - dense_seed_signal_provider: Optional seed signal provider for dense hard negatives.
+      dense_seed_signal_provider：用于 dense hard negative 的可选 seed signal provider。
     """
 
     validate_negative_sampling_config(config)
@@ -141,14 +145,21 @@ def build_train_pairs(
             )
 
         if config.hard_dense_per_positive > 0:
-            dense = dense or DenseTaskRetriever()
+            if dense_seed_signal_provider is not None:
+                dense_provider = dense_seed_signal_provider
+            else:
+                dense = dense or DenseTaskRetriever()
+                dense_provider = RetrieverSeedSignalProvider(dense)
             _append_negative_samples(
                 pairs,
                 seen_pair_keys,
                 negative_count_by_type,
                 task_id=task_id,
                 node_ids=_hard_retriever_negatives(
-                    dense.rank(task_input),
+                    [
+                        RankedNode(node_id=signal.node_id, score=signal.score)
+                        for signal in dense_provider.score_task(task_input)
+                    ],
                     gold_node_set,
                     desired_count=config.hard_dense_per_positive * len(gold_nodes),
                     hard_pool_size=config.hard_pool_size,

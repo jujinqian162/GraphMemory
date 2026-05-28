@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-Status: Discussion plan. This document records the current Phase 2 R-GCN design for review before implementation. It is not yet a committed implementation task list.
+Status: Implementation-backed plan. The first trainable R-GCN retriever slice is implemented; this document remains the design reference for extension and audit.
 
 ## 目标
 
@@ -250,7 +250,7 @@ training_config
 created_at
 ```
 
-`best.pt` 用于推理；epoch checkpoint 用于恢复训练和排查。`model_config` 至少必须能恢复模型维度和语义：encoder 名称、文本 prefix、hidden dim、layer 数、dropout、feature names/order、relation vocab/order、graph encoder 类型、message transform 类型、edge weight policy、canonical ablation name。详细 schema 维护在 `docs/20-contracts/model-contracts.md`。
+`best.pt` 用于推理；epoch checkpoint 用于恢复训练和排查。`model_config` 至少必须能恢复模型维度和语义：encoder 名称、encoder dim、文本 prefix、hidden dim、layer 数、dropout、feature names/order、relation vocab/order、graph encoder 类型、message transform 类型、edge weight policy、enabled edge types、canonical ablation name。详细 schema 维护在 `docs/20-contracts/model-contracts.md`。
 
 ### train_metrics.jsonl
 
@@ -286,6 +286,7 @@ graph_memory/learned/
   __init__.py
   data.py
   features.py
+  batching.py
   tensorize.py
   model.py
   checkpoint.py
@@ -297,8 +298,9 @@ graph_memory/learned/
 
 | Module | Responsibility |
 |---|---|
-| `data.py` | 接收已读取的 tasks/labels/graphs/pairs，按 task join，构造 typed training examples 和 batches；不做文件 IO。 |
+| `data.py` | 接收已读取的 tasks/labels/graphs，构造和验证 train pair artifact；不做文件 IO。 |
 | `features.py` | 构造 seed signal 和 node numeric features，例如 seed score、seed rank percentile、is_question。 |
+| `batching.py` | 复用 feature builder、text embedding provider 和 tensorizer，构造 `GraphBatch` / `TrainingBatch`。 |
 | `tensorize.py` | 把 artifact graph 转成 message passing tensor。 |
 | `model.py` | R-GCN、GraphEncoder 抽象、scorer MLP。 |
 | `checkpoint.py` | checkpoint metadata validation、save/load helper；不读取训练数据 artifact。 |

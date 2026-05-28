@@ -157,3 +157,53 @@ def test_build_train_pairs_cli_writes_pairs_summary_and_run_summary(tmp_path):
     assert summary["negative_count_by_type"]["hard_graph_neighbor"] == 2
     assert run_summary["status"] == "success"
     assert all(pair["node_id"] != "q" for pair in pairs)
+
+
+def test_build_train_pairs_cli_reads_pair_sampling_from_config(tmp_path):
+    tasks_path = tmp_path / "train_memory_tasks.input.json"
+    labels_path = tmp_path / "train_memory_tasks.labels.json"
+    graphs_path = tmp_path / "train_graphs.json"
+    output_path = tmp_path / "train_pairs.json"
+    config_path = tmp_path / "effective_training_config.json"
+    tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
+    labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
+    graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "method": "dense_rgcn_graph_retriever",
+                "profile": "quick",
+                "pair_sampling": {
+                    "random_seed": 7,
+                    "easy_random_per_positive": 1,
+                    "hard_bm25_per_positive": 0,
+                    "hard_dense_per_positive": 0,
+                    "hard_graph_neighbor_per_positive": 1,
+                    "hard_pool_size": 10,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = build_train_pairs_main(
+        [
+            "--tasks",
+            str(tasks_path),
+            "--labels",
+            str(labels_path),
+            "--graphs",
+            str(graphs_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    assert exit_code == 0
+    summary = json.loads(output_path.with_name("train_pairs.summary.json").read_text(encoding="utf-8"))
+    run_summary = json.loads(output_path.with_name("train_pairs.run_summary.json").read_text(encoding="utf-8"))
+    assert summary["negative_count_by_type"] == {"easy_random": 2, "hard_graph_neighbor": 2}
+    assert run_summary["effective_config"]["hard_dense_per_positive"] == 0
+    assert run_summary["effective_config"]["hard_graph_neighbor_per_positive"] == 1
