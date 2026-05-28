@@ -11,6 +11,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 | Contracts | `20-contracts/` | Concrete artifact schemas, data contracts, config contracts, and validation rules. |
 | Design | `30-design/` | Architecture layering, abstraction boundaries, extensibility, observability design. |
 | Operations | `40-operations/` | Reproduction commands, logging conventions, troubleshooting, runbooks. |
+| Configs | `configs/` | One-to-one Chinese reference docs for editable JSON config files. |
 | Archive | `archive/` | Original source documents and superseded materials kept for provenance. |
 
 ## Current Entry Points
@@ -27,6 +28,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Data contracts: `20-contracts/data-contracts.md`
 - Retrieval contracts: `20-contracts/retrieval-contracts.md`
 - Model contracts: `20-contracts/model-contracts.md`
+- Config documentation index: `configs/README.md`
 - Naming conventions: `30-design/naming-conventions.md`
 - Logging and run records: `40-operations/logging.md`
 - Testing strategy: `30-design/testing-strategy.md`

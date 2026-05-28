@@ -172,7 +172,7 @@ python scripts/build_train_pairs.py `
   --config configs/training/dense_rgcn_graph_retriever/base.json
 ```
 
-For normal experiment runs, edit `configs/training/dense_rgcn_graph_retriever/base.json` instead of passing negative-sampling flags directly. For example, change `profiles.quick.pair_sampling.hard_dense_per_positive` only when the configured dense encoder is available in the environment.
+For normal experiment runs, edit `configs/training/dense_rgcn_graph_retriever/base.json` instead of passing negative-sampling flags directly. For example, change `profiles.quick.pair_sampling.hard_dense_per_positive` only when the configured dense encoder is available in the environment. The field-by-field Chinese reference lives in `docs/configs/training/dense_rgcn_graph_retriever/base.md`.
 
 ## Train Phase 2 R-GCN Retriever
 
@@ -191,7 +191,7 @@ python scripts/train_graph_retriever.py `
   --config configs/training/dense_rgcn_graph_retriever/base.json
 ```
 
-Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Supported structural ablations for the same training path are `wo_graph`, `wo_edge_type`, `wo_bridge`, `wo_edge_weight`, and `wo_seed_score`.
+Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Supported structural ablations for the same training path are `wo_graph`, `wo_edge_type`, `wo_bridge`, `wo_edge_weight`, and `wo_seed_score`. The field-by-field Chinese reference lives in `docs/configs/training/dense_rgcn_graph_retriever/base.md`.
 
 ## Run Flat Retrieval On Test
 
