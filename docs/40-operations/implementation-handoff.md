@@ -84,12 +84,13 @@ scripts/experiment.py
 | `MemoryGraph` | `graph_memory/types.py`, `graph_memory/graphs.py` | Typed graph over `q` and memory sentence nodes. | Read label-only fields. | `tests/test_phase1_real_graphs.py` |
 | `RankedNode` / `RankedResult` | `graph_memory/types.py`, `graph_memory/retrieval.py` | Complete per-task ranking and persisted result schema. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `Retriever` | `graph_memory/types.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
+| `RetrievalMethodSpec` registry | `graph_memory/retrieval_registry.py` | Single source for public method names and capabilities such as graph inputs, graph config, dense encoder args, and checkpoints. | Import concrete retrieval builders or duplicate method lists in `types.py` or `experiment.py`. | `tests/test_phase1_real_retrieval.py`, `tests/test_experiment_runner.py` |
 | `RetrievalMethod` | `graph_memory/retrieval.py` | Internal boundary for a public baseline method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py`, `tests/test_type_contracts.py` |
 | `ScorePipelineMethod` | `graph_memory/retrieval.py` | Wraps BM25 and dense seed retrievers for flat public methods. | Own graph-rerank score composition, labels, metrics, or file I/O. | `tests/test_phase1_real_retrieval.py` |
 | `InitialScoreCache` | `graph_memory/retrieval.py` | Holds per-task seed scores for one tuning invocation so graph-rerank grid search does not rerun BM25/Dense for every candidate. | Persist scores, read labels, or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
 | `NodeScoreComponent` / `ScoreContext` | `graph_memory/rerank.py` | Compose initial, query-overlap, neighbor-propagation, and bridge graph score components. | Select BM25/Dense retrievers, assemble persisted ranked-result records, or read labels. | `tests/test_phase1_real_retrieval.py` |
-| `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores, with per-task graph-component normalization and degree-normalized neighbor propagation. `neighbor_type_weights` calibrates memory-to-memory graph edges; deprecated `type_weights` is read only as compatibility input. | Run BM25/Dense itself, use labels, or treat `query_overlap` as a neighbor type weight. | `tests/test_phase1_real_retrieval.py` |
-| Validators / validation views | `graph_memory/validation.py` | Enforce contracts and provide zero-copy type bridges for domain artifacts. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
+| `GraphRerankConfig` / `graph_rerank` | `graph_memory/types.py`, `graph_memory/rerank.py` | Graph score propagation over explicit initial scores, with per-task graph-component normalization and degree-normalized neighbor propagation. `neighbor_type_weights` calibrates memory-to-memory graph edges; deprecated `type_weights` is rejected. | Run BM25/Dense itself, use labels, or treat `query_overlap` as a neighbor type weight. | `tests/test_phase1_real_retrieval.py` |
+| Validators | `graph_memory/validation.py` | Enforce contracts from `object` boundaries and narrow loaded JSON/domain artifacts internally after runtime shape checks. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
 | Run summaries | `graph_memory/observability.py` | Preserve config, paths, counts, timings, environment, and notes. | Change algorithm behavior. | `tests/test_phase1_real_io_observability.py` |
 | Experiment manifest | `graph_memory/experiment.py` | Records named run config, generated artifact paths, selected methods/stages, and status metadata. | Replace low-level artifact validators or hide script input/output contracts. | `tests/test_experiment_runner.py` |
@@ -104,7 +105,7 @@ scripts/experiment.py
 | Data conversion | `graph_memory/hotpotqa.py`, `graph_memory/splits.py` | Stable task IDs, supporting-fact mapping, split determinism, label separation. |
 | Text/entity | `graph_memory/text.py`, `graph_memory/entities.py` | Stopword filtering, lexical scoring, deterministic heuristic entities, optional spaCy behavior. |
 | Graph construction | `graph_memory/graphs.py` | Edge semantics, edge limits, deterministic sorting, no label access. |
-| Retrieval | `graph_memory/indexes/bm25.py`, `graph_memory/indexes/dense.py`, `graph_memory/retrieval.py` | Complete rankings, dense encoder prefixes, method construction, score-pipeline recipes, graph-method requirements. |
+| Retrieval | `graph_memory/retrieval_registry.py`, `graph_memory/indexes/bm25.py`, `graph_memory/indexes/dense.py`, `graph_memory/retrieval.py` | Method registry capabilities, complete rankings, dense encoder prefixes, method construction, score-pipeline recipes, graph-method requirements. |
 | Reranking | `graph_memory/rerank.py` | Score normalization, candidate expansion, graph helper compatibility, all-node preservation. |
 | Evaluation | `graph_memory/evaluation.py` | Metric definitions, exact joins, shared-graph connectivity, N/A path metrics. |
 | Operations | `graph_memory/io.py`, `graph_memory/observability.py`, `configs/*.json` | Deterministic writes, config defaults, run summary fields. |
@@ -118,7 +119,7 @@ scripts/experiment.py
 - Graph-rerank tuning reuses seed-retriever scores across candidate configs without writing a persistent score-cache artifact.
 - Graph-rerank tuning can select the pure initial-score fallback when graph bonuses hurt dev metrics.
 - Retrieval graph-method rankings and induced edges match `rerank.rank_graph_from_initial_scores(...)` on controlled artificial scores.
-- Newly written graph-rerank configs use `neighbor_type_weights`; old `type_weights` artifacts are accepted as read-only compatibility input.
+- Graph-rerank configs use `neighbor_type_weights`; old `type_weights` artifacts must be converted before reuse.
 - Evaluation reads labels from label artifacts only.
 - Dev tuning and test evaluation are separate.
 - Every script writes a run summary when output paths are known.

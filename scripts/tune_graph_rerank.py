@@ -12,10 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.retrieval_registry import get_graph_rerank_methods
 from graph_memory.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
 from graph_memory.validation import (
-    as_validation_record_map,
-    as_validation_records,
     validate_graphs,
     validate_memory_task_inputs,
     validate_memory_task_labels,
@@ -68,11 +67,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = read_json(args.tasks)
         labels = read_json(args.labels)
         graphs = read_json(args.graphs)
-        validate_memory_task_inputs(as_validation_records(task_inputs))
+        validate_memory_task_inputs(task_inputs)
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validation_inputs_by_task_id = as_validation_record_map(inputs_by_task_id)
-        validate_memory_task_labels(as_validation_records(labels), validation_inputs_by_task_id)
-        validate_graphs(as_validation_records(graphs), validation_inputs_by_task_id)
+        validate_memory_task_labels(labels, inputs_by_task_id)
+        validate_graphs(graphs, inputs_by_task_id)
 
         grid = (
             graph_rerank_grid_from_record(read_json(args.grid_config))
@@ -132,7 +130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank parameters on dev labels.")
-    parser.add_argument("--method", required=True, choices=["bm25_graph_rerank", "dense_graph_rerank"])
+    parser.add_argument("--method", required=True, choices=get_graph_rerank_methods())
     parser.add_argument("--tasks", required=True, help="Path to dev *_memory_tasks.input.json.")
     parser.add_argument("--labels", required=True, help="Path to dev *_memory_tasks.labels.json.")
     parser.add_argument("--graphs", required=True, help="Path to dev *_graphs.json.")

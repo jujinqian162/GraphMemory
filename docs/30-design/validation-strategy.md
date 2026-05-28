@@ -64,10 +64,10 @@ validate_xxx(...) -> None
 
 Validators raise exceptions. They do not return cleaned data.
 
-Typed artifact lists may need an explicit static-type bridge before validation because `TypedDict` and `dict`
-containers are invariant in common type checkers. Use `as_validation_records(...)` and
-`as_validation_record_map(...)` at call sites when passing domain-typed artifacts into validators. These helpers are
-zero-copy casts for IDE/type-checker clarity; runtime correctness still comes from the validators.
+Public validators accept `object` at the boundary and perform their own runtime narrowing. Call sites should pass
+loaded JSON artifacts or domain-typed artifacts directly; they should not cast just to satisfy static type checkers.
+Any zero-copy cast needed for `TypedDict` or invariant container handling belongs inside `validation.py`, after the
+validator has checked that the value has the expected list/map/object shape.
 
 ## Error Message Style
 

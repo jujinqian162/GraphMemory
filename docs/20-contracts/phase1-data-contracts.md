@@ -311,7 +311,7 @@ Invariants:
 - `lambda_*` fields weight final score components after normalization.
 - `neighbor_type_weights` calibrates memory-to-memory graph edge types used by neighbor propagation and bridge-neighbor scoring.
 - `query_overlap` is not a neighbor type weight; query-overlap contribution is controlled by `lambda_query`.
-- Deprecated `type_weights` input remains readable for historical run artifacts. Compatibility loading ignores historical `type_weights.query_overlap` and newly written configs must use `neighbor_type_weights`.
+- Deprecated `type_weights` input is rejected; use `neighbor_type_weights`.
 
 ## Metric CSV Contract
 

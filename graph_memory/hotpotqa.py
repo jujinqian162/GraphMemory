@@ -135,7 +135,7 @@ def combined_memory_tasks(
         matching_labels = labels_by_task_id.get(task_id)
         if matching_labels is None:
             raise ValueError(f"Cannot combine task_id={task_id}: matching labels are missing.")
-        combined.append(cast(CombinedMemoryTask, {**task_input, **matching_labels}))
+        combined.append(cast(CombinedMemoryTask, cast(object, {**task_input, **matching_labels})))
     return combined
 
 

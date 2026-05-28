@@ -100,7 +100,7 @@ dense_rgcn_graph_retriever  # Phase 2 learned graph scorer
 
 ### method registry 调整
 
-当前 Phase 1 的 `method in {...}` 判断在 Phase 2 会变脆，因为 learned retriever 需要 checkpoint，而 flat / graph rerank method 的输入要求不同。Phase 2 应新增轻量静态 `RetrievalMethodSpec` registry：
+Phase 1 已经有轻量静态 `RetrievalMethodSpec` registry，避免继续扩散 `method in {...}` 判断。Phase 2 接入 learned retriever 时应复用同一个 registry，因为 learned retriever 需要 checkpoint，而 flat / graph rerank method 的输入要求不同：
 
 ```text
 name
@@ -113,11 +113,11 @@ builder
 
 实现要求：
 
-- `SUPPORTED_METHODS` 从 registry keys 派生。
+- supported methods 从 registry keys 派生。
 - CLI `choices` 从 registry keys 派生。
 - `dense_rgcn_graph_retriever` 通过同一个 registry 注册。
 - registry 是静态表，不做动态插件发现。
-- 初版可以把 registry 放在 `graph_memory/retrieval.py`；如果 learned import 造成依赖变重或循环，再抽到 `graph_memory/retrieval_registry.py`。
+- registry 位于 `graph_memory/retrieval_registry.py`；运行时 builder 由 `graph_memory/retrieval.py` 根据 registry 的 builder id 选择。
 - learned retriever 的 builder 可以 lazy import `graph_memory.learned.inference`，避免 Phase 1-only 使用路径提前加载训练依赖。
 
 ## 数据流

@@ -63,54 +63,63 @@ Do not rely on ad hoc inline comments as the only field explanation. Inline comm
 
 ## Retrieval Method Registry
 
-Phase 2 should replace scattered `method in {...}` checks with a static lightweight registry. This is not a plugin system and should not do dynamic discovery.
+Phase 2 must use the existing static lightweight registry in `graph_memory/retrieval_registry.py`; scattered `method in {...}` checks are not allowed. This is not a plugin system and should not do dynamic discovery.
 
 ```python
 @dataclass(frozen=True)
 class RetrievalMethodSpec:
     """
-    Static registration metadata for one public retrieval method.
-    一个公开检索方法的静态注册元数据。
+    Static metadata for one public retrieval method.
+    一个公开检索方法的静态元数据。
 
     Fields / 字段:
     - name: Public method name written into ranked result artifacts.
       name：写入 ranked result artifact 的公开方法名。
     - requires_graphs: Whether this method requires `*_graphs.json`.
       requires_graphs：该方法是否需要 `*_graphs.json`。
-    - requires_graph_config: Whether this method requires handwritten graph rerank config.
-      requires_graph_config：该方法是否需要手写 graph rerank config。
+    - requires_graph_config: Whether this method requires graph rerank config.
+      requires_graph_config：该方法是否需要 graph rerank config。
     - requires_checkpoint: Whether this method requires a trainable model checkpoint.
       requires_checkpoint：该方法是否需要可训练模型 checkpoint。
+    - requires_dense_encoder: Whether this method needs dense encoder runtime args.
+      requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
     - seed_method: Optional flat seed method used by this method, such as `dense`.
       seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder: Function that builds the concrete RetrievalMethod from a build context.
-      builder：从 build context 构造具体 RetrievalMethod 的函数。
+    - builder_id: Local runtime builder selected by `graph_memory.retrieval`.
+      builder_id：由 `graph_memory.retrieval` 选择的本地运行时 builder。
     """
 
     name: MethodName
     requires_graphs: bool
     requires_graph_config: bool
     requires_checkpoint: bool
+    requires_dense_encoder: bool
     seed_method: MethodName | None
-    builder: Callable[[RetrievalBuildContext], RetrievalMethod]
+    builder_id: str
 ```
 
 Registry rules:
 
-- `SUPPORTED_METHODS` and CLI `choices` should be derived from `METHOD_REGISTRY.keys()`.
+- supported methods and CLI `choices` are derived from `METHOD_REGISTRY.keys()`.
+- Graph-rerank and dense-encoder method sets are derived from registry capability fields, not method-name string matching.
 - `dense_rgcn_graph_retriever` must be registered through the same registry as Phase 1 methods.
-- Heavy learned imports should be lazy inside the learned method builder if importing them would slow or complicate Phase 1-only usage.
+- Runtime builders live in `graph_memory/retrieval.py`; heavy learned imports should be lazy inside the learned method builder if importing them would slow or complicate Phase 1-only usage.
 - Registry entries declare required inputs; scripts should reject missing graphs, graph configs, or checkpoints before invoking core retrieval.
 
-Initial registry entries:
+Current registry entries before Phase 2:
 
-| Method | Graphs | Graph config | Checkpoint | Seed method |
-|---|---:|---:|---:|---|
-| `bm25` | no | no | no | none |
-| `dense` | no | no | no | none |
-| `bm25_graph_rerank` | yes | yes | no | `bm25` |
-| `dense_graph_rerank` | yes | yes | no | `dense` |
-| `dense_rgcn_graph_retriever` | yes | no | yes | `dense` |
+| Method | Graphs | Graph config | Checkpoint | Dense encoder args | Seed method |
+|---|---:|---:|---:|---:|---|
+| `bm25` | no | no | no | no | none |
+| `dense` | no | no | no | yes | none |
+| `bm25_graph_rerank` | yes | yes | no | no | `bm25` |
+| `dense_graph_rerank` | yes | yes | no | yes | `dense` |
+
+Phase 2 adds:
+
+| Method | Graphs | Graph config | Checkpoint | Dense encoder args | Seed method |
+|---|---:|---:|---:|---:|---|
+| `dense_rgcn_graph_retriever` | yes | no | yes | yes | `dense` |
 
 ## Train Pair Artifact
 

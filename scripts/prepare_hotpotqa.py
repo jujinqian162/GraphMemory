@@ -22,8 +22,6 @@ from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.splits import sample_split
 from graph_memory.validation import (
-    as_validation_record_map,
-    as_validation_records,
     validate_memory_task_inputs,
     validate_memory_task_labels,
 )
@@ -98,8 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = conversion.task_inputs
         task_labels = conversion.task_labels
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_memory_task_inputs(as_validation_records(task_inputs))
-        validate_memory_task_labels(as_validation_records(task_labels), as_validation_record_map(inputs_by_task_id))
+        validate_memory_task_inputs(task_inputs)
+        validate_memory_task_labels(task_labels, inputs_by_task_id)
 
         write_json(args.output_input, task_inputs)
         write_json(args.output_labels, task_labels)
@@ -162,10 +160,10 @@ def select_valid_raw_examples(raw_records: Sequence[object], *, strict: bool) ->
             parsed_example = parse_hotpotqa_example(raw_record, record_index=record_index)
             converted_example = convert_hotpotqa_example(parsed_example)
             input_by_task_id = {converted_example.task_input["task_id"]: converted_example.task_input}
-            validate_memory_task_inputs(as_validation_records([converted_example.task_input]))
+            validate_memory_task_inputs([converted_example.task_input])
             validate_memory_task_labels(
-                as_validation_records([converted_example.task_labels]),
-                as_validation_record_map(input_by_task_id),
+                [converted_example.task_labels],
+                input_by_task_id,
             )
         except ValueError as error:
             if strict:

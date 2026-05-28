@@ -4,28 +4,23 @@ import math
 from dataclasses import asdict, is_dataclass
 from typing import Any, TypeAlias, cast
 
-from graph_memory.types import ALLOWED_EDGE_TYPES, ALLOWED_NODE_TYPES, NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES, SUPPORTED_METHODS
+from graph_memory.retrieval_registry import get_supported_methods
+from graph_memory.types import (
+    ALLOWED_EDGE_TYPES,
+    ALLOWED_NODE_TYPES,
+    NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES,
+    NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES,
+    TRAIN_PAIR_SAMPLE_TYPES,
+)
 
 
 class ContractValidationError(ValueError):
-    """Raised when an artifact violates a documented Phase 1 contract."""
+    """Raised when an artifact violates a documented project contract."""
 
 
 ValidationRecord: TypeAlias = dict[str, Any]
 ValidationRecords: TypeAlias = list[ValidationRecord]
 ValidationRecordMap: TypeAlias = dict[str, ValidationRecord]
-
-
-def as_validation_records(records: object) -> ValidationRecords:
-    """Return a zero-copy validation view for TypedDict artifact records."""
-
-    return cast(ValidationRecords, records)
-
-
-def as_validation_record_map(records_by_key: object) -> ValidationRecordMap:
-    """Return a zero-copy validation view for maps keyed by task id."""
-
-    return cast(ValidationRecordMap, records_by_key)
 
 
 FORBIDDEN_LABEL_FIELDS: set[str] = {
@@ -56,6 +51,23 @@ RANKED_RESULT_FIELDS = {
 }
 RANKED_NODE_FIELDS = {"node_id", "score"}
 RETRIEVED_SUBGRAPH_FIELDS = {"nodes", "edges"}
+TRAIN_PAIR_FIELDS = {"task_id", "node_id", "label", "sample_type"}
+TRAIN_PAIR_BUILD_SUMMARY_FIELDS = {
+    "positive_count",
+    "negative_count_by_type",
+    "avg_positive_per_task",
+    "avg_negative_per_task",
+    "tasks_with_no_positive",
+    "sampling_config",
+}
+NEGATIVE_SAMPLING_CONFIG_FIELDS = {
+    "random_seed",
+    "easy_random_per_positive",
+    "hard_bm25_per_positive",
+    "hard_dense_per_positive",
+    "hard_graph_neighbor_per_positive",
+    "hard_pool_size",
+}
 
 METRIC_COLUMNS = [
     "Method",
@@ -79,9 +91,8 @@ def validate_no_label_fields(value: Any, *, artifact_name: str = "artifact", tas
     _walk_forbidden_fields(value, artifact_name=artifact_name, task_id=task_id, path=artifact_name)
 
 
-def validate_memory_task_inputs(records: ValidationRecords) -> None:
-    if not isinstance(records, list):
-        raise ContractValidationError("Invalid memory task inputs: artifact must be a list.")
+def validate_memory_task_inputs(records: object) -> None:
+    records = _require_record_list(records, "memory task inputs")
 
     seen_task_ids: set[str] = set()
     for index, task_input in enumerate(records):
@@ -124,9 +135,9 @@ def validate_memory_task_inputs(records: ValidationRecords) -> None:
                 )
 
 
-def validate_memory_task_labels(records: ValidationRecords, inputs_by_task_id: ValidationRecordMap) -> None:
-    if not isinstance(records, list):
-        raise ContractValidationError("Invalid memory task labels: artifact must be a list.")
+def validate_memory_task_labels(records: object, inputs_by_task_id: object) -> None:
+    records = _require_record_list(records, "memory task labels")
+    inputs_by_task_id = _require_record_map(inputs_by_task_id, "memory task inputs by task_id")
 
     seen_task_ids: set[str] = set()
     for index, task_labels in enumerate(records):
@@ -165,9 +176,9 @@ def validate_memory_task_labels(records: ValidationRecords, inputs_by_task_id: V
             )
 
 
-def validate_graphs(graphs: ValidationRecords, inputs_by_task_id: ValidationRecordMap) -> None:
-    if not isinstance(graphs, list):
-        raise ContractValidationError("Invalid graphs: artifact must be a list.")
+def validate_graphs(graphs: object, inputs_by_task_id: object) -> None:
+    graphs = _require_record_list(graphs, "graphs")
+    inputs_by_task_id = _require_record_map(inputs_by_task_id, "memory task inputs by task_id")
 
     seen_task_ids: set[str] = set()
     for index, graph in enumerate(graphs):
@@ -192,9 +203,9 @@ def validate_graphs(graphs: ValidationRecords, inputs_by_task_id: ValidationReco
             _validate_graph_edge(edge, graph_node_ids, task_id)
 
 
-def validate_ranked_results(predictions: ValidationRecords, inputs_by_task_id: ValidationRecordMap) -> None:
-    if not isinstance(predictions, list):
-        raise ContractValidationError("Invalid ranked results: artifact must be a list.")
+def validate_ranked_results(predictions: object, inputs_by_task_id: object) -> None:
+    predictions = _require_record_list(predictions, "ranked results")
+    inputs_by_task_id = _require_record_map(inputs_by_task_id, "memory task inputs by task_id")
 
     seen_task_ids: set[str] = set()
     for index, prediction in enumerate(predictions):
@@ -207,7 +218,7 @@ def validate_ranked_results(predictions: ValidationRecords, inputs_by_task_id: V
             raise ContractValidationError(f"Invalid ranked results: task_id={task_id} has no matching input task.")
 
         method = _required_string(prediction, "method", "ranked result", task_id)
-        if method not in SUPPORTED_METHODS:
+        if method not in _supported_methods():
             raise ContractValidationError(f"Invalid ranked results: task_id={task_id} unsupported method={method}.")
 
         ranked_nodes = prediction.get("ranked_nodes")
@@ -249,8 +260,146 @@ def validate_ranked_results(predictions: ValidationRecords, inputs_by_task_id: V
         _validate_retrieved_subgraph(prediction.get("retrieved_subgraph"), expected_node_ids, task_id)
 
 
-def validate_graph_rerank_config(config: dict | object) -> None:
+def validate_train_pairs(
+    records: object,
+    inputs_by_task_id: object,
+    labels_by_task_id: object,
+    graphs_by_task_id: object,
+) -> None:
+    records = _require_record_list(records, "train pairs")
+    inputs_by_task_id = _require_record_map(inputs_by_task_id, "memory task inputs by task_id")
+    labels_by_task_id = _require_record_map(labels_by_task_id, "memory task labels by task_id")
+    graphs_by_task_id = _require_record_map(graphs_by_task_id, "graphs by task_id")
+
+    seen_keys: set[tuple[str, str, str]] = set()
+    positive_nodes_by_task_id: dict[str, set[str]] = {task_id: set() for task_id in labels_by_task_id}
+    for index, pair in enumerate(records):
+        if not isinstance(pair, dict):
+            raise ContractValidationError(f"Invalid train pairs: record index={index} is not an object.")
+        _reject_unknown_fields(pair, TRAIN_PAIR_FIELDS, "train pair")
+        task_id = _required_string(pair, "task_id", "train pair")
+        if task_id not in inputs_by_task_id:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} has no matching input task.")
+        if task_id not in labels_by_task_id:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} has no matching label task.")
+        if task_id not in graphs_by_task_id:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} has no matching graph.")
+
+        node_id = _required_string(pair, "node_id", "train pair", task_id)
+        if node_id == "q":
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} node_id=q is not a memory node.")
+        memory_node_ids = _memory_node_ids(inputs_by_task_id[task_id])
+        if node_id not in memory_node_ids:
+            raise ContractValidationError(
+                f"Invalid train pairs: task_id={task_id} node_id={node_id} does not exist in input task."
+            )
+        if node_id not in _graph_node_ids(graphs_by_task_id[task_id]) - {"q"}:
+            raise ContractValidationError(
+                f"Invalid train pairs: task_id={task_id} node_id={node_id} does not exist in graph."
+            )
+
+        label = _required_int(pair, "label", "train pair", task_id, minimum=0)
+        if label not in {0, 1}:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} label must be 0 or 1.")
+        sample_type = _required_string(pair, "sample_type", "train pair", task_id)
+        if sample_type not in TRAIN_PAIR_SAMPLE_TYPES:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} unsupported sample_type={sample_type}.")
+
+        duplicate_key = (task_id, node_id, sample_type)
+        if duplicate_key in seen_keys:
+            raise ContractValidationError(
+                f"Invalid train pairs: duplicate (task_id, node_id, sample_type)={duplicate_key}."
+            )
+        seen_keys.add(duplicate_key)
+
+        gold_nodes = set(labels_by_task_id[task_id].get("gold_evidence_nodes", []))
+        if sample_type == "positive" and label != 1:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} positive sample requires label=1.")
+        if sample_type != "positive" and label != 0:
+            raise ContractValidationError(f"Invalid train pairs: task_id={task_id} negative sample requires label=0.")
+        if label == 1:
+            if node_id not in gold_nodes:
+                raise ContractValidationError(
+                    f"Invalid train pairs: task_id={task_id} positive node_id={node_id} is not gold evidence."
+                )
+            positive_nodes_by_task_id.setdefault(task_id, set()).add(node_id)
+        if label == 0 and node_id in gold_nodes:
+            raise ContractValidationError(
+                f"Invalid train pairs: task_id={task_id} negative node_id={node_id} is gold evidence."
+            )
+
+    for task_id, labels in labels_by_task_id.items():
+        gold_nodes = set(labels.get("gold_evidence_nodes", []))
+        observed_positive_nodes = positive_nodes_by_task_id.get(task_id, set())
+        if observed_positive_nodes != gold_nodes:
+            missing = sorted(gold_nodes - observed_positive_nodes)
+            extra = sorted(observed_positive_nodes - gold_nodes)
+            raise ContractValidationError(
+                f"Invalid train pairs: task_id={task_id} positives must exactly match gold evidence; missing={missing} extra={extra}."
+            )
+
+
+def validate_negative_sampling_config(config: object) -> None:
     config_dict = _to_plain_dict(config)
+    _reject_unknown_fields(config_dict, NEGATIVE_SAMPLING_CONFIG_FIELDS, "negative sampling config")
+    _required_int(config_dict, "random_seed", "negative sampling config")
+    hard_count = 0
+    for field_name in [
+        "easy_random_per_positive",
+        "hard_bm25_per_positive",
+        "hard_dense_per_positive",
+        "hard_graph_neighbor_per_positive",
+    ]:
+        value = _required_int(config_dict, field_name, "negative sampling config", minimum=0)
+        if field_name.startswith("hard_"):
+            hard_count += value
+    hard_pool_size = _required_int(config_dict, "hard_pool_size", "negative sampling config", minimum=1)
+    if hard_count > 0 and hard_pool_size <= 0:
+        raise ContractValidationError("Invalid negative sampling config: hard_pool_size must be positive.")
+
+
+def validate_train_pair_build_summary(summary: object) -> None:
+    summary = _require_record(summary, "train pair build summary")
+    _reject_unknown_fields(summary, TRAIN_PAIR_BUILD_SUMMARY_FIELDS, "train pair build summary")
+    _required_int(summary, "positive_count", "train pair build summary", minimum=0)
+
+    negative_count_by_type = summary.get("negative_count_by_type")
+    if not isinstance(negative_count_by_type, dict):
+        raise ContractValidationError("Invalid train pair build summary: negative_count_by_type must be an object.")
+    unknown_sample_types = sorted(set(negative_count_by_type) - NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES)
+    if unknown_sample_types:
+        raise ContractValidationError(
+            f"Invalid train pair build summary: unsupported negative sample types={unknown_sample_types}."
+        )
+    for sample_type, count in negative_count_by_type.items():
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ContractValidationError(
+                f"Invalid train pair build summary: negative_count_by_type[{sample_type}] must be a non-negative integer."
+            )
+
+    for field_name in ["avg_positive_per_task", "avg_negative_per_task"]:
+        _required_finite_number(summary, field_name, "train pair build summary", minimum=0.0)
+    tasks_with_no_positive = summary.get("tasks_with_no_positive")
+    if not isinstance(tasks_with_no_positive, list):
+        raise ContractValidationError("Invalid train pair build summary: tasks_with_no_positive must be a list.")
+    for task_id in tasks_with_no_positive:
+        if not isinstance(task_id, str) or not task_id:
+            raise ContractValidationError("Invalid train pair build summary: tasks_with_no_positive entries must be strings.")
+    if tasks_with_no_positive:
+        raise ContractValidationError("Invalid train pair build summary: tasks_with_no_positive must be empty.")
+
+    sampling_config = summary.get("sampling_config")
+    if not isinstance(sampling_config, dict):
+        raise ContractValidationError("Invalid train pair build summary: sampling_config must be an object.")
+    validate_negative_sampling_config(sampling_config)
+
+
+def validate_graph_rerank_config(config: object) -> None:
+    config_dict = _to_plain_dict(config)
+    if "type_weights" in config_dict:
+        raise ContractValidationError(
+            "Invalid graph rerank config: type_weights is deprecated; use neighbor_type_weights instead."
+        )
     lambda_fields = ["lambda_init", "lambda_query", "lambda_neighbor", "lambda_bridge", "lambda_path"]
     for field_name in lambda_fields:
         value = config_dict.get(field_name)
@@ -282,9 +431,8 @@ def validate_graph_rerank_config(config: dict | object) -> None:
             )
 
 
-def validate_metric_rows(rows: ValidationRecords) -> None:
-    if not isinstance(rows, list):
-        raise ContractValidationError("Invalid metric rows: artifact must be a list.")
+def validate_metric_rows(rows: object) -> None:
+    rows = _require_record_list(rows, "metric rows")
     for row in rows:
         if not isinstance(row, dict):
             raise ContractValidationError("Invalid metric rows: row is not an object.")
@@ -313,7 +461,7 @@ def validate_task_id_alignment(artifact_name: str, expected_task_ids: set[str], 
         )
 
 
-def _validate_graph_nodes(nodes: list, task_input: dict, task_id: str) -> set[str]:
+def _validate_graph_nodes(nodes: list[object], task_input: ValidationRecord, task_id: str) -> set[str]:
     seen_node_ids: set[str] = set()
     question_count = 0
     for node in nodes:
@@ -351,7 +499,7 @@ def _validate_graph_nodes(nodes: list, task_input: dict, task_id: str) -> set[st
     return seen_node_ids
 
 
-def _validate_graph_edge(edge: dict, graph_node_ids: set[str], task_id: str) -> None:
+def _validate_graph_edge(edge: ValidationRecord, graph_node_ids: set[str], task_id: str) -> None:
     if not isinstance(edge, dict):
         raise ContractValidationError(f"Invalid graph: task_id={task_id} edge is not an object.")
     _reject_unknown_fields(edge, GRAPH_EDGE_FIELDS, "graph edge", task_id)
@@ -404,14 +552,45 @@ def _walk_forbidden_fields(value: Any, *, artifact_name: str, task_id: str | Non
             _walk_forbidden_fields(nested_value, artifact_name=artifact_name, task_id=task_id, path=f"{path}[{index}]")
 
 
-def _reject_unknown_fields(record: dict, allowed_fields: set[str], artifact_name: str, task_id: str | None = None) -> None:
+def _require_record_list(value: object, artifact_name: str) -> ValidationRecords:
+    if not isinstance(value, list):
+        raise ContractValidationError(f"Invalid {artifact_name}: artifact must be a list.")
+    for index, record in enumerate(value):
+        if not isinstance(record, dict):
+            raise ContractValidationError(f"Invalid {artifact_name}: record index={index} is not an object.")
+    return cast(ValidationRecords, value)
+
+
+def _require_record_map(value: object, artifact_name: str) -> ValidationRecordMap:
+    if not isinstance(value, dict):
+        raise ContractValidationError(f"Invalid {artifact_name}: artifact must be an object.")
+    for key, record in value.items():
+        if not isinstance(key, str) or not key:
+            raise ContractValidationError(f"Invalid {artifact_name}: keys must be non-empty strings.")
+        if not isinstance(record, dict):
+            raise ContractValidationError(f"Invalid {artifact_name}: value for key={key} is not an object.")
+    return cast(ValidationRecordMap, value)
+
+
+def _require_record(value: object, artifact_name: str) -> ValidationRecord:
+    if not isinstance(value, dict):
+        raise ContractValidationError(f"Invalid {artifact_name}: artifact must be an object.")
+    return cast(ValidationRecord, value)
+
+
+def _reject_unknown_fields(
+    record: ValidationRecord,
+    allowed_fields: set[str],
+    artifact_name: str,
+    task_id: str | None = None,
+) -> None:
     unknown = sorted(set(record) - allowed_fields)
     if unknown:
         location = f" task_id={task_id}" if task_id is not None else ""
         raise ContractValidationError(f"Invalid {artifact_name}:{location} unknown fields={unknown}.")
 
 
-def _required_string(record: dict, field_name: str, artifact_name: str, task_id: str | None = None) -> str:
+def _required_string(record: ValidationRecord, field_name: str, artifact_name: str, task_id: str | None = None) -> str:
     value = record.get(field_name)
     if not isinstance(value, str) or not value:
         location = f" task_id={task_id}" if task_id is not None else ""
@@ -420,7 +599,7 @@ def _required_string(record: dict, field_name: str, artifact_name: str, task_id:
 
 
 def _required_int(
-    record: dict,
+    record: ValidationRecord,
     field_name: str,
     artifact_name: str,
     task_id: str | None = None,
@@ -438,7 +617,7 @@ def _required_int(
 
 
 def _required_finite_number(
-    record: dict,
+    record: ValidationRecord,
     field_name: str,
     artifact_name: str,
     task_id: str | None = None,
@@ -462,16 +641,27 @@ def _require_unique(value: str, seen_values: set[str], artifact_name: str) -> No
     seen_values.add(value)
 
 
-def _memory_node_ids(task_input: dict) -> set[str]:
+def _memory_node_ids(task_input: ValidationRecord) -> set[str]:
     memory_items = task_input.get("memory_items")
     if not isinstance(memory_items, list):
         return set()
     return {memory_item["id"] for memory_item in memory_items if isinstance(memory_item, dict) and "id" in memory_item}
 
 
-def _to_plain_dict(config: dict | object) -> dict:
+def _graph_node_ids(graph: ValidationRecord) -> set[str]:
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return set()
+    return {node["id"] for node in nodes if isinstance(node, dict) and "id" in node}
+
+
+def _supported_methods() -> tuple[str, ...]:
+    return get_supported_methods()
+
+
+def _to_plain_dict(config: object) -> ValidationRecord:
     if isinstance(config, dict):
-        return config
+        return cast(ValidationRecord, config)
     if is_dataclass(config) and not isinstance(config, type):
-        return asdict(config)
+        return cast(ValidationRecord, asdict(config))
     raise ContractValidationError("Invalid config: expected dict or dataclass instance.")

@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
 import graph_memory.rerank as rerank_module
+import graph_memory.retrieval as retrieval_module
+import graph_memory.experiment as experiment_module
 import graph_memory.types as types_module
 from dataclasses import asdict, fields
+from typing import cast
 
 from graph_memory.rerank import (
     graph_rerank,
@@ -10,9 +13,22 @@ from graph_memory.rerank import (
     induced_retrieved_subgraph,
     neighbor_propagation_scores,
     normalize_scores,
+    rank_graph_from_initial_scores,
 )
 from graph_memory.evaluation import evaluate_results
-from graph_memory.retrieval import InitialScoreCache, run_graph_rerank_from_initial_score_cache, run_retrieval
+from graph_memory.retrieval import (
+    InitialScoreCache,
+    run_graph_rerank_from_initial_score_cache,
+    run_retrieval,
+)
+from graph_memory.retrieval_registry import (
+    METHOD_REGISTRY,
+    get_graph_rerank_methods,
+    get_methods_requiring_dense_encoder,
+    get_supported_methods,
+)
+from graph_memory.rerank_config import ensure_graph_rerank_config
+from scripts.run_retrieval import build_parser
 from graph_memory.tuning import (
     graph_rerank_grid,
     graph_rerank_grid_from_record,
@@ -20,7 +36,7 @@ from graph_memory.tuning import (
     tune_graph_rerank,
     tuning_objective,
 )
-from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput
+from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput, MemoryTaskLabels, MetricRow, TuningCandidateRow
 from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
 
 
@@ -88,7 +104,7 @@ def retrieval_task_inputs() -> list[MemoryTaskInput]:
     ]
 
 
-def retrieval_task_labels():
+def retrieval_task_labels() -> list[MemoryTaskLabels]:
     return [
         {
             "task_id": "hotpot_ex1",
@@ -114,6 +130,28 @@ def retrieval_graphs() -> list[MemoryGraph]:
             ],
         }
     ]
+
+
+def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
+    supported_methods = get_supported_methods()
+    parser_method_action = next(action for action in build_parser()._actions if action.dest == "method")
+
+    assert supported_methods == tuple(METHOD_REGISTRY)
+    assert get_graph_rerank_methods() == ("bm25_graph_rerank", "dense_graph_rerank")
+    assert get_methods_requiring_dense_encoder() == ("dense", "dense_graph_rerank")
+    assert parser_method_action.choices is not None
+    assert tuple(parser_method_action.choices) == supported_methods
+    assert METHOD_REGISTRY["bm25"].requires_graphs is False
+    assert METHOD_REGISTRY["dense"].requires_graph_config is False
+    assert METHOD_REGISTRY["bm25_graph_rerank"].requires_graphs is True
+    assert METHOD_REGISTRY["dense_graph_rerank"].seed_method == "dense"
+    assert not hasattr(retrieval_module, "METHOD_REGISTRY")
+    assert not hasattr(retrieval_module, "get_supported_methods")
+    assert not hasattr(retrieval_module, "get_graph_rerank_methods")
+    assert not hasattr(retrieval_module, "get_methods_requiring_dense_encoder")
+    assert not hasattr(experiment_module, "CURRENT_METHODS")
+    assert not hasattr(experiment_module, "GRAPH_RERANK_METHODS")
+    assert not hasattr(types_module, "SUPPORTED_RETRIEVAL_METHODS")
 
 
 def test_bm25_and_dense_emit_same_ranked_schema():
@@ -181,74 +219,56 @@ def test_graph_rerank_config_uses_neighbor_type_weights_as_canonical_field():
     validate_graph_rerank_config(config_record)
 
 
-def test_deprecated_type_weights_record_is_readable_and_ignores_query_overlap():
-    loader = getattr(types_module, "graph_rerank_config_from_value", None)
-
-    assert callable(loader)
-
-    config = loader(
-        {
-            "lambda_init": 1.0,
-            "lambda_query": 0.1,
-            "lambda_neighbor": 0.2,
-            "lambda_bridge": 0.1,
-            "lambda_path": 0.0,
-            "seed_top_s": 30,
-            "max_hops": 2,
-            "type_weights": {
-                "query_overlap": 0.0,
-                "sequential": 0.3,
-                "entity_overlap": 0.7,
-                "bridge": 1.0,
-            },
-        }
-    )
-
-    assert config.neighbor_type_weights == {
-        "sequential": 0.3,
-        "entity_overlap": 0.7,
-        "bridge": 1.0,
-    }
+def test_deprecated_type_weights_record_is_rejected():
+    with pytest.raises(ValueError, match="type_weights is deprecated; use neighbor_type_weights instead"):
+        ensure_graph_rerank_config(
+            {
+                "lambda_init": 1.0,
+                "lambda_query": 0.1,
+                "lambda_neighbor": 0.2,
+                "lambda_bridge": 0.1,
+                "lambda_path": 0.0,
+                "seed_top_s": 30,
+                "max_hops": 2,
+                "type_weights": {
+                    "query_overlap": 0.0,
+                    "sequential": 0.3,
+                    "entity_overlap": 0.7,
+                    "bridge": 1.0,
+                },
+            }
+        )
 
 
-def test_neighbor_type_weights_take_precedence_over_deprecated_type_weights():
-    loader = getattr(types_module, "graph_rerank_config_from_value", None)
-
-    assert callable(loader)
-
-    config = loader(
-        {
-            "lambda_init": 1.0,
-            "lambda_query": 0.1,
-            "lambda_neighbor": 0.2,
-            "lambda_bridge": 0.1,
-            "lambda_path": 0.0,
-            "seed_top_s": 30,
-            "max_hops": 2,
-            "neighbor_type_weights": {
-                "sequential": 0.1,
-                "entity_overlap": 0.2,
-                "bridge": 0.3,
-            },
-            "type_weights": {
-                "query_overlap": 99.0,
-                "sequential": 9.0,
-                "entity_overlap": 9.0,
-                "bridge": 9.0,
-            },
-        }
-    )
-
-    assert config.neighbor_type_weights == {
-        "sequential": 0.1,
-        "entity_overlap": 0.2,
-        "bridge": 0.3,
-    }
+def test_type_weights_is_rejected_even_when_neighbor_type_weights_is_present():
+    with pytest.raises(ValueError, match="type_weights is deprecated; use neighbor_type_weights instead"):
+        ensure_graph_rerank_config(
+            {
+                "lambda_init": 1.0,
+                "lambda_query": 0.1,
+                "lambda_neighbor": 0.2,
+                "lambda_bridge": 0.1,
+                "lambda_path": 0.0,
+                "seed_top_s": 30,
+                "max_hops": 2,
+                "neighbor_type_weights": {
+                    "sequential": 0.1,
+                    "entity_overlap": 0.2,
+                    "bridge": 0.3,
+                },
+                "type_weights": {
+                    "query_overlap": 99.0,
+                    "sequential": 9.0,
+                    "entity_overlap": 9.0,
+                    "bridge": 9.0,
+                },
+            }
+        )
 
 
 def test_graph_pipeline_requires_graph_for_every_task():
     task_inputs = retrieval_task_inputs()
-    second_task = {
+    second_task: MemoryTaskInput = {
         **task_inputs[0],
         "task_id": "hotpot_ex2",
     }
@@ -264,11 +284,7 @@ def test_graph_pipeline_requires_graph_for_every_task():
 
 
 def test_query_overlap_does_not_require_neighbor_type_weight_and_uses_lambda_query_only():
-    loader = getattr(types_module, "graph_rerank_config_from_value", None)
-
-    assert callable(loader)
-
-    graph = {
+    graph: MemoryGraph = {
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
@@ -291,18 +307,14 @@ def test_query_overlap_does_not_require_neighbor_type_weight_and_uses_lambda_que
     assert breakdown["m1"].query == pytest.approx(1.0)
     assert breakdown["m1"].final == pytest.approx(1.0)
 
-    ablated_config = loader({**asdict(config), "lambda_query": 0.0})
+    ablated_config = ensure_graph_rerank_config({**asdict(config), "lambda_query": 0.0})
     ablated_ranked = graph_rerank({"m0": 1.0, "m1": 0.0}, graph, ablated_config)
 
     assert [node.node_id for node in ablated_ranked] == ["m0", "m1"]
 
 
-def test_deprecated_query_overlap_type_weight_does_not_ablate_query_overlap_component():
-    loader = getattr(types_module, "graph_rerank_config_from_value", None)
-
-    assert callable(loader)
-
-    config = loader(
+def test_query_overlap_component_uses_lambda_query_only():
+    config = ensure_graph_rerank_config(
         {
             "lambda_init": 0.0,
             "lambda_query": 1.0,
@@ -311,8 +323,7 @@ def test_deprecated_query_overlap_type_weight_does_not_ablate_query_overlap_comp
             "lambda_path": 0.0,
             "seed_top_s": 2,
             "max_hops": 1,
-            "type_weights": {
-                "query_overlap": 0.0,
+            "neighbor_type_weights": {
                 "sequential": 0.0,
                 "entity_overlap": 0.0,
                 "bridge": 0.0,
@@ -320,15 +331,16 @@ def test_deprecated_query_overlap_type_weight_does_not_ablate_query_overlap_comp
         }
     )
 
+    graph: MemoryGraph = {
+        "task_id": "hotpot_ex1",
+        "nodes": [],
+        "edges": [
+            {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
+        ],
+    }
     ranked = graph_rerank(
         {"m0": 1.0, "m1": 0.0},
-        {
-            "task_id": "hotpot_ex1",
-            "nodes": [],
-            "edges": [
-                {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
-            ],
-        },
+        graph,
         config,
     )
 
@@ -341,7 +353,7 @@ def test_normalize_scores_handles_equal_values():
 
 def test_graph_rerank_uses_bridge_to_promote_connected_evidence():
     initial_scores = {"m0": 1.0, "m1": 0.2, "m2": 0.8}
-    graph = {
+    graph: MemoryGraph = {
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
@@ -398,7 +410,7 @@ def test_graph_rerank_normalizes_graph_components_before_combining():
 
 
 def test_retrieval_pipeline_normalizes_graph_components_before_combining():
-    task_inputs = [
+    task_inputs: list[MemoryTaskInput] = [
         {
             "task_id": "hotpot_ex1",
             "query": "Which city has the landmark?",
@@ -422,7 +434,7 @@ def test_retrieval_pipeline_normalizes_graph_components_before_combining():
             ],
         }
     ]
-    graphs = [
+    graphs: list[MemoryGraph] = [
         {
             "task_id": "hotpot_ex1",
             "nodes": [
@@ -458,7 +470,7 @@ def test_retrieval_pipeline_normalizes_graph_components_before_combining():
 
 
 def test_neighbor_propagation_uses_weighted_average_not_edge_count():
-    graph = {
+    graph: MemoryGraph = {
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
@@ -480,7 +492,7 @@ def test_neighbor_propagation_uses_weighted_average_not_edge_count():
 
 
 def test_induced_retrieved_subgraph_keeps_edges_inside_selected_nodes():
-    graph = {
+    graph: MemoryGraph = {
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
@@ -522,9 +534,7 @@ def test_graph_rerank_retrieval_promotes_bridge_neighbor_and_emits_induced_edge(
 
 
 def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
-    rank_graph_from_initial_scores = getattr(rerank_module, "rank_graph_from_initial_scores", None)
-
-    assert callable(rank_graph_from_initial_scores)
+    assert callable(rerank_module.rank_graph_from_initial_scores)
 
     config = GraphRerankConfig(
         lambda_init=0.0,
@@ -555,13 +565,17 @@ def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
 
 
 def test_tuning_objective_weights_full_support_recall_and_connected_evidence():
-    row = {"Full Support@5": 0.6, "Recall@5": 0.5, "Connected Evidence Recall@10": 0.25}
+    row = cast(MetricRow, cast(object, {"Full Support@5": 0.6, "Recall@5": 0.5, "Connected Evidence Recall@10": 0.25}))
 
     assert tuning_objective(row) == pytest.approx(0.5)
 
 
 def test_grid_search_selects_highest_objective_then_latency_tiebreak():
-    rows = [
+    rows = cast(
+        list[TuningCandidateRow],
+        cast(
+            object,
+            [
         {
             "config": {"lambda_neighbor": 0.1},
             "Full Support@5": 0.5,
@@ -580,7 +594,9 @@ def test_grid_search_selects_highest_objective_then_latency_tiebreak():
             "Retrieval Latency / Query": 10.0,
             "Avg Retrieved Edges": 5.0,
         },
-    ]
+            ],
+        ),
+    )
 
     assert select_best_config(rows)["lambda_neighbor"] == 0.2
 
@@ -603,7 +619,7 @@ def test_graph_rerank_grid_includes_pure_initial_score_fallback():
     )
 
 
-def test_graph_rerank_grid_from_record_reads_neighbor_type_weights_and_deprecated_type_weights():
+def test_graph_rerank_grid_from_record_reads_neighbor_type_weights_and_rejects_deprecated_type_weights():
     canonical_grid = graph_rerank_grid_from_record(
         {
             "lambda_init": [1.0],
@@ -620,30 +636,30 @@ def test_graph_rerank_grid_from_record_reads_neighbor_type_weights_and_deprecate
             },
         }
     )
-    deprecated_grid = graph_rerank_grid_from_record(
-        {
-            "lambda_init": [1.0],
-            "lambda_query": [0.0],
-            "lambda_neighbor": [0.1],
-            "lambda_bridge": [0.0],
-            "lambda_path": [0.0],
-            "seed_top_s": [1],
-            "max_hops": [1],
-            "type_weights": {
-                "query_overlap": 99.0,
-                "sequential": 0.1,
-                "entity_overlap": 0.2,
-                "bridge": 0.3,
-            },
-        }
-    )
 
     assert canonical_grid[0].neighbor_type_weights == {
         "sequential": 0.1,
         "entity_overlap": 0.2,
         "bridge": 0.3,
     }
-    assert deprecated_grid[0].neighbor_type_weights == canonical_grid[0].neighbor_type_weights
+    with pytest.raises(ValueError, match="type_weights is deprecated; use neighbor_type_weights instead"):
+        graph_rerank_grid_from_record(
+            {
+                "lambda_init": [1.0],
+                "lambda_query": [0.0],
+                "lambda_neighbor": [0.1],
+                "lambda_bridge": [0.0],
+                "lambda_path": [0.0],
+                "seed_top_s": [1],
+                "max_hops": [1],
+                "type_weights": {
+                    "query_overlap": 99.0,
+                    "sequential": 0.1,
+                    "entity_overlap": 0.2,
+                    "bridge": 0.3,
+                },
+            }
+        )
 
 
 def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():

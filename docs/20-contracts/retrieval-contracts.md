@@ -21,57 +21,66 @@ Retrieval code must not:
 
 ## Public Method Names
 
-Initial public methods:
+Current registry methods:
 
-| Method | Kind | Required graph | Required config | Required checkpoint | Seed method |
-|---|---|---:|---:|---:|---|
-| `bm25` | flat seed retrieval | no | no | no | none |
-| `dense` | flat seed retrieval | no | no | no | none |
-| `bm25_graph_rerank` | graph rerank | yes | yes | no | `bm25` |
-| `dense_graph_rerank` | graph rerank | yes | yes | no | `dense` |
-| `dense_rgcn_graph_retriever` | trainable graph retrieval | yes | no | yes | `dense` |
+| Method | Kind | Required graph | Required config | Required checkpoint | Dense encoder args | Seed method |
+|---|---|---:|---:|---:|---:|---|
+| `bm25` | flat seed retrieval | no | no | no | no | none |
+| `dense` | flat seed retrieval | no | no | no | yes | none |
+| `bm25_graph_rerank` | graph rerank | yes | yes | no | no | `bm25` |
+| `dense_graph_rerank` | graph rerank | yes | yes | no | yes | `dense` |
+
+Planned Phase 2 method:
+
+| Method | Kind | Required graph | Required config | Required checkpoint | Dense encoder args | Seed method |
+|---|---|---:|---:|---:|---:|---|
+| `dense_rgcn_graph_retriever` | trainable graph retrieval | yes | no | yes | yes | `dense` |
 
 Method names are artifact-level contract values. Renaming a method creates a new result namespace and must be treated as a compatibility change.
 
 ## Retrieval Method Registry
 
-Scattered `method in {...}` checks are not allowed for public method dispatch. Use a static lightweight registry. This is not dynamic plugin discovery.
+Scattered `method in {...}` checks are not allowed for public method dispatch. Use the static lightweight registry in `graph_memory/retrieval_registry.py`. This is not dynamic plugin discovery.
 
 ```python
 @dataclass(frozen=True)
 class RetrievalMethodSpec:
     """
-    Static registration metadata for one public retrieval method.
-    一个公开检索方法的静态注册元数据。
+    Static metadata for one public retrieval method.
+    一个公开检索方法的静态元数据。
 
     Fields / 字段:
     - name: Public method name written into ranked result artifacts.
       name：写入 ranked result artifact 的公开方法名。
     - requires_graphs: Whether this method requires `*_graphs.json`.
       requires_graphs：该方法是否需要 `*_graphs.json`。
-    - requires_graph_config: Whether this method requires handwritten graph rerank config.
-      requires_graph_config：该方法是否需要手写 graph rerank config。
+    - requires_graph_config: Whether this method requires graph rerank config.
+      requires_graph_config：该方法是否需要 graph rerank config。
     - requires_checkpoint: Whether this method requires a trainable model checkpoint.
       requires_checkpoint：该方法是否需要可训练模型 checkpoint。
+    - requires_dense_encoder: Whether this method needs dense encoder runtime args.
+      requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
     - seed_method: Optional flat seed method used by this method, such as `dense`.
       seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder: Function that builds the concrete RetrievalMethod from a build context.
-      builder：从 build context 构造具体 RetrievalMethod 的函数。
+    - builder_id: Local runtime builder selected by `graph_memory.retrieval`.
+      builder_id：由 `graph_memory.retrieval` 选择的本地运行时 builder。
     """
 
     name: MethodName
     requires_graphs: bool
     requires_graph_config: bool
     requires_checkpoint: bool
+    requires_dense_encoder: bool
     seed_method: MethodName | None
-    builder: Callable[[RetrievalBuildContext], RetrievalMethod]
+    builder_id: str
 ```
 
 Registry rules:
 
-- `SUPPORTED_METHODS` and CLI `choices` are derived from `METHOD_REGISTRY.keys()`.
+- Supported methods, validation method checks, experiment method filters, and CLI `choices` are derived from `METHOD_REGISTRY.keys()` or registry capability queries.
+- Method capability queries such as graph-rerank methods and dense-encoder methods are derived from `RetrievalMethodSpec` fields, not string matching.
 - All public methods, including trainable methods, are registered through the same registry.
-- Heavy learned imports should be lazy inside the learned builder if importing them would slow Phase 1-only usage.
+- Runtime builders live in `graph_memory/retrieval.py`; heavy learned imports should be lazy inside the learned builder if importing them would slow Phase 1-only usage.
 - Registry entries declare requirements; scripts validate missing inputs before invoking core retrieval.
 - Adding a method requires adding one registry entry, tests for requirement validation, and an example command in operations docs when it becomes user-facing.
 

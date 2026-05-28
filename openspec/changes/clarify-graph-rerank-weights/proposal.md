@@ -12,8 +12,8 @@ This change clarifies the graph-rerank boundary before more experiments depend o
 - Treat `neighbor_type_weights` as internal edge-type calibration for neighbor propagation and bridge-neighbor scoring, not as final component weights.
 - Keep query-overlap scoring controlled only by `lambda_query`; it SHALL NOT use `neighbor_type_weights["query_overlap"]`.
 - Preserve public method names, ranked-result schema, tuning objective, and graph-rerank ranking behavior except for the config field rename.
-- Provide a compatibility migration path for existing selected config JSON files and search-space files during the rename.
-- **BREAKING**: newly written graph-rerank config artifacts should use `neighbor_type_weights`; `type_weights` becomes deprecated compatibility input only.
+- Require existing selected config JSON files and search-space files that still use `type_weights` to be converted before reuse.
+- **BREAKING**: graph-rerank config artifacts must use `neighbor_type_weights`; `type_weights` input is rejected.
 
 ## Capabilities
 
@@ -34,7 +34,7 @@ This change clarifies the graph-rerank boundary before more experiments depend o
   - `scripts/tune_graph_rerank.py`
 - Affected configs and artifacts:
   - `configs/search_spaces/graph_rerank.json`
-  - existing `runs/**/tuned/*graph_rerank*.json` files as compatibility inputs
+  - existing `runs/**/tuned/*graph_rerank*.json` files if copied and reused as inputs
 - Affected tests:
   - retrieval/rerank unit tests for component parity and config migration
   - validation tests for renamed config fields

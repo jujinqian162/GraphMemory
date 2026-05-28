@@ -171,6 +171,9 @@ Do not create plugin registries or deep package hierarchies in Phase 1. Extract 
 The retrieval service now has two abstraction levels:
 
 ```text
+RetrievalMethodSpec registry
+  -> declares public method names and input/runtime capabilities
+
 RetrievalMethod
   -> produces a ranked result for any baseline
 
@@ -180,6 +183,8 @@ ScorePipelineMethod
 GraphRerankMethod
   -> selects a seed retriever, then delegates graph score composition to rerank.py
 ```
+
+The registry lives in `graph_memory/retrieval_registry.py` and is the single source for method names, graph/config/checkpoint requirements, and dense-encoder argument needs. `retrieval.py` owns runtime construction from the registry's local builder id.
 
 Use `ScorePipelineMethod` for BM25 and dense flat baselines. Current graph rerank variants use `GraphRerankMethod` in `retrieval.py` for orchestration and `graph_memory/rerank.py` for candidate expansion, graph component scoring, normalization, weighted combination, and top-k induced subgraph extraction. Use a separate `RetrievalMethod` implementation when a future baseline is primarily graph traversal, hierarchical memory selection, or learned message passing rather than a transparent weighted sum.
 

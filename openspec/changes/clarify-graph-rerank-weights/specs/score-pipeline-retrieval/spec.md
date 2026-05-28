@@ -41,21 +41,21 @@ The graph-rerank query-overlap component SHALL be controlled by `lambda_query` a
 - **WHEN** `lambda_query` is set to `0.0`
 - **THEN** query-overlap edges do not contribute to final graph-rerank scores regardless of any neighbor type weight values
 
-### Requirement: Rename graph-rerank type weights with compatibility input
-The system SHALL write graph-rerank config artifacts with `neighbor_type_weights` and SHALL accept deprecated `type_weights` as read-only compatibility input.
+### Requirement: Rename graph-rerank type weights without compatibility input
+The system SHALL write graph-rerank config artifacts with `neighbor_type_weights` and SHALL reject deprecated `type_weights` input.
 
 #### Scenario: New selected configs use neighbor type weights
 - **WHEN** graph-rerank tuning writes a selected config or candidate row
 - **THEN** the written config uses `neighbor_type_weights` and does not write `type_weights`
 
-#### Scenario: Deprecated type weights remain readable
+#### Scenario: Deprecated type weights are rejected
 - **WHEN** graph-rerank config loading receives a record containing `type_weights` and no `neighbor_type_weights`
-- **THEN** the loader interprets the memory-to-memory entries as `neighbor_type_weights` and continues execution
+- **THEN** loading fails and tells the caller to use `neighbor_type_weights`
 
-#### Scenario: Canonical field wins over deprecated field
+#### Scenario: Deprecated type weights are rejected even with canonical weights
 - **WHEN** graph-rerank config loading receives both `neighbor_type_weights` and deprecated `type_weights`
-- **THEN** `neighbor_type_weights` is used as the canonical value
+- **THEN** loading fails and tells the caller to use `neighbor_type_weights`
 
-#### Scenario: Historical query overlap type weight is ignored during compatibility loading
+#### Scenario: Historical query overlap type weight is rejected with deprecated input
 - **WHEN** deprecated `type_weights` contains `query_overlap`
-- **THEN** compatibility loading ignores that entry for neighbor type weight construction
+- **THEN** loading fails and tells the caller to use `neighbor_type_weights`

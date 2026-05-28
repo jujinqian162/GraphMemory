@@ -347,6 +347,7 @@ dependencies = [
     { name = "numpy" },
     { name = "rank-bm25" },
     { name = "sentence-transformers" },
+    { name = "torch" },
     { name = "tqdm" },
 ]
 
@@ -368,6 +369,7 @@ requires-dist = [
     { name = "rank-bm25", specifier = ">=0.2.2" },
     { name = "sentence-transformers", specifier = ">=3.0" },
     { name = "spacy", marker = "extra == 'ner'", specifier = ">=3.7" },
+    { name = "torch", specifier = ">=2.12.0" },
     { name = "tqdm", specifier = ">=4.66" },
 ]
 provides-extras = ["ner"]

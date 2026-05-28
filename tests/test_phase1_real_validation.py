@@ -1,4 +1,5 @@
 import math
+from typing import cast
 
 import pytest
 
@@ -45,7 +46,8 @@ def inputs_by_task_id() -> dict[str, MemoryTaskInput]:
 
 def test_input_validation_rejects_label_leakage():
     task_inputs = valid_task_inputs()
-    task_inputs[0]["gold_evidence_nodes"] = ["m0"]
+    task_input = cast(dict[str, object], cast(object, task_inputs[0]))
+    task_input["gold_evidence_nodes"] = ["m0"]
 
     with pytest.raises(ContractValidationError, match="gold_evidence_nodes"):
         validate_memory_task_inputs(task_inputs)

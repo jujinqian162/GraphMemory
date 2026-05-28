@@ -13,9 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval_registry import get_supported_methods
 from graph_memory.validation import (
-    as_validation_record_map,
-    as_validation_records,
     validate_memory_task_inputs,
     validate_ranked_results,
 )
@@ -61,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         task_inputs = read_json(args.tasks)
-        validate_memory_task_inputs(as_validation_records(task_inputs))
+        validate_memory_task_inputs(task_inputs)
         graphs = read_json(args.graphs) if args.graphs is not None else []
         predictions = run_retrieval(
             method=args.method,
@@ -74,7 +73,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             graph_config=graph_config,
         )
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_ranked_results(as_validation_records(predictions), as_validation_record_map(inputs_by_task_id))
+        validate_ranked_results(predictions, inputs_by_task_id)
         write_json(args.output, predictions)
 
         avg_latency = (
@@ -122,7 +121,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Phase 1 retrieval methods.")
-    parser.add_argument("--method", required=True, choices=["bm25", "dense", "bm25_graph_rerank", "dense_graph_rerank"])
+    parser.add_argument("--method", required=True, choices=get_supported_methods())
     parser.add_argument("--tasks", required=True, help="Path to *_memory_tasks.input.json.")
     parser.add_argument("--graphs", default=None, help="Path to *_graphs.json. Required for graph rerank methods.")
     parser.add_argument("--output", required=True, help="Path to write ranked result JSON.")

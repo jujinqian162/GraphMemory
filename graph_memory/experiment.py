@@ -9,9 +9,12 @@ from typing import Any
 
 from graph_memory.io import merge_config, read_json, write_json
 from graph_memory.observability import now_iso
+from graph_memory.retrieval_registry import (
+    get_graph_rerank_methods,
+    get_methods_requiring_dense_encoder,
+    get_supported_methods,
+)
 
-CURRENT_METHODS = ("bm25", "dense", "bm25_graph_rerank", "dense_graph_rerank")
-GRAPH_RERANK_METHODS = {"bm25_graph_rerank", "dense_graph_rerank"}
 STAGE_ORDER = ("prepare", "graphs", "tune", "retrieve", "evaluate", "aggregate")
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
 DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
@@ -111,7 +114,7 @@ def build_effective_config(
         "profile": profile_name,
         "raw": config["raw"],
         "graph": config.get("graph", {}),
-        "methods": config.get("methods", list(CURRENT_METHODS)),
+        "methods": config.get("methods", list(get_supported_methods())),
         "search_spaces": config.get("search_spaces", {"graph_rerank": str(DEFAULT_SEARCH_SPACE_CONFIG)}),
         **defaults,
         "splits": {
@@ -181,11 +184,12 @@ def update_manifest_status(manifest: dict[str, Any]) -> dict[str, Any]:
 
 def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    graph_rerank_methods = set(get_graph_rerank_methods())
     for split in ("train", "dev", "test"):
         rows.append(_artifact_status(stage="prepare", split=split, path=manifest["artifacts"]["inputs"][split]["input"]))
         rows.append(_artifact_status(stage="graphs", split=split, path=manifest["artifacts"]["graphs"][split]))
     for method in manifest["selected_methods"]:
-        if method in GRAPH_RERANK_METHODS:
+        if method in graph_rerank_methods:
             rows.append(_artifact_status(stage="tune", method=method, path=manifest["artifacts"]["tuned"][method]))
         rows.append(_retrieval_status(manifest, method))
         rows.append(_artifact_status(stage="evaluate", method=method, path=manifest["artifacts"]["metrics"][method]))
@@ -206,6 +210,7 @@ def format_status(rows: Sequence[dict[str, str]]) -> str:
 
 
 def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, Any]:
+    graph_rerank_methods = set(get_graph_rerank_methods())
     inputs = {
         split: {
             "input": _path_str(run_dir / "inputs" / f"{split}.input.json"),
@@ -218,7 +223,7 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
     tuned = {
         method: _path_str(run_dir / "tuned" / f"{method}.dev_selected.json")
         for method in methods
-        if method in GRAPH_RERANK_METHODS
+        if method in graph_rerank_methods
     }
     predictions = {
         method: _path_str(run_dir / "predictions" / f"test.{method}.ranked.json")
@@ -306,8 +311,9 @@ def _graph_commands(manifest: dict[str, Any]) -> list[StageCommand]:
 
 def _tune_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
     commands: list[StageCommand] = []
+    graph_rerank_methods = set(get_graph_rerank_methods())
     for method in methods:
-        if method not in GRAPH_RERANK_METHODS:
+        if method not in graph_rerank_methods:
             continue
         argv = [
             sys.executable,
@@ -334,6 +340,8 @@ def _tune_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[Sta
 
 def _retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
     commands: list[StageCommand] = []
+    graph_rerank_methods = set(get_graph_rerank_methods())
+    dense_methods = set(get_methods_requiring_dense_encoder())
     for method in methods:
         argv = [
             sys.executable,
@@ -347,7 +355,7 @@ def _retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list
             "--top_k",
             str(manifest["effective_config"]["top_k"]),
         ]
-        if method in GRAPH_RERANK_METHODS:
+        if method in graph_rerank_methods:
             argv.extend(
                 [
                     "--graphs",
@@ -356,7 +364,7 @@ def _retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list
                     manifest["artifacts"]["tuned"][method],
                 ]
             )
-        if "dense" in method:
+        if method in dense_methods:
             _append_dense_args(argv, manifest)
         commands.append(StageCommand(stage="retrieve", method=method, argv=argv))
     return commands
@@ -423,6 +431,7 @@ def _append_dense_args(argv: list[str], manifest: dict[str, Any]) -> None:
 
 
 def _select_stages(stages: Sequence[str] | None, *, from_stage: str | None) -> list[str]:
+    selected: list[str]
     if stages is not None:
         selected = list(stages)
     elif from_stage is not None:
@@ -438,7 +447,8 @@ def _select_stages(stages: Sequence[str] | None, *, from_stage: str | None) -> l
 
 
 def _validate_methods(methods: Iterable[str]) -> None:
-    unsupported = [method for method in methods if method not in CURRENT_METHODS]
+    supported_methods = set(get_supported_methods())
+    unsupported = [method for method in methods if method not in supported_methods]
     if unsupported:
         raise ValueError(f"Unsupported method: {', '.join(unsupported)}")
 
@@ -450,10 +460,11 @@ def _validate_stage_dependencies(
 ) -> None:
     if "retrieve" not in selected_stages or "tune" in selected_stages:
         return
+    graph_rerank_methods = set(get_graph_rerank_methods())
     missing_tuned = [
         method
         for method in selected_methods
-        if method in GRAPH_RERANK_METHODS and not Path(manifest["artifacts"]["tuned"][method]).exists()
+        if method in graph_rerank_methods and not Path(manifest["artifacts"]["tuned"][method]).exists()
     ]
     if missing_tuned:
         missing_paths = ", ".join(manifest["artifacts"]["tuned"][method] for method in missing_tuned)

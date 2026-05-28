@@ -131,19 +131,20 @@ Rules:
 
 ## RetrievalMethodSpec Registry
 
-Public method dispatch should use a static registry once methods have different required inputs.
+Public method dispatch uses the static registry in `graph_memory/retrieval_registry.py` because methods have different required inputs.
 
 Purpose:
 
 ```text
-method name -> method metadata + builder
+method name -> method metadata + runtime builder id
 ```
 
 Rules:
 
-- Registry keys define supported public method names.
-- CLI choices should be derived from registry keys.
-- Registry metadata declares whether graphs, graph rerank config, or checkpoint are required.
+- Registry keys define supported public method names and are the single source for validator and CLI method choices.
+- Registry metadata declares whether graphs, graph rerank config, dense encoder args, or checkpoint are required.
+- `experiment.py`, tuning, and scripts use registry capability queries instead of copied method tuples or string matching such as `"dense" in method`.
+- Runtime builders live in `graph_memory/retrieval.py` and are selected by the registry entry's local `builder_id`.
 - Builders receive explicit build context objects, not raw CLI args.
 - Heavy learned imports may be lazy inside the trainable method builder.
 - This is a local dispatch table, not dynamic plugin discovery.
@@ -278,9 +279,9 @@ Rules:
 - Raise `ContractValidationError` for artifact contract violations.
 - Do not clean, repair, drop, sort, or infer data.
 - Transformation must be a separate named step.
-- When a typed artifact such as `list[MemoryTaskInput]` crosses into a validator typed as raw validation records,
-  use the zero-copy `as_validation_records(...)` or `as_validation_record_map(...)` boundary helper. Do not copy
-  records through `dict(...)` or `dataclasses.asdict(...)` just to satisfy a type checker.
+- Validators accept `object` at public boundaries, check the JSON/list/map shape at runtime, and only then narrow to
+  internal validation record types. Call sites should pass loaded JSON artifacts or domain-typed artifacts directly;
+  do not copy records through `dict(...)` or `dataclasses.asdict(...)` just to satisfy a type checker.
 
 ## Experiment Services
 

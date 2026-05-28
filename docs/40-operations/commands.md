@@ -159,6 +159,26 @@ python scripts/build_graphs.py `
   --max_bridge_edges 50
 ```
 
+## Build Train Pairs
+
+Phase 2 trainable retrieval uses `*_pairs.json` as the supervised query-node training artifact. The script reads already prepared input, label, and graph artifacts; it writes the pair artifact, `*.summary.json`, and `*.run_summary.json`.
+
+```powershell
+python scripts/build_train_pairs.py `
+  --tasks data/hotpotqa/processed/train_memory_tasks.input.json `
+  --labels data/hotpotqa/processed/train_memory_tasks.labels.json `
+  --graphs data/hotpotqa/processed/train_graphs.json `
+  --output data/hotpotqa/processed/train_pairs.json `
+  --random_seed 13 `
+  --easy_random_per_positive 2 `
+  --hard_bm25_per_positive 2 `
+  --hard_dense_per_positive 0 `
+  --hard_graph_neighbor_per_positive 1 `
+  --hard_pool_size 30
+```
+
+Set `--hard_dense_per_positive` above `0` only when the configured dense encoder is available in the environment.
+
 ## Run Flat Retrieval On Test
 
 BM25:
@@ -190,7 +210,7 @@ Dense retrieval requires the Sentence-Transformers model to be available locally
 
 Graph-rerank tuning computes the seed retriever's complete initial scores once per task in memory, then reuses those scores across the graph-rerank grid. This keeps `dense_graph_rerank` tuning compatible with the existing CLI while avoiding one dense encoding pass per candidate. No persistent score-cache artifact is written.
 
-New search-space and selected-config artifacts use `neighbor_type_weights` for memory-to-memory graph edge calibration. Historical configs with `type_weights` remain readable as compatibility input; `type_weights.query_overlap` is ignored because query-overlap strength is controlled only by `lambda_query`.
+Search-space and selected-config artifacts use `neighbor_type_weights` for memory-to-memory graph edge calibration. Deprecated `type_weights` configs are rejected; convert them before rerunning graph-rerank commands.
 
 BM25-seeded graph rerank:
 

@@ -1,13 +1,13 @@
 ## 1. Tests First
 
-- [x] 1.1 Add config tests proving `neighbor_type_weights` is the canonical graph-rerank field and deprecated `type_weights` remains readable.
+- [x] 1.1 Add config tests proving `neighbor_type_weights` is the canonical graph-rerank field and deprecated `type_weights` is rejected.
 - [x] 1.2 Add tests proving `query_overlap` is not required in `neighbor_type_weights` and query-overlap scoring is controlled only by `lambda_query`.
 - [x] 1.3 Add rerank/retrieval parity tests proving graph-rerank rankings and retrieved subgraph edges remain unchanged after moving graph scoring ownership to `rerank.py`.
 
-## 2. Config Rename and Compatibility
+## 2. Config Rename
 
 - [x] 2.1 Rename `GraphRerankConfig.type_weights` to `neighbor_type_weights` and update default weights to include memory-to-memory graph edge types only.
-- [x] 2.2 Add a compatibility loader that accepts deprecated `type_weights`, ignores historical `query_overlap`, and prefers `neighbor_type_weights` when both fields are present.
+- [x] 2.2 Add config loading that rejects deprecated `type_weights`, including records that also contain `neighbor_type_weights`.
 - [x] 2.3 Update graph-rerank validation so `neighbor_type_weights` is required for canonical configs and `query_overlap` is not required as a neighbor type weight.
 - [x] 2.4 Update grid parsing and selected-config serialization so newly written tuning artifacts emit `neighbor_type_weights` only.
 - [x] 2.5 Update `configs/search_spaces/graph_rerank.json` to use `neighbor_type_weights`.
@@ -21,9 +21,9 @@
 
 ## 4. Documentation Updates
 
-- [x] 4.1 Update data-contract docs to document `neighbor_type_weights`, deprecated `type_weights` input compatibility, and the distinction from `lambda_*`.
+- [x] 4.1 Update data-contract docs to document `neighbor_type_weights`, deprecated `type_weights` rejection, and the distinction from `lambda_*`.
 - [x] 4.2 Update architecture and abstraction docs so `rerank.py` owns graph-rerank scoring while `retrieval.py` owns orchestration.
-- [x] 4.3 Update operations docs and handoff notes to use `neighbor_type_weights` in examples and explain that old run artifacts are read as compatibility inputs.
+- [x] 4.3 Update operations docs and handoff notes to use `neighbor_type_weights` in examples and explain that old `type_weights` configs must be converted before reuse.
 
 ## 5. Verification
 

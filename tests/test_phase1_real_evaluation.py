@@ -1,4 +1,5 @@
 import pytest
+from typing import cast
 
 from graph_memory.evaluation import (
     connected_evidence_at,
@@ -9,6 +10,7 @@ from graph_memory.evaluation import (
     query_evidence_connectivity_at,
     recall_at,
 )
+from graph_memory.types import MemoryGraph, MemoryTaskLabels, RankedResult
 from graph_memory.validation import ContractValidationError
 
 
@@ -26,7 +28,10 @@ def test_node_metrics_use_ranked_nodes_and_gold_nodes():
 def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
     ranked = ["m0", "m2", "m1"]
     gold = {"m0", "m2"}
-    graph = {"edges": [{"source": "m0", "target": "m2", "edge_type": "bridge"}]}
+    graph = cast(
+        MemoryGraph,
+        cast(object, {"task_id": "hotpot_ex1", "nodes": [], "edges": [{"source": "m0", "target": "m2", "edge_type": "bridge"}]}),
+    )
 
     assert full_support_at(ranked, gold, 2) == 1.0
     assert connected_evidence_at(ranked, gold, graph, 2) == 1.0
@@ -35,18 +40,26 @@ def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
 def test_query_evidence_connectivity_requires_reachability_from_question():
     ranked = ["m0", "m2", "m1"]
     gold = {"m0", "m2"}
-    graph = {
-        "edges": [
-            {"source": "q", "target": "m0", "edge_type": "query_overlap", "directed": True},
-            {"source": "m0", "target": "m2", "edge_type": "bridge", "directed": False},
-        ]
-    }
+    graph = cast(
+        MemoryGraph,
+        cast(
+            object,
+            {
+                "task_id": "hotpot_ex1",
+                "nodes": [],
+                "edges": [
+                    {"source": "q", "target": "m0", "edge_type": "query_overlap", "directed": True},
+                    {"source": "m0", "target": "m2", "edge_type": "bridge", "directed": False},
+                ],
+            },
+        ),
+    )
 
     assert query_evidence_connectivity_at(ranked, gold, graph, 10) == 1.0
 
 
 def test_evaluate_results_joins_predictions_labels_and_graphs():
-    predictions = [
+    predictions: list[RankedResult] = [
         {
             "task_id": "hotpot_ex1",
             "method": "bm25",
@@ -60,7 +73,7 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "input_tokens": 10,
         }
     ]
-    labels = [
+    labels: list[MemoryTaskLabels] = [
         {
             "task_id": "hotpot_ex1",
             "gold_answer": "Paris",
@@ -68,16 +81,22 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "gold_dependency_edges": [],
         }
     ]
-    graphs = [
-        {
-            "task_id": "hotpot_ex1",
-            "nodes": [{"id": "q"}, {"id": "m0"}, {"id": "m1"}, {"id": "m2"}],
-            "edges": [
-                {"source": "q", "target": "m0", "edge_type": "query_overlap", "directed": True},
-                {"source": "m0", "target": "m2", "edge_type": "bridge", "directed": False},
+    graphs = cast(
+        list[MemoryGraph],
+        cast(
+            object,
+            [
+                {
+                    "task_id": "hotpot_ex1",
+                    "nodes": [{"id": "q"}, {"id": "m0"}, {"id": "m1"}, {"id": "m2"}],
+                    "edges": [
+                        {"source": "q", "target": "m0", "edge_type": "query_overlap", "directed": True},
+                        {"source": "m0", "target": "m2", "edge_type": "bridge", "directed": False},
+                    ],
+                }
             ],
-        }
-    ]
+        ),
+    )
 
     rows = evaluate_results(predictions, labels, graphs)
 
@@ -108,9 +127,9 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
 
 
 def test_evaluate_results_rejects_task_id_mismatch():
-    predictions = [{"task_id": "hotpot_ex1", "method": "bm25", "ranked_nodes": [], "retrieved_subgraph": {"nodes": [], "edges": []}, "latency_ms": 0.0, "input_tokens": 0}]
-    labels = [{"task_id": "hotpot_other", "gold_answer": "", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}]
-    graphs = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
+    predictions: list[RankedResult] = [{"task_id": "hotpot_ex1", "method": "bm25", "ranked_nodes": [], "retrieved_subgraph": {"nodes": [], "edges": []}, "latency_ms": 0.0, "input_tokens": 0}]
+    labels: list[MemoryTaskLabels] = [{"task_id": "hotpot_other", "gold_answer": "", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}]
+    graphs: list[MemoryGraph] = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
 
     with pytest.raises(ContractValidationError, match="task_id"):
         evaluate_results(predictions, labels, graphs)

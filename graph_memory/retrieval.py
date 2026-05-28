@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -9,20 +9,21 @@ from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.text import content_tokens
 from graph_memory.rerank import rank_graph_from_initial_scores
+from graph_memory.rerank_config import ensure_graph_rerank_config
+from graph_memory.retrieval_registry import (
+    RetrievalMethodSpec,
+    get_method_spec,
+)
 from graph_memory.types import (
     GraphEdge,
     GraphRerankConfig,
-    GraphRerankConfigRecord,
     MemoryGraph,
     MemoryTaskInput,
     RankedNode,
     RankedResult,
     Retriever,
-    graph_rerank_config_from_value,
 )
 from graph_memory.validation import (
-    as_validation_record_map,
-    as_validation_records,
     validate_graphs,
     validate_memory_task_inputs,
     validate_ranked_results,
@@ -36,10 +37,47 @@ class DenseEncoder(Protocol):
 
 
 class RetrievalMethod(Protocol):
-    name: str
+    @property
+    def name(self) -> str:
+        ...
 
     def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
         ...
+
+
+@dataclass(frozen=True)
+class RetrievalBuildContext:
+    """
+    Already-loaded runtime context for constructing one retrieval method.
+    构造单个检索方法时使用的已读取运行时上下文。
+
+    Fields / 字段:
+    - method: Requested public retrieval method name.
+      method：请求的公开检索方法名。
+    - task_inputs: Validated task input records used by the method.
+      task_inputs：该方法使用的已验证 task input 记录。
+    - graphs: Optional graph artifacts for graph-based methods.
+      graphs：graph-based method 使用的可选 graph artifact。
+    - encoder_model: Frozen dense encoder model name.
+      encoder_model：冻结 dense encoder 模型名。
+    - query_prefix: Prefix applied to query text before dense encoding.
+      query_prefix：dense 编码 query 文本前添加的前缀。
+    - passage_prefix: Prefix applied to memory text before dense encoding.
+      passage_prefix：dense 编码 memory 文本前添加的前缀。
+    - graph_config: Optional graph rerank config object or record.
+      graph_config：可选 graph rerank config 对象或 record。
+    - dense_encoder: Optional injected dense encoder for tests or cached runtime state.
+      dense_encoder：测试或缓存运行状态注入的可选 dense encoder。
+    """
+
+    method: str
+    task_inputs: list[MemoryTaskInput]
+    graphs: list[MemoryGraph] | None
+    encoder_model: str
+    query_prefix: str
+    passage_prefix: str
+    graph_config: GraphRerankConfig | Mapping[str, object] | None
+    dense_encoder: DenseEncoder | None
 
 
 @dataclass(frozen=True)
@@ -95,6 +133,62 @@ class PrecomputedInitialRetriever:
         raise RuntimeError("Precomputed initial score pipelines require rank_task_from_scores.")
 
 
+def _build_bm25_method(context: RetrievalBuildContext) -> RetrievalMethod:
+    return ScorePipelineMethod(
+        name=context.method,
+        retriever=_build_seed_retriever(
+            method="bm25",
+            encoder_model=context.encoder_model,
+            query_prefix=context.query_prefix,
+            passage_prefix=context.passage_prefix,
+            dense_encoder=context.dense_encoder,
+        ),
+    )
+
+
+def _build_dense_method(context: RetrievalBuildContext) -> RetrievalMethod:
+    return ScorePipelineMethod(
+        name=context.method,
+        retriever=_build_seed_retriever(
+            method="dense",
+            encoder_model=context.encoder_model,
+            query_prefix=context.query_prefix,
+            passage_prefix=context.passage_prefix,
+            dense_encoder=context.dense_encoder,
+        ),
+    )
+
+
+def _build_graph_rerank_method(context: RetrievalBuildContext) -> RetrievalMethod:
+    spec = get_method_spec(context.method)
+    if spec.seed_method is None:
+        raise ValueError(f"Graph rerank method={context.method} requires a seed method.")
+    retriever = _build_seed_retriever(
+        method=spec.seed_method,
+        encoder_model=context.encoder_model,
+        query_prefix=context.query_prefix,
+        passage_prefix=context.passage_prefix,
+        dense_encoder=context.dense_encoder,
+    )
+    return _build_graph_rerank_score_pipeline(
+        method=context.method,
+        retriever=retriever,
+        task_inputs=context.task_inputs,
+        graphs=context.graphs,
+        graph_config=context.graph_config,
+    )
+
+
+def _build_method_from_spec(spec: RetrievalMethodSpec, context: RetrievalBuildContext) -> RetrievalMethod:
+    if spec.builder_id == "bm25":
+        return _build_bm25_method(context)
+    if spec.builder_id == "dense":
+        return _build_dense_method(context)
+    if spec.builder_id == "graph_rerank":
+        return _build_graph_rerank_method(context)
+    raise ValueError(f"Unsupported retrieval method builder={spec.builder_id} for method={spec.name}.")
+
+
 def build_retrieval_method(
     *,
     method: str,
@@ -103,30 +197,21 @@ def build_retrieval_method(
     encoder_model: str = "intfloat/e5-base-v2",
     query_prefix: str = "query: ",
     passage_prefix: str = "passage: ",
-    graph_config: GraphRerankConfig | GraphRerankConfigRecord | None = None,
+    graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
     dense_encoder: DenseEncoder | None = None,
 ) -> RetrievalMethod:
-    retriever = _build_seed_retriever(
+    context = RetrievalBuildContext(
         method=method,
+        task_inputs=task_inputs,
+        graphs=graphs,
         encoder_model=encoder_model,
         query_prefix=query_prefix,
         passage_prefix=passage_prefix,
+        graph_config=graph_config,
         dense_encoder=dense_encoder,
     )
-
-    if method in {"bm25", "dense"}:
-        return ScorePipelineMethod(
-            name=method,
-            retriever=retriever,
-        )
-
-    return _build_graph_rerank_score_pipeline(
-        method=method,
-        retriever=retriever,
-        task_inputs=task_inputs,
-        graphs=graphs,
-        graph_config=graph_config,
-    )
+    spec = get_method_spec(method)
+    return _build_method_from_spec(spec, context)
 
 
 def precompute_initial_score_cache(
@@ -165,13 +250,14 @@ def run_graph_rerank_from_initial_score_cache(
     graphs: list[MemoryGraph],
     initial_score_cache: InitialScoreCache,
     top_k: int,
-    graph_config: GraphRerankConfig | GraphRerankConfigRecord,
+    graph_config: GraphRerankConfig | Mapping[str, object],
 ) -> list[RankedResult]:
-    if method not in {"bm25_graph_rerank", "dense_graph_rerank"}:
+    spec = get_method_spec(method)
+    if not spec.requires_graphs or not spec.requires_graph_config or spec.requires_checkpoint:
         raise ValueError(f"Precomputed graph rerank requires a graph rerank method, got method={method}.")
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")
-    validate_memory_task_inputs(as_validation_records(task_inputs))
+    validate_memory_task_inputs(task_inputs)
 
     inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
     retrieval_method = _build_graph_rerank_score_pipeline(
@@ -205,7 +291,7 @@ def run_graph_rerank_from_initial_score_cache(
             )
         )
 
-    validate_ranked_results(as_validation_records(predictions), as_validation_record_map(inputs_by_task_id))
+    validate_ranked_results(predictions, inputs_by_task_id)
     return predictions
 
 
@@ -218,12 +304,12 @@ def run_retrieval(
     encoder_model: str = "intfloat/e5-base-v2",
     query_prefix: str = "query: ",
     passage_prefix: str = "passage: ",
-    graph_config: GraphRerankConfig | GraphRerankConfigRecord | None = None,
+    graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
     dense_encoder: DenseEncoder | None = None,
 ) -> list[RankedResult]:
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")
-    validate_memory_task_inputs(as_validation_records(task_inputs))
+    validate_memory_task_inputs(task_inputs)
 
     inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
     retrieval_method = build_retrieval_method(
@@ -252,7 +338,7 @@ def run_retrieval(
             )
         )
 
-    validate_ranked_results(as_validation_records(predictions), as_validation_record_map(inputs_by_task_id))
+    validate_ranked_results(predictions, inputs_by_task_id)
     return predictions
 
 
@@ -298,13 +384,13 @@ def _build_graph_rerank_score_pipeline(
     retriever: Retriever,
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph] | None,
-    graph_config: GraphRerankConfig | GraphRerankConfigRecord | None,
+    graph_config: GraphRerankConfig | Mapping[str, object] | None,
 ) -> GraphRerankMethod:
     if not graphs:
         raise ValueError(f"Graph rerank method={method} requires graph inputs.")
-    rerank_config = graph_rerank_config_from_value(graph_config)
+    rerank_config = ensure_graph_rerank_config(graph_config)
     inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-    validate_graphs(as_validation_records(graphs), as_validation_record_map(inputs_by_task_id))
+    validate_graphs(graphs, inputs_by_task_id)
     validate_task_id_alignment(
         "retrieval graph inputs",
         set(inputs_by_task_id),
@@ -326,9 +412,9 @@ def _build_seed_retriever(
     passage_prefix: str,
     dense_encoder: DenseEncoder | None,
 ) -> Retriever:
-    if method in {"bm25", "bm25_graph_rerank"}:
+    if method == "bm25":
         return BM25TaskRetriever()
-    if method in {"dense", "dense_graph_rerank"}:
+    if method == "dense":
         return DenseTaskRetriever(
             model_name=encoder_model,
             query_prefix=query_prefix,
@@ -339,11 +425,6 @@ def _build_seed_retriever(
 
 
 def _seed_method_for(method: str) -> str:
-    if method == "bm25_graph_rerank":
-        return "bm25"
-    if method == "dense_graph_rerank":
-        return "dense"
-    if method in {"bm25", "dense"}:
-        return method
-    raise ValueError(f"Unsupported retrieval method: {method}")
+    spec = get_method_spec(method)
+    return spec.seed_method or method
 

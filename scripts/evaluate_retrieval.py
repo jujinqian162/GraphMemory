@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from graph_memory.evaluation import WIDE_METRIC_COLUMNS, build_failure_cases, evaluate_results
 from graph_memory.io import read_json, write_csv, write_jsonl
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.validation import as_validation_records, validate_metric_rows
+from graph_memory.validation import validate_metric_rows
 
 LOGGER = logging.getLogger("evaluate_retrieval")
 
@@ -55,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         labels = read_json(label_path)
         graphs = read_json(args.graphs)
         metric_rows = evaluate_results(predictions, labels, graphs)
-        validate_metric_rows(as_validation_records(metric_rows))
+        validate_metric_rows(metric_rows)
         write_csv(args.output, metric_rows, WIDE_METRIC_COLUMNS)
 
         failure_cases = build_failure_cases(

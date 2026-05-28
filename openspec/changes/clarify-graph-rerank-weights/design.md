@@ -16,7 +16,7 @@ The config naming adds a second ambiguity. `GraphRerankConfig.type_weights` is s
 - Make the semantics explicit: `lambda_*` fields weight final score components; `neighbor_type_weights` calibrates graph edge types inside neighbor propagation and bridge-neighbor scoring.
 - Ensure query-overlap scoring remains controlled only by `lambda_query` and does not consume `neighbor_type_weights`.
 - Preserve existing ranking behavior after config migration.
-- Keep compatibility for reading existing `type_weights` config artifacts long enough to avoid invalidating prior runs.
+- Reject deprecated `type_weights` input so old configs must be converted before reuse.
 
 **Non-Goals:**
 
@@ -75,46 +75,46 @@ lambda_query * neighbor_type_weights["query_overlap"] * normalized(S_query)
 
 The second form creates duplicate controls for the same component and makes ablations hard to reason about. If query-overlap strength needs tuning, tune `lambda_query`.
 
-### Decision 4: Read old configs, write new configs
+### Decision 4: Reject old configs, write new configs
 
-During migration, config loading should accept both shapes:
+Config loading should accept the canonical shape:
 
 ```json
 {"neighbor_type_weights": {"sequential": 0.3, "entity_overlap": 0.7, "bridge": 1.0}}
 ```
 
-and deprecated input:
+and reject deprecated input:
 
 ```json
 {"type_weights": {"query_overlap": 0.8, "sequential": 0.3, "entity_overlap": 0.7, "bridge": 1.0}}
 ```
 
-When both are present, `neighbor_type_weights` should win. Newly written selected configs and candidate rows should emit `neighbor_type_weights` only. Compatibility should normalize deprecated input before constructing `GraphRerankConfig` so downstream code sees one canonical field.
+When both are present, loading should still fail so there is one visible config spelling. Newly written selected configs and candidate rows should emit `neighbor_type_weights` only. Historical configs with `type_weights` must be converted before rerunning graph-rerank commands.
 
 ### Decision 5: Keep behavior parity covered by tests
 
-The refactor should prove that moving code does not change ranking behavior. Focused tests should compare graph-rerank output before and after the boundary change using tiny graphs and fixed initial scores. Config migration tests should prove that old `type_weights` input and new `neighbor_type_weights` input produce equivalent rankings for memory-to-memory graph edges.
+The refactor should prove that moving code does not change ranking behavior. Focused tests should compare graph-rerank output before and after the boundary change using tiny graphs and fixed initial scores. Config migration tests should prove that deprecated `type_weights` input fails clearly and canonical `neighbor_type_weights` drives memory-to-memory graph edge calibration.
 
 ## Risks / Trade-offs
 
 - [Risk] Moving score components can introduce circular imports between `retrieval.py`, `rerank.py`, and `types.py`. -> Mitigation: keep shared dataclasses and type aliases in `types.py`; keep rerank helpers independent from BM25/dense retriever implementations.
-- [Risk] Config rename can break historical selected config files. -> Mitigation: read deprecated `type_weights` as compatibility input and write only `neighbor_type_weights` going forward.
+- [Risk] Config rename can break historical selected config files. -> Mitigation: fail clearly on deprecated `type_weights` and document that old configs must be converted before reuse.
 - [Risk] Removing `query_overlap` from required type weights changes validation expectations. -> Mitigation: update validation and tests together so query-overlap remains validated through `lambda_query` and graph edge validation, not neighbor type weights.
 - [Risk] The term `neighbor_type_weights` may sound like it excludes bridge scoring. -> Mitigation: document bridge score as bridge-neighbor graph scoring and include `bridge` in the default neighbor type weights.
-- [Risk] Maintaining compatibility input can prolong old terminology. -> Mitigation: mark `type_weights` deprecated in docs and keep all generated artifacts on the new field name.
+- [Risk] Rejecting compatibility input makes old runs less convenient to reproduce. -> Mitigation: keep historical artifacts immutable and require an explicit conversion step before rerunning them.
 
 ## Migration Plan
 
-1. Add tests for `neighbor_type_weights` canonical config, deprecated `type_weights` compatibility, and query-overlap independence.
+1. Add tests for `neighbor_type_weights` canonical config, deprecated `type_weights` rejection, and query-overlap independence.
 2. Move graph-rerank score component classes and graph-rerank combination helpers from `retrieval.py` into `rerank.py`.
-3. Replace `GraphRerankConfig.type_weights` with `neighbor_type_weights`, with a compatibility loader for old dict records.
+3. Replace `GraphRerankConfig.type_weights` with `neighbor_type_weights`, and reject old dict records that still contain `type_weights`.
 4. Update tuning grid parsing so search-space JSON reads `neighbor_type_weights` and selected output writes `neighbor_type_weights`.
 5. Update validation and docs to remove `query_overlap` from neighbor type weight requirements.
 6. Run focused retrieval/rerank tests, config validation tests, CLI smoke tests that read the graph-rerank grid, and OpenSpec validation.
 
-Rollback is straightforward before generated artifacts are published: revert the source changes and keep old `type_weights` configs. After publishing new config artifacts, rollback requires either retaining the compatibility loader or converting generated `neighbor_type_weights` configs back to `type_weights`.
+Rollback is straightforward before generated artifacts are published: revert the source changes and keep old `type_weights` configs. After publishing new config artifacts, rollback requires converting generated `neighbor_type_weights` configs back to `type_weights`.
 
 ## Open Questions
 
-- How long should deprecated `type_weights` input remain accepted? Recommended answer for implementation: keep it through Phase 1 result reproduction, then remove in a later archival cleanup.
-- Should historical `runs/**` artifacts be mass-renamed? Recommended answer for implementation: no; treat them as immutable run outputs and rely on compatibility input.
+- How long should deprecated `type_weights` input remain accepted? Answer for implementation: do not accept it; require conversion before reruns.
+- Should historical `runs/**` artifacts be mass-renamed? Recommended answer for implementation: no; treat them as immutable run outputs and convert only copied configs that will be reused.

@@ -4,7 +4,10 @@ import csv
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
+
+
+JsonDict: TypeAlias = dict[str, Any]
 
 
 def read_json(path: str | Path) -> Any:
@@ -44,7 +47,7 @@ def write_jsonl(path: str | Path, records: list[Any]) -> None:
             file.write("\n")
 
 
-def load_config(path: str | Path | None) -> dict:
+def load_config(path: str | Path | None) -> JsonDict:
     if path is None:
         return {}
     config = read_json(path)
@@ -53,7 +56,11 @@ def load_config(path: str | Path | None) -> dict:
     return config
 
 
-def merge_config(defaults: dict, config_file: dict | None = None, cli_overrides: dict | None = None) -> dict:
+def merge_config(
+    defaults: JsonDict,
+    config_file: JsonDict | None = None,
+    cli_overrides: JsonDict | None = None,
+) -> JsonDict:
     effective_config = deepcopy(defaults)
     if config_file:
         effective_config = _deep_merge(effective_config, config_file)
@@ -62,7 +69,7 @@ def merge_config(defaults: dict, config_file: dict | None = None, cli_overrides:
     return effective_config
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: JsonDict, override: JsonDict) -> JsonDict:
     merged = deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):

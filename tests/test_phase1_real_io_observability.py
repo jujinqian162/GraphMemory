@@ -1,5 +1,6 @@
 from graph_memory.io import merge_config, read_json, write_csv, write_json
 from graph_memory.observability import build_run_summary, graph_statistics
+from graph_memory.types import MemoryGraph
 
 
 def test_json_helpers_write_deterministic_utf8(tmp_path):
@@ -56,7 +57,7 @@ def test_build_run_summary_contains_reproducibility_fields():
 
 
 def test_graph_statistics_counts_edges_and_isolated_memory_nodes():
-    graphs = [
+    graphs: list[MemoryGraph] = [
         {
             "task_id": "hotpot_ex1",
             "nodes": [

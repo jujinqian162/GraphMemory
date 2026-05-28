@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
 from itertools import product
-from typing import Any, cast
+from typing import Any
 
+from graph_memory.rerank_config import ensure_graph_rerank_config
+from graph_memory.retrieval_registry import get_graph_rerank_methods
 from graph_memory.retrieval import precompute_initial_score_cache, run_graph_rerank_from_initial_score_cache
 from graph_memory.types import (
     GraphRerankConfig,
@@ -14,7 +16,6 @@ from graph_memory.types import (
     MemoryTaskLabels,
     MetricRow,
     TuningCandidateRow,
-    graph_rerank_config_from_value,
 )
 
 
@@ -41,45 +42,38 @@ def graph_rerank_grid() -> list[GraphRerankConfig]:
 
 
 def graph_rerank_grid_from_record(record: Mapping[str, object]) -> list[GraphRerankConfig]:
-    values = {
-        "lambda_init": _candidate_values(record, "lambda_init"),
-        "lambda_query": _candidate_values(record, "lambda_query"),
-        "lambda_neighbor": _candidate_values(record, "lambda_neighbor"),
-        "lambda_bridge": _candidate_values(record, "lambda_bridge"),
-        "lambda_path": _candidate_values(record, "lambda_path"),
-        "seed_top_s": _candidate_values(record, "seed_top_s"),
-        "max_hops": _candidate_values(record, "max_hops"),
-    }
+    if "type_weights" in record:
+        raise ValueError("type_weights is deprecated; use neighbor_type_weights instead.")
+    lambda_init_values = _candidate_float_values(record, "lambda_init")
+    lambda_query_values = _candidate_float_values(record, "lambda_query")
+    lambda_neighbor_values = _candidate_float_values(record, "lambda_neighbor")
+    lambda_bridge_values = _candidate_float_values(record, "lambda_bridge")
+    lambda_path_values = _candidate_float_values(record, "lambda_path")
+    seed_top_s_values = _candidate_int_values(record, "seed_top_s")
+    max_hops_values = _candidate_int_values(record, "max_hops")
     neighbor_type_weights = record.get("neighbor_type_weights")
-    deprecated_type_weights = record.get("type_weights")
     configs: list[GraphRerankConfig] = []
     for lambda_init, lambda_query, lambda_neighbor, lambda_bridge, lambda_path, seed_top_s, max_hops in product(
-        values["lambda_init"],
-        values["lambda_query"],
-        values["lambda_neighbor"],
-        values["lambda_bridge"],
-        values["lambda_path"],
-        values["seed_top_s"],
-        values["max_hops"],
+        lambda_init_values,
+        lambda_query_values,
+        lambda_neighbor_values,
+        lambda_bridge_values,
+        lambda_path_values,
+        seed_top_s_values,
+        max_hops_values,
     ):
-        kwargs: dict[str, Any] = {
-            "lambda_init": float(lambda_init),
-            "lambda_query": float(lambda_query),
-            "lambda_neighbor": float(lambda_neighbor),
-            "lambda_bridge": float(lambda_bridge),
-            "lambda_path": float(lambda_path),
-            "seed_top_s": int(seed_top_s),
-            "max_hops": int(max_hops),
+        kwargs: dict[str, object] = {
+            "lambda_init": lambda_init,
+            "lambda_query": lambda_query,
+            "lambda_neighbor": lambda_neighbor,
+            "lambda_bridge": lambda_bridge,
+            "lambda_path": lambda_path,
+            "seed_top_s": seed_top_s,
+            "max_hops": max_hops,
         }
-        if isinstance(neighbor_type_weights, dict):
-            kwargs["neighbor_type_weights"] = {
-                str(key): float(value) for key, value in neighbor_type_weights.items()
-            }
-        elif isinstance(deprecated_type_weights, dict):
-            kwargs["type_weights"] = {
-                str(key): float(value) for key, value in deprecated_type_weights.items()
-            }
-        configs.append(graph_rerank_config_from_value(kwargs))
+        if neighbor_type_weights is not None:
+            kwargs["neighbor_type_weights"] = neighbor_type_weights
+        configs.append(ensure_graph_rerank_config(kwargs))
     return configs
 
 
@@ -88,6 +82,28 @@ def _candidate_values(record: Mapping[str, object], key: str) -> Sequence[object
     if not isinstance(value, list) or not value:
         raise ValueError(f"Graph rerank grid config requires a non-empty list for {key}.")
     return value
+
+
+def _candidate_float_values(record: Mapping[str, object], key: str) -> list[float]:
+    return [_finite_float(value, key) for value in _candidate_values(record, key)]
+
+
+def _candidate_int_values(record: Mapping[str, object], key: str) -> list[int]:
+    values: list[int] = []
+    for value in _candidate_values(record, key):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"Graph rerank grid config values for {key} must be integers.")
+        values.append(value)
+    return values
+
+
+def _finite_float(value: object, key: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Graph rerank grid config values for {key} must be finite numbers.")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"Graph rerank grid config values for {key} must be finite numbers.")
+    return number
 
 
 def select_best_config(rows: list[TuningCandidateRow]) -> GraphRerankConfigRecord:
@@ -121,7 +137,7 @@ def tune_graph_rerank(
 ) -> tuple[GraphRerankConfigRecord, list[TuningCandidateRow]]:
     from graph_memory.evaluation import evaluate_results
 
-    if method not in {"bm25_graph_rerank", "dense_graph_rerank"}:
+    if method not in get_graph_rerank_methods():
         raise ValueError(f"Tuning requires a graph rerank method, got method={method}.")
 
     candidate_rows: list[TuningCandidateRow] = []
@@ -134,7 +150,7 @@ def tune_graph_rerank(
         dense_encoder=dense_encoder,
     )
     for config in grid or graph_rerank_grid():
-        config_dict = cast(GraphRerankConfigRecord, asdict(config))
+        config_dict = _graph_rerank_config_record(config)
         predictions = run_graph_rerank_from_initial_score_cache(
             method=method,
             task_inputs=task_inputs,
@@ -149,3 +165,16 @@ def tune_graph_rerank(
         candidate_row: TuningCandidateRow = {**metric_rows[0], "config": config_dict}
         candidate_rows.append(candidate_row)
     return select_best_config(candidate_rows), candidate_rows
+
+
+def _graph_rerank_config_record(config: GraphRerankConfig) -> GraphRerankConfigRecord:
+    return {
+        "lambda_init": config.lambda_init,
+        "lambda_query": config.lambda_query,
+        "lambda_neighbor": config.lambda_neighbor,
+        "lambda_bridge": config.lambda_bridge,
+        "lambda_path": config.lambda_path,
+        "seed_top_s": config.seed_top_s,
+        "max_hops": config.max_hops,
+        "neighbor_type_weights": dict(config.neighbor_type_weights),
+    }

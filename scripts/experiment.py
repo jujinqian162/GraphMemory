@@ -5,6 +5,7 @@ import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -119,14 +120,14 @@ def _parse_csv(value: str | None) -> list[str] | None:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def _cli_overrides(args: argparse.Namespace) -> dict | None:
-    overrides = {}
+def _cli_overrides(args: argparse.Namespace) -> dict[str, Any] | None:
+    overrides: dict[str, Any] = {}
     if getattr(args, "top_k", None) is not None:
         overrides["top_k"] = args.top_k
     return overrides or None
 
 
-def _load_or_initialize_for_run(args: argparse.Namespace) -> dict:
+def _load_or_initialize_for_run(args: argparse.Namespace) -> dict[str, Any]:
     manifest_path = Path(args.run_root) / args.name / "manifest.json"
     if manifest_path.exists() and not args.force:
         return load_manifest(args.name, run_root=args.run_root)
