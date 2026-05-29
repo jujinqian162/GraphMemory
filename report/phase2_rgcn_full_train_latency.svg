@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="390" viewBox="0 0 960 390" role="img">
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #20242a; }
+    .title { font-size: 20px; font-weight: 700; }
+    .axis { stroke: #c9ced6; stroke-width: 1; }
+    .grid { stroke: #edf0f4; stroke-width: 1; }
+    .tick { font-size: 12px; fill: #59616d; }
+    .label { font-size: 13px; fill: #303640; }
+    .small { font-size: 11px; fill: #59616d; }
+    .value { font-size: 11px; fill: #20242a; }
+  </style>
+  <text class="title" x="190" y="34">Retrieval latency per query: R-GCN improves quality at a clear cost</text>
+  <line class="grid" x1="190.0" y1="64" x2="190.0" y2="342"/>
+  <text class="tick" x="190.0" y="364" text-anchor="middle">0</text>
+  <line class="grid" x1="362.0" y1="64" x2="362.0" y2="342"/>
+  <text class="tick" x="362.0" y="364" text-anchor="middle">30</text>
+  <line class="grid" x1="534.0" y1="64" x2="534.0" y2="342"/>
+  <text class="tick" x="534.0" y="364" text-anchor="middle">61</text>
+  <line class="grid" x1="706.0" y1="64" x2="706.0" y2="342"/>
+  <text class="tick" x="706.0" y="364" text-anchor="middle">91</text>
+  <line class="grid" x1="878.0" y1="64" x2="878.0" y2="342"/>
+  <text class="tick" x="878.0" y="364" text-anchor="middle">121</text>
+  <text class="label" x="176" y="86.0" text-anchor="end">BM25</text>
+  <rect x="190" y="64.0" width="3.8" height="34" rx="4" fill="#8a8f98"/>
+  <text class="value" x="201.8" y="85.0">0.66 ms</text>
+  <text class="label" x="176" y="147.0" text-anchor="end">BM25+Graph</text>
+  <rect x="190" y="125.0" width="6.3" height="34" rx="4" fill="#5b8def"/>
+  <text class="value" x="204.3" y="146.0">1.12 ms</text>
+  <text class="label" x="176" y="208.0" text-anchor="end">Dense</text>
+  <rect x="190" y="186.0" width="272.7" height="34" rx="4" fill="#26a69a"/>
+  <text class="value" x="470.7" y="207.0">48.10 ms</text>
+  <text class="label" x="176" y="269.0" text-anchor="end">Dense+Graph</text>
+  <rect x="190" y="247.0" width="276.9" height="34" rx="4" fill="#f59f00"/>
+  <text class="value" x="474.9" y="268.0">48.84 ms</text>
+  <text class="label" x="176" y="330.0" text-anchor="end">Dense+R-GCN</text>
+  <rect x="190" y="308.0" width="637.0" height="34" rx="4" fill="#d94848"/>
+  <text class="value" x="835.0" y="329.0">112.35 ms</text>
+  <text class="small" x="190" y="374">linear scale</text>
+</svg>

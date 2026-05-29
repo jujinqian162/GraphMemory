@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img">
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #20242a; }
+    .title { font-size: 20px; font-weight: 700; }
+    .axis { stroke: #c9ced6; stroke-width: 1; }
+    .grid { stroke: #edf0f4; stroke-width: 1; }
+    .tick { font-size: 12px; fill: #59616d; }
+    .label { font-size: 13px; fill: #303640; }
+    .small { font-size: 11px; fill: #59616d; }
+    .value { font-size: 11px; fill: #20242a; }
+  </style>
+  <text class="title" x="72" y="34">R-GCN training dynamics over 10 epochs</text>
+  <line class="grid" x1="72" y1="444.0" x2="918" y2="444.0"/>
+  <text class="tick" x="62" y="448.0" text-anchor="end">0.00</text>
+  <line class="grid" x1="72" y1="368.0" x2="918" y2="368.0"/>
+  <text class="tick" x="62" y="372.0" text-anchor="end">0.21</text>
+  <line class="grid" x1="72" y1="292.0" x2="918" y2="292.0"/>
+  <text class="tick" x="62" y="296.0" text-anchor="end">0.42</text>
+  <line class="grid" x1="72" y1="216.0" x2="918" y2="216.0"/>
+  <text class="tick" x="62" y="220.0" text-anchor="end">0.62</text>
+  <line class="grid" x1="72" y1="140.0" x2="918" y2="140.0"/>
+  <text class="tick" x="62" y="144.0" text-anchor="end">0.83</text>
+  <line class="grid" x1="72" y1="64.0" x2="918" y2="64.0"/>
+  <text class="tick" x="62" y="68.0" text-anchor="end">1.04</text>
+  <line class="axis" x1="72" y1="64" x2="72" y2="444"/>
+  <line class="axis" x1="72" y1="444" x2="918" y2="444"/>
+  <polyline points="72.0,92.1 166.0,120.1 260.0,136.2 354.0,150.9 448.0,163.2 542.0,173.0 636.0,183.5 730.0,196.6 824.0,206.1 918.0,218.1" fill="none" stroke="#5b8def" stroke-width="3"/>
+  <circle cx="72.0" cy="92.1" r="3.5" fill="#5b8def"/>
+  <circle cx="166.0" cy="120.1" r="3.5" fill="#5b8def"/>
+  <circle cx="260.0" cy="136.2" r="3.5" fill="#5b8def"/>
+  <circle cx="354.0" cy="150.9" r="3.5" fill="#5b8def"/>
+  <circle cx="448.0" cy="163.2" r="3.5" fill="#5b8def"/>
+  <circle cx="542.0" cy="173.0" r="3.5" fill="#5b8def"/>
+  <circle cx="636.0" cy="183.5" r="3.5" fill="#5b8def"/>
+  <circle cx="730.0" cy="196.6" r="3.5" fill="#5b8def"/>
+  <circle cx="824.0" cy="206.1" r="3.5" fill="#5b8def"/>
+  <circle cx="918.0" cy="218.1" r="3.5" fill="#5b8def"/>
+  <polyline points="72.0,343.2 166.0,355.4 260.0,354.0 354.0,349.5 448.0,363.6 542.0,373.3 636.0,368.6 730.0,368.5 824.0,367.4 918.0,371.6" fill="none" stroke="#d94848" stroke-width="3"/>
+  <circle cx="72.0" cy="343.2" r="3.5" fill="#d94848"/>
+  <circle cx="166.0" cy="355.4" r="3.5" fill="#d94848"/>
+  <circle cx="260.0" cy="354.0" r="3.5" fill="#d94848"/>
+  <circle cx="354.0" cy="349.5" r="3.5" fill="#d94848"/>
+  <circle cx="448.0" cy="363.6" r="3.5" fill="#d94848"/>
+  <circle cx="542.0" cy="373.3" r="3.5" fill="#d94848"/>
+  <circle cx="636.0" cy="368.6" r="3.5" fill="#d94848"/>
+  <circle cx="730.0" cy="368.5" r="3.5" fill="#d94848"/>
+  <circle cx="824.0" cy="367.4" r="3.5" fill="#d94848"/>
+  <circle cx="918.0" cy="371.6" r="3.5" fill="#d94848"/>
+  <polyline points="72.0,179.7 166.0,174.1 260.0,167.8 354.0,167.1 448.0,161.3 542.0,160.5 636.0,154.8 730.0,157.8 824.0,150.2 918.0,156.7" fill="none" stroke="#26a69a" stroke-width="3"/>
+  <circle cx="72.0" cy="179.7" r="3.5" fill="#26a69a"/>
+  <circle cx="166.0" cy="174.1" r="3.5" fill="#26a69a"/>
+  <circle cx="260.0" cy="167.8" r="3.5" fill="#26a69a"/>
+  <circle cx="354.0" cy="167.1" r="3.5" fill="#26a69a"/>
+  <circle cx="448.0" cy="161.3" r="3.5" fill="#26a69a"/>
+  <circle cx="542.0" cy="160.5" r="3.5" fill="#26a69a"/>
+  <circle cx="636.0" cy="154.8" r="3.5" fill="#26a69a"/>
+  <circle cx="730.0" cy="157.8" r="3.5" fill="#26a69a"/>
+  <circle cx="824.0" cy="150.2" r="3.5" fill="#26a69a"/>
+  <circle cx="918.0" cy="156.7" r="3.5" fill="#26a69a"/>
+  <polyline points="72.0,269.9 166.0,261.1 260.0,250.9 354.0,250.2 448.0,244.3 542.0,239.9 636.0,231.1 730.0,236.3 824.0,226.8 918.0,233.3" fill="none" stroke="#f59f00" stroke-width="3"/>
+  <circle cx="72.0" cy="269.9" r="3.5" fill="#f59f00"/>
+  <circle cx="166.0" cy="261.1" r="3.5" fill="#f59f00"/>
+  <circle cx="260.0" cy="250.9" r="3.5" fill="#f59f00"/>
+  <circle cx="354.0" cy="250.2" r="3.5" fill="#f59f00"/>
+  <circle cx="448.0" cy="244.3" r="3.5" fill="#f59f00"/>
+  <circle cx="542.0" cy="239.9" r="3.5" fill="#f59f00"/>
+  <circle cx="636.0" cy="231.1" r="3.5" fill="#f59f00"/>
+  <circle cx="730.0" cy="236.3" r="3.5" fill="#f59f00"/>
+  <circle cx="824.0" cy="226.8" r="3.5" fill="#f59f00"/>
+  <circle cx="918.0" cy="233.3" r="3.5" fill="#f59f00"/>
+  <text class="tick" x="72.0" y="468" text-anchor="middle">1</text>
+  <text class="tick" x="166.0" y="468" text-anchor="middle">2</text>
+  <text class="tick" x="260.0" y="468" text-anchor="middle">3</text>
+  <text class="tick" x="354.0" y="468" text-anchor="middle">4</text>
+  <text class="tick" x="448.0" y="468" text-anchor="middle">5</text>
+  <text class="tick" x="542.0" y="468" text-anchor="middle">6</text>
+  <text class="tick" x="636.0" y="468" text-anchor="middle">7</text>
+  <text class="tick" x="730.0" y="468" text-anchor="middle">8</text>
+  <text class="tick" x="824.0" y="468" text-anchor="middle">9</text>
+  <text class="tick" x="918.0" y="468" text-anchor="middle">10</text>
+  <line x1="72" y1="489" x2="96" y2="489" stroke="#5b8def" stroke-width="3"/>
+  <text class="small" x="104" y="494">train_loss</text>
+  <line x1="254" y1="489" x2="278" y2="489" stroke="#d94848" stroke-width="3"/>
+  <text class="small" x="286" y="494">dev_loss</text>
+  <line x1="436" y1="489" x2="460" y2="489" stroke="#26a69a" stroke-width="3"/>
+  <text class="small" x="468" y="494">dev Recall@5</text>
+  <line x1="618" y1="489" x2="642" y2="489" stroke="#f59f00" stroke-width="3"/>
+  <text class="small" x="650" y="494">dev Full Support@5</text>
+</svg>

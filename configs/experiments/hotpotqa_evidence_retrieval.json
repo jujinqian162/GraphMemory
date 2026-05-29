@@ -34,7 +34,7 @@
     "cloud-full": {
       "dev_examples": 500,
       "test_examples": 6869,
-      "train_examples": 90447
+      "train_examples": 90025
     },
     "quick": {
       "dev_examples": 100,
