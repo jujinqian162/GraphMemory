@@ -14,10 +14,11 @@ from graph_memory.io import read_json, write_json
 from graph_memory.learned.data import build_train_pairs
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.training_config import (
+    encoder_config_from_training_config,
     load_trainable_training_config,
     negative_sampling_config_from_training_config,
 )
-from graph_memory.types import NegativeSamplingConfig
+from graph_memory.types import DenseConfig, NegativeSamplingConfig
 
 LOGGER = logging.getLogger("build_train_pairs")
 
@@ -75,7 +76,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_path = Path(args.output)
     summary_path = output_path.with_name(f"{output_path.stem}.summary.json")
     run_summary_path = output_path.with_name(f"{output_path.stem}.run_summary.json")
-    sampling_config = _sampling_config_from_args(args)
+    file_config = load_trainable_training_config(args.config, required_sections=("pair_sampling",)) if args.config else None
+    sampling_config = _sampling_config_from_config(args, file_config)
+    dense_config = _dense_config_from_config(file_config, sampling_config)
     effective_config = {
         "random_seed": sampling_config.random_seed,
         "easy_random_per_positive": sampling_config.easy_random_per_positive,
@@ -84,6 +87,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "hard_graph_neighbor_per_positive": sampling_config.hard_graph_neighbor_per_positive,
         "hard_pool_size": sampling_config.hard_pool_size,
     }
+    if dense_config is not None:
+        effective_config["encoder_model"] = dense_config.model_name
     inputs = {"tasks": args.tasks, "labels": args.labels, "graphs": args.graphs}
     outputs = {"pairs": args.output, "summary": str(summary_path), "run_summary": str(run_summary_path)}
 
@@ -91,7 +96,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = read_json(args.tasks)
         labels = read_json(args.labels)
         graphs = read_json(args.graphs)
-        result = build_train_pairs(task_inputs, labels, graphs, sampling_config)
+        result = build_train_pairs(task_inputs, labels, graphs, sampling_config, dense_config=dense_config)
         write_json(args.output, result.pairs)
         write_json(summary_path, result.summary)
 
@@ -178,10 +183,9 @@ def parse_args(argv: Sequence[str] | None = None) -> BuildTrainPairsArgs:
     )
 
 
-def _sampling_config_from_args(args: BuildTrainPairsArgs) -> NegativeSamplingConfig:
-    if args.config is not None:
-        training_config = load_trainable_training_config(args.config, required_sections=("pair_sampling",))
-        return negative_sampling_config_from_training_config(training_config)
+def _sampling_config_from_config(args: BuildTrainPairsArgs, config: dict | None) -> NegativeSamplingConfig:
+    if config is not None:
+        return negative_sampling_config_from_training_config(config)
     return NegativeSamplingConfig(
         random_seed=args.random_seed,
         easy_random_per_positive=args.easy_random_per_positive,
@@ -189,6 +193,17 @@ def _sampling_config_from_args(args: BuildTrainPairsArgs) -> NegativeSamplingCon
         hard_dense_per_positive=args.hard_dense_per_positive,
         hard_graph_neighbor_per_positive=args.hard_graph_neighbor_per_positive,
         hard_pool_size=args.hard_pool_size,
+    )
+
+
+def _dense_config_from_config(config: dict | None, sampling_config: NegativeSamplingConfig) -> DenseConfig | None:
+    if config is None or sampling_config.hard_dense_per_positive <= 0:
+        return None
+    encoder_config = encoder_config_from_training_config(config)
+    return DenseConfig(
+        model_name=encoder_config["model"],
+        query_prefix=encoder_config["query_prefix"],
+        passage_prefix=encoder_config["passage_prefix"],
     )
 
 

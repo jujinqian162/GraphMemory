@@ -8,6 +8,7 @@ from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.learned.features import RetrieverSeedSignalProvider, SeedSignalProvider
 from graph_memory.types import (
+    DenseConfig,
     MemoryGraph,
     MemoryTaskInput,
     MemoryTaskLabels,
@@ -56,6 +57,7 @@ def build_train_pairs(
     bm25_retriever: Retriever | None = None,
     dense_retriever: Retriever | None = None,
     dense_seed_signal_provider: SeedSignalProvider | None = None,
+    dense_config: DenseConfig | None = None,
 ) -> TrainPairBuildResult:
     """
     Build validated train pair records from already-loaded artifacts.
@@ -76,6 +78,8 @@ def build_train_pairs(
       dense_retriever：用于 dense hard negative 的可选 retriever 覆盖。
     - dense_seed_signal_provider: Optional seed signal provider for dense hard negatives.
       dense_seed_signal_provider：用于 dense hard negative 的可选 seed signal provider。
+    - dense_config: Optional dense retriever config for hard dense negatives.
+      dense_config：用于 hard dense 负采样的可选 dense retriever 配置。
     """
 
     validate_negative_sampling_config(config)
@@ -148,7 +152,15 @@ def build_train_pairs(
             if dense_seed_signal_provider is not None:
                 dense_provider = dense_seed_signal_provider
             else:
-                dense = dense or DenseTaskRetriever()
+                if dense is None and dense_config is not None:
+                    dense = DenseTaskRetriever(
+                        model_name=dense_config.model_name,
+                        batch_size=dense_config.batch_size,
+                        query_prefix=dense_config.query_prefix,
+                        passage_prefix=dense_config.passage_prefix,
+                    )
+                else:
+                    dense = dense or DenseTaskRetriever()
                 dense_provider = RetrieverSeedSignalProvider(dense)
             _append_negative_samples(
                 pairs,

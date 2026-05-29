@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+import graph_memory.learned.data as pair_data
 from graph_memory.learned.data import build_train_pairs
 from graph_memory.types import MemoryGraph, MemoryTaskInput, MemoryTaskLabels, NegativeSamplingConfig
 from graph_memory.validation import ContractValidationError, validate_train_pairs
@@ -207,3 +208,74 @@ def test_build_train_pairs_cli_reads_pair_sampling_from_config(tmp_path):
     assert summary["negative_count_by_type"] == {"easy_random": 2, "hard_graph_neighbor": 2}
     assert run_summary["effective_config"]["hard_dense_per_positive"] == 0
     assert run_summary["effective_config"]["hard_graph_neighbor_per_positive"] == 1
+
+
+def test_build_train_pairs_cli_uses_config_encoder_for_hard_dense_negatives(tmp_path, monkeypatch):
+    tasks_path = tmp_path / "train_memory_tasks.input.json"
+    labels_path = tmp_path / "train_memory_tasks.labels.json"
+    graphs_path = tmp_path / "train_graphs.json"
+    output_path = tmp_path / "train_pairs.json"
+    config_path = tmp_path / "effective_training_config.json"
+    observed_model_names = []
+    tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
+    labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
+    graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "method": "dense_rgcn_graph_retriever",
+                "profile": "full",
+                "encoder": {
+                    "model": "models/local-e5",
+                    "query_prefix": "query: ",
+                    "passage_prefix": "passage: ",
+                },
+                "pair_sampling": {
+                    "random_seed": 7,
+                    "easy_random_per_positive": 0,
+                    "hard_bm25_per_positive": 0,
+                    "hard_dense_per_positive": 1,
+                    "hard_graph_neighbor_per_positive": 0,
+                    "hard_pool_size": 10,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeDenseTaskRetriever:
+        def __init__(
+            self,
+            model_name="intfloat/e5-base-v2",
+            batch_size=64,
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            encoder=None,
+        ):
+            observed_model_names.append(model_name)
+
+        def rank(self, task_input):
+            return [
+                pair_data.RankedNode(node_id=memory_item["id"], score=float(index))
+                for index, memory_item in enumerate(task_input["memory_items"])
+            ]
+
+    monkeypatch.setattr(pair_data, "DenseTaskRetriever", FakeDenseTaskRetriever)
+
+    exit_code = build_train_pairs_main(
+        [
+            "--tasks",
+            str(tasks_path),
+            "--labels",
+            str(labels_path),
+            "--graphs",
+            str(graphs_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert observed_model_names == ["models/local-e5"]
