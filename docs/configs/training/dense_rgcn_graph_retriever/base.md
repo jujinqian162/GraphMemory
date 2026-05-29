@@ -125,7 +125,7 @@ Sentence-Transformers 模型名或本地模型路径。
 当前值：
 
 ```json
-"intfloat/e5-base-v2"
+"models/intfloat-e5-base-v2"
 ```
 
 用途：
@@ -136,7 +136,7 @@ Sentence-Transformers 模型名或本地模型路径。
 
 可填值：
 
-- Hugging Face / Sentence-Transformers 模型 ID，例如 `intfloat/e5-base-v2`。
+- Hugging Face / Sentence-Transformers 模型 ID 或本地模型目录，例如 `models/intfloat-e5-base-v2`。
 - 本地模型目录，例如 `models/intfloat-e5-base-v2`。
 
 ### `encoder.query_prefix`

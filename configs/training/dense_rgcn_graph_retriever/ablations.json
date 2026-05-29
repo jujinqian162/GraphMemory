@@ -2,7 +2,7 @@
   "default_profile": "quick",
   "defaults": {
     "encoder": {
-      "model": "intfloat/e5-base-v2",
+      "model": "models/intfloat-e5-base-v2",
       "passage_prefix": "passage: ",
       "query_prefix": "query: "
     },

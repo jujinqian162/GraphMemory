@@ -143,7 +143,7 @@ experiment runner 的默认参数。
 
 ```json
 "defaults": {
-  "dense_encoder": "intfloat/e5-base-v2",
+  "dense_encoder": "models/intfloat-e5-base-v2",
   "passage_prefix": "passage: ",
   "query_prefix": "query: ",
   "seed": 13,
