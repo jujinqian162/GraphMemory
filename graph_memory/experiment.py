@@ -18,6 +18,20 @@ from graph_memory.retrieval_registry import (
 from graph_memory.training_config import load_trainable_training_config, device_from_training_config
 
 STAGE_ORDER = ("prepare", "graphs", "pairs", "tune", "train", "retrieve", "evaluate", "aggregate")
+STAGE_DESCRIPTIONS = {
+    "prepare": "Build split-specific task, label, and combined input artifacts.",
+    "graphs": "Build evidence graph artifacts for train, dev, and test splits.",
+    "pairs": "Build supervised training pairs for checkpoint-backed methods.",
+    "tune": "Select graph-rerank parameters from the search-space config.",
+    "train": "Train checkpoint-backed graph retrievers.",
+    "retrieve": "Write ranked evidence predictions for selected methods.",
+    "evaluate": "Evaluate ranked predictions and write per-method metrics.",
+    "aggregate": "Aggregate per-method metrics into report tables.",
+}
+CONFIG_ROOT = Path("configs")
+EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
+SEARCH_SPACE_CONFIG_DIR = CONFIG_ROOT / "search_spaces"
+TRAINING_CONFIG_DIR = CONFIG_ROOT / "training"
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
 DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
 
@@ -30,12 +44,49 @@ class StageCommand:
     split: str | None = None
 
 
+@dataclass(frozen=True)
+class ConfigEntry:
+    kind: str
+    name: str
+    path: str
+
+
 def load_experiment_config(path: str | Path | None = None) -> dict[str, Any]:
-    config_path = Path(path) if path is not None else DEFAULT_EXPERIMENT_CONFIG
+    config_path = resolve_experiment_config_path(path)
     config = read_json(config_path)
     if not isinstance(config, dict):
         raise ValueError(f"Experiment config must be a JSON object: {config_path}")
     return config
+
+
+def resolve_experiment_config_path(path: str | Path | None = None) -> Path:
+    if path is None:
+        return DEFAULT_EXPERIMENT_CONFIG
+    value = str(path)
+    candidate = Path(value)
+    if candidate.exists() or _looks_like_explicit_path(value):
+        return candidate
+    config_name = candidate.stem if candidate.suffix == ".json" else value
+    return EXPERIMENT_CONFIG_DIR / f"{config_name}.json"
+
+
+def resolve_training_config_path(method: str, path: str | Path) -> Path:
+    value = str(path)
+    candidate = Path(value)
+    if candidate.exists():
+        return candidate
+    normalized = value.replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) == 1 and candidate.suffix == ".json":
+        return TRAINING_CONFIG_DIR / method / candidate.name
+    if len(parts) == 2 and parts[0] in get_supported_methods():
+        method_name, config_name = parts
+        name = Path(config_name).stem if Path(config_name).suffix == ".json" else config_name
+        return TRAINING_CONFIG_DIR / method_name / f"{name}.json"
+    if _looks_like_explicit_training_path(value):
+        return candidate
+    config_name = candidate.stem if candidate.suffix == ".json" else value
+    return TRAINING_CONFIG_DIR / method / f"{config_name}.json"
 
 
 def initialize_experiment(
@@ -62,7 +113,7 @@ def initialize_experiment(
     selected_methods = list(methods) if methods is not None else list(effective_config["methods"])
     _validate_methods(selected_methods)
     _attach_resolved_training_configs(effective_config, selected_methods)
-    selected_stages = _select_stages(stages, from_stage=None)
+    selected_stages = _select_stages(stages, from_stage=None, to_stage=None, methods=selected_methods)
     artifacts = _build_artifact_paths(run_dir, selected_methods)
     manifest = {
         "schema_version": 1,
@@ -159,7 +210,8 @@ def _attach_resolved_training_configs(effective_config: dict[str, Any], selected
         config_path = training_config_paths.get(method)
         if not isinstance(config_path, str) or not config_path:
             raise ValueError(f"Trainable method={method} requires a training config path.")
-        resolved = load_trainable_training_config(config_path, profile=str(effective_config["profile"]))
+        resolved_config_path = resolve_training_config_path(method, config_path)
+        resolved = load_trainable_training_config(resolved_config_path, profile=str(effective_config["profile"]))
         if resolved["method"] != method:
             raise ValueError(
                 f"Training config method={resolved['method']} does not match selected method={method}."
@@ -185,10 +237,11 @@ def build_stage_plan(
     stages: Sequence[str] | None = None,
     methods: Sequence[str] | None = None,
     from_stage: str | None = None,
+    to_stage: str | None = None,
 ) -> list[StageCommand]:
-    selected_stages = _select_stages(stages, from_stage=from_stage)
     selected_methods = list(methods) if methods is not None else list(manifest["selected_methods"])
     _validate_methods(selected_methods)
+    selected_stages = _select_stages(stages, from_stage=from_stage, to_stage=to_stage, methods=selected_methods)
     _validate_stage_dependencies(manifest, selected_stages, selected_methods)
 
     commands: list[StageCommand] = []
@@ -243,8 +296,8 @@ def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
-def format_commands(commands: Sequence[StageCommand]) -> str:
-    return "\n".join(" ".join(command.argv) for command in commands)
+def format_commands(commands: Sequence[StageCommand], *, color: bool = False) -> str:
+    return "\n\n".join(_format_command_block(index, command, color=color) for index, command in enumerate(commands, 1))
 
 
 def format_status(rows: Sequence[dict[str, str]]) -> str:
@@ -253,6 +306,102 @@ def format_status(rows: Sequence[dict[str, str]]) -> str:
         qualifier = row.get("method") or row.get("split") or ""
         lines.append(f"{row['stage']} {qualifier} {row['state']}".strip())
     return "\n".join(lines)
+
+
+def list_stage_specs(methods: Sequence[str] | None = None) -> list[dict[str, str]]:
+    workflow = set(required_stages_for_methods(methods)) if methods is not None else set(STAGE_ORDER)
+    return [
+        {
+            "name": stage,
+            "description": STAGE_DESCRIPTIONS[stage],
+            "default": "yes" if stage in workflow else "no",
+        }
+        for stage in STAGE_ORDER
+    ]
+
+
+def list_method_specs() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for method in get_supported_methods():
+        spec = get_method_spec(method)
+        rows.append(
+            {
+                "name": method,
+                "workflow": ", ".join(required_stages_for_methods([method])),
+                "requires_graphs": str(spec.requires_graphs).lower(),
+                "requires_graph_config": str(spec.requires_graph_config).lower(),
+                "requires_checkpoint": str(spec.requires_checkpoint).lower(),
+                "requires_dense_encoder": str(spec.requires_dense_encoder).lower(),
+                "seed_method": spec.seed_method or "",
+            }
+        )
+    return rows
+
+
+def list_config_entries(kind: str = "all") -> list[ConfigEntry]:
+    selected_kinds = _selected_config_kinds(kind)
+    entries: list[ConfigEntry] = []
+    if "experiments" in selected_kinds:
+        entries.extend(_config_entries(EXPERIMENT_CONFIG_DIR, kind="experiment"))
+    if "search-spaces" in selected_kinds:
+        entries.extend(_config_entries(SEARCH_SPACE_CONFIG_DIR, kind="search-space"))
+    if "training" in selected_kinds and TRAINING_CONFIG_DIR.exists():
+        for path in sorted(TRAINING_CONFIG_DIR.glob("*/*.json")):
+            entries.append(
+                ConfigEntry(
+                    kind="training",
+                    name=f"{path.parent.name}/{path.stem}",
+                    path=_path_str(path),
+                )
+            )
+    return entries
+
+
+def list_profile_specs(config: dict[str, Any]) -> list[dict[str, Any]]:
+    profiles = config.get("profiles", {})
+    if not isinstance(profiles, dict):
+        raise ValueError("Experiment config profiles must be an object.")
+    rows: list[dict[str, Any]] = []
+    for name, profile in sorted(profiles.items()):
+        if not isinstance(profile, dict):
+            raise ValueError(f"Experiment config profile must be an object: {name}")
+        effective_config = build_effective_config(config, profile=str(name))
+        rows.append(
+            {
+                "name": str(name),
+                "train": str(profile.get("train_examples", "")),
+                "dev": str(profile.get("dev_examples", "")),
+                "test": str(profile.get("test_examples", "")),
+                "splits": {
+                    split: {
+                        "source": str(split_config["source"]),
+                        "max_examples": str(split_config["max_examples"]),
+                        "seed": str(split_config["seed"]),
+                        "offset": str(split_config["offset"]),
+                    }
+                    for split, split_config in effective_config["splits"].items()
+                },
+            }
+        )
+    return rows
+
+
+def list_recipe_specs() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for entry in list_config_entries("experiments"):
+        config = load_experiment_config(entry.path)
+        methods = config.get("methods", [])
+        rows.append(
+            {
+                "name": entry.name,
+                "recipe": str(config.get("recipe", "")),
+                "dataset": str(config.get("dataset", "")),
+                "task": str(config.get("task", "")),
+                "methods": ", ".join(str(method) for method in methods) if isinstance(methods, list) else "",
+                "path": entry.path,
+            }
+        )
+    return rows
 
 
 def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, Any]:
@@ -316,7 +465,8 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
 def _prepare_commands(manifest: dict[str, Any]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     config = manifest["effective_config"]
-    for split, split_config in config["splits"].items():
+    for split in ("train", "dev", "test"):
+        split_config = config["splits"][split]
         raw_source = split_config["source"]
         artifacts = manifest["artifacts"]["inputs"][split]
         commands.append(
@@ -568,20 +718,58 @@ def _append_dense_args(argv: list[str], manifest: dict[str, Any]) -> None:
     )
 
 
-def _select_stages(stages: Sequence[str] | None, *, from_stage: str | None) -> list[str]:
+def required_stages_for_methods(methods: Sequence[str]) -> list[str]:
+    selected_methods = list(methods)
+    _validate_methods(selected_methods)
+    required = {"prepare", "graphs", "retrieve", "evaluate", "aggregate"}
+    for method in selected_methods:
+        spec = get_method_spec(method)
+        if spec.requires_graph_config:
+            required.add("tune")
+        if spec.requires_checkpoint:
+            required.update({"pairs", "train"})
+    return [stage for stage in STAGE_ORDER if stage in required]
+
+
+def _select_stages(
+    stages: Sequence[str] | None,
+    *,
+    from_stage: str | None,
+    to_stage: str | None,
+    methods: Sequence[str] | None = None,
+) -> list[str]:
     selected: list[str]
     if stages is not None:
+        if from_stage is not None or to_stage is not None:
+            raise ValueError("Use either explicit stages or a stage range, not both.")
         selected = list(stages)
-    elif from_stage is not None:
-        if from_stage not in STAGE_ORDER:
-            raise ValueError(f"Unsupported stage: {from_stage}")
-        selected = list(STAGE_ORDER[STAGE_ORDER.index(from_stage):])
     else:
-        selected = list(STAGE_ORDER)
+        workflow = required_stages_for_methods(methods) if methods is not None else list(STAGE_ORDER)
+        if from_stage is None and to_stage is None:
+            selected = workflow
+        else:
+            start_stage = from_stage or workflow[0]
+            end_stage = to_stage or workflow[-1]
+            start_index = _workflow_stage_index(workflow, start_stage)
+            end_index = _workflow_stage_index(workflow, end_stage)
+            if start_index > end_index:
+                raise ValueError(f"Stage range start={start_stage} comes after end={end_stage}.")
+            selected = workflow[start_index : end_index + 1]
     unknown = [stage for stage in selected if stage not in STAGE_ORDER]
     if unknown:
         raise ValueError(f"Unsupported stage: {', '.join(unknown)}")
     return selected
+
+
+def _workflow_stage_index(workflow: Sequence[str], stage: str) -> int:
+    if stage not in STAGE_ORDER:
+        raise ValueError(f"Unsupported stage: {stage}")
+    try:
+        return list(workflow).index(stage)
+    except ValueError as error:
+        raise ValueError(
+            f"Stage {stage} is not in the available workflow stages: {', '.join(workflow)}"
+        ) from error
 
 
 def _validate_methods(methods: Iterable[str]) -> None:
@@ -708,6 +896,83 @@ def _status_key(row: dict[str, str]) -> str:
     if row.get("split"):
         return f"{row['stage']}:{row['split']}"
     return row["stage"]
+
+
+def _format_command_block(index: int, command: StageCommand, *, color: bool) -> str:
+    qualifier = ""
+    if command.method is not None:
+        qualifier = f" method={command.method}"
+    elif command.split is not None:
+        qualifier = f" split={command.split}"
+    lines = [
+        f"[{index}] {command.stage}{qualifier}",
+        f"script: {_command_script(command.argv)}",
+        "command:",
+    ]
+    lines.extend(_format_argv_lines(command.argv, color=color))
+    return "\n".join(lines)
+
+
+def _command_script(argv: Sequence[str]) -> str:
+    for value in argv:
+        if value.endswith(".py"):
+            return value
+    return argv[0] if argv else ""
+
+
+def _format_argv_lines(argv: Sequence[str], *, color: bool) -> list[str]:
+    lines: list[str] = []
+    index = 0
+    while index < len(argv):
+        value = argv[index]
+        if value.startswith("--"):
+            option = _color_option(value, color=color)
+            if index + 1 < len(argv) and not argv[index + 1].startswith("--"):
+                lines.append(f"  {option} {argv[index + 1]}")
+                index += 2
+            else:
+                lines.append(f"  {option}")
+                index += 1
+        else:
+            lines.append(f"  {value}")
+            index += 1
+    return lines
+
+
+def _color_option(value: str, *, color: bool) -> str:
+    if not color:
+        return value
+    return f"\033[36m{value}\033[0m"
+
+
+def _selected_config_kinds(kind: str) -> set[str]:
+    if kind == "all":
+        return {"experiments", "search-spaces", "training"}
+    if kind in {"experiments", "search-spaces", "training"}:
+        return {kind}
+    raise ValueError(f"Unsupported config kind: {kind}")
+
+
+def _config_entries(directory: Path, *, kind: str) -> list[ConfigEntry]:
+    if not directory.exists():
+        return []
+    return [
+        ConfigEntry(kind=kind, name=path.stem, path=_path_str(path))
+        for path in sorted(directory.glob("*.json"))
+    ]
+
+
+def _looks_like_explicit_path(value: str) -> bool:
+    candidate = Path(value)
+    return candidate.is_absolute() or "/" in value or "\\" in value
+
+
+def _looks_like_explicit_training_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    candidate = Path(value)
+    if candidate.is_absolute() or normalized.startswith("configs/") or normalized.endswith(".json"):
+        return True
+    return False
 
 
 def _path_str(path: str | Path) -> str:

@@ -7,6 +7,7 @@ import pytest
 
 from graph_memory.experiment import (
     build_stage_plan,
+    format_commands,
     initialize_experiment,
     inspect_experiment_status,
     load_experiment_config,
@@ -190,6 +191,132 @@ def test_training_config_resolves_profile_over_defaults(tmp_path):
     assert json.loads(effective_training_config_path.read_text(encoding="utf-8")) == resolved
 
 
+def test_method_first_default_workflow_selects_required_stages(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    training_config_path = tmp_path / "configs" / "training" / TRAINABLE_METHOD / "base.json"
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_rgcn_training_config(training_config_path)
+    _write_trainable_experiment_config(config_path, raw_path, training_config_path)
+    config = load_experiment_config(config_path)
+
+    bm25_manifest = initialize_experiment(
+        "quick_bm25",
+        config=config,
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=["bm25"],
+    )
+    graph_manifest = initialize_experiment(
+        "quick_graph",
+        config=config,
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=["dense_graph_rerank"],
+    )
+    rgcn_manifest = initialize_experiment(
+        "quick_rgcn",
+        config=config,
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    assert bm25_manifest["selected_stages"] == ["prepare", "graphs", "retrieve", "evaluate", "aggregate"]
+    assert graph_manifest["selected_stages"] == ["prepare", "graphs", "tune", "retrieve", "evaluate", "aggregate"]
+    assert rgcn_manifest["selected_stages"] == ["prepare", "graphs", "pairs", "train", "retrieve", "evaluate", "aggregate"]
+
+
+def test_stage_range_is_selected_over_method_workflow(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_experiment_config(config_path, raw_path)
+    manifest = initialize_experiment(
+        "quick_bm25",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=["bm25"],
+    )
+
+    commands = build_stage_plan(
+        manifest,
+        methods=["bm25"],
+        from_stage="prepare",
+        to_stage="retrieve",
+    )
+
+    assert [command.stage for command in commands] == [
+        "prepare",
+        "prepare",
+        "prepare",
+        "graphs",
+        "graphs",
+        "graphs",
+        "retrieve",
+    ]
+
+    with pytest.raises(ValueError, match="available workflow stages"):
+        build_stage_plan(manifest, methods=["bm25"], from_stage="tune")
+
+
+def test_trainable_stage_range_includes_supervision_and_training(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    training_config_path = tmp_path / "configs" / "training" / TRAINABLE_METHOD / "base.json"
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_rgcn_training_config(training_config_path)
+    _write_trainable_experiment_config(config_path, raw_path, training_config_path)
+    manifest = initialize_experiment(
+        "quick_rgcn",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    commands = build_stage_plan(
+        manifest,
+        methods=[TRAINABLE_METHOD],
+        from_stage="prepare",
+        to_stage="retrieve",
+    )
+
+    assert [command.stage for command in commands] == [
+        "prepare",
+        "prepare",
+        "prepare",
+        "graphs",
+        "graphs",
+        "graphs",
+        "pairs",
+        "train",
+        "retrieve",
+    ]
+    assert all("dense_graph_rerank.dev_selected.json" not in " ".join(command.argv) for command in commands)
+
+
+def test_experiment_config_name_and_training_config_name_resolve(tmp_path):
+    config = load_experiment_config("hotpotqa_evidence_retrieval")
+    assert config["recipe"] == "hotpotqa_evidence_retrieval"
+
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_trainable_experiment_config(
+        config_path,
+        raw_path,
+        Path("base"),
+    )
+
+    manifest = initialize_experiment(
+        "quick_rgcn_named_config",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    assert manifest["effective_config"]["training"][TRAINABLE_METHOD]["method"] == TRAINABLE_METHOD
+
+
 def test_initialize_experiment_generates_deterministic_run_paths(tmp_path):
     raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
     config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
@@ -274,6 +401,29 @@ def test_plan_generates_low_level_commands_without_outputs(tmp_path):
     assert any("scripts/run_retrieval.py" in command and "--method bm25" in command for command in rendered)
     assert not Path(manifest["artifacts"]["inputs"]["test"]["input"]).exists()
     assert not Path(manifest["artifacts"]["predictions"]["bm25"]).exists()
+
+
+def test_format_commands_renders_readable_blocks_with_color(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_experiment_config(config_path, raw_path)
+    manifest = initialize_experiment(
+        "quick_valid_100",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=["bm25"],
+    )
+    commands = build_stage_plan(manifest, stages=["retrieve", "evaluate"], methods=["bm25"])
+
+    rendered = format_commands(commands, color=True)
+
+    assert "\n\n" in rendered
+    assert "[1] retrieve method=bm25" in rendered
+    assert "script: scripts/run_retrieval.py" in rendered
+    assert "  \x1b[36m--method\x1b[0m bm25" in rendered
+    assert "\n  \x1b[36m--tasks\x1b[0m " in rendered
+    assert "[2] evaluate method=bm25" in rendered
 
 
 def test_plan_filters_methods_and_rejects_unknown_methods(tmp_path):
@@ -511,6 +661,74 @@ def test_experiment_cli_init_and_plan(tmp_path, capsys):
 
     assert "scripts/run_retrieval.py" in output
     assert "scripts/evaluate_retrieval.py" in output
+
+
+def test_experiment_cli_accepts_method_range_and_lists_resources(tmp_path, capsys):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_experiment_config(config_path, raw_path)
+
+    assert experiment_script.main(
+        [
+            "init",
+            "quick_bm25",
+            "--config",
+            str(config_path),
+            "--run-root",
+            str(tmp_path / "runs"),
+            "--profile",
+            "quick",
+            "--method",
+            "bm25",
+        ]
+    ) == 0
+    assert experiment_script.main(
+        [
+            "plan",
+            "quick_bm25",
+            "--run-root",
+            str(tmp_path / "runs"),
+            "--method",
+            "bm25",
+            "--from",
+            "prepare",
+            "--to",
+            "retrieve",
+            "--color",
+            "never",
+        ]
+    ) == 0
+    plan_output = capsys.readouterr().out
+
+    assert "[1] prepare split=train" in plan_output
+    assert "script: scripts/prepare_hotpotqa.py" in plan_output
+    assert "script: scripts/run_retrieval.py" in plan_output
+    assert "scripts/evaluate_retrieval.py" not in plan_output
+
+    assert experiment_script.main(["methods", "list"]) == 0
+    methods_output = capsys.readouterr().out
+    assert "bm25" in methods_output
+    assert "dense_rgcn_graph_retriever" in methods_output
+    assert "prepare, graphs, pairs, train, retrieve, evaluate, aggregate" in methods_output
+
+    assert experiment_script.main(["configs", "list"]) == 0
+    configs_output = capsys.readouterr().out
+    assert "hotpotqa_evidence_retrieval" in configs_output
+    assert "dense_rgcn_graph_retriever/base" in configs_output
+
+    assert experiment_script.main(["profile", "list", "--config", "hotpotqa_evidence_retrieval"]) == 0
+    profiles_output = capsys.readouterr().out
+    assert "quick" in profiles_output
+    assert "train=100" in profiles_output
+    assert "train[source=train" in profiles_output
+    assert "dev[source=dev" in profiles_output
+    assert "test[source=dev" in profiles_output
+    assert "offset=500" in profiles_output
+    assert "seed=13" in profiles_output
+
+    assert experiment_script.main(["profiles", "list", "--config", "hotpotqa_evidence_retrieval"]) == 0
+    plural_profiles_output = capsys.readouterr().out
+    assert plural_profiles_output == profiles_output
 
 
 def test_initialize_rejects_config_change_for_existing_manifest(tmp_path):
