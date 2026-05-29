@@ -388,6 +388,42 @@ def test_repository_experiment_configs_have_clear_roles():
     assert Path("configs/published/README.md").exists()
 
 
+def test_repository_cloud_profiles_resolve_experiment_and_training_configs(tmp_path):
+    config = load_experiment_config("configs/experiments/hotpoqa_dev_full.json")
+
+    quick_manifest = initialize_experiment(
+        "cloud_quick",
+        config=config,
+        run_root=tmp_path / "runs",
+        profile="cloud-quick",
+        methods=[TRAINABLE_METHOD],
+    )
+    full_manifest = initialize_experiment(
+        "cloud_full",
+        config=config,
+        run_root=tmp_path / "runs",
+        profile="cloud-full",
+        methods=[TRAINABLE_METHOD],
+    )
+
+    quick_training = quick_manifest["effective_config"]["training"][TRAINABLE_METHOD]
+    full_training = full_manifest["effective_config"]["training"][TRAINABLE_METHOD]
+
+    assert quick_manifest["effective_config"]["splits"]["train"]["max_examples"] == 1000
+    assert quick_manifest["effective_config"]["splits"]["dev"]["max_examples"] == 500
+    assert quick_manifest["effective_config"]["splits"]["test"]["max_examples"] == 1000
+    assert quick_training["profile"] == "cloud-quick"
+    assert quick_training["optimization"]["batch_size"] == 64
+    assert quick_training["optimization"]["device"] == "cuda"
+
+    assert full_manifest["effective_config"]["splits"]["train"]["max_examples"] == 90447
+    assert full_manifest["effective_config"]["splits"]["dev"]["max_examples"] == 500
+    assert full_manifest["effective_config"]["splits"]["test"]["max_examples"] == 6869
+    assert full_training["profile"] == "cloud-full"
+    assert full_training["optimization"]["batch_size"] == 128
+    assert full_training["optimization"]["epochs"] == 10
+
+
 def test_status_reports_missing_complete_and_stale_outputs(tmp_path):
     raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
     config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"

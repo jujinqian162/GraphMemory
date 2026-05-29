@@ -26,6 +26,16 @@
       "test_examples": 1000,
       "train_examples": 5000
     },
+    "cloud-quick": {
+      "dev_examples": 500,
+      "test_examples": 1000,
+      "train_examples": 1000
+    },
+    "cloud-full": {
+      "dev_examples": 500,
+      "test_examples": 6869,
+      "train_examples": 90447
+    },
     "dev": {
       "dev_examples": 500,
       "test_examples": 6869,

@@ -54,6 +54,27 @@
         "hard_dense_per_positive": 2
       }
     },
+    "cloud-quick": {
+      "optimization": {
+        "batch_size": 64,
+        "device": "cuda",
+        "epochs": 5
+      }
+    },
+    "cloud-full": {
+      "model": {
+        "hidden_dim": 256,
+        "num_layers": 2
+      },
+      "optimization": {
+        "batch_size": 128,
+        "device": "cuda",
+        "epochs": 10
+      },
+      "pair_sampling": {
+        "hard_dense_per_positive": 2
+      }
+    },
     "quick": {
       "optimization": {
         "batch_size": 8,

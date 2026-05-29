@@ -169,13 +169,21 @@ experiment runner 的默认参数。
 
 - `smoke`：1 train / 1 dev / 1 test，用于最小流程检查。
 - `quick`：100 train / 100 dev / 100 test，用于快速实验。
-- `full`：5000 train / 500 dev / 1000 test，用于较大规模实验。
+- `full`：5000 train / 500 dev / 1000 test，用于较大规模实验；它是较大子集，不是全量数据。
+- `cloud-quick`：1000 train / 500 dev / 1000 test，用于服务器上的快速 R-GCN 训练。
+- `cloud-full`：90447 train / 500 dev / 6869 test，用于服务器上的接近全量训练和完整 dev held-out 评估。
 
 每个 profile 字段：
 
 - `train_examples`：prepare train split 时最多取多少样本。
 - `dev_examples`：prepare dev split 时最多取多少样本。
 - `test_examples`：prepare test split 时最多取多少样本。
+
+split 语义：
+
+- `train` split 用于构建 train graph、生成 train pairs，并训练 R-GCN。
+- `dev` split 用于 graph-rerank tuning、训练期间 dev evaluation 和 best checkpoint selection。
+- `test` split 用于最终 retrieval/evaluation/aggregate；由于 HotpotQA 官方 test 没有 labels，这里从 labeled dev 的 offset 后切出 held-out 区间。
 
 ### `graph`
 
@@ -271,6 +279,17 @@ experiment runner 会按当前 experiment `--profile` 解析 training config 中
   }
 }
 ```
+
+### 服务器 profile
+
+服务器训练优先使用：
+
+```bash
+python scripts/experiment.py init rgcn_cloud_quick --profile cloud-quick --config configs/experiments/hotpoqa_dev_full.json
+python scripts/experiment.py init rgcn_cloud_full --profile cloud-full --config configs/experiments/hotpoqa_dev_full.json
+```
+
+`cloud-quick` 和 `cloud-full` 必须在 experiment config 与 `configs/training/dense_rgcn_graph_retriever/base.json` 中同名存在，因为 runner 会把 `--profile` 原样传给 training config。
 
 ### 改 dense baseline 模型
 

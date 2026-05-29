@@ -111,8 +111,12 @@ profile 覆盖项。
 - `smoke`：最小流程测试。
 - `quick`：快速训练。
 - `full`：较大训练规模。
+- `cloud-quick`：服务器快速训练，使用更大的 batch size。
+- `cloud-full`：服务器较完整训练，使用更大的 batch size 和 full profile 的模型规模。
 
 每个 profile 可以只写它想覆盖的字段；没有写的字段会继承 `defaults`。
+
+experiment runner 不做 profile 映射。`--profile cloud-quick` 会同时查找 experiment config 的 `profiles.cloud-quick` 和本 training config 的 `profiles.cloud-quick`。
 
 ## `encoder`
 
