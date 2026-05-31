@@ -12,10 +12,31 @@ from graph_memory.experiment import (
     inspect_experiment_status,
     load_experiment_config,
 )
+from graph_memory.training_config import load_trainable_training_config
 import scripts.experiment as experiment_script
 
 
 TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
+
+
+def _assert_repository_profile_resolution(config: dict, manifest: dict, *, profile: str) -> None:
+    configured_profile = config["profiles"][profile]
+    effective_config = manifest["effective_config"]
+    for split in ("train", "dev", "test"):
+        max_examples = effective_config["splits"][split]["max_examples"]
+        assert max_examples == configured_profile[f"{split}_examples"]
+        assert isinstance(max_examples, int)
+        assert max_examples > 0
+
+    training_config_path = config["training_configs"][TRAINABLE_METHOD]
+    expected_training = load_trainable_training_config(training_config_path, profile=profile)
+    training = effective_config["training"][TRAINABLE_METHOD]
+    assert training == expected_training
+    assert training["profile"] == profile
+    assert training["optimization"]["batch_size"] > 0
+    assert training["optimization"]["epochs"] > 0
+    assert isinstance(training["optimization"]["device"], str)
+    assert training["optimization"]["device"]
 
 
 def _write_experiment_config(path: Path, raw_path: Path) -> None:
@@ -556,22 +577,8 @@ def test_repository_cloud_profiles_resolve_experiment_and_training_configs(tmp_p
         methods=[TRAINABLE_METHOD],
     )
 
-    quick_training = quick_manifest["effective_config"]["training"][TRAINABLE_METHOD]
-    full_training = full_manifest["effective_config"]["training"][TRAINABLE_METHOD]
-
-    assert quick_manifest["effective_config"]["splits"]["train"]["max_examples"] == 1000
-    assert quick_manifest["effective_config"]["splits"]["dev"]["max_examples"] == 500
-    assert quick_manifest["effective_config"]["splits"]["test"]["max_examples"] == 1000
-    assert quick_training["profile"] == "cloud-quick"
-    assert quick_training["optimization"]["batch_size"] == 64
-    assert quick_training["optimization"]["device"] == "cuda"
-
-    assert full_manifest["effective_config"]["splits"]["train"]["max_examples"] == 90447
-    assert full_manifest["effective_config"]["splits"]["dev"]["max_examples"] == 500
-    assert full_manifest["effective_config"]["splits"]["test"]["max_examples"] == 6869
-    assert full_training["profile"] == "cloud-full"
-    assert full_training["optimization"]["batch_size"] == 128
-    assert full_training["optimization"]["epochs"] == 10
+    _assert_repository_profile_resolution(config, quick_manifest, profile="cloud-quick")
+    _assert_repository_profile_resolution(config, full_manifest, profile="cloud-full")
 
 
 def test_status_reports_missing_complete_and_stale_outputs(tmp_path):
@@ -718,13 +725,18 @@ def test_experiment_cli_accepts_method_range_and_lists_resources(tmp_path, capsy
 
     assert experiment_script.main(["profile", "list", "--config", "hotpotqa_evidence_retrieval"]) == 0
     profiles_output = capsys.readouterr().out
+    repository_config = load_experiment_config("hotpotqa_evidence_retrieval")
+    quick_profile = repository_config["profiles"]["quick"]
+    split_sources = repository_config["split_sources"]
+    split_offsets = repository_config["split_offsets"]
+    defaults = repository_config["defaults"]
     assert "quick" in profiles_output
-    assert "train=100" in profiles_output
-    assert "train[source=train" in profiles_output
-    assert "dev[source=dev" in profiles_output
-    assert "test[source=dev" in profiles_output
-    assert "offset=500" in profiles_output
-    assert "seed=13" in profiles_output
+    assert f"train={quick_profile['train_examples']}" in profiles_output
+    assert f"train[source={split_sources['train']}" in profiles_output
+    assert f"dev[source={split_sources['dev']}" in profiles_output
+    assert f"test[source={split_sources['test']}" in profiles_output
+    assert f"offset={split_offsets['test']}" in profiles_output
+    assert f"seed={defaults['seed']}" in profiles_output
 
     assert experiment_script.main(["profiles", "list", "--config", "hotpotqa_evidence_retrieval"]) == 0
     plural_profiles_output = capsys.readouterr().out

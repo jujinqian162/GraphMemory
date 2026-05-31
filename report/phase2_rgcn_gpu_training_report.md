@@ -13,7 +13,7 @@
 
 ## Curves
 
-![Phase 2 R-GCN GPU training curves](E:/College/AdviserProject/EPGM/graph_memory/report/phase2_rgcn_gpu_training_curves.png)
+![Phase 2 R-GCN GPU training curves](assets/phase2_rgcn_gpu/phase2_rgcn_gpu_training_curves.png)
 
 ## Epoch Metrics
 
