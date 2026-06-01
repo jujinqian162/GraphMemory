@@ -24,8 +24,8 @@ Recommended reading order:
    Enforces fail-fast artifact contracts and leakage checks.
 6. `graph_memory/hotpotqa.py`, `graph_memory/graphs.py`, `graph_memory/retrieval.py`, `graph_memory/rerank.py`, `graph_memory/evaluation.py`
    Core Phase 1 control flow from conversion to metrics.
-7. `graph_memory/experiment.py` and `scripts/experiment.py`
-   High-level experiment runner, manifest generation, stage planning, and status inspection.
+7. `scripts/experiment.py`, `scripts/workflow/`, and `graph_memory/experiment.py`
+   High-level experiment runner. `scripts/workflow/` owns typed workflows, planning, manifests, aliases, and status. `graph_memory/experiment.py` is a compatibility facade.
 8. `scripts/*.py`
    CLI adapters that parse arguments, call core functions, validate artifacts, and write run summaries.
 
@@ -67,11 +67,11 @@ scripts/aggregate_tables.py
   -> graph_memory.evaluation.split_metric_tables
 
 scripts/experiment.py
-  -> graph_memory.experiment.load_experiment_config
-  -> graph_memory.experiment.initialize_experiment
-  -> graph_memory.experiment.build_stage_plan
+  -> scripts.workflow.load_experiment_config
+  -> scripts.workflow.initialize_experiment
+  -> scripts.workflow.build_stage_plan
   -> existing low-level scripts with explicit generated input/output paths
-  -> graph_memory.experiment.inspect_experiment_status
+  -> scripts.workflow.inspect_experiment_status
 ```
 
 ## Key Abstractions
@@ -93,13 +93,13 @@ scripts/experiment.py
 | Validators | `graph_memory/validation.py` | Enforce contracts from `object` boundaries and narrow loaded JSON/domain artifacts internally after runtime shape checks. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
 | Run summaries | `graph_memory/observability.py` | Preserve config, paths, counts, timings, environment, and notes. | Change algorithm behavior. | `tests/test_phase1_real_io_observability.py` |
-| Experiment manifest | `graph_memory/experiment.py` | Records named run config, generated artifact paths, selected methods/stages, and status metadata. | Replace low-level artifact validators or hide script input/output contracts. | `tests/test_experiment_runner.py` |
+| Experiment workflows | `scripts/workflow/` | Registers method lifecycles, expands ablation units, records manifest aliases, and plans explicit low-level commands. | Put run-directory or resume state into runtime retriever classes. | `tests/test_experiment_runner.py`, `tests/test_workflow_orchestration.py` |
 
 ## File Map
 
 | Area | Files | What to review |
 |---|---|---|
-| Experiment runner | `graph_memory/experiment.py`, `scripts/experiment.py`, `configs/experiments/*.json`, `configs/search_spaces/*.json` | Manifest paths, config precedence, stage planning, method filtering, status/stale detection. |
+| Experiment runner | `scripts/experiment.py`, `scripts/workflow/`, `graph_memory/experiment.py`, `configs/experiments/*.json`, `configs/search_spaces/*.json` | Manifest paths, config precedence, workflow registration, stage planning, method filtering, status/stale detection. |
 | CLI adapters | `scripts/prepare_hotpotqa.py`, `scripts/build_graphs.py`, `scripts/run_retrieval.py`, `scripts/tune_graph_rerank.py`, `scripts/evaluate_retrieval.py`, `scripts/aggregate_tables.py` | Argument names, config visibility, validation calls, run summaries, output paths. |
 | Contracts/types | `graph_memory/types.py`, `graph_memory/validation.py` | Field names, forbidden fields, strict invariants, readable type annotations. |
 | Data conversion | `graph_memory/hotpotqa.py`, `graph_memory/splits.py` | Stable task IDs, supporting-fact mapping, split determinism, label separation. |
@@ -199,7 +199,9 @@ Current implementation limitations:
 
 ## Extension Notes
 
-- Add a new retriever by implementing `Retriever.rank(task_input)` and extending `graph_memory/retrieval.py` dispatch.
+- Add a new retriever runtime implementation through `graph_memory/retrieval_registry.py` and `graph_memory/retrieval.py`.
+- If it uses an existing experiment lifecycle, add one static registration in `scripts/workflow/registry.py`.
+- If it has a genuinely new lifecycle, add one local adapter in `scripts/workflow/workflows.py` and register it. Do not add planner branches.
 - Add a new flat score-based baseline by adding a seed `Retriever` and a `RetrievalMethod` wrapper in `graph_memory/retrieval.py`.
 - Add a new graph reranker by keeping the boundary `initial_scores + graph + config -> complete ranking` and adding graph score components in `graph_memory/rerank.py`.
 - Add GraphRAG, MemGPT-style, or trainable graph methods as separate `RetrievalMethod` implementations if their core behavior is traversal, hierarchy selection, or learned message passing rather than a weighted score sum.

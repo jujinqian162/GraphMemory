@@ -9,8 +9,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.experiment import (
+from scripts.workflow import (
     build_stage_plan,
+    discover_ablation_variants,
     format_commands,
     format_status,
     initialize_experiment,
@@ -58,6 +59,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             methods=methods,
             from_stage=args.from_stage,
             to_stage=args.to_stage,
+            variants=args.variant,
+            ablations_only=args.ablations_only,
         )
         print(format_commands(commands, color=_color_enabled(args.color)))
         return 0
@@ -71,6 +74,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             methods=methods,
             from_stage=args.from_stage,
             to_stage=args.to_stage,
+            variants=args.variant,
+            ablations_only=args.ablations_only,
         )
         run_stage_plan(commands)
         update_manifest_status(manifest)
@@ -102,6 +107,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(_format_recipe_specs(list_recipe_specs()))
         return 0
 
+    if args.command == "ablations":
+        print(_format_ablation_specs(discover_ablation_variants(args.method)))
+        return 0
+
     raise ValueError(f"Unsupported command: {args.command}")
 
 
@@ -119,6 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--from", dest="from_stage", default=None, help="Plan from this stage onward.")
     plan_parser.add_argument("--to", dest="to_stage", default=None, help="Plan through this stage.")
     plan_parser.add_argument("--color", choices=("auto", "always", "never"), default="auto")
+    _add_ablation_selection_args(plan_parser)
 
     run_parser = subparsers.add_parser("run", help="Execute selected experiment stages.")
     _add_common_run_args(run_parser, include_config=True)
@@ -126,6 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--from", dest="from_stage", default=None, help="Run from this stage onward.")
     run_parser.add_argument("--to", dest="to_stage", default=None, help="Run through this stage.")
     run_parser.add_argument("--force", action="store_true", help="Reinitialize an existing manifest before running.")
+    _add_ablation_selection_args(run_parser)
 
     status_parser = subparsers.add_parser("status", help="Show experiment artifact status.")
     _add_existing_manifest_args(status_parser)
@@ -154,6 +165,11 @@ def build_parser() -> argparse.ArgumentParser:
     recipes_parser = subparsers.add_parser("recipes", help="Inspect experiment recipes.")
     recipes_subparsers = recipes_parser.add_subparsers(dest="subcommand", required=True)
     recipes_subparsers.add_parser("list", help="List experiment recipe summaries.")
+
+    ablations_parser = subparsers.add_parser("ablations", help="Inspect registered ablation suites.")
+    ablations_subparsers = ablations_parser.add_subparsers(dest="subcommand", required=True)
+    ablations_list_parser = ablations_subparsers.add_parser("list", help="List registered ablation variants.")
+    ablations_list_parser.add_argument("--method", default=None)
     return parser
 
 
@@ -176,6 +192,11 @@ def _add_existing_manifest_args(parser: argparse.ArgumentParser) -> None:
 def _add_method_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--method", action="append", default=None, help="Retrieval method; repeat for multiple methods.")
     parser.add_argument("--methods", default=None, help="Comma-separated retrieval methods.")
+
+
+def _add_ablation_selection_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--variant", action="append", default=None, help="Ablation variant; repeat to narrow work.")
+    parser.add_argument("--ablations-only", action="store_true", help="Plan only ablation work and shared prerequisites.")
 
 
 def _add_profile_parser(subparsers: Any, name: str) -> None:
@@ -279,6 +300,15 @@ def _format_profile_specs(rows: Sequence[dict[str, Any]]) -> str:
 def _format_recipe_specs(rows: Sequence[dict[str, str]]) -> str:
     return "\n".join(
         f"{row['name']}\trecipe={row['recipe']}\tdataset={row['dataset']}\ttask={row['task']}\tpath={row['path']}"
+        for row in rows
+    )
+
+
+def _format_ablation_specs(rows: Sequence[dict[str, Any]]) -> str:
+    return "\n".join(
+        f"{row['method']}\tvariant={row['variant']}\t"
+        f"dimensions={','.join(row['changed_dimensions']) or '-'}\t"
+        f"baseline_alias={str(row['baseline_alias']).lower()}"
         for row in rows
     )
 

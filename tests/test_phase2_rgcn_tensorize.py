@@ -1,6 +1,7 @@
 import torch
 
 from graph_memory.learned.tensorize import DEFAULT_RELATION_VOCAB, EdgeTensorizer, UniformEdgeWeightPolicy
+from graph_memory.learned.training import default_model_config
 from graph_memory.types import MemoryGraph
 
 
@@ -75,6 +76,27 @@ def test_edge_tensorizer_filters_disabled_edge_types():
         [1, 3],
     ]
     assert tensors.relation_ids.tolist() == [0, 1]
+
+
+def test_edge_view_ablation_model_configs_remove_exactly_one_visible_edge_type():
+    expected_enabled_edge_types = {
+        "wo_bridge": {"entity_overlap", "query_overlap", "sequential"},
+        "wo_entity_overlap": {"bridge", "query_overlap", "sequential"},
+        "wo_sequential": {"bridge", "entity_overlap", "query_overlap"},
+        "wo_query_overlap": {"bridge", "entity_overlap", "sequential"},
+    }
+
+    for ablation_name, expected in expected_enabled_edge_types.items():
+        config = default_model_config(
+            encoder_model="fake-encoder",
+            encoder_dim=4,
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            ablation_name=ablation_name,
+        )
+
+        assert set(config.enabled_edge_types) == expected
+        assert config.ablation_name == ablation_name
 
 
 def test_uniform_edge_weight_policy_replaces_artifact_weights():

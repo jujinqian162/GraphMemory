@@ -6,7 +6,7 @@ import torch
 
 from graph_memory.learned.checkpoint import save_trainable_checkpoint
 from graph_memory.learned.inference import TrainableGraphRetriever
-from graph_memory.learned.training import build_model_from_config
+from graph_memory.learned.training import build_model_from_config, default_model_config
 from graph_memory.retrieval import run_retrieval
 from graph_memory.retrieval_registry import METHOD_REGISTRY, get_method_spec, get_supported_methods
 from graph_memory.validation import validate_ranked_results
@@ -34,8 +34,9 @@ class TinyTrainableRetriever:
         ], []
 
 
-def write_tiny_checkpoint(path: Path) -> None:
-    model = build_model_from_config(tiny_model_config())
+def write_tiny_checkpoint(path: Path, *, model_config=None) -> None:
+    effective_model_config = model_config or tiny_model_config()
+    model = build_model_from_config(effective_model_config)
     with torch.no_grad():
         for parameter in model.parameters():
             parameter.fill_(0.01)
@@ -48,7 +49,7 @@ def write_tiny_checkpoint(path: Path) -> None:
         epoch=1,
         global_step=1,
         best_dev_metric=1.0,
-        model_config=tiny_model_config(),
+        model_config=effective_model_config,
         training_config=tiny_training_config(),
     )
 
@@ -70,6 +71,31 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     assert all(math.isfinite(node.score) for node in ranked_nodes)
     assert ranked_nodes == sorted(ranked_nodes, key=lambda node: (-node.score, node.node_id))
     assert all(edge["source"] in top_node_ids and edge["target"] in top_node_ids for edge in retrieved_edges)
+
+
+def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_path: Path):
+    checkpoint_path = tmp_path / "best.pt"
+    model_config = default_model_config(
+        encoder_model="fake-encoder",
+        encoder_dim=4,
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        hidden_dim=8,
+        num_layers=1,
+        dropout=0.0,
+        ablation_name="wo_bridge",
+    )
+    write_tiny_checkpoint(checkpoint_path, model_config=model_config)
+    retriever = TrainableGraphRetriever.from_checkpoint(
+        checkpoint_path,
+        graphs=tiny_graphs(),
+        text_embedding_provider=FakeTextEmbeddingProvider(),
+        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+    )
+
+    _, retrieved_edges = retriever.rank_task(tiny_task_inputs()[0], top_k=3)
+
+    assert all(edge["edge_type"] != "bridge" for edge in retrieved_edges)
 
 
 def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp_path: Path):

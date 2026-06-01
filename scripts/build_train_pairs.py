@@ -14,11 +14,12 @@ from graph_memory.io import read_json, write_json
 from graph_memory.learned.data import build_train_pairs
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.training_config import (
+    JsonConfig,
     encoder_config_from_training_config,
     load_trainable_training_config,
     negative_sampling_config_from_training_config,
 )
-from graph_memory.types import DenseConfig, NegativeSamplingConfig
+from graph_memory.types import DenseConfig, JsonValue, NegativeSamplingConfig
 
 LOGGER = logging.getLogger("build_train_pairs")
 
@@ -79,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     file_config = load_trainable_training_config(args.config, required_sections=("pair_sampling",)) if args.config else None
     sampling_config = _sampling_config_from_config(args, file_config)
     dense_config = _dense_config_from_config(file_config, sampling_config)
-    effective_config = {
+    effective_config: dict[str, JsonValue] = {
         "random_seed": sampling_config.random_seed,
         "easy_random_per_positive": sampling_config.easy_random_per_positive,
         "hard_bm25_per_positive": sampling_config.hard_bm25_per_positive,
@@ -183,7 +184,7 @@ def parse_args(argv: Sequence[str] | None = None) -> BuildTrainPairsArgs:
     )
 
 
-def _sampling_config_from_config(args: BuildTrainPairsArgs, config: dict | None) -> NegativeSamplingConfig:
+def _sampling_config_from_config(args: BuildTrainPairsArgs, config: JsonConfig | None) -> NegativeSamplingConfig:
     if config is not None:
         return negative_sampling_config_from_training_config(config)
     return NegativeSamplingConfig(
@@ -196,7 +197,7 @@ def _sampling_config_from_config(args: BuildTrainPairsArgs, config: dict | None)
     )
 
 
-def _dense_config_from_config(config: dict | None, sampling_config: NegativeSamplingConfig) -> DenseConfig | None:
+def _dense_config_from_config(config: JsonConfig | None, sampling_config: NegativeSamplingConfig) -> DenseConfig | None:
     if config is None or sampling_config.hard_dense_per_positive <= 0:
         return None
     encoder_config = encoder_config_from_training_config(config)

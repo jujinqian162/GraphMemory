@@ -6,6 +6,14 @@
 
 它不直接保存 R-GCN 的 batch size、epochs、hidden dim 等训练超参。训练细节由 `training_configs.dense_rgcn_graph_retriever` 指向的 training config 管理。
 
+默认配置显式设置：
+
+```json
+"enable_ablation": false
+```
+
+普通实验不会展开消融矩阵。需要自动消融时，使用 `configs/experiments/hotpotqa_rgcn_ablation_selected.json` 或在新 experiment config 中开启该字段。
+
 ## 使用位置
 
 - `scripts/experiment.py init ... --config configs/experiments/hotpotqa_evidence_retrieval.json`

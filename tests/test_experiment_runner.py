@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,12 @@ import scripts.experiment as experiment_script
 TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
 
 
-def _assert_repository_profile_resolution(config: dict, manifest: dict, *, profile: str) -> None:
+def _assert_repository_profile_resolution(
+    config: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    profile: str,
+) -> None:
     configured_profile = config["profiles"][profile]
     effective_config = manifest["effective_config"]
     for split in ("train", "dev", "test"):
@@ -385,7 +391,7 @@ def test_experiment_plan_uses_config_not_training_cli_sprawl(tmp_path):
         stages=["pairs", "train", "retrieve"],
         methods=[TRAINABLE_METHOD],
     )
-    rendered_by_stage = {command.stage: " ".join(command.argv) for command in commands}
+    rendered_by_stage = {command.stage.value: " ".join(command.argv) for command in commands}
 
     assert "scripts/build_train_pairs.py" in rendered_by_stage["pairs"]
     assert "--config" in rendered_by_stage["pairs"]

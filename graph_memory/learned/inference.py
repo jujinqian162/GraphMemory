@@ -16,6 +16,7 @@ from graph_memory.learned.features import (
     SentenceEncoder,
     TextEmbeddingProvider,
 )
+from graph_memory.learned.tensorize import model_visible_graph
 from graph_memory.learned.training import build_model_from_config
 from graph_memory.rerank import induced_retrieved_subgraph
 from graph_memory.types import GraphEdge, MemoryGraph, MemoryTaskInput, RankedNode, TrainableModelConfig
@@ -131,5 +132,6 @@ class TrainableGraphRetriever:
             key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
         )
         top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:top_k]]
-        retrieved_subgraph = induced_retrieved_subgraph(graph, top_node_ids)
+        visible_graph = model_visible_graph(graph, frozenset(self.model_config.enabled_edge_types))
+        retrieved_subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
         return ranked_nodes, retrieved_subgraph["edges"]

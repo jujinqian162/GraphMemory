@@ -177,6 +177,19 @@ class EdgeTensorizer:
         edge_weights.append(float(weight))
 
 
+def model_visible_graph(graph: MemoryGraph, enabled_edge_types: frozenset[str]) -> MemoryGraph:
+    """Return the graph view visible to one trained model."""
+
+    return {
+        **graph,
+        "edges": [
+            edge
+            for edge in graph.get("edges", [])
+            if edge.get("edge_type") in enabled_edge_types
+        ],
+    }
+
+
 def _node_index(node_index_by_id: dict[str, int], node_id: str) -> int:
     if node_id not in node_index_by_id:
         raise ValueError(f"Graph edge references missing node_id={node_id}.")

@@ -1,5 +1,6 @@
 {
   "dataset": "hotpotqa",
+  "enable_ablation": false,
   "defaults": {
     "dense_encoder": "models/intfloat-e5-base-v2",
     "passage_prefix": "passage: ",

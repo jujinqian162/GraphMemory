@@ -67,6 +67,19 @@ def test_identity_graph_encoder_returns_input_states():
     assert output is node_states
 
 
+def test_identity_graph_encoder_supports_torch_module_device_transfer():
+    model = EvidenceScoringModel(
+        encoder_dim=3,
+        node_feature_dim=3,
+        hidden_dim=8,
+        graph_encoder=IdentityGraphEncoder(),
+        scorer_feature_dim=2,
+        dropout=0.0,
+    )
+
+    assert model.to("cpu").graph_encoder is model.graph_encoder
+
+
 def test_rgcn_graph_encoder_supports_typed_and_shared_relation_transforms():
     batch = tiny_graph_batch()
     node_states = torch.randn(4, 8)

@@ -60,6 +60,46 @@ Inspect artifact status:
 python scripts/experiment.py status quick_valid_100
 ```
 
+## Run R-GCN Ablations
+
+List registered variants:
+
+```powershell
+python scripts/experiment.py ablations list --method dense_rgcn_graph_retriever
+```
+
+Initialize an ablation-enabled run:
+
+```powershell
+python scripts/experiment.py init rgcn_ablation_cloud `
+  --config configs/experiments/hotpotqa_rgcn_ablation_selected.json `
+  --profile cloud-full
+```
+
+Plan or run only selected variants:
+
+```powershell
+python scripts/experiment.py plan rgcn_ablation_cloud `
+  --ablations-only `
+  --variant wo_bridge `
+  --variant wo_hard_negatives
+```
+
+`full_rgcn` aliases the ordinary main R-GCN run. Model-only variants reuse main train pairs and start local work from `train`; `wo_hard_negatives` owns local pairs and starts from `pairs`.
+
+Before running `--ablations-only`, complete the ordinary `dense_rgcn_graph_retriever` run under the same experiment name. The ablation table includes the aliased `full_rgcn` metrics row. If that baseline metrics file is absent, the runner fails before execution and prints the missing path. When `--variant` narrows the work, aggregation reads only `full_rgcn` plus the selected variants.
+
+Resume downstream work only after checkpoints exist:
+
+```powershell
+python scripts/experiment.py run rgcn_ablation_cloud `
+  --ablations-only `
+  --variant wo_bridge `
+  --from retrieve
+```
+
+If the variant checkpoint is absent, the runner fails before execution and prints the missing path. It does not silently insert `train`.
+
 The low-level commands below remain useful for debugging, contract review, and manually reproducing one stage. They deliberately keep explicit input and output paths.
 
 ## Verify The Environment
@@ -191,7 +231,7 @@ python scripts/train_graph_retriever.py `
   --config configs/training/dense_rgcn_graph_retriever/base.json
 ```
 
-Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Supported structural ablations for the same training path are `wo_graph`, `wo_edge_type`, `wo_bridge`, `wo_edge_weight`, and `wo_seed_score`. The field-by-field Chinese reference lives in `docs/configs/training/dense_rgcn_graph_retriever/base.md`.
+Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Automatic variant selection is configured at the experiment level; `base.json` remains the only hand-maintained complete R-GCN training config. The field-by-field Chinese reference lives in `docs/configs/training/dense_rgcn_graph_retriever/base.md`.
 
 ## Run Flat Retrieval On Test
 

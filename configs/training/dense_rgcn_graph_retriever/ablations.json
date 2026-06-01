@@ -1,106 +1,27 @@
 {
-  "default_profile": "quick",
-  "defaults": {
-    "encoder": {
-      "model": "models/intfloat-e5-base-v2",
-      "passage_prefix": "passage: ",
-      "query_prefix": "query: "
-    },
-    "model": {
-      "ablation": "full_rgcn",
-      "dropout": 0.1,
-      "hidden_dim": 128,
-      "num_layers": 2
-    },
-    "optimization": {
-      "batch_size": 8,
-      "device": "cuda",
-      "epochs": 5,
-      "learning_rate": 0.0001,
-      "max_grad_norm": 1.0,
-      "optimizer": "AdamW",
-      "pos_weight": true,
-      "random_seed": 13
-    },
-    "pair_sampling": {
-      "easy_random_per_positive": 2,
-      "hard_bm25_per_positive": 2,
-      "hard_dense_per_positive": 0,
-      "hard_graph_neighbor_per_positive": 1,
-      "hard_pool_size": 30,
-      "random_seed": 13
-    },
-    "reporting": {
-      "render_training_curves": true
-    },
-    "selection": {
-      "best_metric": "dev_composite",
-      "higher_is_better": true
-    }
-  },
+  "schema_version": 2,
   "method": "dense_rgcn_graph_retriever",
-  "profiles": {
-    "full": {
-      "model": {
-        "hidden_dim": 256,
-        "num_layers": 2
-      },
-      "optimization": {
-        "batch_size": 16,
-        "device": "cuda",
-        "epochs": 10
-      },
-      "pair_sampling": {
-        "hard_dense_per_positive": 2
-      }
-    },
-    "quick": {},
-    "smoke": {
-      "model": {
-        "hidden_dim": 32,
-        "num_layers": 1
-      },
-      "optimization": {
-        "batch_size": 1,
-        "device": "cuda",
-        "epochs": 1
-      },
-      "pair_sampling": {
-        "easy_random_per_positive": 1,
-        "hard_bm25_per_positive": 1,
-        "hard_dense_per_positive": 0,
-        "hard_graph_neighbor_per_positive": 1
-      }
-    }
-  },
-  "schema_version": 1,
-  "ablation_overrides": {
-    "full_rgcn": {},
-    "wo_bridge": {
-      "model": {
-        "ablation": "wo_bridge"
-      }
-    },
-    "wo_edge_type": {
-      "model": {
-        "ablation": "wo_edge_type"
-      }
-    },
-    "wo_edge_weight": {
-      "model": {
-        "ablation": "wo_edge_weight"
-      }
-    },
-    "wo_graph": {
-      "model": {
-        "ablation": "wo_graph",
-        "num_layers": 0
-      }
-    },
-    "wo_seed_score": {
-      "model": {
-        "ablation": "wo_seed_score"
-      }
+  "purpose": "Documentation-facing ablation selection metadata. Full training values live only in base.json; minimal overrides are registered in scripts/workflow/registry.py.",
+  "variants": [
+    "full_rgcn",
+    "wo_bridge",
+    "wo_entity_overlap",
+    "wo_sequential",
+    "wo_query_overlap",
+    "wo_graph",
+    "wo_edge_type",
+    "wo_edge_weight",
+    "wo_seed_score",
+    "wo_hard_negatives"
+  ],
+  "experiment_config_example": {
+    "enable_ablation": true,
+    "ablation_variants": {
+      "dense_rgcn_graph_retriever": [
+        "wo_bridge",
+        "wo_entity_overlap",
+        "wo_hard_negatives"
+      ]
     }
   }
 }

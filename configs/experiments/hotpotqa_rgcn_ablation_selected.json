@@ -1,6 +1,19 @@
 {
   "dataset": "hotpotqa",
-  "enable_ablation": false,
+  "enable_ablation": true,
+  "ablation_variants": {
+    "dense_rgcn_graph_retriever": [
+      "wo_bridge",
+      "wo_entity_overlap",
+      "wo_sequential",
+      "wo_query_overlap",
+      "wo_graph",
+      "wo_edge_type",
+      "wo_edge_weight",
+      "wo_seed_score",
+      "wo_hard_negatives"
+    ]
+  },
   "defaults": {
     "dense_encoder": "models/intfloat-e5-base-v2",
     "passage_prefix": "passage: ",
@@ -22,11 +35,6 @@
     "dense_rgcn_graph_retriever"
   ],
   "profiles": {
-    "full": {
-      "dev_examples": 500,
-      "test_examples": 1000,
-      "train_examples": 5000
-    },
     "cloud-quick": {
       "dev_examples": 500,
       "test_examples": 1000,
@@ -36,11 +44,6 @@
       "dev_examples": 500,
       "test_examples": 6869,
       "train_examples": 90025
-    },
-    "dev": {
-      "dev_examples": 500,
-      "test_examples": 6869,
-      "train_examples": 1
     },
     "quick": {
       "dev_examples": 100,
@@ -57,7 +60,7 @@
     "dev": "data/hotpotqa/raw/dev.json",
     "train": "data/hotpotqa/raw/train.json"
   },
-  "recipe": "hotpotqa_evidence_retrieval",
+  "recipe": "hotpotqa_rgcn_ablation_selected",
   "search_spaces": {
     "graph_rerank": "configs/search_spaces/graph_rerank.json"
   },

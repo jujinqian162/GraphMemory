@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Render Phase 2 R-GCN training curves from `train_metrics.jsonl`.
 
@@ -9,11 +7,15 @@ Usage:
       --output report/phase2_rgcn_gpu_training_curves.png
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+Font = ImageFont.ImageFont | ImageFont.FreeTypeFont
 
 
 def read_jsonl(path: Path) -> list[dict[str, object]]:
@@ -36,6 +38,16 @@ def metric_values(rows: list[dict[str, object]], key: str) -> list[float]:
     return values
 
 
+def epoch_values(rows: list[dict[str, object]]) -> list[int]:
+    values: list[int] = []
+    for row in rows:
+        value = row["epoch"]
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("Epoch must be an integer.")
+        values.append(value)
+    return values
+
+
 def draw_panel(
     draw: ImageDraw.ImageDraw,
     *,
@@ -43,8 +55,8 @@ def draw_panel(
     title: str,
     epochs: list[int],
     series: list[tuple[str, list[float], tuple[int, int, int]]],
-    font: ImageFont.ImageFont,
-    small_font: ImageFont.ImageFont,
+    font: Font,
+    small_font: Font,
 ) -> None:
     left, top, right, bottom = box
     plot_left = left + 58
@@ -105,7 +117,7 @@ def main() -> int:
     args = parser.parse_args()
 
     rows = read_jsonl(Path(args.metrics))
-    epochs = [int(row["epoch"]) for row in rows]
+    epochs = epoch_values(rows)
     width, height = 1180, 760
     image = Image.new("RGB", (width, height), (248, 250, 252))
     draw = ImageDraw.Draw(image)

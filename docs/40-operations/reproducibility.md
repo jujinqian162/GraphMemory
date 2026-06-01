@@ -252,6 +252,16 @@ runs/<experiment_name>/metrics/test.dense_graph_rerank.metrics.csv
 runs/<experiment_name>/tables/main_results.csv
 ```
 
+For ablation-enabled R-GCN runs, additional artifacts are isolated below:
+
+```text
+runs/<experiment_name>/ablations/dense_rgcn_graph_retriever/<variant>/
+runs/<experiment_name>/config/ablation_metrics_index.json
+runs/<experiment_name>/tables/ablation_results.csv
+```
+
+The metric index explicitly records method, variant, and metrics path. `full_rgcn` points to the ordinary main metrics file. Existing `Connected Evidence Recall@10` keeps reference-graph semantics across variants so table rows remain comparable. Edge-view prediction subgraphs contain only model-visible edges.
+
 The older `data/hotpotqa/processed` and `results` examples remain useful for low-level contract debugging, but named runs should avoid overwriting shared canonical paths.
 
 ## Dev/Test Separation

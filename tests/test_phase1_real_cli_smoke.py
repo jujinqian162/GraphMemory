@@ -233,6 +233,81 @@ def test_aggregate_tables_includes_experiment_runner_metric_filenames(tmp_path):
     assert "dense,0.1,0.2,0.3" in aggregate_main_path.read_text(encoding="utf-8")
 
 
+def test_aggregate_tables_writes_indexed_ablation_results(tmp_path):
+    metric_header = (
+        "Method,Recall@2,Recall@5,Recall@10,Evidence F1@5,Evidence F1@10,"
+        "Full Support@5,Full Support@10,MRR,Connected Evidence Recall@5,"
+        "Connected Evidence Recall@10,Query-Evidence Connectivity@10,"
+        "Path Recall@10,Edge Recall@10,Retrieval Latency / Query,Index Build Time,"
+        "Graph Construction Time,Memory Size,Avg Retrieved Nodes,Avg Retrieved Edges"
+    )
+    full_metrics = tmp_path / "test.dense_rgcn_graph_retriever.metrics.csv"
+    wo_bridge_metrics = tmp_path / "wo_bridge.metrics.csv"
+    wo_graph_metrics = tmp_path / "missing.wo_graph.metrics.csv"
+    full_metrics.write_text(
+        f"{metric_header}\ndense_rgcn_graph_retriever,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,0.11,0.12,0.13,12.3,0.0,0.0,42.0,10.0,2.0\n",
+        encoding="utf-8",
+    )
+    wo_bridge_metrics.write_text(
+        f"{metric_header}\ndense_rgcn_graph_retriever,0.11,0.21,0.31,0.41,0.51,0.61,0.71,0.81,0.91,1.01,0.12,0.13,0.14,13.3,0.0,0.0,43.0,10.0,1.0\n",
+        encoding="utf-8",
+    )
+    index_path = tmp_path / "ablation_metrics_index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "metrics": [
+                    {
+                        "method": "dense_rgcn_graph_retriever",
+                        "variant": "full_rgcn",
+                        "metrics_path": str(full_metrics),
+                    },
+                    {
+                        "method": "dense_rgcn_graph_retriever",
+                        "variant": "wo_bridge",
+                        "metrics_path": str(wo_bridge_metrics),
+                    },
+                    {
+                        "method": "dense_rgcn_graph_retriever",
+                        "variant": "wo_graph",
+                        "metrics_path": str(wo_graph_metrics),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ablation_output = tmp_path / "ablation_results.csv"
+
+    assert aggregate_tables.main(
+        [
+            "--input_dir",
+            str(tmp_path / "ordinary_metrics"),
+            "--output_main",
+            str(tmp_path / "main_results.csv"),
+            "--output_path",
+            str(tmp_path / "path_results.csv"),
+            "--output_efficiency",
+            str(tmp_path / "efficiency_results.csv"),
+            "--ablation_index",
+            str(index_path),
+            "--output_ablation",
+            str(ablation_output),
+            "--ablation_selection",
+            "dense_rgcn_graph_retriever=full_rgcn",
+            "--ablation_selection",
+            "dense_rgcn_graph_retriever=wo_bridge",
+        ]
+    ) == 0
+
+    assert ablation_output.read_text(encoding="utf-8").splitlines() == [
+        "Method,Variant,Recall@5,Full Support@5,Connected Evidence Recall@10,Path Recall@10,Retrieval Latency / Query",
+        "dense_rgcn_graph_retriever,full_rgcn,0.2,0.6,1.0,0.12,12.3",
+        "dense_rgcn_graph_retriever,wo_bridge,0.21,0.61,1.01,0.13,13.3",
+    ]
+
+
 def test_prepare_hotpotqa_drops_invalid_examples_before_sampling(tmp_path):
     raw_path = tmp_path / "raw.json"
     valid_first = {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from graph_memory.io import merge_config, read_json
 from graph_memory.types import NegativeSamplingConfig, TrainableTrainingConfig
@@ -10,6 +10,19 @@ from graph_memory.validation import validate_negative_sampling_config, validate_
 
 
 JsonConfig = dict[str, Any]
+
+
+class EncoderConfig(TypedDict):
+    model: str
+    query_prefix: str
+    passage_prefix: str
+
+
+class ModelConfigValues(TypedDict):
+    hidden_dim: int
+    num_layers: int
+    dropout: float
+    ablation: str
 
 
 def load_trainable_training_config(
@@ -78,7 +91,7 @@ def trainable_training_config_from_training_config(config: JsonConfig) -> Traina
     return training_config
 
 
-def encoder_config_from_training_config(config: JsonConfig) -> JsonConfig:
+def encoder_config_from_training_config(config: JsonConfig) -> EncoderConfig:
     encoder = _required_section(config, "encoder")
     return {
         "model": _string_value(encoder, "model"),
@@ -87,7 +100,7 @@ def encoder_config_from_training_config(config: JsonConfig) -> JsonConfig:
     }
 
 
-def model_config_values_from_training_config(config: JsonConfig) -> JsonConfig:
+def model_config_values_from_training_config(config: JsonConfig) -> ModelConfigValues:
     model = _required_section(config, "model")
     return {
         "hidden_dim": _int_value(model, "hidden_dim"),

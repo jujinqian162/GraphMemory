@@ -23,6 +23,9 @@ from graph_memory.learned.features import (
 from graph_memory.learned.training import build_model_from_config, default_model_config, train_graph_retriever
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.training_config import (
+    EncoderConfig,
+    JsonConfig,
+    ModelConfigValues,
     device_from_training_config,
     encoder_config_from_training_config,
     load_trainable_training_config,
@@ -336,7 +339,7 @@ def parse_args(argv: Sequence[str] | None = None) -> TrainGraphRetrieverArgs:
     )
 
 
-def _encoder_config_from_args(args: TrainGraphRetrieverArgs, config: JsonObject | None) -> JsonObject:
+def _encoder_config_from_args(args: TrainGraphRetrieverArgs, config: JsonConfig | None) -> EncoderConfig:
     if config is not None:
         return encoder_config_from_training_config(config)
     return {
@@ -346,7 +349,7 @@ def _encoder_config_from_args(args: TrainGraphRetrieverArgs, config: JsonObject 
     }
 
 
-def _model_values_from_args(args: TrainGraphRetrieverArgs, config: JsonObject | None) -> JsonObject:
+def _model_values_from_args(args: TrainGraphRetrieverArgs, config: JsonConfig | None) -> ModelConfigValues:
     if config is not None:
         return model_config_values_from_training_config(config)
     return {
@@ -359,7 +362,7 @@ def _model_values_from_args(args: TrainGraphRetrieverArgs, config: JsonObject | 
 
 def _training_config_from_args(
     args: TrainGraphRetrieverArgs,
-    config: JsonObject | None,
+    config: JsonConfig | None,
 ) -> TrainableTrainingConfig:
     if config is not None:
         return trainable_training_config_from_training_config(config)

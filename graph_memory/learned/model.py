@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Protocol
 
 import torch
@@ -24,7 +23,6 @@ class GraphEncoder(Protocol):
         ...
 
 
-@dataclass
 class IdentityGraphEncoder(nn.Module):
     """
     Graph encoder that leaves node states unchanged.
@@ -35,7 +33,7 @@ class IdentityGraphEncoder(nn.Module):
       forward：返回原始输入 node state tensor。
     """
 
-    def __post_init__(self) -> None:
+    def __init__(self) -> None:
         super().__init__()
 
     def forward(self, batch: GraphBatch, node_states: Tensor) -> Tensor:

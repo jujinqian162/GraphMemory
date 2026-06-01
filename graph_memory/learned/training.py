@@ -19,6 +19,7 @@ from graph_memory.learned.model import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
+from graph_memory.learned.tensorize import model_visible_graph
 from graph_memory.rerank import induced_retrieved_subgraph
 from graph_memory.types import (
     MemoryGraph,
@@ -116,6 +117,12 @@ def default_model_config(
         message_transform_type = "shared"
     elif ablation_name == "wo_bridge":
         enabled_edge_types = ("entity_overlap", "query_overlap", "sequential")
+    elif ablation_name == "wo_entity_overlap":
+        enabled_edge_types = ("bridge", "query_overlap", "sequential")
+    elif ablation_name == "wo_sequential":
+        enabled_edge_types = ("bridge", "entity_overlap", "query_overlap")
+    elif ablation_name == "wo_query_overlap":
+        enabled_edge_types = ("bridge", "entity_overlap", "sequential")
     elif ablation_name == "wo_edge_weight":
         edge_weight_policy = "uniform"
     elif ablation_name == "wo_seed_score":
@@ -371,7 +378,8 @@ def _predict_dev(
         task_id = task_input["task_id"]
         ranked_nodes = sorted(logits_by_task_id[task_id], key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
         top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:10]]
-        subgraph = induced_retrieved_subgraph(graph_by_task_id[task_id], top_node_ids)
+        visible_graph = model_visible_graph(graph_by_task_id[task_id], frozenset(model_config.enabled_edge_types))
+        subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
         predictions.append(
             {
                 "task_id": task_id,
