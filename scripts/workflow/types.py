@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Mapping, TypeVar
+
+
+class StrEnum(str, Enum):
+    """Python 3.10-compatible subset of enum.StrEnum."""
+
+    __str__ = str.__str__
 
 
 class StageId(StrEnum):

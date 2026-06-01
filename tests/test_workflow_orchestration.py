@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -64,6 +66,34 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
         "model_graph_view",
     }
     assert {state.value for state in ArtifactState} == {"missing", "complete", "stale", "alias"}
+
+
+def test_workflow_types_import_without_stdlib_strenum() -> None:
+    code = """
+import builtins
+
+original_import = builtins.__import__
+
+def import_without_strenum(name, globals=None, locals=None, fromlist=(), level=0):
+    if name == "enum" and fromlist and "StrEnum" in fromlist:
+        raise ImportError("cannot import name 'StrEnum' from 'enum'")
+    return original_import(name, globals, locals, fromlist, level)
+
+builtins.__import__ = import_without_strenum
+
+from scripts.workflow.types import StageId
+
+assert StageId("prepare") is StageId.PREPARE
+assert str(StageId.PREPARE) == "prepare"
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).parents[1],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_rgcn_suite_exposes_registered_variants_without_random_edges() -> None:
