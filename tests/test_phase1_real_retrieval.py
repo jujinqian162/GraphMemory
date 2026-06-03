@@ -10,12 +10,12 @@ from typing import cast
 from graph_memory.rerank import (
     graph_rerank,
     graph_rerank_with_breakdown,
-    induced_retrieved_subgraph,
     neighbor_propagation_scores,
     normalize_scores,
     rank_graph_from_initial_scores,
 )
-from graph_memory.evaluation import evaluate_results
+from graph_memory.graphs.views import induced_retrieved_subgraph
+from graph_memory.evaluation.service import evaluate_results
 from graph_memory.retrieval import (
     InitialScoreCache,
     run_graph_rerank_from_initial_score_cache,

@@ -8,13 +8,12 @@ from typing import Any
 from graph_memory.rerank_config import ensure_graph_rerank_config
 from graph_memory.retrieval_registry import get_graph_rerank_methods
 from graph_memory.retrieval import precompute_initial_score_cache, run_graph_rerank_from_initial_score_cache
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.metrics import MetricRow
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.types import (
     GraphRerankConfig,
     GraphRerankConfigRecord,
-    MemoryGraph,
-    MemoryTaskInput,
-    MemoryTaskLabels,
-    MetricRow,
     TuningCandidateRow,
 )
 
@@ -135,7 +134,7 @@ def tune_graph_rerank(
     top_k: int = 10,
     dense_encoder: Any | None = None,
 ) -> tuple[GraphRerankConfigRecord, list[TuningCandidateRow]]:
-    from graph_memory.evaluation import evaluate_results
+    from graph_memory.evaluation.service import evaluate_results
 
     if method not in get_graph_rerank_methods():
         raise ValueError(f"Tuning requires a graph rerank method, got method={method}.")

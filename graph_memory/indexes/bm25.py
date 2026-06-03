@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from rank_bm25 import BM25Okapi
 
-from graph_memory.text import content_tokens
-from graph_memory.types import MemoryTaskInput, RankedNode
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.text.tokens import content_tokens
+from graph_memory.types import RankedNode
 
 
 class BM25TaskRetriever:

@@ -1,6 +1,7 @@
 from graph_memory.io import merge_config, read_json, write_csv, write_json
-from graph_memory.observability import build_run_summary, graph_statistics
-from graph_memory.types import MemoryGraph
+from graph_memory.graphs.statistics import graph_statistics
+from graph_memory.observability import build_run_summary
+from graph_memory.contracts.graphs import MemoryGraph
 
 
 def test_json_helpers_write_deterministic_utf8(tmp_path):

@@ -11,16 +11,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.hotpotqa import (
+from graph_memory.datasets.hotpotqa import (
     combined_memory_tasks,
     convert_hotpotqa_example,
     convert_hotpotqa_examples,
     parse_hotpotqa_example,
     parse_hotpotqa_examples,
 )
+from graph_memory.datasets.splits import sample_split
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.splits import sample_split
 from graph_memory.validation import (
     validate_memory_task_inputs,
     validate_memory_task_labels,

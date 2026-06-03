@@ -12,14 +12,12 @@ from graph_memory.learned.tensorize import (
     EdgeTensorizer,
     UniformEdgeWeightPolicy,
 )
+from graph_memory.contracts.common import TaskId, TrainPairSampleType
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.types import (
     GraphBatch,
-    MemoryGraph,
-    MemoryTaskInput,
-    MemoryTaskLabels,
-    TaskId,
-    TrainPairRecord,
-    TrainPairSampleType,
     TrainableModelConfig,
     TrainingBatch,
 )

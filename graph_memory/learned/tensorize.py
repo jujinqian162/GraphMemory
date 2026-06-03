@@ -6,7 +6,8 @@ from typing import Protocol
 import torch
 from torch import Tensor
 
-from graph_memory.types import ALLOWED_EDGE_TYPES, GraphEdge, MemoryGraph
+from graph_memory.contracts.common import ALLOWED_EDGE_TYPES
+from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
 
 DEFAULT_RELATION_VOCAB: tuple[str, ...] = (
     "query_overlap_forward",
@@ -175,19 +176,6 @@ class EdgeTensorizer:
         targets.append(target)
         relation_ids.append(relation_id_by_name[relation_name])
         edge_weights.append(float(weight))
-
-
-def model_visible_graph(graph: MemoryGraph, enabled_edge_types: frozenset[str]) -> MemoryGraph:
-    """Return the graph view visible to one trained model."""
-
-    return {
-        **graph,
-        "edges": [
-            edge
-            for edge in graph.get("edges", [])
-            if edge.get("edge_type") in enabled_edge_types
-        ],
-    }
 
 
 def _node_index(node_index_by_id: dict[str, int], node_id: str) -> int:

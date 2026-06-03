@@ -1,226 +1,37 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias, TypedDict
-from typing_extensions import NotRequired
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict
+
+from graph_memory.contracts.common import (
+    ALLOWED_EDGE_TYPES,
+    ALLOWED_NODE_TYPES,
+    NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES,
+    NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES,
+    TRAIN_PAIR_SAMPLE_TYPES,
+    EdgeType,
+    JsonArray,
+    JsonObject,
+    JsonValue,
+    MethodName,
+    NodeId,
+    NodeType,
+    Score,
+    TaskId,
+    TrainPairSampleType,
+)
+from graph_memory.contracts.graphs import GraphEdge, GraphMemoryNode, GraphNode, MemoryGraph, QuestionNode
+from graph_memory.contracts.metrics import FailureCase, MetricRow, MetricTableRow, MetricValue, TaskMetricRow
+from graph_memory.contracts.observability import GraphStatistics, RankedNodeDebugRecord, RunSummary, ScoreDebugRecord
+from graph_memory.contracts.ranking import RankedNodeRecord, RankedResult, RetrievedSubgraph
+from graph_memory.contracts.tasks import CombinedMemoryTask, MemoryItem, MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
+from graph_memory.graphs.config import GraphBuildConfig
 
 if TYPE_CHECKING:
     from torch import Tensor
 else:
     Tensor = Any
-
-TaskId = str
-NodeId = str
-MethodName = str
-Score = float
-JsonObject: TypeAlias = Mapping[str, "JsonValue"]
-JsonArray: TypeAlias = Sequence["JsonValue"]
-JsonValue: TypeAlias = str | int | float | bool | None | JsonArray | JsonObject
-
-NodeType = Literal["question", "document_sentence"]
-EdgeType = Literal["sequential", "query_overlap", "entity_overlap", "bridge"]
-TrainPairSampleType = Literal["positive", "easy_random", "hard_bm25", "hard_dense", "hard_graph_neighbor"]
-
-ALLOWED_NODE_TYPES: set[str] = {"question", "document_sentence"}
-ALLOWED_EDGE_TYPES: set[str] = {"sequential", "query_overlap", "entity_overlap", "bridge"}
-NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES: set[str] = {"sequential", "entity_overlap", "bridge"}
-TRAIN_PAIR_SAMPLE_TYPES: set[str] = {"positive", "easy_random", "hard_bm25", "hard_dense", "hard_graph_neighbor"}
-NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES: set[str] = TRAIN_PAIR_SAMPLE_TYPES - {"positive"}
-
-
-class MemoryItem(TypedDict):
-    id: NodeId
-    node_type: Literal["document_sentence"]
-    text: str
-    source: str
-    sentence_id: int
-    position: int
-
-
-class MemoryTaskInput(TypedDict):
-    task_id: TaskId
-    query: str
-    memory_items: list[MemoryItem]
-    metadata: NotRequired[dict[str, object]]
-    debug: NotRequired[dict[str, object]]
-
-
-class MemoryTaskLabels(TypedDict):
-    task_id: TaskId
-    gold_answer: str
-    gold_evidence_nodes: list[NodeId]
-    gold_dependency_edges: list[list[str]]
-    metadata: NotRequired[dict[str, object]]
-    debug: NotRequired[dict[str, object]]
-
-
-class CombinedMemoryTask(MemoryTaskInput, MemoryTaskLabels):
-    """Compatibility-only artifact shape containing input and label fields."""
-
-
-class QuestionNode(TypedDict):
-    id: Literal["q"]
-    node_type: Literal["question"]
-    text: str
-
-
-class GraphMemoryNode(MemoryItem):
-    pass
-
-
-GraphNode = QuestionNode | GraphMemoryNode
-
-
-class GraphEdge(TypedDict):
-    source: str
-    target: str
-    edge_type: EdgeType
-    weight: float
-    directed: bool
-
-
-class MemoryGraph(TypedDict):
-    task_id: TaskId
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
-    metadata: NotRequired[dict[str, object]]
-    debug: NotRequired[dict[str, object]]
-
-
-class RankedNodeRecord(TypedDict):
-    node_id: NodeId
-    score: float
-
-
-class RetrievedSubgraph(TypedDict):
-    nodes: list[NodeId]
-    edges: list[GraphEdge]
-
-
-class RankedResult(TypedDict):
-    task_id: TaskId
-    method: MethodName
-    ranked_nodes: list[RankedNodeRecord]
-    retrieved_subgraph: RetrievedSubgraph
-    latency_ms: float
-    input_tokens: int
-    metadata: NotRequired[dict[str, object]]
-    debug: NotRequired[dict[str, object]]
-
-
-class TrainPairRecord(TypedDict):
-    """
-    One training pair artifact row for a query-node supervision example.
-    一个 query-node 监督样本对应的训练 pair artifact 行。
-
-    Fields / 字段:
-    - task_id: Task join key matching memory task, label, and graph artifacts.
-      task_id：任务 join key，必须匹配 memory task、label 和 graph artifact。
-    - node_id: Memory node id being supervised; must not be the question node `q`.
-      node_id：被监督的 memory node id；不能是问题节点 `q`。
-    - label: Binary evidence label, where 1 means gold evidence and 0 means sampled negative.
-      label：二分类 evidence 标签，1 表示 gold evidence，0 表示采样负例。
-    - sample_type: Sampling source used to create this row.
-      sample_type：生成该样本行时使用的采样来源。
-    """
-
-    task_id: TaskId
-    node_id: NodeId
-    label: Literal[0, 1]
-    sample_type: TrainPairSampleType
-
-
-class TrainPairBuildSummary(TypedDict):
-    """
-    Summary record written beside train pair artifacts for reproducibility.
-    写在 train pair artifact 旁边、用于复现性的汇总记录。
-
-    Fields / 字段:
-    - positive_count: Number of positive rows.
-      positive_count：正例行数。
-    - negative_count_by_type: Negative row counts grouped by sample type.
-      negative_count_by_type：按 sample type 分组的负例行数。
-    - avg_positive_per_task: Average positive rows per task.
-      avg_positive_per_task：每个 task 的平均正例行数。
-    - avg_negative_per_task: Average negative rows per task.
-      avg_negative_per_task：每个 task 的平均负例行数。
-    - tasks_with_no_positive: Task ids that had no gold evidence; must be empty.
-      tasks_with_no_positive：没有 gold evidence 的 task id；必须为空。
-    - sampling_config: Effective negative sampling config.
-      sampling_config：实际生效的负采样配置。
-    """
-
-    positive_count: int
-    negative_count_by_type: dict[str, int]
-    avg_positive_per_task: float
-    avg_negative_per_task: float
-    tasks_with_no_positive: list[TaskId]
-    sampling_config: dict[str, object]
-
-
-MetricValue: TypeAlias = str | float
-
-MetricRow = TypedDict(
-    "MetricRow",
-    {
-        "Method": str,
-        "Recall@2": float,
-        "Recall@5": float,
-        "Recall@10": float,
-        "Evidence F1@5": float,
-        "Evidence F1@10": float,
-        "Full Support@5": float,
-        "Full Support@10": float,
-        "MRR": float,
-        "Connected Evidence Recall@5": float,
-        "Connected Evidence Recall@10": float,
-        "Query-Evidence Connectivity@10": float,
-        "Path Recall@10": MetricValue,
-        "Edge Recall@10": MetricValue,
-        "Retrieval Latency / Query": float,
-        "Index Build Time": float,
-        "Graph Construction Time": float,
-        "Memory Size": float,
-        "Avg Retrieved Nodes": float,
-        "Avg Retrieved Edges": float,
-    },
-)
-
-MetricTableRow: TypeAlias = dict[str, MetricValue]
-
-TaskMetricRow = TypedDict(
-    "TaskMetricRow",
-    {
-        "Recall@2": float,
-        "Recall@5": float,
-        "Recall@10": float,
-        "Evidence F1@5": float,
-        "Evidence F1@10": float,
-        "Full Support@5": float,
-        "Full Support@10": float,
-        "MRR": float,
-        "Connected Evidence Recall@5": float,
-        "Connected Evidence Recall@10": float,
-        "Query-Evidence Connectivity@10": float,
-        "Retrieval Latency / Query": float,
-        "Memory Size": float,
-        "Avg Retrieved Nodes": float,
-        "Avg Retrieved Edges": float,
-    },
-)
-
-
-class FailureCase(TypedDict):
-    debug_type: str
-    task_id: TaskId
-    method: MethodName
-    failure_type: str
-    gold_evidence_nodes: list[NodeId]
-    retrieved_top_k: list[NodeId]
-    missing_gold_nodes: list[NodeId]
-    connected_gold_in_top_k: bool
-
 
 @dataclass(frozen=True)
 class RankedNode:
@@ -254,53 +65,6 @@ class GraphRerankConfigRecord(TypedDict):
 
 class TuningCandidateRow(MetricRow):
     config: GraphRerankConfigRecord
-
-
-class GraphStatistics(TypedDict):
-    num_graphs: int
-    avg_nodes: float
-    avg_edges: float
-    edge_counts_by_type: dict[str, int]
-    isolated_memory_nodes: int
-    split: NotRequired[str]
-    graph_config: NotRequired[JsonObject]
-
-
-class RunSummary(TypedDict):
-    script: str
-    started_at: str
-    finished_at: str
-    status: str
-    effective_config: JsonObject
-    inputs: JsonObject
-    outputs: JsonObject
-    counts: JsonObject
-    timings: JsonObject
-    environment: dict[str, str]
-    notes: list[str]
-    error: NotRequired[str]
-
-
-class RankedNodeDebugRecord(RankedNodeRecord, total=False):
-    score_components: ScoreComponents
-
-
-class ScoreDebugRecord(TypedDict, total=False):
-    debug_type: str
-    task_id: TaskId
-    method: MethodName
-    top_k: int
-    ranked_nodes: list[RankedNodeDebugRecord]
-    split: str
-    config_digest: str
-
-
-@dataclass(frozen=True)
-class GraphBuildConfig:
-    max_query_overlap: int = 20
-    max_entity_neighbors: int = 10
-    max_bridge_edges: int = 50
-    use_spacy: bool = False
 
 
 @dataclass(frozen=True)
@@ -608,3 +372,62 @@ class Retriever(Protocol):
 
     def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
         ...
+
+
+__all__ = [
+    "ALLOWED_EDGE_TYPES",
+    "ALLOWED_NODE_TYPES",
+    "CombinedMemoryTask",
+    "DenseConfig",
+    "EdgeType",
+    "FailureCase",
+    "GraphBatch",
+    "GraphBuildConfig",
+    "GraphEdge",
+    "GraphMemoryNode",
+    "GraphNode",
+    "GraphRerankConfig",
+    "GraphRerankConfigRecord",
+    "GraphStatistics",
+    "JsonArray",
+    "JsonObject",
+    "JsonValue",
+    "MemoryGraph",
+    "MemoryItem",
+    "MemoryTaskInput",
+    "MemoryTaskLabels",
+    "MethodName",
+    "NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES",
+    "NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES",
+    "NegativeSamplingConfig",
+    "NodeFeatureConfig",
+    "NodeId",
+    "NodeType",
+    "QuestionNode",
+    "RankedNode",
+    "RankedNodeDebugRecord",
+    "RankedNodeRecord",
+    "RankedResult",
+    "RerankResult",
+    "RetrievedSubgraph",
+    "Retriever",
+    "RunSummary",
+    "Score",
+    "ScoreBreakdown",
+    "ScoreComponents",
+    "ScoreDebugRecord",
+    "SeedSignal",
+    "TRAIN_PAIR_SAMPLE_TYPES",
+    "TaskId",
+    "TrainPairBuildSummary",
+    "TrainPairRecord",
+    "TrainPairSampleType",
+    "TrainableModelConfig",
+    "TrainableTrainingConfig",
+    "TrainingBatch",
+    "TuningCandidateRow",
+    "MetricRow",
+    "MetricTableRow",
+    "MetricValue",
+    "TaskMetricRow",
+]

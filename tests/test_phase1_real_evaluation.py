@@ -1,16 +1,22 @@
 import pytest
 from typing import cast
 
-from graph_memory.evaluation import (
+from graph_memory.evaluation.connectivity import (
     connected_evidence_at,
-    evaluate_results,
+    query_evidence_connectivity_at,
+)
+from graph_memory.evaluation.metrics import (
     evidence_f1_at,
     full_support_at,
     mrr,
-    query_evidence_connectivity_at,
     recall_at,
 )
-from graph_memory.types import MemoryGraph, MemoryTaskLabels, RankedResult
+from graph_memory.evaluation.service import (
+    evaluate_results,
+)
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.ranking import RankedResult
+from graph_memory.contracts.tasks import MemoryTaskLabels
 from graph_memory.validation import ContractValidationError
 
 

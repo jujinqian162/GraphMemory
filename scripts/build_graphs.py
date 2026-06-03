@@ -10,10 +10,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.graphs import build_graphs
+from graph_memory.graphs.config import GraphBuildConfig
+from graph_memory.graphs.construction.builder import build_graphs
+from graph_memory.graphs.statistics import graph_statistics
 from graph_memory.io import read_json, write_json
-from graph_memory.observability import build_run_summary, collect_environment, graph_statistics, now_iso, write_run_summary
-from graph_memory.types import GraphBuildConfig
+from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.validation import (
     validate_graphs,
     validate_memory_task_inputs,

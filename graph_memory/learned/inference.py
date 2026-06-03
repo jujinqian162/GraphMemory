@@ -16,10 +16,11 @@ from graph_memory.learned.features import (
     SentenceEncoder,
     TextEmbeddingProvider,
 )
-from graph_memory.learned.tensorize import model_visible_graph
 from graph_memory.learned.training import build_model_from_config
-from graph_memory.rerank import induced_retrieved_subgraph
-from graph_memory.types import GraphEdge, MemoryGraph, MemoryTaskInput, RankedNode, TrainableModelConfig
+from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
+from graph_memory.types import RankedNode, TrainableModelConfig
 
 
 @dataclass(frozen=True)

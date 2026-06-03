@@ -19,7 +19,8 @@ from graph_memory.training_config import (
     load_trainable_training_config,
     negative_sampling_config_from_training_config,
 )
-from graph_memory.types import DenseConfig, JsonValue, NegativeSamplingConfig
+from graph_memory.contracts.common import JsonValue
+from graph_memory.types import DenseConfig, NegativeSamplingConfig
 
 LOGGER = logging.getLogger("build_train_pairs")
 

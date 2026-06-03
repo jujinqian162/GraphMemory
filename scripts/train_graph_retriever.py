@@ -32,7 +32,8 @@ from graph_memory.training_config import (
     model_config_values_from_training_config,
     trainable_training_config_from_training_config,
 )
-from graph_memory.types import JsonObject, TrainableTrainingConfig
+from graph_memory.contracts.common import JsonObject
+from graph_memory.types import TrainableTrainingConfig
 
 LOGGER = logging.getLogger("train_graph_retriever")
 

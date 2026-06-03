@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from graph_memory.types import MemoryTaskInput, NodeFeatureConfig, Retriever, SeedSignal
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.types import NodeFeatureConfig, Retriever, SeedSignal
 
 
 class SeedSignalProvider(Protocol):

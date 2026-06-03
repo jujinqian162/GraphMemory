@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from graph_memory.contracts.common import JsonObject
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.observability import RankedNodeDebugRecord, ScoreDebugRecord
+from graph_memory.contracts.ranking import RankedNodeRecord
+from graph_memory.graphs.views import induced_retrieved_subgraph, traversal_adjacency
 from graph_memory.types import (
     GraphRerankConfig,
-    MemoryGraph,
     RankedNode,
     RerankResult,
-    RetrievedSubgraph,
     ScoreBreakdown,
     ScoreComponents,
 )
@@ -18,6 +23,43 @@ from graph_memory.validation import validate_graph_rerank_config
 
 NormalizationMode = Literal["none", "minmax"]
 ComponentName = Literal["initial", "query", "neighbor", "bridge", "path"]
+
+
+def config_digest(config: JsonObject) -> str:
+    encoded = json.dumps(config, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:12]
+
+
+def build_score_debug_record(
+    *,
+    task_id: str,
+    method: str,
+    top_k: int,
+    ranked_nodes: list[RankedNodeRecord],
+    score_breakdown: ScoreBreakdown,
+    split: str | None = None,
+    config: JsonObject | None = None,
+) -> ScoreDebugRecord:
+    debug_ranked_nodes: list[RankedNodeDebugRecord] = []
+    for ranked_node in ranked_nodes[:top_k]:
+        debug_node: RankedNodeDebugRecord = {"node_id": ranked_node["node_id"], "score": ranked_node["score"]}
+        node_id = ranked_node["node_id"]
+        if node_id in score_breakdown:
+            debug_node["score_components"] = score_breakdown[node_id]
+        debug_ranked_nodes.append(debug_node)
+
+    record: ScoreDebugRecord = {
+        "debug_type": "score_breakdown",
+        "task_id": task_id,
+        "method": method,
+        "top_k": top_k,
+        "ranked_nodes": debug_ranked_nodes,
+    }
+    if split is not None:
+        record["split"] = split
+    if config is not None:
+        record["config_digest"] = config_digest(config)
+    return record
 
 
 class NodeScoreComponent(Protocol):
@@ -190,18 +232,6 @@ def combine_component_scores(
     return ranked_nodes
 
 
-def induced_retrieved_subgraph(graph: MemoryGraph, node_ids: list[str]) -> RetrievedSubgraph:
-    selected = set(node_ids)
-    return {
-        "nodes": list(node_ids),
-        "edges": [
-            edge
-            for edge in graph.get("edges", [])
-            if edge.get("source") in selected and edge.get("target") in selected
-        ],
-    }
-
-
 def expanded_candidate_nodes(
     normalized_initial: dict[str, float],
     graph: MemoryGraph,
@@ -211,7 +241,7 @@ def expanded_candidate_nodes(
         node_id
         for node_id, _ in sorted(normalized_initial.items(), key=lambda item: (-item[1], item[0]))[: config.seed_top_s]
     ]
-    adjacency = _traversal_adjacency(graph)
+    adjacency = traversal_adjacency(graph)
     candidates = set(seeds)
     queue: deque[tuple[str, int]] = deque((seed, 0) for seed in seeds)
     while queue:
@@ -280,17 +310,6 @@ def bridge_edge_scores(
         if not edge.get("directed", False):
             scores[source] += normalized_initial[target] * weight
     return dict(scores)
-
-
-def _traversal_adjacency(graph: MemoryGraph) -> dict[str, set[str]]:
-    adjacency: dict[str, set[str]] = defaultdict(set)
-    for edge in graph.get("edges", []):
-        source = str(edge.get("source"))
-        target = str(edge.get("target"))
-        adjacency[source].add(target)
-        if not edge.get("directed", False):
-            adjacency[target].add(source)
-    return adjacency
 
 
 def _normalize_component_scores(

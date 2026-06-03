@@ -10,7 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.evaluation import WIDE_METRIC_COLUMNS, build_failure_cases, evaluate_results
+from graph_memory.evaluation.failure_cases import build_failure_cases
+from graph_memory.evaluation.service import evaluate_results
+from graph_memory.evaluation.tables import WIDE_METRIC_COLUMNS
 from graph_memory.io import read_json, write_csv, write_jsonl
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.validation import validate_metric_rows

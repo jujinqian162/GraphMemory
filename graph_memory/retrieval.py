@@ -8,20 +8,19 @@ from typing import TYPE_CHECKING, Protocol
 
 from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
-from graph_memory.text import content_tokens
 from graph_memory.rerank import rank_graph_from_initial_scores
 from graph_memory.rerank_config import ensure_graph_rerank_config
 from graph_memory.retrieval_registry import (
     RetrievalMethodSpec,
     get_method_spec,
 )
+from graph_memory.text.tokens import content_tokens
+from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
+from graph_memory.contracts.ranking import RankedResult
+from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.types import (
-    GraphEdge,
     GraphRerankConfig,
-    MemoryGraph,
-    MemoryTaskInput,
     RankedNode,
-    RankedResult,
     Retriever,
 )
 from graph_memory.validation import (

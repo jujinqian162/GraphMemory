@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from graph_memory.evaluation import evaluate_results
+from graph_memory.evaluation.service import evaluate_results
 from graph_memory.learned.batching import build_full_ranking_batches, build_training_batches, move_training_batch
 from graph_memory.learned.features import SeedSignalProvider, TextEmbeddingProvider
 from graph_memory.learned.model import (
@@ -19,17 +19,15 @@ from graph_memory.learned.model import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
-from graph_memory.learned.tensorize import model_visible_graph
-from graph_memory.rerank import induced_retrieved_subgraph
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.metrics import MetricRow
+from graph_memory.contracts.ranking import RankedResult
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.types import (
-    MemoryGraph,
-    MemoryTaskInput,
-    MemoryTaskLabels,
-    MetricRow,
     NodeFeatureConfig,
     RankedNode,
-    RankedResult,
-    TrainPairRecord,
     TrainableModelConfig,
     TrainableTrainingConfig,
 )

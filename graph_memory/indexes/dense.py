@@ -4,7 +4,8 @@ from typing import Any
 
 import numpy as np
 
-from graph_memory.types import DenseConfig, MemoryTaskInput, RankedNode
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.types import DenseConfig, RankedNode
 
 
 class DenseTaskRetriever:

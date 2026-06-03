@@ -11,15 +11,16 @@ from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.evaluation import (
+from graph_memory.evaluation.tables import (
     EFFICIENCY_RESULT_COLUMNS,
     MAIN_RESULT_COLUMNS,
     PATH_RESULT_COLUMNS,
     split_metric_tables,
 )
+from graph_memory.contracts.common import JsonValue
+from graph_memory.contracts.metrics import MetricRow
 from graph_memory.io import read_csv, read_json, write_csv
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.types import JsonValue, MetricRow
 
 LOGGER = logging.getLogger("aggregate_tables")
 ABLATION_RESULT_COLUMNS = [

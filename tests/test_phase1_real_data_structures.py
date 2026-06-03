@@ -2,8 +2,8 @@ from typing import TypeAlias
 
 import pytest
 
-from graph_memory.hotpotqa import HotpotQAConversionResult, convert_hotpotqa_examples, parse_hotpotqa_examples
-from graph_memory.splits import sample_split
+from graph_memory.datasets.hotpotqa import HotpotQAConversionResult, convert_hotpotqa_examples, parse_hotpotqa_examples
+from graph_memory.datasets.splits import sample_split
 
 RawHotpotQARecord: TypeAlias = dict[str, object]
 

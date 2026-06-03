@@ -1,9 +1,11 @@
 import json
 
-from graph_memory.entities import heuristic_entities, title_aliases
-from graph_memory.graphs import build_graph
-from graph_memory.text import content_tokens, lexical_score
-from graph_memory.types import GraphBuildConfig, MemoryTaskInput
+from graph_memory.text.entities import heuristic_entities, title_aliases
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.graphs.config import GraphBuildConfig
+from graph_memory.graphs.construction.builder import build_graph
+from graph_memory.text.lexical import lexical_score
+from graph_memory.text.tokens import content_tokens
 
 
 def graph_task_input() -> MemoryTaskInput:

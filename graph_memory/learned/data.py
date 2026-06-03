@@ -7,18 +7,15 @@ from dataclasses import asdict, dataclass
 from graph_memory.indexes.bm25 import BM25TaskRetriever
 from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.learned.features import RetrieverSeedSignalProvider, SeedSignalProvider
+from graph_memory.contracts.common import TaskId, TrainPairSampleType
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
 from graph_memory.types import (
     DenseConfig,
-    MemoryGraph,
-    MemoryTaskInput,
-    MemoryTaskLabels,
     NegativeSamplingConfig,
     RankedNode,
     Retriever,
-    TaskId,
-    TrainPairBuildSummary,
-    TrainPairRecord,
-    TrainPairSampleType,
 )
 from graph_memory.validation import (
     validate_graphs,
