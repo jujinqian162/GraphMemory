@@ -17,25 +17,24 @@ Names should make the experiment readable as a system. Prefer explicit domain la
 - Avoid ambiguous terms like `record` unless the code is truly artifact-generic.
 - Keep public names stable and boring.
 
-## Module Names
+## Package And Module Names
 
 Use short, noun-based module names that match responsibilities:
 
-| Module | Responsibility |
+| Package or module | Responsibility |
 |---|---|
-| `hotpotqa.py` | Raw HotpotQA conversion. |
-| `splits.py` | Deterministic split sampling. |
-| `text.py` | Tokenization and lexical scoring. |
-| `entities.py` | Entity extraction helpers. |
-| `graphs.py` | Graph construction and graph statistics. |
-| `retrieval.py` | Method dispatch and ranked-result assembly. |
-| `rerank.py` | Graph reranking logic. |
-| `tuning.py` | Dev-set parameter selection. |
-| `evaluation.py` | Metrics and aggregate rows. |
-| `validation.py` | Artifact contract checks. |
-| `io.py` | JSON, CSV, and config read/write helpers. |
-| `observability.py` | Run summaries and debug records. |
-| `types.py` | Type aliases, TypedDicts, dataclasses, and protocols. |
+| `datasets/hotpotqa/` | Raw HotpotQA parsing and conversion. |
+| `datasets/splits.py` | Deterministic split sampling. |
+| `text/` | Tokenization, lexical scoring, and entity extraction. |
+| `graphs/` | Graph construction, graph views, and graph statistics. |
+| `retrieval/` | Method request resolution, runtime construction, execution, rerank, tuning, and adapters. |
+| `training_pairs/` | Train-pair construction and negative sampling. |
+| `models/graph_retriever/` | Trainable graph retriever config, tensors, model, checkpoint, training, and inference. |
+| `evaluation/` | Metrics, connectivity, aggregate rows, and failure cases. |
+| `validation/` | Artifact and model contract checks. |
+| `infrastructure/` | JSON, CSV, config read/write helpers, run summaries, and runtime environment capture. |
+| `contracts/` | Type aliases and artifact-shaped `TypedDict`s. |
+| root integration ports | `io.py`, `observability.py`, `retrieval_registry.py`, `training_config.py`, and `experiment.py` stay thin for workflow compatibility. |
 
 Rule:
 

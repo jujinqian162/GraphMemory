@@ -245,7 +245,7 @@ Consumers:
 
 ```text
 scripts/train_graph_retriever.py
-graph_memory.learned.data
+graph_memory.training_pairs
 ```
 
 Shape:

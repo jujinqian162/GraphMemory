@@ -10,7 +10,7 @@ from graph_memory.validation import (
     validate_memory_task_labels,
     validate_ranked_results,
 )
-from graph_memory.types import MemoryTaskInput
+from graph_memory.contracts.tasks import MemoryTaskInput
 
 
 def valid_task_inputs() -> list[MemoryTaskInput]:

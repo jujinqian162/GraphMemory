@@ -4,29 +4,28 @@ from pathlib import Path
 import pytest
 import torch
 
-from graph_memory.learned.checkpoint import load_trainable_checkpoint, save_trainable_checkpoint
-from graph_memory.learned.features import (
+from graph_memory.models.graph_retriever.batching import build_training_batches
+from graph_memory.models.graph_retriever.checkpoint import load_trainable_checkpoint, save_trainable_checkpoint
+from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
+from graph_memory.models.graph_retriever.factory import build_model_from_config
+from graph_memory.models.graph_retriever.internals.features import (
     NodeFeatureBuilder,
-    RetrieverSeedSignalProvider,
-    TextEmbeddingProvider,
 )
-from graph_memory.learned.batching import build_training_batches
-from graph_memory.learned.training import (
+from graph_memory.models.graph_retriever.training import (
     TrainableTrainingResult,
-    build_model_from_config,
     train_graph_retriever,
 )
-from graph_memory.types import (
-    GraphBatch,
-    MemoryGraph,
-    MemoryTaskInput,
-    MemoryTaskLabels,
+from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
-    RankedNode,
-    TrainPairRecord,
     TrainableModelConfig,
     TrainableTrainingConfig,
 )
+from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
+from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.validation import (
     ContractValidationError,
     validate_graph_batch,

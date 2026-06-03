@@ -34,6 +34,7 @@ Tests should protect the scientific correctness of the evidence-tracing pipeline
 | Tuning tests | Unit tests with synthetic metric rows | Ensure objective and tie-breaks are deterministic. |
 | Evaluation tests | Unit tests with tiny predictions/labels/graphs | Ensure metrics and connectivity use the correct artifacts. |
 | CLI smoke tests | Small filesystem tests | Ensure scripts parse arguments and write expected artifacts. |
+| Architecture dependency tests | AST import scans | Ensure domain packages keep approved dependency direction and removed compatibility paths do not return. |
 | End-to-end smoke test | Tiny synthetic pipeline | Ensure converter -> graph -> retrieval -> evaluation can run together. |
 
 ## Recommended Test Files
@@ -59,6 +60,7 @@ tests/test_phase2_rgcn_tensorize.py
 tests/test_phase2_rgcn_model.py
 tests/test_phase2_rgcn_training.py
 tests/test_phase2_rgcn_retrieval.py
+tests/test_core_refactor_final_boundaries.py
 ```
 
 Do not add many tiny test files too early. Start with the planned files and split only when a file becomes hard to navigate.
@@ -248,3 +250,4 @@ Before trusting an experiment run:
 - Evaluation tests prove labels are read from label artifacts only.
 - Trainable runs validate train pairs, tensor batches, and checkpoint metadata before training or inference.
 - Retrieval-only trainable inference tests prove labels and train pairs are not read.
+- Architecture dependency tests prove root compatibility paths stay removed and workflow integration ports stay narrow.

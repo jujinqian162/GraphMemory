@@ -11,8 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
-from graph_memory.learned.data import build_train_pairs
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_config import (
     JsonConfig,
     encoder_config_from_training_config,
@@ -20,7 +20,8 @@ from graph_memory.training_config import (
     negative_sampling_config_from_training_config,
 )
 from graph_memory.contracts.common import JsonValue
-from graph_memory.types import DenseConfig, NegativeSamplingConfig
+from graph_memory.retrieval.methods.flat.dense import DenseConfig
+from graph_memory.training_pairs.config import NegativeSamplingConfig
 
 LOGGER = logging.getLogger("build_train_pairs")
 

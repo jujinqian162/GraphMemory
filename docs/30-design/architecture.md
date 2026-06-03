@@ -1,8 +1,8 @@
 # Architecture
 
-Date: 2026-05-20
+Date: 2026-06-03
 
-Status: Working reference.
+Status: Maintained project-level reference.
 
 ## Core Decision
 
@@ -10,13 +10,15 @@ Use a library-core architecture with thin CLI scripts.
 
 ```text
 Artifacts are the external contract.
-Domain objects are the internal language.
+Domain packages are the internal ownership map.
 CLI scripts are adapters, not the system.
 ```
 
+Public script names, CLI arguments, retrieval method names, JSON/JSONL/CSV schemas, and checkpoint metadata are the compatibility boundary. Internal `graph_memory.*` imports are allowed to move when ownership becomes clearer.
+
 ## External Structure
 
-Respect the original experiment structure:
+The public experiment structure remains stable:
 
 ```text
 data/
@@ -24,123 +26,163 @@ data/
     raw/
     processed/
 results/
+runs/
 scripts/
 ```
 
-The script names and artifact names from the project plan remain stable:
+The workflow runner and low-level scripts remain the user-facing entry points:
 
+- `scripts/experiment.py`
 - `scripts/prepare_hotpotqa.py`
 - `scripts/build_graphs.py`
 - `scripts/run_retrieval.py`
 - `scripts/tune_graph_rerank.py`
+- `scripts/build_train_pairs.py`
+- `scripts/train_graph_retriever.py`
+- `scripts/run_trainable_retrieval.py`
 - `scripts/evaluate_retrieval.py`
 - `scripts/aggregate_tables.py`
-- `*_memory_tasks.input.json`
-- `*_memory_tasks.labels.json`
-- `*_graphs.json`
-- `ranked_results_{method}.json`
-- final metric CSVs
 
 ## Package Shape
 
-Start with a mostly flat package. Do not introduce a broad subpackage hierarchy before Phase 1 is runnable.
+The current core package is organized by domain ownership:
 
 ```text
 graph_memory/
-  __init__.py
-  types.py
-  validation.py
+  contracts/
+  datasets/
+  evaluation/
+  graphs/
+  infrastructure/
+  models/
+    graph_retriever/
+  retrieval/
+  text/
+  training_pairs/
+  validation/
+  experiment.py
   io.py
-  hotpotqa.py
-  splits.py
-  text.py
-  entities.py
-  graphs.py
-  indexes/
-    __init__.py
-    bm25.py
-    dense.py
-  retrieval.py
-  rerank.py
-  tuning.py
-  evaluation.py
   observability.py
+  retrieval_registry.py
+  training_config.py
 ```
 
-`indexes/` is the small exception because BM25 and dense retrieval are naturally parallel implementations and the Phase 1 plan already names this module.
+Only these root modules are retained as workflow integration ports:
 
-## Layer Responsibilities
+```text
+graph_memory/io.py
+graph_memory/observability.py
+graph_memory/retrieval_registry.py
+graph_memory/training_config.py
+graph_memory/experiment.py
+```
 
-| Layer | Responsibility |
+They must stay thin. New core logic belongs in the domain package that owns the behavior.
+
+## Domain Responsibilities
+
+| Package | Responsibility |
 |---|---|
-| `scripts/` | Parse CLI/config, call library functions, log progress, write run summaries. |
-| `types.py` | Shared aliases, `TypedDict`s, dataclasses, and protocols. |
-| `validation.py` | Fail-fast artifact contract validation. |
-| `io.py` | JSON, CSV, and config file helpers. |
-| `hotpotqa.py` | Raw HotpotQA conversion into input and label artifacts. |
-| `splits.py` | Deterministic split sampling. |
-| `text.py`, `entities.py` | Text normalization, lexical scoring, and entity extraction. |
-| `graphs.py` | Typed graph construction and graph statistics. |
-| `indexes/` | Flat retriever implementations. |
-| `retrieval.py` | Retrieval method construction, score-pipeline execution for score-based baselines, and ranked-result assembly. |
-| `rerank.py` | Reusable graph reranking helpers and compatibility functions over explicit initial scores. |
-| `tuning.py` | Dev-set graph rerank parameter selection. |
-| `evaluation.py` | Metrics, aggregation, and failure-case selection. |
-| `observability.py` | Run summaries, graph stats, and debug record builders. |
+| `contracts/` | Artifact-shaped aliases, `TypedDict`s, and stable data language. |
+| `validation/` | Fail-fast validators for task, graph, ranking, training-pair, metric, and model contracts. |
+| `infrastructure/` | JSON/CSV IO, run summaries, and runtime environment capture. |
+| `datasets/` | Dataset-specific parsing, conversion, compatibility records, and split helpers. |
+| `text/` | Tokenization, lexical scoring, and entity extraction helpers. |
+| `graphs/` | Graph build config, construction rules, graph index, statistics, and graph views. |
+| `retrieval/` | Retrieval contracts, request resolution, method factory, execution service, flat methods, graph rerank, trainable adapter, and tuning. |
+| `training_pairs/` | Deterministic positive/negative train-pair construction and sampling config. |
+| `models/graph_retriever/` | Trainable graph retriever config, tensor batches, neural model, checkpointing, training, dev evaluation, and inference. |
+| `evaluation/` | Metric primitives, connectivity, aggregate evaluation service, table splitting, and failure cases. |
 
 ## Dependency Direction
 
-Allowed flow:
+Allowed high-level flow:
 
 ```text
-scripts
-  -> io / validation / observability
-  -> domain modules
+scripts/*.py
+  -> graph_memory domain packages
+  -> graph_memory infrastructure / validation
 
-graphs
-  -> text / entities
+scripts/workflow/*
+  -> graph_memory workflow integration ports
 
-retrieval
-  -> indexes
-  -> rerank helpers for graph score components
+retrieval execution
+  -> retrieval methods
+  -> graphs views when a method needs graph structure
 
-evaluation
-  -> validation
-  -> graph connectivity helpers
-
-hotpotqa
-  -> no graph, retrieval, tuning, or evaluation imports
+trainable graph retrieval
+  -> models.graph_retriever
+  -> retrieval.signals
 ```
 
-Avoid reverse dependencies:
+Important forbidden directions:
 
-- Dataset conversion must not import graph construction.
-- Graph construction must not import labels, retrieval, tuning, or evaluation.
-- Retrievers must not import evaluation metrics.
-- Evaluation must not import raw dataset conversion.
-- Core algorithms must not write files.
+- `contracts/` must not import algorithm packages.
+- `graphs/` must not import retrieval, training pairs, models, evaluation, application code, or scripts.
+- `retrieval/` must not import scripts or workflow orchestration.
+- `models/graph_retriever/` must not import scripts or workflow orchestration.
+- `infrastructure/` must not import research-domain packages.
+- Core algorithms must not read/write JSON, CSV, or JSONL artifacts directly.
+- Core algorithms must not parse CLI arguments.
 
-## Tuning And Cache Boundary
+These rules are enforced by `tests/test_core_refactor_final_boundaries.py`.
 
-Phase 1 does not use a persistent score cache. Keep score reuse explicit and bounded:
+## Retrieval Boundary
 
-- Flat retrievers produce complete initial rankings.
-- Graph rerank consumes an explicit `initial_scores` mapping plus a graph and config.
-- Score-pipeline methods may combine baseline scores and graph scores in memory for one task at a time.
-- Dev grid search precomputes seed-retriever scores once per tuning invocation and reuses them across graph-rerank candidates.
-- Graph score components are calibrated per task before weighted combination, and neighbor propagation is degree-normalized before component normalization.
-- The graph-rerank tuning grid includes a pure initial-score fallback so dev tuning can select "no graph bonus" without changing public method names or artifacts.
-- Persistent score reuse should be added as a named artifact and validation boundary only if full-dev tuning still becomes a practical blocker.
+Public method metadata lives in `graph_memory/retrieval_registry.py`. Runtime construction lives under `graph_memory/retrieval/`:
+
+```text
+retrieval.requests / retrieval.resolver
+  -> exact method-family build requests
+retrieval.factory
+  -> method object construction
+retrieval.execution.service
+  -> per-task ranking and artifact assembly
+retrieval.methods.flat
+  -> BM25 and dense flat seed methods
+retrieval.methods.graph_rerank
+  -> graph-rerank engine, components, config, and method adapter
+retrieval.methods.trainable_graph
+  -> checkpoint-backed trainable retrieval adapter
+retrieval.tuning
+  -> graph-rerank grid and selected-config service
+```
+
+`RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed request/runtime objects for the method family that actually needs them.
+
+## Trainable Retriever Boundary
+
+Train-pair generation and trainable model runtime are separate domains:
+
+```text
+training_pairs/
+  config.py
+  samplers.py
+  builder.py
+
+models/graph_retriever/
+  config/
+  internals/
+  batching.py
+  checkpoint.py
+  factory.py
+  inference.py
+  training.py
+  dev_evaluation.py
+  text_embeddings.py
+```
+
+`training_pairs` may consume retrieval seed signals for hard negatives, but it does not depend on trainable model internals. `models/graph_retriever` owns tensorization, graph-scoring model construction, checkpoint parsing, training, and inference, but it does not parse CLI args or read experiment workflow state.
 
 ## Script Boundary
 
 Scripts own:
 
 - CLI/config parsing.
-- File paths.
+- file paths and artifact IO.
 - top-level logging.
 - run summary writing.
-- invoking validators at boundaries.
+- invoking validators at artifact boundaries.
 
 Scripts do not own:
 
@@ -148,82 +190,8 @@ Scripts do not own:
 - metric definitions.
 - graph scoring formulas.
 - retrieval implementation details.
-
-## Observability Boundary
-
-Observability attaches to script and service boundaries. Core pure functions should return values or debug data, not log internally.
-
-Mandatory:
-
-- run summary for every script.
-- graph statistics for graph construction runs.
-
-Optional and bounded:
-
-- score breakdown JSONL.
-- failure-case JSONL.
-- leakage check reports.
+- trainable model internals.
 
 ## Future Extraction Rule
 
-Do not create plugin registries or deep package hierarchies in Phase 1. Extract new subpackages only when a module grows multiple independent implementations or becomes hard to navigate.
-
-The retrieval service now has two abstraction levels:
-
-```text
-RetrievalMethodSpec registry
-  -> declares public method names and input/runtime capabilities
-
-RetrievalMethod
-  -> produces a ranked result for any baseline
-
-ScorePipelineMethod
-  -> one RetrievalMethod implementation for flat seed-retriever baselines
-
-GraphRerankMethod
-  -> selects a seed retriever, then delegates graph score composition to rerank.py
-```
-
-The registry lives in `graph_memory/retrieval_registry.py` and is the single source for method names, graph/config/checkpoint requirements, and dense-encoder argument needs. `retrieval.py` owns runtime construction from the registry's local builder id.
-
-Use `ScorePipelineMethod` for BM25 and dense flat baselines. Current graph rerank variants use `GraphRerankMethod` in `retrieval.py` for orchestration and `graph_memory/rerank.py` for candidate expansion, graph component scoring, normalization, weighted combination, and top-k induced subgraph extraction. Use a separate `RetrievalMethod` implementation when a future baseline is primarily graph traversal, hierarchical memory selection, or learned message passing rather than a transparent weighted sum.
-
-## Trainable Retriever Extension
-
-Phase 2 may add a focused learned subpackage because trainable graph retrieval has independent data preparation, tensorization, model, checkpoint, training, and inference responsibilities.
-
-Allowed package shape:
-
-```text
-graph_memory/learned/
-  __init__.py
-  data.py
-  features.py
-  tensorize.py
-  model.py
-  checkpoint.py
-  training.py
-  inference.py
-```
-
-Responsibilities:
-
-| Module | Responsibility |
-|---|---|
-| `learned.data` | Join already-loaded tasks, labels, graphs, and train pairs into typed training examples; no file IO. |
-| `learned.features` | Build seed signals and ordered numeric node features. |
-| `learned.tensorize` | Convert validated graph artifacts into message-passing tensors. |
-| `learned.model` | Trainable graph encoder and evidence scorer modules. |
-| `learned.checkpoint` | Checkpoint metadata validation, save, and load helpers. |
-| `learned.training` | Training loop, dev evaluation loop, loss, optimizer, and checkpoint selection. |
-| `learned.inference` | Trainable `RetrievalMethod` wrapper loaded from checkpoint. |
-
-Dependency rules:
-
-- `scripts/*` own CLI parsing, paths, artifact IO, and run summaries.
-- `learned.*` modules receive parsed records, validated records, config objects, or tensors.
-- `learned.training` must not read input artifacts directly.
-- `learned.checkpoint` may read and write PyTorch checkpoints because checkpoint state is model runtime state, not generic JSON artifact IO.
-- Trainable inference must still emit the standard ranked result contract from `docs/20-contracts/data-contracts.md`.
-
-Public retrieval dispatch should use the static registry defined in `docs/20-contracts/retrieval-contracts.md`. The registry is allowed because method requirements now vary across flat retrieval, graph rerank, and trainable checkpoint-backed retrieval. It is still not a dynamic plugin system.
+Extract a package or submodule only when ownership is clear and the behavior has multiple independent implementations or has become hard to navigate. Do not introduce dynamic plugin discovery, a dependency-injection container, or a generic pipeline engine while the local static registry and explicit workflow recipes remain sufficient.

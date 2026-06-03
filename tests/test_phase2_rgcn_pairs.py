@@ -2,9 +2,12 @@ import json
 
 import pytest
 
-import graph_memory.learned.data as pair_data
-from graph_memory.learned.data import build_train_pairs
-from graph_memory.types import MemoryGraph, MemoryTaskInput, MemoryTaskLabels, NegativeSamplingConfig
+import graph_memory.training_pairs.builder as pair_builder
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.training_pairs import build_train_pairs
+from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.validation import ContractValidationError, validate_train_pairs
 from scripts.build_train_pairs import main as build_train_pairs_main
 
@@ -250,17 +253,18 @@ def test_build_train_pairs_cli_uses_config_encoder_for_hard_dense_negatives(tmp_
             batch_size=64,
             query_prefix="query: ",
             passage_prefix="passage: ",
+            config=None,
             encoder=None,
         ):
-            observed_model_names.append(model_name)
+            observed_model_names.append(model_name if config is None else config.model_name)
 
         def rank(self, task_input):
             return [
-                pair_data.RankedNode(node_id=memory_item["id"], score=float(index))
+                RankedNode(node_id=memory_item["id"], score=float(index))
                 for index, memory_item in enumerate(task_input["memory_items"])
             ]
 
-    monkeypatch.setattr(pair_data, "DenseTaskRetriever", FakeDenseTaskRetriever)
+    monkeypatch.setattr(pair_builder, "DenseTaskRetriever", FakeDenseTaskRetriever)
 
     exit_code = build_train_pairs_main(
         [

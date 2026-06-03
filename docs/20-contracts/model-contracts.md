@@ -358,7 +358,7 @@ Rules:
 - Loading must fail if config values needed to reconstruct dimensions are missing.
 - `best.pt` is used for retrieval inference.
 - Epoch checkpoints may be used for resume and debugging.
-- Checkpoint loading belongs in learned checkpoint helpers or trainable retrieval builders, not in generic artifact IO.
+- Checkpoint loading belongs in `graph_memory.models.graph_retriever.checkpoint` or trainable retrieval builders, not in generic artifact IO.
 
 ## Dev Evaluation During Training
 

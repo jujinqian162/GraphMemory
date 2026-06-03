@@ -57,8 +57,8 @@ class RetrievalMethodSpec:
       requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
     - seed_method: Optional flat seed method used by this method, such as `dense`.
       seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder_id: Local runtime builder selected by `graph_memory.retrieval`.
-      builder_id：由 `graph_memory.retrieval` 选择的本地运行时 builder。
+    - builder_id: Local runtime builder selected by `graph_memory.retrieval.factory`.
+      builder_id：由 `graph_memory.retrieval.factory` 选择的本地运行时 builder。
     """
 
     name: MethodName
@@ -75,25 +75,23 @@ Registry rules:
 - Supported methods, validation method checks, experiment method filters, and CLI `choices` are derived from `METHOD_REGISTRY.keys()` or registry capability queries.
 - Method capability queries such as graph-rerank methods and dense-encoder methods are derived from `RetrievalMethodSpec` fields, not string matching.
 - All public methods, including trainable methods, are registered through the same registry.
-- Runtime builders live in `graph_memory/retrieval.py`; heavy learned imports should be lazy inside the learned builder if importing them would slow Phase 1-only usage.
+- Runtime builders live in `graph_memory/retrieval/factory.py` and method-family packages under `graph_memory/retrieval/methods/`.
 - Registry entries declare requirements; scripts validate missing inputs before invoking core retrieval.
 - Adding a method requires adding one registry entry, tests for requirement validation, and an example command in operations docs when it becomes user-facing.
 
-## Build Context
+## Build Requests
 
-`RetrievalBuildContext` is library-core state, not a disk artifact. It should contain already-loaded and already-validated objects.
+Retrieval construction uses method-family build requests rather than one wide context object. CLI parsing may accept optional inputs, but resolver output must be a precise request for the selected method family.
 
-Recommended fields:
+Current request families:
 
-| Field | Meaning |
+| Request | Meaning |
 |---|---|
-| `method_name` | Requested public method. |
-| `graphs_by_task_id` | Optional validated graphs, required when registry says `requires_graphs`. |
-| `graph_config` | Optional graph rerank config, required when registry says `requires_graph_config`. |
-| `checkpoint` or `checkpoint_path` | Trainable model checkpoint input, required when registry says `requires_checkpoint`. |
-| `encoder` or `index_state` | Explicit retrieval/index state needed by seed methods. |
+| `FlatMethodBuildRequest` | Flat BM25 or dense runtime state. |
+| `GraphRerankMethodBuildRequest` | Seed retriever, `GraphIndex`, and `GraphRerankConfig`. |
+| `TrainableGraphMethodBuildRequest` | `GraphIndex` plus checkpoint/text/seed runtime state. |
 
-Scripts own paths and file IO. Builders receive objects or paths only when the object is intrinsically runtime state, such as a PyTorch checkpoint load target.
+Scripts own paths and file IO. Builders receive already-loaded objects or runtime paths only when the object is intrinsically runtime state, such as a PyTorch checkpoint load target.
 
 ## Retriever Protocol
 

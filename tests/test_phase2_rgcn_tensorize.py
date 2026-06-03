@@ -1,8 +1,12 @@
 import torch
 
-from graph_memory.learned.tensorize import DEFAULT_RELATION_VOCAB, EdgeTensorizer, UniformEdgeWeightPolicy
-from graph_memory.learned.training import default_model_config
-from graph_memory.types import MemoryGraph
+from graph_memory.models.graph_retriever.config.defaults import default_model_config
+from graph_memory.models.graph_retriever.internals.tensorization import (
+    DEFAULT_RELATION_VOCAB,
+    EdgeTensorizer,
+    UniformEdgeWeightPolicy,
+)
+from graph_memory.contracts.graphs import MemoryGraph
 
 
 def tensor_graph() -> MemoryGraph:

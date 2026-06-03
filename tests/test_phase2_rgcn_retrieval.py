@@ -4,10 +4,11 @@ from pathlib import Path
 
 import torch
 
-from graph_memory.learned.checkpoint import save_trainable_checkpoint
-from graph_memory.learned.inference import TrainableGraphRetriever
-from graph_memory.learned.training import build_model_from_config, default_model_config
+from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
+from graph_memory.models.graph_retriever.config.defaults import default_model_config
+from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval_registry import METHOD_REGISTRY, get_method_spec, get_supported_methods
 from graph_memory.validation import validate_ranked_results
 from scripts.run_retrieval import build_parser as build_retrieval_parser
@@ -20,7 +21,7 @@ from tests.test_phase2_rgcn_training import (
     tiny_task_inputs,
     tiny_training_config,
 )
-from graph_memory.learned.features import RetrieverSeedSignalProvider
+from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 
 
 class TinyTrainableRetriever:
@@ -57,7 +58,7 @@ def write_tiny_checkpoint(path: Path, *, model_config=None) -> None:
 def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Path):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
-    retriever = TrainableGraphRetriever.from_checkpoint(
+    retriever = TrainableGraphRetrievalMethod.from_checkpoint(
         checkpoint_path,
         graphs=tiny_graphs(),
         text_embedding_provider=FakeTextEmbeddingProvider(),
@@ -86,7 +87,7 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_
         ablation_name="wo_bridge",
     )
     write_tiny_checkpoint(checkpoint_path, model_config=model_config)
-    retriever = TrainableGraphRetriever.from_checkpoint(
+    retriever = TrainableGraphRetrievalMethod.from_checkpoint(
         checkpoint_path,
         graphs=tiny_graphs(),
         text_embedding_provider=FakeTextEmbeddingProvider(),
@@ -174,7 +175,7 @@ def test_run_retrieval_passes_device_to_trainable_retriever(monkeypatch, tmp_pat
         captured["device"] = device
         return TinyTrainableRetriever()
 
-    monkeypatch.setattr(TrainableGraphRetriever, "from_checkpoint", fake_from_checkpoint)
+    monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
 
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",

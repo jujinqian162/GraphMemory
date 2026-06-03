@@ -11,17 +11,17 @@ from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.indexes.dense import DenseTaskRetriever
 from graph_memory.io import read_json, write_jsonl
-from graph_memory.learned.checkpoint import save_trainable_checkpoint
-from graph_memory.learned.features import (
-    DenseTextEmbeddingProvider,
-    RetrieverSeedSignalProvider,
-    SeedSignalProvider,
-    TextEmbeddingProvider,
-)
-from graph_memory.learned.training import build_model_from_config, default_model_config, train_graph_retriever
+from graph_memory.models.graph_retriever.config.defaults import default_model_config
+from graph_memory.models.graph_retriever.config.records import TrainableTrainingConfig
+from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
+from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
+from graph_memory.models.graph_retriever.factory import build_model_from_config
+from graph_memory.models.graph_retriever.text_embeddings import DenseTextEmbeddingProvider
+from graph_memory.models.graph_retriever.training import train_graph_retriever
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
+from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignalProvider
 from graph_memory.training_config import (
     EncoderConfig,
     JsonConfig,
@@ -33,7 +33,6 @@ from graph_memory.training_config import (
     trainable_training_config_from_training_config,
 )
 from graph_memory.contracts.common import JsonObject
-from graph_memory.types import TrainableTrainingConfig
 
 LOGGER = logging.getLogger("train_graph_retriever")
 

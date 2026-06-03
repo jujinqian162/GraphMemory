@@ -45,8 +45,7 @@ MIGRATED_CONTRACT_NAMES = {
 }
 
 
-def test_foundation_contract_modules_preserve_legacy_artifact_shapes():
-    legacy_types = importlib.import_module("graph_memory.types")
+def test_foundation_contract_modules_expose_artifact_contract_names():
     modules = {
         "graph_memory.contracts.common": [
             "TaskId",
@@ -105,12 +104,7 @@ def test_foundation_contract_modules_preserve_legacy_artifact_shapes():
     for module_name, names in modules.items():
         module = importlib.import_module(module_name)
         for name in names:
-            migrated_value = getattr(module, name)
-            legacy_value = getattr(legacy_types, name)
-            if isinstance(migrated_value, set):
-                assert migrated_value == legacy_value
-            else:
-                assert migrated_value is legacy_value
+            assert hasattr(module, name)
 
 
 def test_validation_is_split_into_domain_modules_and_reexports_root_api():

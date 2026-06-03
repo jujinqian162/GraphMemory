@@ -144,9 +144,9 @@ Rules:
 - Registry keys define supported public method names and are the single source for validator and CLI method choices.
 - Registry metadata declares whether graphs, graph rerank config, dense encoder args, or checkpoint are required.
 - `experiment.py`, tuning, and scripts use registry capability queries instead of copied method tuples or string matching such as `"dense" in method`.
-- Runtime builders live in `graph_memory/retrieval.py` and are selected by the registry entry's local `builder_id`.
+- Runtime builders live in `graph_memory/retrieval/factory.py` and owned method packages under `graph_memory/retrieval/methods/`.
 - Builders receive explicit build context objects, not raw CLI args.
-- Heavy learned imports may be lazy inside the trainable method builder.
+- Trainable graph retrieval is adapted through `graph_memory/retrieval/methods/trainable_graph.py`.
 - This is a local dispatch table, not dynamic plugin discovery.
 
 The field contract lives in `docs/20-contracts/retrieval-contracts.md`.
@@ -161,7 +161,7 @@ ScoreContext -> {node_id: component_score}
 
 Rules:
 
-- Lives in `graph_memory/rerank.py` with the graph scoring helpers.
+- Lives with graph-rerank scoring helpers under `graph_memory/retrieval/methods/graph_rerank/`.
 - Computes one interpretable signal such as initial retrieval score, query-overlap score, neighbor propagation, or bridge score.
 - Does not sort final rankings.
 - Does not validate artifacts or read labels.
@@ -192,7 +192,7 @@ graph_rerank(initial_scores, graph, config) -> list[RankedNode]
 rank_graph_from_initial_scores(initial_scores, graph, config, top_k) -> RerankResult
 ```
 
-Graph-rerank methods in `retrieval.py` select the BM25/Dense seed retriever, compute explicit initial scores, and delegate candidate expansion, component normalization, weighted combination, and top-k induced subgraph extraction to `graph_memory/rerank.py`.
+Graph-rerank methods under `graph_memory/retrieval/methods/graph_rerank/` select the BM25/Dense seed retriever, compute explicit initial scores, and delegate candidate expansion, component normalization, weighted combination, and top-k induced subgraph extraction to the graph-rerank engine and graph views.
 
 The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
 
@@ -235,7 +235,7 @@ Rules:
 - Does not run retrieval.
 - Does not compute evaluation metrics.
 
-Introduce a `GraphBuilder` protocol only when Phase 2 adds genuinely different graph builders.
+`GraphBuilder` is a concrete composition of ordered edge rules in `graph_memory/graphs/construction/builder.py`. Introduce a protocol only when genuinely different graph builders need to be swapped.
 
 ## Evaluation
 

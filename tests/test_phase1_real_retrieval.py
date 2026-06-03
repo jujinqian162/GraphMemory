@@ -1,13 +1,15 @@
 import numpy as np
 import pytest
-import graph_memory.rerank as rerank_module
+import graph_memory.retrieval.methods.graph_rerank.engine as rerank_module
 import graph_memory.retrieval as retrieval_module
 import graph_memory.experiment as experiment_module
-import graph_memory.types as types_module
 from dataclasses import asdict, fields
 from typing import cast
 
-from graph_memory.rerank import (
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.metrics import MetricRow
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.retrieval.methods.graph_rerank import (
     graph_rerank,
     graph_rerank_with_breakdown,
     neighbor_propagation_scores,
@@ -27,16 +29,19 @@ from graph_memory.retrieval_registry import (
     get_methods_requiring_dense_encoder,
     get_supported_methods,
 )
-from graph_memory.rerank_config import ensure_graph_rerank_config
+from graph_memory.retrieval.methods.graph_rerank.config import (
+    GraphRerankConfig,
+    TuningCandidateRow,
+    ensure_graph_rerank_config,
+)
 from scripts.run_retrieval import build_parser
-from graph_memory.tuning import (
+from graph_memory.retrieval.tuning import (
     graph_rerank_grid,
     graph_rerank_grid_from_record,
     select_best_config,
     tune_graph_rerank,
     tuning_objective,
 )
-from graph_memory.types import GraphRerankConfig, MemoryGraph, MemoryTaskInput, MemoryTaskLabels, MetricRow, TuningCandidateRow
 from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
 
 
@@ -152,7 +157,6 @@ def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
     assert not hasattr(retrieval_module, "get_methods_requiring_dense_encoder")
     assert not hasattr(experiment_module, "CURRENT_METHODS")
     assert not hasattr(experiment_module, "GRAPH_RERANK_METHODS")
-    assert not hasattr(types_module, "SUPPORTED_RETRIEVAL_METHODS")
 
 
 def test_bm25_and_dense_emit_same_ranked_schema():

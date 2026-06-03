@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.retrieval.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
 from graph_memory.retrieval_registry import get_graph_rerank_methods
-from graph_memory.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
 from graph_memory.validation import (
     validate_graphs,
     validate_memory_task_inputs,

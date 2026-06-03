@@ -24,7 +24,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Architecture: `30-design/architecture.md`
 - Abstractions: `30-design/abstractions.md`
 - Architecture and abstraction discussion history: `10-plans/architecture-abstraction-brainstorm.md`
-- Core package layered refactor design under review: `10-plans/graph-memory-core-package-refactor-design.md`
+- Core package layered refactor design history: `10-plans/graph-memory-core-package-refactor-design.md`
 - Contract documentation guide: `20-contracts/README.md`
 - Data contracts: `20-contracts/data-contracts.md`
 - Retrieval contracts: `20-contracts/retrieval-contracts.md`
@@ -38,6 +38,25 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Debug artifacts: `40-operations/debug-artifacts.md`
 - Phase 1 command runbook: `40-operations/commands.md`
 - Implementation handoff: `40-operations/implementation-handoff.md`
+
+## Current Code Navigation
+
+The maintained package layout is domain-owned:
+
+```text
+graph_memory/contracts/
+graph_memory/datasets/
+graph_memory/evaluation/
+graph_memory/graphs/
+graph_memory/infrastructure/
+graph_memory/models/graph_retriever/
+graph_memory/retrieval/
+graph_memory/text/
+graph_memory/training_pairs/
+graph_memory/validation/
+```
+
+Only five root modules are retained as thin workflow integration ports: `graph_memory/io.py`, `graph_memory/observability.py`, `graph_memory/retrieval_registry.py`, `graph_memory/training_config.py`, and `graph_memory/experiment.py`.
 
 ## Maintenance Rules
 

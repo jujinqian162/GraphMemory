@@ -14,7 +14,7 @@ from graph_memory.graphs.config import GraphBuildConfig
 from graph_memory.graphs.construction.builder import build_graph
 from graph_memory.datasets.hotpotqa import convert_hotpotqa_example, parse_hotpotqa_example
 from graph_memory.retrieval import run_retrieval
-from graph_memory.types import GraphRerankConfig
+from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from scripts.workflow.manifest import initialize_experiment
 from scripts.workflow.planner import build_stage_plan
 from scripts.workflow.types import StageId

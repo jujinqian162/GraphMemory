@@ -11,9 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
-from graph_memory.learned.features import SeedSignalProvider, TextEmbeddingProvider
+from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.validation import validate_memory_task_inputs, validate_ranked_results
 
 LOGGER = logging.getLogger("run_trainable_retrieval")

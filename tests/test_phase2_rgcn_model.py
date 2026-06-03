@@ -2,7 +2,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from graph_memory.learned.model import (
+from graph_memory.models.graph_retriever.internals.neural import (
     EvidenceNodeScorer,
     EvidenceScoringModel,
     IdentityGraphEncoder,
@@ -10,8 +10,8 @@ from graph_memory.learned.model import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
-from graph_memory.learned.tensorize import DEFAULT_RELATION_VOCAB
-from graph_memory.types import GraphBatch, TrainingBatch
+from graph_memory.models.graph_retriever.internals.tensorization import DEFAULT_RELATION_VOCAB
+from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
 
 
 def tiny_graph_batch() -> GraphBatch:
