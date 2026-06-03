@@ -24,6 +24,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Architecture: `30-design/architecture.md`
 - Abstractions: `30-design/abstractions.md`
 - Architecture and abstraction discussion history: `10-plans/architecture-abstraction-brainstorm.md`
+- Core package layered refactor design under review: `10-plans/graph-memory-core-package-refactor-design.md`
 - Contract documentation guide: `20-contracts/README.md`
 - Data contracts: `20-contracts/data-contracts.md`
 - Retrieval contracts: `20-contracts/retrieval-contracts.md`
