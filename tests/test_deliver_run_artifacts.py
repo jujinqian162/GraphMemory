@@ -49,6 +49,37 @@ def test_collect_run_artifacts_excludes_large_intermediates_and_records_reasons(
     assert skipped["debug/failure_cases_dense_rgcn_graph_retriever.jsonl"] == "too_large"
 
 
+def test_collect_run_artifacts_preserves_ablation_lightweight_outputs(tmp_path: Path) -> None:
+    run_dir = _make_run_tree(tmp_path)
+    manifest = collect_run_artifacts(run_dir, output_root=tmp_path / "results", max_file_size_bytes=1024 * 1024)
+
+    copied_paths = {entry["relative_path"] for entry in manifest["copied"]}
+    skipped = {entry["relative_path"]: entry["reason"] for entry in manifest["skipped"]}
+
+    assert {
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/effective_training_config.json",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train_metrics.jsonl",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train_run_summary.json",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.summary.json",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.run_summary.json",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/metrics/test.metrics.csv",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/metrics/test.metrics.run_summary.json",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/debug/failure_cases.jsonl",
+    }.issubset(copied_paths)
+    assert (
+        skipped["ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.json"]
+        == "excluded_train_pairs"
+    )
+    assert (
+        skipped["ablations/dense_rgcn_graph_retriever/wo_bridge/checkpoints/best.pt"]
+        == "excluded_checkpoint"
+    )
+    assert (
+        skipped["ablations/dense_rgcn_graph_retriever/wo_bridge/predictions/test.ranked.json"]
+        == "excluded_prediction"
+    )
+
+
 def test_collect_run_artifacts_writes_delivery_manifest(tmp_path: Path) -> None:
     run_dir = _make_run_tree(tmp_path)
     manifest = collect_run_artifacts(run_dir, output_root=tmp_path / "results", max_file_size_bytes=1024 * 1024)
@@ -127,6 +158,17 @@ def _make_run_tree(tmp_path: Path) -> Path:
         "tuned/dense_graph_rerank.dev_selected.json": "{}\n",
         "tuned/dense_graph_rerank.dev_selected.candidates.json": "x" * 128,
         "debug/failure_cases_dense_rgcn_graph_retriever.jsonl": '{"task_id":"1"}\n' * 4,
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/effective_training_config.json": "{}\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train_metrics.jsonl": '{"epoch":1}\n',
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train_run_summary.json": "{}\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.json": "x" * 128,
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.summary.json": "{}\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.run_summary.json": "{}\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/checkpoints/best.pt": "x" * 128,
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/predictions/test.ranked.json": "x" * 128,
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/metrics/test.metrics.csv": "metric,value\nRecall@5,0.7\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/metrics/test.metrics.run_summary.json": "{}\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/debug/failure_cases.jsonl": '{"task_id":"1"}\n',
     }
     for relative_path, content in files.items():
         path = run_dir / relative_path

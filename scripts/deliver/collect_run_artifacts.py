@@ -143,7 +143,7 @@ def _known_exclusion(parts: tuple[str, ...], name: str) -> str | None:
         return "excluded_input"
     if top == "graphs" and name.endswith(".graphs.json"):
         return "excluded_graph"
-    if top == "predictions" and name.endswith(".ranked.json"):
+    if (top == "predictions" or "predictions" in parts) and name.endswith(".ranked.json"):
         return "excluded_prediction"
     if "checkpoints" in parts or Path(name).suffix in {".pt", ".ckpt"}:
         return "excluded_checkpoint"
@@ -160,6 +160,8 @@ def _is_included(parts: tuple[str, ...], name: str, relative_path: str) -> bool:
     if relative_path == "manifest.json":
         return True
     if name.endswith(".run_summary.json"):
+        return True
+    if _is_included_ablation_file(parts, name):
         return True
     if not parts:
         return False
@@ -183,6 +185,24 @@ def _is_included(parts: tuple[str, ...], name: str, relative_path: str) -> bool:
         "train.pairs.summary.json",
         "train.pairs.run_summary.json",
     }:
+        return True
+    return False
+
+
+def _is_included_ablation_file(parts: tuple[str, ...], name: str) -> bool:
+    if len(parts) < 4 or parts[0] != "ablations":
+        return False
+    if name in {
+        "effective_training_config.json",
+        "train_metrics.jsonl",
+        "train_run_summary.json",
+        "train.pairs.summary.json",
+        "train.pairs.run_summary.json",
+    }:
+        return True
+    if "metrics" in parts and name.endswith(".csv"):
+        return True
+    if "debug" in parts and name.startswith("failure_cases") and name.endswith(".jsonl"):
         return True
     return False
 
