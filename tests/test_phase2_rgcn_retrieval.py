@@ -7,8 +7,9 @@ import torch
 from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.retrieval import run_retrieval
+from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval as run_retrieval_app
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
+from graph_memory.retrieval.requests import TrainableGraphRuntime
 from graph_memory.retrieval_registry import METHOD_REGISTRY, get_method_spec, get_supported_methods
 from graph_memory.validation import validate_ranked_results
 from scripts.run_retrieval import build_parser as build_retrieval_parser
@@ -33,6 +34,37 @@ class TinyTrainableRetriever:
             type("Ranked", (), {"node_id": "m1", "score": 2.0})(),
             type("Ranked", (), {"node_id": "m2", "score": 1.0})(),
         ], []
+
+
+def run_retrieval(
+    *,
+    method,
+    task_inputs,
+    graphs,
+    top_k,
+    checkpoint_path=None,
+    text_embedding_provider=None,
+    seed_signal_provider=None,
+    device="cpu",
+):
+    return run_retrieval_app(
+        RunRetrievalRequest(
+            method=method,
+            task_inputs=task_inputs,
+            graphs=graphs,
+            top_k=top_k,
+            trainable_runtime=(
+                TrainableGraphRuntime(
+                    checkpoint_path=checkpoint_path,
+                    device=device,
+                    text_embedding_provider=text_embedding_provider,
+                    seed_signal_provider=seed_signal_provider,
+                )
+                if checkpoint_path is not None
+                else None
+            ),
+        )
+    )
 
 
 def write_tiny_checkpoint(path: Path, *, model_config=None) -> None:

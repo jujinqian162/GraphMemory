@@ -10,9 +10,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval.methods.flat.dense import DenseConfig
+from graph_memory.retrieval.requests import DenseRuntime, TrainableGraphRuntime
 from graph_memory.retrieval_registry import get_supported_methods
 from graph_memory.validation import (
     validate_memory_task_inputs,
@@ -66,17 +68,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = read_json(args.tasks)
         validate_memory_task_inputs(task_inputs)
         graphs = read_json(args.graphs) if args.graphs is not None else []
+        dense_runtime = DenseRuntime(
+            config=DenseConfig(
+                model_name=args.encoder_model,
+                query_prefix=args.query_prefix,
+                passage_prefix=args.passage_prefix,
+            )
+        )
         predictions = run_retrieval(
-            method=args.method,
-            task_inputs=task_inputs,
-            graphs=graphs,
-            top_k=args.top_k,
-            encoder_model=args.encoder_model,
-            query_prefix=args.query_prefix,
-            passage_prefix=args.passage_prefix,
-            graph_config=graph_config,
-            checkpoint_path=args.checkpoint,
-            device=args.device,
+            RunRetrievalRequest(
+                method=args.method,
+                task_inputs=task_inputs,
+                graphs=graphs,
+                top_k=args.top_k,
+                dense_runtime=dense_runtime,
+                graph_config=graph_config,
+                trainable_runtime=(
+                    TrainableGraphRuntime(
+                        checkpoint_path=args.checkpoint,
+                        device=args.device,
+                        dense_runtime=dense_runtime,
+                    )
+                    if args.checkpoint is not None
+                    else None
+                ),
+            )
         )
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         validate_ranked_results(predictions, inputs_by_task_id)

@@ -11,9 +11,8 @@ from graph_memory.retrieval.requests import (
     RetrievalMethodResolveRequest,
     SeedRetrieverBuildRequest,
     TrainableGraphMethodBuildRequest,
-    TrainableGraphRuntime,
 )
-from graph_memory.retrieval_registry import get_method_spec
+from graph_memory.retrieval.catalog import get_method_spec
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 
@@ -39,20 +38,12 @@ def resolve_method_build_request(request: RetrievalMethodResolveRequest) -> Meth
             config=ensure_graph_rerank_config(request.graph_config),
         )
     if spec.builder_id == "trainable_graph":
-        if request.checkpoint_path is None:
+        if request.trainable_runtime is None:
             raise ValueError(f"Trainable graph method={request.method} requires a checkpoint path.")
-        if not request.graphs:
-            raise ValueError(f"Trainable graph method={request.method} requires graph inputs.")
         return TrainableGraphMethodBuildRequest(
             method=request.method,
-            graphs=GraphIndex.from_graphs(request.graphs),
-            runtime=TrainableGraphRuntime(
-                checkpoint_path=request.checkpoint_path,
-                device=request.device,
-                text_embedding_provider=request.text_embedding_provider,
-                seed_signal_provider=request.seed_signal_provider,
-                dense_runtime=request.dense_runtime,
-            ),
+            graphs=_validated_graph_index(method=request.method, task_inputs=request.task_inputs, graphs=request.graphs),
+            runtime=request.trainable_runtime,
         )
     raise ValueError(f"Unsupported retrieval method builder={spec.builder_id} for method={spec.name}.")
 

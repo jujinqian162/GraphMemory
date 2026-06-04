@@ -9,6 +9,7 @@ from typing import cast
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval as run_retrieval_app
 from graph_memory.retrieval.methods.graph_rerank import (
     graph_rerank,
     graph_rerank_with_breakdown,
@@ -18,11 +19,8 @@ from graph_memory.retrieval.methods.graph_rerank import (
 )
 from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.evaluation.service import evaluate_results
-from graph_memory.retrieval import (
-    InitialScoreCache,
-    run_graph_rerank_from_initial_score_cache,
-    run_retrieval,
-)
+from graph_memory.retrieval.methods.flat.dense import DenseConfig
+from graph_memory.retrieval.requests import DenseRuntime, TrainableGraphRuntime
 from graph_memory.retrieval_registry import (
     METHOD_REGISTRY,
     get_graph_rerank_methods,
@@ -36,10 +34,12 @@ from graph_memory.retrieval.methods.graph_rerank.config import (
 )
 from scripts.run_retrieval import build_parser
 from graph_memory.retrieval.tuning import (
+    InitialScoreCache,
     graph_rerank_grid,
     graph_rerank_grid_from_record,
+    run_graph_rerank_from_initial_score_cache,
     select_best_config,
-    tune_graph_rerank,
+    tune_graph_rerank as tune_graph_rerank_service,
     tuning_objective,
 )
 from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
@@ -72,6 +72,82 @@ class CountingFakeEncoder(FakeEncoder):
     def encode(self, texts, batch_size=64, normalize_embeddings=True):
         self.encode_calls += 1
         return super().encode(texts, batch_size=batch_size, normalize_embeddings=normalize_embeddings)
+
+
+def run_retrieval(
+    *,
+    method,
+    task_inputs,
+    graphs,
+    top_k,
+    encoder_model="intfloat/e5-base-v2",
+    query_prefix="query: ",
+    passage_prefix="passage: ",
+    dense_encoder=None,
+    graph_config=None,
+    checkpoint_path=None,
+    text_embedding_provider=None,
+    seed_signal_provider=None,
+    device="cpu",
+):
+    return run_retrieval_app(
+        RunRetrievalRequest(
+            method=method,
+            task_inputs=task_inputs,
+            graphs=graphs,
+            top_k=top_k,
+            dense_runtime=DenseRuntime(
+                config=DenseConfig(
+                    model_name=encoder_model,
+                    query_prefix=query_prefix,
+                    passage_prefix=passage_prefix,
+                ),
+                encoder=dense_encoder,
+            ),
+            graph_config=graph_config,
+            trainable_runtime=(
+                TrainableGraphRuntime(
+                    checkpoint_path=checkpoint_path,
+                    device=device,
+                    text_embedding_provider=text_embedding_provider,
+                    seed_signal_provider=seed_signal_provider,
+                )
+                if checkpoint_path is not None
+                else None
+            ),
+        )
+    )
+
+
+def tune_graph_rerank(
+    *,
+    method,
+    task_inputs,
+    labels,
+    graphs,
+    grid=None,
+    top_k=10,
+    encoder_model="intfloat/e5-base-v2",
+    query_prefix="query: ",
+    passage_prefix="passage: ",
+    dense_encoder=None,
+):
+    return tune_graph_rerank_service(
+        method=method,
+        task_inputs=task_inputs,
+        labels=labels,
+        graphs=graphs,
+        grid=grid,
+        top_k=top_k,
+        dense_runtime=DenseRuntime(
+            config=DenseConfig(
+                model_name=encoder_model,
+                query_prefix=query_prefix,
+                passage_prefix=passage_prefix,
+            ),
+            encoder=dense_encoder,
+        ),
+    )
 
 
 def retrieval_task_inputs() -> list[MemoryTaskInput]:

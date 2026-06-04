@@ -8,6 +8,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = REPO_ROOT / "graph_memory"
 SOURCE_ROOTS = (PACKAGE_ROOT, REPO_ROOT / "scripts", REPO_ROOT / "tests")
+DOMAIN_PACKAGE_ROOTS = (
+    PACKAGE_ROOT / "contracts",
+    PACKAGE_ROOT / "datasets",
+    PACKAGE_ROOT / "evaluation",
+    PACKAGE_ROOT / "graphs",
+    PACKAGE_ROOT / "infrastructure",
+    PACKAGE_ROOT / "models",
+    PACKAGE_ROOT / "retrieval",
+    PACKAGE_ROOT / "text",
+    PACKAGE_ROOT / "training_pairs",
+    PACKAGE_ROOT / "validation",
+)
 REMOVED_MODULES = {
     "graph_memory.types",
     "graph_memory.hotpotqa",
@@ -30,7 +42,7 @@ ROOT_PORT_IMPORTS = {
         "graph_memory.infrastructure.run_summary",
         "graph_memory.infrastructure.runtime_environment",
     },
-    "retrieval_registry.py": set(),
+    "retrieval_registry.py": {"graph_memory.retrieval.catalog"},
     "training_config.py": {"graph_memory.models.graph_retriever.config.loading"},
     "experiment.py": {
         "scripts.workflow",
@@ -38,6 +50,13 @@ ROOT_PORT_IMPORTS = {
         "scripts.workflow.planner",
         "scripts.workflow.types",
     },
+}
+ROOT_WORKFLOW_PORT_MODULES = {
+    "graph_memory.io",
+    "graph_memory.observability",
+    "graph_memory.retrieval_registry",
+    "graph_memory.training_config",
+    "graph_memory.experiment",
 }
 FORBIDDEN_PACKAGE_IMPORTS = {
     PACKAGE_ROOT / "contracts": (
@@ -166,5 +185,18 @@ def test_core_package_dependency_direction_is_enforced() -> None:
                 for forbidden in forbidden_prefixes:
                     if imported == forbidden or imported.startswith(f"{forbidden}."):
                         violations.append(f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}")
+
+    assert violations == []
+
+
+def test_domain_packages_do_not_import_root_workflow_integration_ports() -> None:
+    violations: list[str] = []
+    for root in DOMAIN_PACKAGE_ROOTS:
+        for path in root.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            for lineno, imported in _imported_modules(path):
+                if imported in ROOT_WORKFLOW_PORT_MODULES:
+                    violations.append(f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}")
 
     assert violations == []

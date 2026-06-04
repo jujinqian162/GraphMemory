@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypedDict
 
-from graph_memory.io import merge_config, read_json
+from graph_memory.infrastructure.io import merge_config, read_json
 from graph_memory.models.graph_retriever.config.records import TrainableTrainingConfig
 from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.validation import validate_negative_sampling_config, validate_trainable_training_config

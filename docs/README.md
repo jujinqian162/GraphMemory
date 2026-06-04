@@ -45,6 +45,7 @@ The maintained package layout is domain-owned:
 
 ```text
 graph_memory/contracts/
+graph_memory/application/
 graph_memory/datasets/
 graph_memory/evaluation/
 graph_memory/graphs/
@@ -56,7 +57,7 @@ graph_memory/training_pairs/
 graph_memory/validation/
 ```
 
-Only five root modules are retained as thin workflow integration ports: `graph_memory/io.py`, `graph_memory/observability.py`, `graph_memory/retrieval_registry.py`, `graph_memory/training_config.py`, and `graph_memory/experiment.py`.
+Only five root modules are retained as thin workflow integration ports: `graph_memory/io.py`, `graph_memory/observability.py`, `graph_memory/retrieval_registry.py`, `graph_memory/training_config.py`, and `graph_memory/experiment.py`. Complete retrieval run orchestration now lives in `graph_memory/application/run_retrieval.py`; public retrieval method metadata is implemented in `graph_memory/retrieval/catalog.py` and re-exported by the root registry port.
 
 ## Maintenance Rules
 

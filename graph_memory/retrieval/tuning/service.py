@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
-
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
-from graph_memory.retrieval.execution.service import precompute_initial_score_cache, run_graph_rerank_from_initial_score_cache
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig, GraphRerankConfigRecord, TuningCandidateRow
+from graph_memory.retrieval.methods.flat.dense import DenseConfig
+from graph_memory.retrieval.requests import DenseRuntime
+from graph_memory.retrieval.tuning.initial_scores import (
+    precompute_initial_score_cache,
+    run_graph_rerank_from_initial_score_cache,
+)
 from graph_memory.retrieval.tuning.grid import graph_rerank_grid
-from graph_memory.retrieval_registry import get_graph_rerank_methods
+from graph_memory.retrieval.catalog import get_graph_rerank_methods
 
 
 def tuning_objective(row: MetricRow) -> float:
@@ -42,11 +45,8 @@ def tune_graph_rerank(
     labels: list[MemoryTaskLabels],
     graphs: list[MemoryGraph],
     grid: list[GraphRerankConfig] | None = None,
-    encoder_model: str = "intfloat/e5-base-v2",
-    query_prefix: str = "query: ",
-    passage_prefix: str = "passage: ",
     top_k: int = 10,
-    dense_encoder: Any | None = None,
+    dense_runtime: DenseRuntime | None = None,
 ) -> tuple[GraphRerankConfigRecord, list[TuningCandidateRow]]:
     from graph_memory.evaluation.service import evaluate_results
 
@@ -57,10 +57,7 @@ def tune_graph_rerank(
     initial_score_cache = precompute_initial_score_cache(
         method=method,
         task_inputs=task_inputs,
-        encoder_model=encoder_model,
-        query_prefix=query_prefix,
-        passage_prefix=passage_prefix,
-        dense_encoder=dense_encoder,
+        dense_runtime=dense_runtime or DenseRuntime(config=DenseConfig()),
     )
     for config in grid or graph_rerank_grid():
         config_dict = _graph_rerank_config_record(config)

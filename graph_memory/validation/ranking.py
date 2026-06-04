@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from graph_memory.retrieval_registry import get_supported_methods
+from graph_memory.retrieval.catalog import get_supported_methods
 from graph_memory.validation.common import (
     ContractValidationError,
     _memory_node_ids,

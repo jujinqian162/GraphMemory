@@ -35,7 +35,7 @@ Method names are artifact-level contract values. Renaming a method creates a new
 
 ## Retrieval Method Registry
 
-Scattered `method in {...}` checks are not allowed for public method dispatch. Use the static lightweight registry in `graph_memory/retrieval_registry.py`. This is not dynamic plugin discovery.
+Scattered `method in {...}` checks are not allowed for public method dispatch. Use the static lightweight catalog in `graph_memory/retrieval/catalog.py`. `graph_memory/retrieval_registry.py` remains a thin workflow integration port that re-exports the catalog for scripts and workflow code. This is not dynamic plugin discovery.
 
 ```python
 @dataclass(frozen=True)
@@ -81,7 +81,14 @@ Registry rules:
 
 ## Build Requests
 
-Retrieval construction uses method-family build requests rather than one wide context object. CLI parsing may accept optional inputs, but resolver output must be a precise request for the selected method family.
+Retrieval construction uses application run requests plus method-family build requests rather than one wide context object. CLI parsing may accept optional inputs, but those values must be grouped into typed runtime/config objects before application orchestration and resolver output must be a precise request for the selected method family.
+
+Current request layers:
+
+| Request | Meaning |
+|---|---|
+| `RunRetrievalRequest` | Application-level request for one complete retrieval run. |
+| `RetrievalMethodResolveRequest` | Typed resolver input that turns a use-case request into one method-family build request. |
 
 Current request families:
 
@@ -92,6 +99,8 @@ Current request families:
 | `TrainableGraphMethodBuildRequest` | `GraphIndex` plus checkpoint/text/seed runtime state. |
 
 Scripts own paths and file IO. Builders receive already-loaded objects or runtime paths only when the object is intrinsically runtime state, such as a PyTorch checkpoint load target.
+
+`graph_memory/retrieval/execution/service.py` is not a build boundary. It receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense prefix fields, graph config, checkpoint path, providers, or device values.
 
 ## Retriever Protocol
 
@@ -142,8 +151,8 @@ Contract:
 ```python
 class RetrievalMethod(Protocol):
     """
-    Public retrieval method used by run_retrieval services.
-    run_retrieval 服务使用的公开检索方法。
+    Public retrieval method used by retrieval execution services.
+    retrieval execution 服务使用的公开检索方法。
 
     Methods / 方法:
     - rank_task: Return final ranking and optional retrieved subgraph edges for one task.

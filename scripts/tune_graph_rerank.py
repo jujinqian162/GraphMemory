@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.retrieval.methods.flat.dense import DenseConfig
+from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
 from graph_memory.retrieval_registry import get_graph_rerank_methods
 from graph_memory.validation import (
@@ -83,10 +85,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             labels=labels,
             graphs=graphs,
             grid=grid,
-            encoder_model=args.encoder_model,
-            query_prefix=args.query_prefix,
-            passage_prefix=args.passage_prefix,
             top_k=args.top_k,
+            dense_runtime=DenseRuntime(
+                config=DenseConfig(
+                    model_name=args.encoder_model,
+                    query_prefix=args.query_prefix,
+                    passage_prefix=args.passage_prefix,
+                )
+            ),
         )
         write_json(args.output_config, selected_config)
         write_json(candidates_path, candidate_rows)

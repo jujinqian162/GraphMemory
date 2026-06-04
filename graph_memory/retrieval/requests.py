@@ -30,16 +30,22 @@ class SeedRetrieverBuildRequest:
 
 
 @dataclass(frozen=True)
+class TrainableGraphRuntime:
+    checkpoint_path: str | Path
+    device: str
+    text_embedding_provider: "TextEmbeddingProvider | None" = None
+    seed_signal_provider: "SeedSignalProvider | None" = None
+    dense_runtime: DenseRuntime | None = None
+
+
+@dataclass(frozen=True)
 class RetrievalMethodResolveRequest:
     method: str
     task_inputs: list[MemoryTaskInput]
     graphs: list[MemoryGraph] | None
     dense_runtime: DenseRuntime
     graph_config: GraphRerankConfig | Mapping[str, object] | None = None
-    checkpoint_path: str | Path | None = None
-    text_embedding_provider: "TextEmbeddingProvider | None" = None
-    seed_signal_provider: "SeedSignalProvider | None" = None
-    device: str = "cpu"
+    trainable_runtime: TrainableGraphRuntime | None = None
 
 
 @dataclass(frozen=True)
@@ -54,15 +60,6 @@ class GraphRerankMethodBuildRequest:
     seed_retriever: SeedRetrieverBuildRequest
     graphs: GraphIndex
     config: GraphRerankConfig
-
-
-@dataclass(frozen=True)
-class TrainableGraphRuntime:
-    checkpoint_path: str | Path
-    device: str
-    text_embedding_provider: "TextEmbeddingProvider | None" = None
-    seed_signal_provider: "SeedSignalProvider | None" = None
-    dense_runtime: DenseRuntime | None = None
 
 
 @dataclass(frozen=True)

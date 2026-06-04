@@ -41,14 +41,16 @@ scripts/build_graphs.py
   -> graph_memory.validation.validate_graphs
 
 scripts/run_retrieval.py
-  -> graph_memory.retrieval.run_retrieval
-  -> graph_memory.retrieval.resolver.RetrievalRequestResolver
-  -> graph_memory.retrieval.factory.RetrievalMethodFactory
+  -> graph_memory.application.run_retrieval.RunRetrievalRequest
+  -> graph_memory.application.run_retrieval.run_retrieval
+  -> graph_memory.retrieval.resolver.resolve_method_build_request
+  -> graph_memory.retrieval.factory.build_retrieval_method
   -> graph_memory.retrieval.execution.service.run_retrieval
   -> graph_memory.validation.validate_ranked_results
 
 scripts/tune_graph_rerank.py
   -> graph_memory.retrieval.tuning.tune_graph_rerank
+  -> graph_memory.retrieval.tuning.initial_scores
   -> graph_memory.retrieval.methods.graph_rerank
   -> graph_memory.evaluation.evaluate_results
 
@@ -61,7 +63,7 @@ scripts/train_graph_retriever.py
   -> graph_memory.models.graph_retriever.checkpoint.save_trainable_checkpoint
 
 scripts/run_trainable_retrieval.py
-  -> graph_memory.retrieval.run_retrieval
+  -> graph_memory.application.run_retrieval.run_retrieval
   -> graph_memory.retrieval.methods.trainable_graph.TrainableGraphRetrievalMethod
 
 scripts/evaluate_retrieval.py
@@ -86,11 +88,12 @@ scripts/experiment.py
 | `GraphBuilder` | `graph_memory/graphs/construction/builder.py` | Applies ordered graph edge rules to input-visible task records. | Run retrieval or evaluation. | `tests/test_core_refactor_batch3_boundaries.py` |
 | `RankedNode` | `graph_memory/retrieval/contracts.py` | Internal scored memory-node result. | Represent persisted JSON directly. | `tests/test_phase1_real_retrieval.py` |
 | `RankedResult` | `graph_memory/contracts/ranking.py` | Persisted ranked-result artifact shape. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
+| `RunRetrievalRequest` | `graph_memory/application/run_retrieval.py` | Application-level request for one complete retrieval run. | Carry dense prefixes as loose execution-service parameters. | `tests/test_retrieval_domain_boundaries.py` |
 | `Retriever` | `graph_memory/retrieval/contracts.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
-| `RetrievalMethodSpec` registry | `graph_memory/retrieval_registry.py` | Single source for public method names and capabilities. | Import concrete retrieval builders or duplicate method lists elsewhere. | `tests/test_phase1_real_retrieval.py`, `tests/test_experiment_runner.py` |
+| `RetrievalMethodSpec` catalog | `graph_memory/retrieval/catalog.py` through `graph_memory/retrieval_registry.py` | Single source for public method names and capabilities. | Import concrete retrieval builders or duplicate method lists elsewhere. | `tests/test_phase1_real_retrieval.py`, `tests/test_experiment_runner.py` |
 | `RetrievalMethod` | `graph_memory/retrieval/contracts.py` | Internal boundary for a public method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py` |
 | `FlatRetrievalMethod` | `graph_memory/retrieval/methods/flat/method.py` | Wraps BM25 and dense seed retrievers for flat public methods. | Own graph-rerank score composition, labels, metrics, or file IO. | `tests/test_phase1_real_retrieval.py` |
-| `InitialScoreCache` | `graph_memory/retrieval/tuning/service.py` | Holds per-task seed scores for one tuning invocation. | Persist scores or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
+| `InitialScoreCache` | `graph_memory/retrieval/tuning/initial_scores.py` | Holds per-task seed scores for one tuning invocation. | Persist scores or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
 | Graph-rerank components | `graph_memory/retrieval/methods/graph_rerank/` | Candidate expansion, score components, normalization, config, and method adapter. | Select experiment workflow stages or read labels. | `tests/test_phase1_real_retrieval.py` |
 | `GraphRerankConfig` | `graph_memory/retrieval/methods/graph_rerank/config.py` | Graph score propagation config; rejects deprecated `type_weights`. | Treat `query_overlap` as a neighbor type weight. | `tests/test_phase1_real_retrieval.py` |
 | Train-pair builder | `graph_memory/training_pairs/builder.py` | Produces deterministic positive/negative train-pair artifacts. | Depend on trainable model internals. | `tests/test_phase2_rgcn_pairs.py` |
@@ -110,7 +113,7 @@ scripts/experiment.py
 | Contracts and validation | `graph_memory/contracts/`, `graph_memory/validation/` | Field names, forbidden fields, strict invariants, readable type annotations. |
 | Data conversion | `graph_memory/datasets/`, `graph_memory/text/` | Stable task IDs, supporting-fact mapping, split determinism, label separation, text/entity behavior. |
 | Graph construction | `graph_memory/graphs/` | Edge semantics, edge limits, deterministic sorting, graph views, no label access. |
-| Retrieval | `graph_memory/retrieval_registry.py`, `graph_memory/retrieval/` | Method registry capabilities, complete rankings, dense encoder prefixes, method construction, graph-method requirements. |
+| Retrieval | `graph_memory/application/run_retrieval.py`, `graph_memory/retrieval/catalog.py`, `graph_memory/retrieval/`, `graph_memory/retrieval_registry.py` | Application orchestration, method catalog capabilities, complete rankings, dense runtime grouping, method construction, graph-method requirements. |
 | Train pairs | `graph_memory/training_pairs/` | Sampling order, random seed behavior, positive/negative invariants. |
 | Trainable model | `graph_memory/models/graph_retriever/` | Tensorization, feature order, neural model construction, checkpoint schema, inference boundary. |
 | Evaluation | `graph_memory/evaluation/` | Metric definitions, exact joins, shared-graph connectivity, N/A path metrics. |
@@ -157,7 +160,7 @@ tests/test_trainable_graph_domain_boundaries.py
 
 ## Extension Notes
 
-- Add a new retriever runtime implementation under `graph_memory/retrieval/methods/` and wire it through `graph_memory/retrieval/factory.py`.
+- Add a new retriever runtime implementation under `graph_memory/retrieval/methods/`, register public metadata in `graph_memory/retrieval/catalog.py`, and wire construction through `graph_memory/retrieval/factory.py`.
 - If it uses an existing experiment lifecycle, add one static registration in `scripts/workflow/registry.py`.
 - If it has a genuinely new lifecycle, add one local adapter in `scripts/workflow/workflows.py` and register it. Do not add planner branches.
 - Add a new flat score-based baseline by adding a seed `Retriever` and a `RetrievalMethod` wrapper under `graph_memory/retrieval/methods/flat/`.

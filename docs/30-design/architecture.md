@@ -49,6 +49,7 @@ The current core package is organized by domain ownership:
 
 ```text
 graph_memory/
+  application/
   contracts/
   datasets/
   evaluation/
@@ -83,13 +84,14 @@ They must stay thin. New core logic belongs in the domain package that owns the 
 
 | Package | Responsibility |
 |---|---|
+| `application/` | CLI-independent use-case orchestration such as complete retrieval runs. |
 | `contracts/` | Artifact-shaped aliases, `TypedDict`s, and stable data language. |
 | `validation/` | Fail-fast validators for task, graph, ranking, training-pair, metric, and model contracts. |
 | `infrastructure/` | JSON/CSV IO, run summaries, and runtime environment capture. |
 | `datasets/` | Dataset-specific parsing, conversion, compatibility records, and split helpers. |
 | `text/` | Tokenization, lexical scoring, and entity extraction helpers. |
 | `graphs/` | Graph build config, construction rules, graph index, statistics, and graph views. |
-| `retrieval/` | Retrieval contracts, request resolution, method factory, execution service, flat methods, graph rerank, trainable adapter, and tuning. |
+| `retrieval/` | Retrieval contracts, method catalog, request resolution, method factory, execution service, flat methods, graph rerank, trainable adapter, and tuning. |
 | `training_pairs/` | Deterministic positive/negative train-pair construction and sampling config. |
 | `models/graph_retriever/` | Trainable graph retriever config, tensor batches, neural model, checkpointing, training, dev evaluation, and inference. |
 | `evaluation/` | Metric primitives, connectivity, aggregate evaluation service, table splitting, and failure cases. |
@@ -100,11 +102,16 @@ Allowed high-level flow:
 
 ```text
 scripts/*.py
-  -> graph_memory domain packages
+  -> graph_memory.application for complete use cases
+  -> graph_memory domain packages for narrow operations
   -> graph_memory infrastructure / validation
 
 scripts/workflow/*
   -> graph_memory workflow integration ports
+
+application retrieval run
+  -> retrieval resolver / factory
+  -> retrieval execution
 
 retrieval execution
   -> retrieval methods
@@ -122,6 +129,7 @@ Important forbidden directions:
 - `retrieval/` must not import scripts or workflow orchestration.
 - `models/graph_retriever/` must not import scripts or workflow orchestration.
 - `infrastructure/` must not import research-domain packages.
+- Domain packages must not import retained root workflow integration ports such as `graph_memory.io` or `graph_memory.retrieval_registry`; use owned implementation modules instead.
 - Core algorithms must not read/write JSON, CSV, or JSONL artifacts directly.
 - Core algorithms must not parse CLI arguments.
 
@@ -129,15 +137,29 @@ These rules are enforced by `tests/test_core_refactor_final_boundaries.py`.
 
 ## Retrieval Boundary
 
-Public method metadata lives in `graph_memory/retrieval_registry.py`. Runtime construction lives under `graph_memory/retrieval/`:
+Public method metadata is implemented in `graph_memory/retrieval/catalog.py`. `graph_memory/retrieval_registry.py` is a thin workflow integration port that re-exports that catalog for scripts and workflow code.
+
+Complete retrieval runs are application use cases:
 
 ```text
+scripts/run_retrieval.py
+  -> application.run_retrieval.RunRetrievalRequest
+  -> retrieval.resolver
+  -> retrieval.factory
+  -> retrieval.execution.service
+```
+
+Runtime construction lives under `graph_memory/retrieval/`:
+
+```text
+retrieval.catalog
+  -> public method metadata
 retrieval.requests / retrieval.resolver
   -> exact method-family build requests
 retrieval.factory
   -> method object construction
 retrieval.execution.service
-  -> per-task ranking and artifact assembly
+  -> execute an already-built RetrievalMethod and assemble artifacts
 retrieval.methods.flat
   -> BM25 and dense flat seed methods
 retrieval.methods.graph_rerank
@@ -148,7 +170,7 @@ retrieval.tuning
   -> graph-rerank grid and selected-config service
 ```
 
-`RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed request/runtime objects for the method family that actually needs them.
+`RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed request/runtime objects at the application/resolver boundary. Once execution starts, it receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense or checkpoint parameters.
 
 ## Trainable Retriever Boundary
 

@@ -49,7 +49,7 @@ class TaskBatchInputs:
     pairs: list[TrainPairRecord]
 
 
-def build_edge_tensorizer(model_config: TrainableModelConfig) -> EdgeTensorizer:
+def build_edge_tensorizer(model_config: TrainableModelConfig) -> EdgeTensorizer: #TAG: Distribute
     """
     Build the edge tensorizer selected by model config.
     根据 model config 构造 edge tensorizer。

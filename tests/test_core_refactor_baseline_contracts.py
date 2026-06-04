@@ -9,12 +9,14 @@ from typing import Any, Sequence
 import numpy as np
 import pytest
 
+from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval as run_retrieval_app
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.graphs.config import GraphBuildConfig
 from graph_memory.graphs.construction.builder import build_graph
 from graph_memory.datasets.hotpotqa import convert_hotpotqa_example, parse_hotpotqa_example
-from graph_memory.retrieval import run_retrieval
+from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
+from graph_memory.retrieval.requests import DenseRuntime
 from scripts.workflow.manifest import initialize_experiment
 from scripts.workflow.planner import build_stage_plan
 from scripts.workflow.types import StageId
@@ -23,6 +25,37 @@ from tests.test_experiment_runner import (
     _write_rgcn_training_config,
     _write_trainable_experiment_config,
 )
+
+
+def run_retrieval(
+    *,
+    method,
+    task_inputs,
+    graphs,
+    top_k,
+    encoder_model="intfloat/e5-base-v2",
+    query_prefix="query: ",
+    passage_prefix="passage: ",
+    dense_encoder=None,
+    graph_config=None,
+):
+    return run_retrieval_app(
+        RunRetrievalRequest(
+            method=method,
+            task_inputs=task_inputs,
+            graphs=graphs,
+            top_k=top_k,
+            dense_runtime=DenseRuntime(
+                config=DenseConfig(
+                    model_name=encoder_model,
+                    query_prefix=query_prefix,
+                    passage_prefix=passage_prefix,
+                ),
+                encoder=dense_encoder,
+            ),
+            graph_config=graph_config,
+        )
+    )
 
 
 def test_public_script_parser_contracts_are_frozen() -> None:

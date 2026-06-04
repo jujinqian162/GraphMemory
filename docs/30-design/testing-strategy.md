@@ -34,7 +34,7 @@ Tests should protect the scientific correctness of the evidence-tracing pipeline
 | Tuning tests | Unit tests with synthetic metric rows | Ensure objective and tie-breaks are deterministic. |
 | Evaluation tests | Unit tests with tiny predictions/labels/graphs | Ensure metrics and connectivity use the correct artifacts. |
 | CLI smoke tests | Small filesystem tests | Ensure scripts parse arguments and write expected artifacts. |
-| Architecture dependency tests | AST import scans | Ensure domain packages keep approved dependency direction and removed compatibility paths do not return. |
+| Architecture dependency tests | AST import scans | Ensure domain packages keep approved dependency direction, root workflow integration ports stay one-way, and removed compatibility paths do not return. |
 | End-to-end smoke test | Tiny synthetic pipeline | Ensure converter -> graph -> retrieval -> evaluation can run together. |
 
 ## Recommended Test Files
@@ -127,7 +127,8 @@ Must test:
 - dense test skips clearly if the model is unavailable locally.
 - graph methods require graph inputs and graph rerank config.
 - flat methods do not require graph inputs.
-- `run_retrieval` delegates method-specific control flow to a retrieval-method boundary.
+- `application.run_retrieval` owns complete use-case orchestration.
+- `retrieval.execution.service.run_retrieval` executes an already-built retrieval method and does not accept loose dense/checkpoint parameters.
 
 ### Score Pipeline
 
@@ -251,3 +252,4 @@ Before trusting an experiment run:
 - Trainable runs validate train pairs, tensor batches, and checkpoint metadata before training or inference.
 - Retrieval-only trainable inference tests prove labels and train pairs are not read.
 - Architecture dependency tests prove root compatibility paths stay removed and workflow integration ports stay narrow.
+- Architecture dependency tests prove domain packages import owned implementation modules rather than retained root workflow integration ports.

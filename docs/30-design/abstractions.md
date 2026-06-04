@@ -131,7 +131,7 @@ Rules:
 
 ## RetrievalMethodSpec Registry
 
-Public method dispatch uses the static registry in `graph_memory/retrieval_registry.py` because methods have different required inputs.
+Public method dispatch uses the static catalog in `graph_memory/retrieval/catalog.py` because methods have different required inputs. `graph_memory/retrieval_registry.py` is retained only as a thin workflow integration port over the catalog.
 
 Purpose:
 
@@ -145,7 +145,7 @@ Rules:
 - Registry metadata declares whether graphs, graph rerank config, dense encoder args, or checkpoint are required.
 - `experiment.py`, tuning, and scripts use registry capability queries instead of copied method tuples or string matching such as `"dense" in method`.
 - Runtime builders live in `graph_memory/retrieval/factory.py` and owned method packages under `graph_memory/retrieval/methods/`.
-- Builders receive explicit build context objects, not raw CLI args.
+- Builders receive explicit build request/runtime objects, not raw CLI args.
 - Trainable graph retrieval is adapted through `graph_memory/retrieval/methods/trainable_graph.py`.
 - This is a local dispatch table, not dynamic plugin discovery.
 
@@ -283,19 +283,38 @@ Rules:
   internal validation record types. Call sites should pass loaded JSON artifacts or domain-typed artifacts directly;
   do not copy records through `dict(...)` or `dataclasses.asdict(...)` just to satisfy a type checker.
 
+## Retrieval Run Use Case
+
+Complete retrieval runs belong to the application layer:
+
+```text
+RunRetrievalRequest
+  -> resolve_method_build_request(...)
+  -> build_retrieval_method(...)
+  -> retrieval.execution.service.run_retrieval(...)
+```
+
+Rules:
+
+- Scripts may parse CLI flags such as `--encoder_model`, `--query_prefix`, and `--checkpoint`, but they must convert those values into typed request/runtime objects before calling the application use case.
+- `RunRetrievalRequest` is the broad use-case boundary. It may carry optional inputs for different method families, but dense settings are grouped inside `DenseRuntime`.
+- `RetrievalMethodResolveRequest` is the retrieval resolver boundary. Resolver output must be one precise method-family build request.
+- `retrieval.execution.service.run_retrieval` only executes an already-built `RetrievalMethod`, measures latency, assembles ranked artifacts, and validates ranked results.
+- Retrieval execution does not construct dense runtime, parse graph config, load checkpoints, or accept loose `query_prefix` / `passage_prefix` parameters.
+
 ## Experiment Services
 
 Batch orchestration belongs in service functions beneath scripts:
 
 ```text
-run_retrieval(...) -> list[RankedResult]
+application.run_retrieval(RunRetrievalRequest) -> list[RankedResult]
 tune_graph_rerank(...) -> GraphRerankConfig
 aggregate_tables(...) -> table artifacts
 ```
 
 Service functions may loop over tasks, measure latency, and assemble artifacts. They should not read or write files directly.
 
-Tuning services may call retrieval repeatedly in the first implementation. Prefer correctness and clear run summaries over introducing cache invalidation logic before the pipeline is stable.
+Graph-rerank tuning keeps its in-memory initial-score cache under `graph_memory/retrieval/tuning/initial_scores.py`. Tuning services may call retrieval-like helpers repeatedly in the first implementation. Prefer correctness and clear run summaries over introducing cache invalidation logic before the pipeline is stable.
 
 ## Trainable Graph Components
 

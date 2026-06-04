@@ -9,7 +9,6 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
-from graph_memory.evaluation.service import evaluate_results
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import build_full_ranking_batches, move_training_batch
 from graph_memory.models.graph_retriever.config.records import TrainableModelConfig

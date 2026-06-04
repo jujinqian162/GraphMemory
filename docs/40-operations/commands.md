@@ -394,4 +394,4 @@ Expected: no matches.
 
 ## Review The Code
 
-After running or modifying the pipeline, use `docs/40-operations/implementation-handoff.md` to review the code entry points, control flow, abstractions, tests, and current package ownership. Public commands above are unchanged by the core package refactor; internal implementation now lives under domain packages such as `graph_memory/retrieval/`, `graph_memory/graphs/`, `graph_memory/training_pairs/`, and `graph_memory/models/graph_retriever/`.
+After running or modifying the pipeline, use `docs/40-operations/implementation-handoff.md` to review the code entry points, control flow, abstractions, tests, and current package ownership. Public commands above are unchanged by the core package refactor; complete retrieval run orchestration lives under `graph_memory/application/`, while retrieval implementation lives under domain packages such as `graph_memory/retrieval/`, `graph_memory/graphs/`, `graph_memory/training_pairs/`, and `graph_memory/models/graph_retriever/`.

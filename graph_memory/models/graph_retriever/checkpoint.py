@@ -7,7 +7,7 @@ from typing import Any, cast
 import torch
 from torch import nn
 
-from graph_memory.observability import now_iso
+from graph_memory.infrastructure.run_summary import now_iso
 from graph_memory.models.graph_retriever.config.records import NodeFeatureConfig, TrainableModelConfig, TrainableTrainingConfig
 from graph_memory.validation import validate_trainable_checkpoint_metadata
 
