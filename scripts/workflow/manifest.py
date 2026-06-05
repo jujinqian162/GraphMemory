@@ -10,6 +10,7 @@ from graph_memory.retrieval_registry import get_method_spec, get_supported_metho
 from graph_memory.training_config import load_trainable_training_config
 from scripts.workflow.artifacts import build_main_method_artifacts, build_variant_artifact_namespace
 from scripts.workflow.registry import ABLATION_SUITE_REGISTRY, get_ablation_suite, get_variant_spec
+from scripts.workflow.stage_configs import attach_stage_config_projections
 from scripts.workflow.types import ArtifactRole, ConfigEntry, StageId, VariantArtifactNamespace, VariantSpec
 
 CONFIG_ROOT = Path("configs")
@@ -122,6 +123,7 @@ def initialize_experiment(
         "stage_status": {},
     }
     _write_resolved_training_configs(manifest)
+    attach_stage_config_projections(manifest)
     if enabled:
         _attach_ablation_artifacts(manifest, selected_variants)
     else:

@@ -1,4 +1,5 @@
 import json
+import inspect
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from graph_memory.models.graph_retriever.training import (
     TrainableTrainingResult,
     train_graph_retriever,
 )
+from graph_memory.config import CONFIG_LOADER
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
@@ -25,6 +27,8 @@ from graph_memory.models.graph_retriever.config.records import (
     TrainableTrainingConfig,
 )
 from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
+from graph_memory.registry import Registry
+from graph_memory.registry.training import TrainDependencies
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.validation import (
     ContractValidationError,
@@ -33,6 +37,7 @@ from graph_memory.validation import (
     validate_trainable_model_config,
     validate_training_batch,
 )
+import scripts.train_graph_retriever as train_graph_retriever_script
 from scripts.train_graph_retriever import main as train_graph_retriever_main
 
 
@@ -430,3 +435,147 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
     assert run_summary["effective_config"]["model_config"]["hidden_dim"] == 8
     assert run_summary["effective_config"]["training_config"]["batch_size"] == 1
     assert run_summary["effective_config"]["training_config"]["epochs"] == 1
+
+
+def test_train_graph_retriever_cli_overrides_training_config_without_clobbering_file_values(tmp_path: Path):
+    train_tasks_path = tmp_path / "train.input.json"
+    train_labels_path = tmp_path / "train.labels.json"
+    train_graphs_path = tmp_path / "train.graphs.json"
+    train_pairs_path = tmp_path / "train.pairs.json"
+    dev_tasks_path = tmp_path / "dev.input.json"
+    dev_labels_path = tmp_path / "dev.labels.json"
+    dev_graphs_path = tmp_path / "dev.graphs.json"
+    output_dir = tmp_path / "rgcn_run"
+    config_path = tmp_path / "effective_training_config.json"
+    train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
+    train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
+    train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
+    train_pairs_path.write_text(json.dumps(tiny_pairs()), encoding="utf-8")
+    dev_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
+    dev_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
+    dev_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "method": "dense_rgcn_graph_retriever",
+                "profile": "quick",
+                "encoder": {
+                    "model": "fake-encoder",
+                    "query_prefix": "query: ",
+                    "passage_prefix": "passage: ",
+                },
+                "model": {
+                    "hidden_dim": 8,
+                    "num_layers": 1,
+                    "dropout": 0.0,
+                    "ablation": "full_rgcn",
+                },
+                "optimization": {
+                    "optimizer": "AdamW",
+                    "epochs": 3,
+                    "batch_size": 1,
+                    "learning_rate": 0.01,
+                    "max_grad_norm": 1.0,
+                    "random_seed": 13,
+                    "pos_weight": False,
+                    "device": "cuda",
+                },
+                "pair_sampling": {
+                    "random_seed": 13,
+                    "easy_random_per_positive": 1,
+                    "hard_bm25_per_positive": 0,
+                    "hard_dense_per_positive": 0,
+                    "hard_graph_neighbor_per_positive": 1,
+                    "hard_pool_size": 10,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = train_graph_retriever_main(
+        [
+            "--train_tasks",
+            str(train_tasks_path),
+            "--train_labels",
+            str(train_labels_path),
+            "--train_graphs",
+            str(train_graphs_path),
+            "--train_pairs",
+            str(train_pairs_path),
+            "--dev_tasks",
+            str(dev_tasks_path),
+            "--dev_labels",
+            str(dev_labels_path),
+            "--dev_graphs",
+            str(dev_graphs_path),
+            "--output_dir",
+            str(output_dir),
+            "--config",
+            str(config_path),
+            "--epochs",
+            "1",
+            "--device",
+            "cpu",
+        ],
+        text_embedding_provider=FakeTextEmbeddingProvider(),
+        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+    )
+
+    assert exit_code == 0
+    run_summary = json.loads((output_dir / "train_run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["effective_config"]["model_config"]["hidden_dim"] == 8
+    assert run_summary["effective_config"]["training_config"]["epochs"] == 1
+    assert run_summary["effective_config"]["training_config"]["batch_size"] == 1
+
+
+def test_training_registry_builds_trainer_from_settings_type() -> None:
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--train_tasks",
+            "train.input.json",
+            "--train_labels",
+            "train.labels.json",
+            "--train_graphs",
+            "train.graphs.json",
+            "--train_pairs",
+            "train.pairs.json",
+            "--dev_tasks",
+            "dev.input.json",
+            "--dev_labels",
+            "dev.labels.json",
+            "--dev_graphs",
+            "dev.graphs.json",
+            "--output_dir",
+            "rgcn_run",
+            "--encoder_model",
+            "fake-encoder",
+        ],
+    )
+
+    trainer = Registry.training.build(
+        config.job,
+        TrainDependencies(
+            text_embedding_provider=FakeTextEmbeddingProvider(),
+            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        ),
+    )
+
+    assert callable(trainer.train)
+
+
+def test_train_stage_runner_and_script_use_registry_boundary() -> None:
+    stage_source = Path("graph_memory/stages/train.py").read_text(encoding="utf-8")
+    script_source = inspect.getsource(train_graph_retriever_script)
+
+    assert "Registry.training.build(" in stage_source
+    assert "train_graph_retriever" not in stage_source
+    assert "Rgcn" not in stage_source
+    assert "dense_rgcn_graph_retriever" not in stage_source
+    assert "CONFIG_LOADER.load(Registry.configs.TRAIN" in script_source
+    assert "run_train_stage(" in script_source
+    assert "load_trainable_training_config" not in script_source
+    assert "encoder_config_from_training_config" not in script_source
+    assert "model_config_values_from_training_config" not in script_source
+    assert "trainable_training_config_from_training_config" not in script_source

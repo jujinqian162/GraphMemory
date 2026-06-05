@@ -84,9 +84,9 @@ def train_graph_retriever(
     training_config: TrainableTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
-    train_labels: list[MemoryTaskLabels] | None = None,
-    checkpoint_callback: CheckpointCallback | None = None,
-    device: str | torch.device = "cpu",
+    train_labels: list[MemoryTaskLabels] | None = None, # HUMAN REVIEW POINT: 好像根本没有人使用这个字段？它存在的意义是啥？
+    checkpoint_callback: CheckpointCallback | None = None, # HUMAN REVIEW POINT: 这个好像也没有人使用。。。
+    device: str | torch.device = "cpu", # HUMAN REVIEW POINT: 这个以后默认gpu（cuda）
 ) -> TrainableTrainingResult:
     """
     Train a frozen-encoder R-GCN binary node scorer.

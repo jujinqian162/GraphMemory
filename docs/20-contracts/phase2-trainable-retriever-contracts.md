@@ -85,8 +85,8 @@ class RetrievalMethodSpec:
       requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
     - seed_method: Optional flat seed method used by this method, such as `dense`.
       seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder_id: Local runtime builder selected by `graph_memory.retrieval.factory`.
-      builder_id：由 `graph_memory.retrieval.factory` 选择的本地运行时 builder。
+    - builder_id: Legacy compatibility projection for registry-owned runtime builders.
+      builder_id：registry-owned runtime builder 的 legacy compatibility projection。
     """
 
     name: MethodName
@@ -103,7 +103,7 @@ Registry rules:
 - supported methods and CLI `choices` are derived from `METHOD_REGISTRY.keys()`.
 - Graph-rerank and dense-encoder method sets are derived from registry capability fields, not method-name string matching.
 - `dense_rgcn_graph_retriever` must be registered through the same registry as Phase 1 methods.
-- Runtime builders live in `graph_memory/retrieval/factory.py`; trainable graph retrieval is adapted through `graph_memory/retrieval/methods/trainable_graph.py`.
+- Runtime builders live in `graph_memory/registry/retrieval_builders.py`; trainable graph retrieval is adapted through `graph_memory/retrieval/methods/trainable_graph.py`.
 - Registry entries declare required inputs; scripts should reject missing graphs, graph configs, or checkpoints before invoking core retrieval.
 
 Current registry entries before Phase 2:

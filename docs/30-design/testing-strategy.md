@@ -127,7 +127,7 @@ Must test:
 - dense test skips clearly if the model is unavailable locally.
 - graph methods require graph inputs and graph rerank config.
 - flat methods do not require graph inputs.
-- `application.run_retrieval` owns complete use-case orchestration.
+- `stages.retrieve.run_retrieve_stage` owns complete retrieval-stage orchestration.
 - `retrieval.execution.service.run_retrieval` executes an already-built retrieval method and does not accept loose dense/checkpoint parameters.
 
 ### Score Pipeline

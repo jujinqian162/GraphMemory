@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -120,6 +121,17 @@ def test_phase1_cli_pipeline_writes_contract_artifacts(tmp_path):
     assert "bm25" in aggregate_main_path.read_text(encoding="utf-8")
     assert aggregate_path_path.exists()
     assert aggregate_efficiency_path.exists()
+
+
+def test_evaluate_retrieval_script_uses_config_loader_and_stage_runner() -> None:
+    source = inspect.getsource(evaluate_retrieval)
+
+    assert "CONFIG_LOADER.load(Registry.configs.EVALUATE" in source
+    assert "run_evaluate_stage(" in source
+    assert "EvaluateRetrievalArgs" not in source
+    assert "parse_args(argv)" not in source
+    assert "RetrievalMethodId" not in source
+    assert "Registry.retrieval" not in source
 
 
 def test_tune_graph_rerank_cli_reads_search_space_and_writes_neighbor_type_weights(tmp_path):

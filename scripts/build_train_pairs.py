@@ -10,18 +10,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from graph_memory.config import CONFIG_LOADER
+from graph_memory.contracts.common import JsonValue
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.training_pairs import build_train_pairs
-from graph_memory.training_config import (
-    JsonConfig,
-    encoder_config_from_training_config,
-    load_trainable_training_config,
-    negative_sampling_config_from_training_config,
-)
-from graph_memory.contracts.common import JsonValue
+from graph_memory.registry import Registry
+from graph_memory.registry.stage_configs import PairBuildStageConfig
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.training_pairs.config import NegativeSamplingConfig
+from graph_memory.training_pairs import build_train_pairs
 
 LOGGER = logging.getLogger("build_train_pairs")
 
@@ -71,36 +67,25 @@ class BuildTrainPairsArgs:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+    config = CONFIG_LOADER.load(Registry.configs.PAIRS, argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
     start_time = time.perf_counter()
-    output_path = Path(args.output)
-    summary_path = output_path.with_name(f"{output_path.stem}.summary.json")
-    run_summary_path = output_path.with_name(f"{output_path.stem}.run_summary.json")
-    file_config = load_trainable_training_config(args.config, required_sections=("pair_sampling",)) if args.config else None
-    sampling_config = _sampling_config_from_config(args, file_config)
-    dense_config = _dense_config_from_config(file_config, sampling_config)
-    effective_config: dict[str, JsonValue] = {
-        "random_seed": sampling_config.random_seed,
-        "easy_random_per_positive": sampling_config.easy_random_per_positive,
-        "hard_bm25_per_positive": sampling_config.hard_bm25_per_positive,
-        "hard_dense_per_positive": sampling_config.hard_dense_per_positive,
-        "hard_graph_neighbor_per_positive": sampling_config.hard_graph_neighbor_per_positive,
-        "hard_pool_size": sampling_config.hard_pool_size,
-    }
-    if dense_config is not None:
-        effective_config["encoder_model"] = dense_config.model_name
-    inputs = {"tasks": args.tasks, "labels": args.labels, "graphs": args.graphs}
-    outputs = {"pairs": args.output, "summary": str(summary_path), "run_summary": str(run_summary_path)}
+    summary_path = config.io.summary
+    run_summary_path = config.io.run_summary
+    sampling_config = config.job.sampling.to_negative_sampling_config()
+    dense_config = _dense_config_from_config(config)
+    effective_config = _effective_config(config)
+    inputs = {"tasks": str(config.io.tasks), "labels": str(config.io.labels), "graphs": str(config.io.graphs)}
+    outputs = {"pairs": str(config.io.output), "summary": str(summary_path), "run_summary": str(run_summary_path)}
 
     try:
-        task_inputs = read_json(args.tasks)
-        labels = read_json(args.labels)
-        graphs = read_json(args.graphs)
+        task_inputs = read_json(config.io.tasks)
+        labels = read_json(config.io.labels)
+        graphs = read_json(config.io.graphs)
         result = build_train_pairs(task_inputs, labels, graphs, sampling_config, dense_config=dense_config)
-        write_json(args.output, result.pairs)
+        write_json(config.io.output, result.pairs)
         write_json(summary_path, result.summary)
 
         summary = build_run_summary(
@@ -124,7 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             notes=[],
         )
         write_run_summary(run_summary_path, summary)
-        LOGGER.info("wrote train pairs: %s", args.output)
+        LOGGER.info("wrote train pairs: %s", config.io.output)
         LOGGER.info("wrote train pair summary: %s", summary_path)
         LOGGER.info("wrote run summary: %s", run_summary_path)
         return 0
@@ -149,24 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    defaults = NegativeSamplingConfig()
-    parser = argparse.ArgumentParser(description="Build train pair artifacts for the trainable graph retriever.")
-    parser.add_argument("--tasks", required=True, help="Path to *_memory_tasks.input.json.")
-    parser.add_argument("--labels", required=True, help="Path to *_memory_tasks.labels.json.")
-    parser.add_argument("--graphs", required=True, help="Path to *_graphs.json.")
-    parser.add_argument("--output", required=True, help="Path to write *_pairs.json.")
-    parser.add_argument("--random_seed", type=int, default=defaults.random_seed)
-    parser.add_argument("--easy_random_per_positive", type=int, default=defaults.easy_random_per_positive)
-    parser.add_argument("--hard_bm25_per_positive", type=int, default=defaults.hard_bm25_per_positive)
-    parser.add_argument("--hard_dense_per_positive", type=int, default=defaults.hard_dense_per_positive)
-    parser.add_argument(
-        "--hard_graph_neighbor_per_positive",
-        type=int,
-        default=defaults.hard_graph_neighbor_per_positive,
-    )
-    parser.add_argument("--hard_pool_size", type=int, default=defaults.hard_pool_size)
-    parser.add_argument("--config", default=None, help="Path to resolved trainable training config JSON.")
-    return parser
+    return Registry.configs.PAIRS.parser_factory()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> BuildTrainPairsArgs:
@@ -186,27 +154,33 @@ def parse_args(argv: Sequence[str] | None = None) -> BuildTrainPairsArgs:
     )
 
 
-def _sampling_config_from_config(args: BuildTrainPairsArgs, config: JsonConfig | None) -> NegativeSamplingConfig:
-    if config is not None:
-        return negative_sampling_config_from_training_config(config)
-    return NegativeSamplingConfig(
-        random_seed=args.random_seed,
-        easy_random_per_positive=args.easy_random_per_positive,
-        hard_bm25_per_positive=args.hard_bm25_per_positive,
-        hard_dense_per_positive=args.hard_dense_per_positive,
-        hard_graph_neighbor_per_positive=args.hard_graph_neighbor_per_positive,
-        hard_pool_size=args.hard_pool_size,
-    )
+def _effective_config(config: PairBuildStageConfig) -> dict[str, JsonValue]:
+    sampling_config = config.job.sampling
+    effective_config: dict[str, JsonValue] = {
+        "random_seed": sampling_config.random_seed,
+        "easy_random_per_positive": sampling_config.easy_random_per_positive,
+        "hard_bm25_per_positive": sampling_config.hard_bm25_per_positive,
+        "hard_dense_per_positive": sampling_config.hard_dense_per_positive,
+        "hard_graph_neighbor_per_positive": sampling_config.hard_graph_neighbor_per_positive,
+        "hard_pool_size": sampling_config.hard_pool_size,
+    }
+    dense_config = _dense_config_from_config(config)
+    if dense_config is not None:
+        effective_config["encoder_model"] = dense_config.model_name
+    return effective_config
 
 
-def _dense_config_from_config(config: JsonConfig | None, sampling_config: NegativeSamplingConfig) -> DenseConfig | None:
-    if config is None or sampling_config.hard_dense_per_positive <= 0:
+def _dense_config_from_config(config: PairBuildStageConfig) -> DenseConfig | None:
+    job = config.job
+    if job.sampling.hard_dense_per_positive <= 0 or job.hard_dense_encoder is None:
+        if config.io.config is not None and job.sampling.hard_dense_per_positive > 0:
+            raise ValueError("Pair build config with hard dense negatives requires encoder settings.")
         return None
-    encoder_config = encoder_config_from_training_config(config)
     return DenseConfig(
-        model_name=encoder_config["model"],
-        query_prefix=encoder_config["query_prefix"],
-        passage_prefix=encoder_config["passage_prefix"],
+        model_name=job.hard_dense_encoder.model_name,
+        query_prefix=job.hard_dense_encoder.query_prefix,
+        passage_prefix=job.hard_dense_encoder.passage_prefix,
+        batch_size=job.hard_dense_encoder.batch_size,
     )
 
 

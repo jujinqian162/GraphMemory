@@ -123,7 +123,7 @@ class CheckpointGraphRetrieverLoader:
                 encoder=cast(SentenceEncoder | None, dense_encoder),
             )
         resolved_seed_provider = seed_signal_provider
-        if resolved_seed_provider is None:
+        if resolved_seed_provider is None: # HUMAN REVIEW POINT: 能不能把非空值在上层就处理好，在load这种具体实现中暴露一堆具体的class，以后要换怎么办？你这不就是相当于在实现内部提供里一个用不到的默认值吗？按理来说只要上层处理好，里面就不会有一堆optional的字段。
             encoder = getattr(resolved_text_provider, "encoder", dense_encoder)
             resolved_seed_provider = RetrieverSeedSignalProvider(
                 DenseTaskRetriever(

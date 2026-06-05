@@ -57,8 +57,8 @@ class RetrievalMethodSpec:
       requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
     - seed_method: Optional flat seed method used by this method, such as `dense`.
       seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder_id: Local runtime builder selected by `graph_memory.retrieval.factory`.
-      builder_id：由 `graph_memory.retrieval.factory` 选择的本地运行时 builder。
+    - builder_id: Legacy compatibility projection for registry-owned runtime builders.
+      builder_id：registry-owned runtime builder 的 legacy compatibility projection。
     """
 
     name: MethodName
@@ -75,28 +75,26 @@ Registry rules:
 - Supported methods, validation method checks, experiment method filters, and CLI `choices` are derived from `METHOD_REGISTRY.keys()` or registry capability queries.
 - Method capability queries such as graph-rerank methods and dense-encoder methods are derived from `RetrievalMethodSpec` fields, not string matching.
 - All public methods, including trainable methods, are registered through the same registry.
-- Runtime builders live in `graph_memory/retrieval/factory.py` and method-family packages under `graph_memory/retrieval/methods/`.
+- Runtime builders live in `graph_memory/registry/retrieval_builders.py` and method-family packages under `graph_memory/retrieval/methods/`.
 - Registry entries declare requirements; scripts validate missing inputs before invoking core retrieval.
 - Adding a method requires adding one registry entry, tests for requirement validation, and an example command in operations docs when it becomes user-facing.
 
-## Build Requests
+## Runtime Requests
 
-Retrieval construction uses application run requests plus method-family build requests rather than one wide context object. CLI parsing may accept optional inputs, but those values must be grouped into typed runtime/config objects before application orchestration and resolver output must be a precise request for the selected method family.
+Retrieval construction uses retrieve stage configs plus registry-owned job settings rather than one wide context object. CLI parsing may accept optional inputs, but those values must be grouped into typed runtime/config objects before stage orchestration.
 
 Current request layers:
 
 | Request | Meaning |
 |---|---|
-| `RunRetrievalRequest` | Application-level request for one complete retrieval run. |
-| `RetrievalMethodResolveRequest` | Typed resolver input that turns a use-case request into one method-family build request. |
+| `RetrieveStageConfig` | Stage-level request for one complete retrieval run. |
 
-Current request families:
+Current runtime objects:
 
 | Request | Meaning |
 |---|---|
-| `FlatMethodBuildRequest` | Flat BM25 or dense runtime state. |
-| `GraphRerankMethodBuildRequest` | Seed retriever, `GraphIndex`, and `GraphRerankConfig`. |
-| `TrainableGraphMethodBuildRequest` | `GraphIndex` plus checkpoint/text/seed runtime state. |
+| `DenseRuntime` | Dense encoder config plus an optional injected encoder instance. |
+| `TrainableGraphRuntime` | Checkpoint path, device, optional text embedding provider, optional seed signal provider, and optional dense runtime. |
 
 Scripts own paths and file IO. Builders receive already-loaded objects or runtime paths only when the object is intrinsically runtime state, such as a PyTorch checkpoint load target.
 

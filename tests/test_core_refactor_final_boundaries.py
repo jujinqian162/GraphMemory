@@ -42,7 +42,7 @@ ROOT_PORT_IMPORTS = {
         "graph_memory.infrastructure.run_summary",
         "graph_memory.infrastructure.runtime_environment",
     },
-    "retrieval_registry.py": {"graph_memory.retrieval.catalog"},
+    "retrieval_registry.py": {"graph_memory.registry.projections"},
     "training_config.py": {"graph_memory.models.graph_retriever.config.loading"},
     "experiment.py": {
         "scripts.workflow",

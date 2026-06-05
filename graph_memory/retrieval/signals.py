@@ -41,7 +41,7 @@ class RetrieverSeedSignalProvider:
     retriever: Retriever
 
     def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
-        ranked_nodes = self.retriever.rank(task_input)
+        ranked_nodes = self.retriever.rank(task_input) # HUMAN REVIEW POINT: 为什么不是用RetrievalMethod这个协议？
         expected_node_ids = {memory_item["id"] for memory_item in task_input["memory_items"]}
         observed_node_ids = {ranked_node.node_id for ranked_node in ranked_nodes}
         if observed_node_ids != expected_node_ids:

@@ -169,11 +169,27 @@ def build_graph_commands(manifest: dict[str, Any]) -> list[StageCommand]:
 
 
 def build_pair_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
-    return [
-        StageCommand(
-            stage=StageId.PAIRS,
-            method=method,
-            argv=[
+    commands: list[StageCommand] = []
+    for method in methods:
+        projection = _stage_config_projection(manifest, StageId.PAIRS, method)
+        if projection is not None:
+            io = projection["io"]
+            argv = [
+                sys.executable,
+                "scripts/build_train_pairs.py",
+                "--tasks",
+                str(io["tasks"]),
+                "--labels",
+                str(io["labels"]),
+                "--graphs",
+                str(io["graphs"]),
+                "--output",
+                str(io["output"]),
+            ]
+            if io.get("config") is not None:
+                argv.extend(["--config", str(io["config"])])
+        else:
+            argv = [
                 sys.executable,
                 "scripts/build_train_pairs.py",
                 "--tasks",
@@ -186,42 +202,68 @@ def build_pair_commands(manifest: dict[str, Any], methods: Sequence[str]) -> lis
                 manifest["artifacts"]["learned"][method]["train_pairs"],
                 "--config",
                 manifest["artifacts"]["learned"][method]["effective_training_config"],
-            ],
-        )
-        for method in methods
-    ]
+            ]
+        commands.append(StageCommand(stage=StageId.PAIRS, method=method, argv=argv))
+    return commands
 
 
 def build_train_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     for method in methods:
-        learned = manifest["artifacts"]["learned"][method]
+        projection = _stage_config_projection(manifest, StageId.TRAIN, method)
+        if projection is not None:
+            io = projection["io"]
+            argv = [
+                sys.executable,
+                "scripts/train_graph_retriever.py",
+                "--train_tasks",
+                str(io["train_tasks"]),
+                "--train_labels",
+                str(io["train_labels"]),
+                "--train_graphs",
+                str(io["train_graphs"]),
+                "--train_pairs",
+                str(io["train_pairs"]),
+                "--dev_tasks",
+                str(io["dev_tasks"]),
+                "--dev_labels",
+                str(io["dev_labels"]),
+                "--dev_graphs",
+                str(io["dev_graphs"]),
+                "--output_dir",
+                str(io["output_dir"]),
+            ]
+            if io.get("config") is not None:
+                argv.extend(["--config", str(io["config"])])
+        else:
+            learned = manifest["artifacts"]["learned"][method]
+            argv = [
+                sys.executable,
+                "scripts/train_graph_retriever.py",
+                "--train_tasks",
+                manifest["artifacts"]["inputs"]["train"]["input"],
+                "--train_labels",
+                manifest["artifacts"]["inputs"]["train"]["labels"],
+                "--train_graphs",
+                manifest["artifacts"]["graphs"]["train"],
+                "--train_pairs",
+                learned["train_pairs"],
+                "--dev_tasks",
+                manifest["artifacts"]["inputs"]["dev"]["input"],
+                "--dev_labels",
+                manifest["artifacts"]["inputs"]["dev"]["labels"],
+                "--dev_graphs",
+                manifest["artifacts"]["graphs"]["dev"],
+                "--output_dir",
+                learned["training_output_dir"],
+                "--config",
+                learned["effective_training_config"],
+            ]
         commands.append(
             StageCommand(
                 stage=StageId.TRAIN,
                 method=method,
-                argv=[
-                    sys.executable,
-                    "scripts/train_graph_retriever.py",
-                    "--train_tasks",
-                    manifest["artifacts"]["inputs"]["train"]["input"],
-                    "--train_labels",
-                    manifest["artifacts"]["inputs"]["train"]["labels"],
-                    "--train_graphs",
-                    manifest["artifacts"]["graphs"]["train"],
-                    "--train_pairs",
-                    learned["train_pairs"],
-                    "--dev_tasks",
-                    manifest["artifacts"]["inputs"]["dev"]["input"],
-                    "--dev_labels",
-                    manifest["artifacts"]["inputs"]["dev"]["labels"],
-                    "--dev_graphs",
-                    manifest["artifacts"]["graphs"]["dev"],
-                    "--output_dir",
-                    learned["training_output_dir"],
-                    "--config",
-                    learned["effective_training_config"],
-                ],
+                argv=argv,
             )
         )
     return commands
@@ -257,45 +299,66 @@ def build_retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) ->
     commands: list[StageCommand] = []
     dense_methods = set(get_methods_requiring_dense_encoder())
     for method in methods:
-        spec = get_method_spec(method)
-        argv = [
-            sys.executable,
-            "scripts/run_retrieval.py",
-            "--method",
-            method,
-            "--tasks",
-            manifest["artifacts"]["inputs"]["test"]["input"],
-            "--output",
-            manifest["artifacts"]["predictions"][method],
-            "--top_k",
-            str(manifest["effective_config"]["top_k"]),
-        ]
-        if spec.requires_graphs:
-            argv.extend(["--graphs", manifest["artifacts"]["graphs"]["test"]])
-        if spec.requires_graph_config:
-            argv.extend(["--graph_config", manifest["artifacts"]["tuned"][method]])
-        if spec.requires_checkpoint:
-            learned = manifest["artifacts"]["learned"][method]
-            argv.extend(
-                [
-                    "--checkpoint",
-                    learned["best_checkpoint"],
-                    "--device",
-                    device_from_training_config(manifest["effective_config"]["training"][method]),
-                ]
-            )
-        if method in dense_methods and not spec.requires_checkpoint:
-            _append_dense_args(argv, manifest)
+        projection = _stage_config_projection(manifest, StageId.RETRIEVE, method)
+        if projection is not None:
+            argv = _retrieve_argv_from_projection(projection)
+        else:
+            spec = get_method_spec(method)
+            argv = [
+                sys.executable,
+                "scripts/run_retrieval.py",
+                "--method",
+                method,
+                "--tasks",
+                manifest["artifacts"]["inputs"]["test"]["input"],
+                "--output",
+                manifest["artifacts"]["predictions"][method],
+                "--top_k",
+                str(manifest["effective_config"]["top_k"]),
+            ]
+            if spec.requires_graphs:
+                argv.extend(["--graphs", manifest["artifacts"]["graphs"]["test"]])
+            if spec.requires_graph_config:
+                argv.extend(["--graph_config", manifest["artifacts"]["tuned"][method]])
+            if spec.requires_checkpoint:
+                learned = manifest["artifacts"]["learned"][method]
+                argv.extend(
+                    [
+                        "--checkpoint",
+                        learned["best_checkpoint"],
+                        "--device",
+                        device_from_training_config(manifest["effective_config"]["training"][method]),
+                    ]
+                )
+            if method in dense_methods and not spec.requires_checkpoint:
+                _append_dense_args(argv, manifest)
         commands.append(StageCommand(stage=StageId.RETRIEVE, method=method, argv=argv))
     return commands
 
 
 def build_evaluate_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
-    return [
-        StageCommand(
-            stage=StageId.EVALUATE,
-            method=method,
-            argv=[
+    commands: list[StageCommand] = []
+    for method in methods:
+        projection = _stage_config_projection(manifest, StageId.EVALUATE, method)
+        if projection is not None:
+            io = projection["io"]
+            argv = [
+                sys.executable,
+                "scripts/evaluate_retrieval.py",
+                "--pred",
+                str(io["predictions"]),
+                "--labels",
+                str(io["labels"]),
+                "--graphs",
+                str(io["graphs"]),
+                "--output",
+                str(io["output"]),
+            ]
+            if io.get("failure_cases_output") is not None:
+                argv.extend(["--failure_cases_output", str(io["failure_cases_output"])])
+            argv.extend(["--failure_case_limit", str(projection["failure_case_limit"])])
+        else:
+            argv = [
                 sys.executable,
                 "scripts/evaluate_retrieval.py",
                 "--pred",
@@ -310,10 +373,9 @@ def build_evaluate_commands(manifest: dict[str, Any], methods: Sequence[str]) ->
                 manifest["artifacts"]["failure_cases"][method],
                 "--failure_case_limit",
                 "50",
-            ],
-        )
-        for method in methods
-    ]
+            ]
+        commands.append(StageCommand(stage=StageId.EVALUATE, method=method, argv=argv))
+    return commands
 
 
 def build_aggregate_command(
@@ -354,3 +416,55 @@ def _append_dense_args(argv: list[str], manifest: dict[str, Any]) -> None:
             str(config["passage_prefix"]),
         ]
     )
+
+
+def _stage_config_projection(manifest: dict[str, Any], stage: StageId, method: str) -> dict[str, Any] | None:
+    value = manifest.get("stage_configs", {}).get(stage.value, {}).get(method)
+    return value if isinstance(value, dict) else None
+
+
+def _retrieve_argv_from_projection(projection: dict[str, Any]) -> list[str]:
+    io = projection["io"]
+    job = projection["job"]
+    argv = [
+        sys.executable,
+        "scripts/run_retrieval.py",
+        "--method",
+        str(job["method"]),
+        "--tasks",
+        str(io["tasks"]),
+        "--output",
+        str(io["output"]),
+        "--top_k",
+        str(job["top_k"]),
+    ]
+    if io.get("graphs") is not None:
+        argv.extend(["--graphs", str(io["graphs"])])
+    if io.get("graph_config") is not None:
+        argv.extend(["--graph_config", str(io["graph_config"])])
+    if job.get("checkpoint") is not None:
+        argv.extend(["--checkpoint", str(job["checkpoint"]), "--device", str(job["device"])])
+
+    encoder = _retrieval_projection_encoder(job)
+    if encoder is not None:
+        argv.extend(
+            [
+                "--encoder_model",
+                str(encoder["model_name"]),
+                "--query_prefix",
+                str(encoder["query_prefix"]),
+                "--passage_prefix",
+                str(encoder["passage_prefix"]),
+            ]
+        )
+    return argv
+
+
+def _retrieval_projection_encoder(job: dict[str, Any]) -> dict[str, Any] | None:
+    encoder = job.get("encoder")
+    if isinstance(encoder, dict):
+        return encoder
+    seed = job.get("seed")
+    if isinstance(seed, dict) and isinstance(seed.get("encoder"), dict):
+        return seed["encoder"]
+    return None

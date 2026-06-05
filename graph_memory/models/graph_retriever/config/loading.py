@@ -46,6 +46,8 @@ def resolve_trainable_training_config(
 ) -> JsonConfig:
     if "defaults" in config:
         resolved = _resolve_profiled_config(config, profile=profile)
+    elif "profiles" in config:
+        resolved = _resolve_schema_v2_config(config, profile=profile)
     else:
         resolved = dict(config)
         if profile is not None:
@@ -74,7 +76,7 @@ def negative_sampling_config_from_training_config(config: JsonConfig) -> Negativ
     return sampling_config
 
 
-def trainable_training_config_from_training_config(config: JsonConfig) -> TrainableTrainingConfig:
+def trainable_training_config_from_training_config(config: JsonConfig) -> TrainableTrainingConfig: # HUMAN REVIEW POINT: 是不是  #TAG depreciate了？我要求过所有config相关逻辑都走config模块。
     optimization = _required_section(config, "optimization")
     training_config = TrainableTrainingConfig(
         optimizer_name=str(optimization.get("optimizer", optimization.get("optimizer_name", "AdamW"))),
@@ -142,6 +144,61 @@ def _resolve_profiled_config(config: JsonConfig, *, profile: str | None) -> Json
         "profile": profile_name,
         **resolved,
     }
+
+
+def _resolve_schema_v2_config(config: JsonConfig, *, profile: str | None) -> JsonConfig:
+    method = config.get("method")
+    if not isinstance(method, str) or not method:
+        raise ValueError("Training config requires a non-empty method.")
+    profile_name = profile or str(config.get("default_profile", "quick"))
+    profiles = config.get("profiles", {})
+    if not isinstance(profiles, dict):
+        raise ValueError("Training config profiles must be an object.")
+    if profile_name not in profiles:
+        raise ValueError(f"Unknown training config profile: {profile_name}")
+    profile_config = profiles[profile_name]
+    if not isinstance(profile_config, dict):
+        raise ValueError(f"Training config profile must be an object: {profile_name}")
+    base = {
+        key: value
+        for key, value in config.items()
+        if key not in {"default_profile", "profiles"}
+    }
+    resolved = merge_config(base, profile_config)
+    return _compat_training_config_from_schema_v2(resolved, profile_name=profile_name)
+
+
+def _compat_training_config_from_schema_v2(config: JsonConfig, *, profile_name: str) -> JsonConfig:
+    return {
+        "schema_version": config.get("schema_version", 2),
+        "method": config["method"],
+        "profile": profile_name,
+        "encoder": _compat_encoder_from_schema_v2(_required_section(config, "encoder")),
+        "model": dict(_required_section(config, "model")),
+        "optimization": _compat_optimization_from_schema_v2(_required_section(config, "trainer")),
+        "pair_sampling": dict(_required_section(config, "pairs")),
+        "reporting": dict(config.get("reporting", {})),
+        "selection": dict(config.get("selection", {})),
+    }
+
+
+def _compat_encoder_from_schema_v2(encoder: JsonConfig) -> JsonConfig:
+    value = dict(encoder)
+    model = value.pop("model_name", None)
+    if model is not None:
+        value["model"] = model
+    return value
+
+
+def _compat_optimization_from_schema_v2(trainer: JsonConfig) -> JsonConfig:
+    value = dict(trainer)
+    optimizer = value.pop("optimizer_name", None)
+    if optimizer is not None:
+        value["optimizer"] = optimizer
+    pos_weight = value.pop("pos_weight_enabled", None)
+    if pos_weight is not None:
+        value["pos_weight"] = pos_weight
+    return value
 
 
 def _validate_required_sections(config: JsonConfig, required_sections: Sequence[str]) -> None:

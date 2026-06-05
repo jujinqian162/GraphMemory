@@ -328,18 +328,7 @@ python scripts/run_retrieval.py `
 
 The retrieval-only path reads only task inputs, graphs, and checkpoint. It must not read labels or train pairs.
 
-Dedicated Phase 2 script:
-
-```powershell
-python scripts/run_trainable_retrieval.py `
-  --tasks data/hotpotqa/processed/test_memory_tasks.input.json `
-  --graphs data/hotpotqa/processed/test_graphs.json `
-  --checkpoint runs/manual_rgcn/checkpoints/best.pt `
-  --output results/ranked_results_dense_rgcn_graph_retriever.json `
-  --top_k 10
-```
-
-The shared retrieval script also accepts the registered method:
+Use the shared retrieval script with the registered trainable method:
 
 ```powershell
 python scripts/run_retrieval.py `
@@ -394,4 +383,4 @@ Expected: no matches.
 
 ## Review The Code
 
-After running or modifying the pipeline, use `docs/40-operations/implementation-handoff.md` to review the code entry points, control flow, abstractions, tests, and current package ownership. Public commands above are unchanged by the core package refactor; complete retrieval run orchestration lives under `graph_memory/application/`, while retrieval implementation lives under domain packages such as `graph_memory/retrieval/`, `graph_memory/graphs/`, `graph_memory/training_pairs/`, and `graph_memory/models/graph_retriever/`.
+After running or modifying the pipeline, use `docs/40-operations/implementation-handoff.md` to review the code entry points, control flow, abstractions, tests, and current package ownership. Public commands above are unchanged by the core package refactor; complete retrieval run orchestration lives under `graph_memory/stages/`, while retrieval implementation lives under domain packages such as `graph_memory/retrieval/`, `graph_memory/graphs/`, `graph_memory/training_pairs/`, and `graph_memory/models/graph_retriever/`.

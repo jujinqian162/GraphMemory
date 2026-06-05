@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES, AblationSuitePatch, AblationVariantPatch
 from graph_memory.retrieval_registry import get_supported_methods
 from scripts.workflow.types import (
     AblationSuiteSpec,
@@ -22,70 +23,28 @@ METHOD_WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
     "dense_rgcn_graph_retriever": RGCN_WORKFLOW,
 }
 
-_MODEL_GRAPH_VIEW = frozenset({ChangeDimension.MODEL_GRAPH_VIEW})
-_MODEL_STRUCTURE = frozenset({ChangeDimension.MODEL_STRUCTURE})
-_PAIR_SAMPLING = frozenset({ChangeDimension.PAIR_SAMPLING})
 
-RGCN_ABLATION_SUITE = AblationSuiteSpec(
-    method="dense_rgcn_graph_retriever",
-    variants=(
-        VariantSpec(RgcnAblationVariant.FULL_RGCN, frozenset(), baseline_alias=True),
-        VariantSpec(
-            RgcnAblationVariant.WO_BRIDGE,
-            _MODEL_GRAPH_VIEW,
-            {"model": {"ablation": RgcnAblationVariant.WO_BRIDGE.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_ENTITY_OVERLAP,
-            _MODEL_GRAPH_VIEW,
-            {"model": {"ablation": RgcnAblationVariant.WO_ENTITY_OVERLAP.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_SEQUENTIAL,
-            _MODEL_GRAPH_VIEW,
-            {"model": {"ablation": RgcnAblationVariant.WO_SEQUENTIAL.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_QUERY_OVERLAP,
-            _MODEL_GRAPH_VIEW,
-            {"model": {"ablation": RgcnAblationVariant.WO_QUERY_OVERLAP.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_GRAPH,
-            _MODEL_STRUCTURE,
-            {"model": {"ablation": RgcnAblationVariant.WO_GRAPH.value, "num_layers": 0}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_EDGE_TYPE,
-            _MODEL_STRUCTURE,
-            {"model": {"ablation": RgcnAblationVariant.WO_EDGE_TYPE.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_EDGE_WEIGHT,
-            _MODEL_STRUCTURE,
-            {"model": {"ablation": RgcnAblationVariant.WO_EDGE_WEIGHT.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_SEED_SCORE,
-            _MODEL_STRUCTURE,
-            {"model": {"ablation": RgcnAblationVariant.WO_SEED_SCORE.value}},
-        ),
-        VariantSpec(
-            RgcnAblationVariant.WO_HARD_NEGATIVES,
-            _PAIR_SAMPLING,
-            {
-                "pair_sampling": {
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 0,
-                    "hard_graph_neighbor_per_positive": 0,
-                }
-            },
-        ),
-    ),
-)
+def _project_ablation_suite(suite: AblationSuitePatch) -> AblationSuiteSpec:
+    return AblationSuiteSpec(
+        method=suite.method,
+        variants=tuple(_project_variant_patch(variant) for variant in suite.variants),
+    )
+
+
+def _project_variant_patch(variant: AblationVariantPatch) -> VariantSpec:
+    return VariantSpec(
+        identifier=RgcnAblationVariant(variant.identifier),
+        changed_dimensions=frozenset(ChangeDimension(dimension) for dimension in variant.changed_dimensions),
+        training_config_override=variant.training_config_override,
+        baseline_alias=variant.baseline_alias,
+    )
+
+
+RGCN_ABLATION_SUITE = _project_ablation_suite(ABLATION_SUITE_PATCHES["dense_rgcn_graph_retriever"])
 
 ABLATION_SUITE_REGISTRY: dict[str, AblationSuiteSpec] = {
-    RGCN_ABLATION_SUITE.method: RGCN_ABLATION_SUITE,
+    method: _project_ablation_suite(suite)
+    for method, suite in ABLATION_SUITE_PATCHES.items()
 }
 
 

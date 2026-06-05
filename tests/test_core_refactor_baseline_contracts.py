@@ -9,14 +9,15 @@ from typing import Any, Sequence
 import numpy as np
 import pytest
 
-from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval as run_retrieval_app
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.graphs.config import GraphBuildConfig
 from graph_memory.graphs.construction.builder import build_graph
 from graph_memory.datasets.hotpotqa import convert_hotpotqa_example, parse_hotpotqa_example
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
-from graph_memory.retrieval.requests import DenseRuntime
+from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
+from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
+from graph_memory.stages.retrieve import run_retrieve_stage
 from scripts.workflow.manifest import initialize_experiment
 from scripts.workflow.planner import build_stage_plan
 from scripts.workflow.types import StageId
@@ -39,23 +40,32 @@ def run_retrieval(
     dense_encoder=None,
     graph_config=None,
 ):
-    return run_retrieval_app(
-        RunRetrievalRequest(
-            method=method,
-            task_inputs=task_inputs,
-            graphs=graphs,
-            top_k=top_k,
-            dense_runtime=DenseRuntime(
-                config=DenseConfig(
-                    model_name=encoder_model,
-                    query_prefix=query_prefix,
-                    passage_prefix=passage_prefix,
-                ),
-                encoder=dense_encoder,
-            ),
-            graph_config=graph_config,
-        )
+    job = RETRIEVAL_REGISTRY.settings_from_runtime(
+        method=method,
+        top_k=top_k,
+        dense_config=DenseConfig(
+            model_name=encoder_model,
+            query_prefix=query_prefix,
+            passage_prefix=passage_prefix,
+        ),
+        graph_config=graph_config,
     )
+    result = run_retrieve_stage(
+        RetrieveStageConfig(
+            io=RetrieveIO(
+                tasks=Path("memory_tasks.input.json"),
+                graphs=Path("graphs.json") if graphs is not None else None,
+                output=Path("ranked.json"),
+                summary=Path("ranked.run_summary.json"),
+            ),
+            job=job,
+        ),
+        task_inputs=task_inputs,
+        graphs=graphs,
+        graph_config=graph_config,
+        dense_encoder=dense_encoder,
+    )
+    return result.predictions
 
 
 def test_public_script_parser_contracts_are_frozen() -> None:
@@ -65,7 +75,6 @@ def test_public_script_parser_contracts_are_frozen() -> None:
     import scripts.evaluate_retrieval as evaluate_retrieval
     import scripts.prepare_hotpotqa as prepare_hotpotqa
     import scripts.run_retrieval as run_retrieval_script
-    import scripts.run_trainable_retrieval as run_trainable_retrieval
     import scripts.train_graph_retriever as train_graph_retriever
     import scripts.tune_graph_rerank as tune_graph_rerank
 
@@ -165,14 +174,6 @@ def test_public_script_parser_contracts_are_frozen() -> None:
             "device": _store("--device", default="cpu"),
             "config": _store("--config"),
         },
-        "scripts.run_trainable_retrieval": {
-            "tasks": _store("--tasks", required=True),
-            "graphs": _store("--graphs", required=True),
-            "checkpoint": _store("--checkpoint", required=True),
-            "output": _store("--output", required=True),
-            "top_k": _store("--top_k", default=10, value_type="int"),
-            "device": _store("--device", default="cpu"),
-        },
         "scripts.evaluate_retrieval": {
             "pred": _store("--pred", required=True),
             "labels": _store("--labels"),
@@ -199,7 +200,6 @@ def test_public_script_parser_contracts_are_frozen() -> None:
         "scripts.tune_graph_rerank": _parser_contract(tune_graph_rerank.build_parser()),
         "scripts.build_train_pairs": _parser_contract(build_train_pairs.build_parser()),
         "scripts.train_graph_retriever": _parser_contract(train_graph_retriever.build_parser()),
-        "scripts.run_trainable_retrieval": _parser_contract(run_trainable_retrieval.build_parser()),
         "scripts.evaluate_retrieval": _parser_contract(evaluate_retrieval.build_parser()),
         "scripts.aggregate_tables": _parser_contract(aggregate_tables.build_parser()),
     }

@@ -189,6 +189,74 @@ def test_initialize_experiment_merges_profile_and_cli_overrides(tmp_path):
     assert manifest_json["effective_config"]["top_k"] == 5
 
 
+def test_manifest_writes_resolved_typed_stage_config_projections(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_experiment_config(config_path, raw_path)
+
+    manifest = initialize_experiment(
+        "quick_valid_100",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=["bm25"],
+    )
+    run_dir = tmp_path / "runs" / "quick_valid_100"
+    manifest_json = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["stage_configs"]["retrieve"]["bm25"] == {
+        "io": {
+            "tasks": (run_dir / "inputs" / "test.input.json").as_posix(),
+            "graphs": None,
+            "output": (run_dir / "predictions" / "test.bm25.ranked.json").as_posix(),
+            "summary": (run_dir / "predictions" / "test.bm25.ranked.run_summary.json").as_posix(),
+            "graph_config": None,
+            "encoder_model": "intfloat/e5-base-v2",
+            "query_prefix": "query: ",
+            "passage_prefix": "passage: ",
+        },
+        "job": {"method": "bm25", "top_k": 10},
+    }
+    assert manifest["stage_configs"]["evaluate"]["bm25"]["io"] == {
+        "predictions": (run_dir / "predictions" / "test.bm25.ranked.json").as_posix(),
+        "labels": (run_dir / "inputs" / "test.labels.json").as_posix(),
+        "graphs": (run_dir / "graphs" / "test.graphs.json").as_posix(),
+        "output": (run_dir / "metrics" / "test.bm25.metrics.csv").as_posix(),
+        "failure_cases_output": (run_dir / "debug" / "failure_cases_bm25.jsonl").as_posix(),
+    }
+    assert manifest_json["stage_configs"] == manifest["stage_configs"]
+
+
+def test_stage_plan_prefers_stage_config_projection_but_keeps_old_manifest_fallback(tmp_path):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_experiment_config(config_path, raw_path)
+    manifest = initialize_experiment(
+        "quick_valid_100",
+        config=load_experiment_config(config_path),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=["bm25"],
+    )
+    projected_prediction = tmp_path / "projected" / "projection-wins.ranked.json"
+    manifest["stage_configs"]["retrieve"]["bm25"]["io"]["output"] = projected_prediction.as_posix()
+    manifest["stage_configs"]["evaluate"]["bm25"]["io"]["predictions"] = projected_prediction.as_posix()
+    manifest["artifacts"]["predictions"]["bm25"] = (tmp_path / "legacy" / "legacy-loses.ranked.json").as_posix()
+
+    projected_commands = build_stage_plan(manifest, stages=["retrieve", "evaluate"], methods=["bm25"])
+    rendered_projected = [" ".join(command.argv) for command in projected_commands]
+
+    assert any(projected_prediction.as_posix() in command for command in rendered_projected)
+    assert not any("legacy-loses.ranked.json" in command for command in rendered_projected)
+
+    legacy_manifest = dict(manifest)
+    legacy_manifest.pop("stage_configs")
+    legacy_commands = build_stage_plan(legacy_manifest, stages=["retrieve", "evaluate"], methods=["bm25"])
+    rendered_legacy = [" ".join(command.argv) for command in legacy_commands]
+
+    assert any("legacy-loses.ranked.json" in command for command in rendered_legacy)
+
+
 def test_training_config_resolves_profile_over_defaults(tmp_path):
     raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
     training_config_path = tmp_path / "configs" / "training" / TRAINABLE_METHOD / "base.json"

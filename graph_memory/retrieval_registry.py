@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from graph_memory.retrieval.catalog import (
+from graph_memory.registry.projections import (
     METHOD_REGISTRY,
     RetrievalMethodSpec,
     get_graph_rerank_methods,

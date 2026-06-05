@@ -4,12 +4,15 @@ import graph_memory.retrieval.methods.graph_rerank.engine as rerank_module
 import graph_memory.retrieval as retrieval_module
 import graph_memory.experiment as experiment_module
 from dataclasses import asdict, fields
+from pathlib import Path
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
-from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval as run_retrieval_app
+from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
+from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
+from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.retrieval.methods.graph_rerank import (
     graph_rerank,
     graph_rerank_with_breakdown,
@@ -20,7 +23,7 @@ from graph_memory.retrieval.methods.graph_rerank import (
 from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.retrieval.requests import DenseRuntime, TrainableGraphRuntime
+from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval_registry import (
     METHOD_REGISTRY,
     get_graph_rerank_methods,
@@ -90,33 +93,34 @@ def run_retrieval(
     seed_signal_provider=None,
     device="cpu",
 ):
-    return run_retrieval_app(
-        RunRetrievalRequest(
-            method=method,
-            task_inputs=task_inputs,
-            graphs=graphs,
-            top_k=top_k,
-            dense_runtime=DenseRuntime(
-                config=DenseConfig(
-                    model_name=encoder_model,
-                    query_prefix=query_prefix,
-                    passage_prefix=passage_prefix,
-                ),
-                encoder=dense_encoder,
-            ),
-            graph_config=graph_config,
-            trainable_runtime=(
-                TrainableGraphRuntime(
-                    checkpoint_path=checkpoint_path,
-                    device=device,
-                    text_embedding_provider=text_embedding_provider,
-                    seed_signal_provider=seed_signal_provider,
-                )
-                if checkpoint_path is not None
-                else None
-            ),
-        )
+    job = RETRIEVAL_REGISTRY.settings_from_runtime(
+        method=method,
+        top_k=top_k,
+        dense_config=DenseConfig(
+            model_name=encoder_model,
+            query_prefix=query_prefix,
+            passage_prefix=passage_prefix,
+        ),
+        graph_config=graph_config,
+        checkpoint=checkpoint_path,
+        device=device,
     )
+    result = run_retrieve_stage(
+        RetrieveStageConfig(
+            io=RetrieveIO(
+                tasks=Path("memory_tasks.input.json"),
+                graphs=Path("graphs.json") if graphs is not None else None,
+                output=Path("ranked.json"),
+                summary=Path("ranked.run_summary.json"),
+            ),
+            job=job,
+        ),
+        task_inputs=task_inputs,
+        graphs=graphs,
+        graph_config=graph_config,
+        dense_encoder=dense_encoder,
+    )
+    return result.predictions
 
 
 def tune_graph_rerank(

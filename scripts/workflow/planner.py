@@ -274,6 +274,9 @@ def _materialize_variant_manifest(manifest: dict[str, Any], method: str, record:
     config_path = Path(artifacts["effective_training_config"])
     if config_path.exists():
         resolved["effective_config"]["training"][method] = read_json(config_path)
+    from scripts.workflow.stage_configs import attach_stage_config_projections
+
+    attach_stage_config_projections(resolved)
     return resolved
 
 

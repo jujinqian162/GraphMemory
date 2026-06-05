@@ -4,18 +4,25 @@ import argparse
 import logging
 import sys
 import time
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval
+from graph_memory.config import CONFIG_LOADER
+from graph_memory.contracts.common import JsonObject, JsonValue
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.retrieval.requests import DenseRuntime, TrainableGraphRuntime
-from graph_memory.retrieval_registry import get_supported_methods
+from graph_memory.registry import Registry
+from graph_memory.registry.retrieval import (
+    CheckpointGraphRetrievalSettings,
+    DenseRetrievalSettings,
+    GraphRerankRetrievalSettings,
+    RetrievalJobSettings,
+)
+from graph_memory.registry.stage_configs import RetrieveStageConfig
+from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.validation import (
     validate_memory_task_inputs,
     validate_ranked_results,
@@ -24,79 +31,34 @@ from graph_memory.validation import (
 LOGGER = logging.getLogger("run_retrieval")
 
 
-@dataclass(frozen=True)
-class RunRetrievalArgs:
-    method: str
-    tasks: str
-    graphs: str | None
-    output: str
-    top_k: int
-    encoder_model: str
-    query_prefix: str
-    passage_prefix: str
-    graph_config: str | None
-    checkpoint: str | None
-    device: str
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+    config = CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
 
     started_at = now_iso()
     start_time = time.perf_counter()
-    output_path = Path(args.output)
-    summary_path = output_path.with_name(f"{output_path.stem}.run_summary.json")
-    graph_config = read_json(args.graph_config) if args.graph_config is not None else None
-    effective_config = {
-        "method": args.method,
-        "top_k": args.top_k,
-        "encoder_model": args.encoder_model,
-        "query_prefix": args.query_prefix,
-        "passage_prefix": args.passage_prefix,
-        "graph_config_path": args.graph_config,
-        "graph_config": graph_config,
-        "checkpoint": args.checkpoint,
-        "device": args.device,
-    }
-    inputs = {"tasks": args.tasks}
-    if args.graphs is not None:
-        inputs["graphs"] = args.graphs
-    outputs = {"predictions": args.output, "run_summary": str(summary_path)}
+    summary_path = config.io.summary
+    graph_config = _read_graph_config(config.io.graph_config)
+    effective_config = _effective_config(config, graph_config)
+    inputs = {"tasks": str(config.io.tasks)}
+    if config.io.graphs is not None:
+        inputs["graphs"] = str(config.io.graphs)
+    outputs = {"predictions": str(config.io.output), "run_summary": str(summary_path)}
 
     try:
-        task_inputs = read_json(args.tasks)
+        task_inputs = read_json(config.io.tasks)
         validate_memory_task_inputs(task_inputs)
-        graphs = read_json(args.graphs) if args.graphs is not None else []
-        dense_runtime = DenseRuntime(
-            config=DenseConfig(
-                model_name=args.encoder_model,
-                query_prefix=args.query_prefix,
-                passage_prefix=args.passage_prefix,
-            )
+        graphs = read_json(config.io.graphs) if config.io.graphs is not None else []
+        result = run_retrieve_stage(
+            config,
+            task_inputs=task_inputs,
+            graphs=graphs,
+            graph_config=graph_config,
         )
-        predictions = run_retrieval(
-            RunRetrievalRequest(
-                method=args.method,
-                task_inputs=task_inputs,
-                graphs=graphs,
-                top_k=args.top_k,
-                dense_runtime=dense_runtime,
-                graph_config=graph_config,
-                trainable_runtime=(
-                    TrainableGraphRuntime(
-                        checkpoint_path=args.checkpoint,
-                        device=args.device,
-                        dense_runtime=dense_runtime,
-                    )
-                    if args.checkpoint is not None
-                    else None
-                ),
-            )
-        )
+        predictions = result.predictions
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         validate_ranked_results(predictions, inputs_by_task_id)
-        write_json(args.output, predictions)
+        write_json(config.io.output, predictions)
 
         avg_latency = (
             sum(prediction["latency_ms"] for prediction in predictions) / len(predictions)
@@ -117,8 +79,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             notes=[],
         )
         write_run_summary(summary_path, summary)
-        LOGGER.info("method=%s tasks=%s top_k=%s", args.method, len(task_inputs), args.top_k)
-        LOGGER.info("wrote predictions: %s", args.output)
+        LOGGER.info("method=%s tasks=%s top_k=%s", config.job.method.value, len(task_inputs), config.job.top_k)
+        LOGGER.info("wrote predictions: %s", config.io.output)
         LOGGER.info("wrote run summary: %s", summary_path)
         return 0
     except Exception as error:
@@ -142,36 +104,68 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run Phase 1 retrieval methods.")
-    parser.add_argument("--method", required=True, choices=get_supported_methods())
-    parser.add_argument("--tasks", required=True, help="Path to *_memory_tasks.input.json.")
-    parser.add_argument("--graphs", default=None, help="Path to *_graphs.json. Required for graph rerank methods.")
-    parser.add_argument("--output", required=True, help="Path to write ranked result JSON.")
-    parser.add_argument("--top_k", type=int, default=10)
-    parser.add_argument("--encoder_model", default="intfloat/e5-base-v2")
-    parser.add_argument("--query_prefix", default="query: ")
-    parser.add_argument("--passage_prefix", default="passage: ")
-    parser.add_argument("--graph_config", default=None, help="Path to graph rerank config JSON.")
-    parser.add_argument("--checkpoint", default=None, help="Path to trainable retriever checkpoint.")
-    parser.add_argument("--device", default="cpu", help="Torch device for trainable retriever inference.")
-    return parser
+    return Registry.configs.RETRIEVE.parser_factory()
 
 
-def parse_args(argv: Sequence[str] | None = None) -> RunRetrievalArgs:
-    namespace = build_parser().parse_args(argv)
-    return RunRetrievalArgs(
-        method=namespace.method,
-        tasks=namespace.tasks,
-        graphs=namespace.graphs,
-        output=namespace.output,
-        top_k=namespace.top_k,
-        encoder_model=namespace.encoder_model,
-        query_prefix=namespace.query_prefix,
-        passage_prefix=namespace.passage_prefix,
-        graph_config=namespace.graph_config,
-        checkpoint=namespace.checkpoint,
-        device=namespace.device,
-    )
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
+
+
+def _read_graph_config(path: Path | None) -> JsonObject | None:
+    if path is None:
+        return None
+    value = read_json(path)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"Graph rerank config must be a JSON object: {path}")
+    return cast(JsonObject, value)
+
+
+def _effective_config(config: RetrieveStageConfig, graph_config: JsonValue) -> JsonObject:
+    encoder = _encoder_settings(config)
+    return {
+        "method": config.job.method.value,
+        "top_k": config.job.top_k,
+        "encoder_model": encoder["model_name"],
+        "query_prefix": encoder["query_prefix"],
+        "passage_prefix": encoder["passage_prefix"],
+        "graph_config_path": str(config.io.graph_config) if config.io.graph_config is not None else None,
+        "graph_config": graph_config,
+        "checkpoint": _checkpoint_path(config.job),
+        "device": _device(config.job),
+    }
+
+
+def _encoder_settings(config: RetrieveStageConfig) -> dict[str, str]:
+    job = config.job
+    if isinstance(job, DenseRetrievalSettings):
+        return {
+            "model_name": job.encoder.model_name,
+            "query_prefix": job.encoder.query_prefix,
+            "passage_prefix": job.encoder.passage_prefix,
+        }
+    if isinstance(job, GraphRerankRetrievalSettings) and job.seed.encoder is not None:
+        return {
+            "model_name": job.seed.encoder.model_name,
+            "query_prefix": job.seed.encoder.query_prefix,
+            "passage_prefix": job.seed.encoder.passage_prefix,
+        }
+    return {
+        "model_name": config.io.encoder_model,
+        "query_prefix": config.io.query_prefix,
+        "passage_prefix": config.io.passage_prefix,
+    }
+
+
+def _checkpoint_path(job: RetrievalJobSettings) -> str | None:
+    if isinstance(job, CheckpointGraphRetrievalSettings):
+        return str(job.checkpoint)
+    return None
+
+
+def _device(job: RetrievalJobSettings) -> str:
+    if isinstance(job, CheckpointGraphRetrievalSettings):
+        return job.device
+    return "cpu"
 
 
 if __name__ == "__main__":

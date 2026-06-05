@@ -39,7 +39,6 @@ The workflow runner and low-level scripts remain the user-facing entry points:
 - `scripts/tune_graph_rerank.py`
 - `scripts/build_train_pairs.py`
 - `scripts/train_graph_retriever.py`
-- `scripts/run_trainable_retrieval.py`
 - `scripts/evaluate_retrieval.py`
 - `scripts/aggregate_tables.py`
 
@@ -49,7 +48,6 @@ The current core package is organized by domain ownership:
 
 ```text
 graph_memory/
-  application/
   contracts/
   datasets/
   evaluation/
@@ -58,6 +56,7 @@ graph_memory/
   models/
     graph_retriever/
   retrieval/
+  stages/
   text/
   training_pairs/
   validation/
@@ -84,14 +83,14 @@ They must stay thin. New core logic belongs in the domain package that owns the 
 
 | Package | Responsibility |
 |---|---|
-| `application/` | CLI-independent use-case orchestration such as complete retrieval runs. |
 | `contracts/` | Artifact-shaped aliases, `TypedDict`s, and stable data language. |
 | `validation/` | Fail-fast validators for task, graph, ranking, training-pair, metric, and model contracts. |
 | `infrastructure/` | JSON/CSV IO, run summaries, and runtime environment capture. |
 | `datasets/` | Dataset-specific parsing, conversion, compatibility records, and split helpers. |
 | `text/` | Tokenization, lexical scoring, and entity extraction helpers. |
 | `graphs/` | Graph build config, construction rules, graph index, statistics, and graph views. |
-| `retrieval/` | Retrieval contracts, method catalog, request resolution, method factory, execution service, flat methods, graph rerank, trainable adapter, and tuning. |
+| `stages/` | Stage-level orchestration between scripts, registry builders, and domain services. |
+| `retrieval/` | Retrieval contracts, compatibility catalog projection, execution service, flat methods, graph rerank, trainable adapter, and tuning. |
 | `training_pairs/` | Deterministic positive/negative train-pair construction and sampling config. |
 | `models/graph_retriever/` | Trainable graph retriever config, tensor batches, neural model, checkpointing, training, dev evaluation, and inference. |
 | `evaluation/` | Metric primitives, connectivity, aggregate evaluation service, table splitting, and failure cases. |
@@ -102,15 +101,15 @@ Allowed high-level flow:
 
 ```text
 scripts/*.py
-  -> graph_memory.application for complete use cases
+  -> graph_memory.stages for stage orchestration
   -> graph_memory domain packages for narrow operations
   -> graph_memory infrastructure / validation
 
 scripts/workflow/*
   -> graph_memory workflow integration ports
 
-application retrieval run
-  -> retrieval resolver / factory
+retrieve stage run
+  -> registry retrieval builders
   -> retrieval execution
 
 retrieval execution
@@ -125,7 +124,7 @@ trainable graph retrieval
 Important forbidden directions:
 
 - `contracts/` must not import algorithm packages.
-- `graphs/` must not import retrieval, training pairs, models, evaluation, application code, or scripts.
+- `graphs/` must not import retrieval, training pairs, models, evaluation, stage orchestration, or scripts.
 - `retrieval/` must not import scripts or workflow orchestration.
 - `models/graph_retriever/` must not import scripts or workflow orchestration.
 - `infrastructure/` must not import research-domain packages.
@@ -139,25 +138,27 @@ These rules are enforced by `tests/test_core_refactor_final_boundaries.py`.
 
 Public method metadata is implemented in `graph_memory/retrieval/catalog.py`. `graph_memory/retrieval_registry.py` is a thin workflow integration port that re-exports that catalog for scripts and workflow code.
 
-Complete retrieval runs are application use cases:
+Complete retrieval runs are retrieve stage use cases:
 
 ```text
 scripts/run_retrieval.py
-  -> application.run_retrieval.RunRetrievalRequest
-  -> retrieval.resolver
-  -> retrieval.factory
+  -> CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
+  -> stages.retrieve.run_retrieve_stage
+  -> registry.retrieval_builders
   -> retrieval.execution.service
 ```
 
-Runtime construction lives under `graph_memory/retrieval/`:
+Runtime construction is registry-owned, while retrieval execution and method behavior live under `graph_memory/retrieval/`:
 
 ```text
-retrieval.catalog
-  -> public method metadata
-retrieval.requests / retrieval.resolver
-  -> exact method-family build requests
-retrieval.factory
-  -> method object construction
+registry.retrieval
+  -> public method metadata and typed job settings
+registry.retrieval_builders
+  -> method object construction from job settings and dependencies
+retrieval.catalog / retrieval_registry.py
+  -> compatibility projections for workflow-facing method metadata
+retrieval.requests
+  -> shared dense and trainable runtime objects
 retrieval.execution.service
   -> execute an already-built RetrievalMethod and assemble artifacts
 retrieval.methods.flat
@@ -170,7 +171,7 @@ retrieval.tuning
   -> graph-rerank grid and selected-config service
 ```
 
-`RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed request/runtime objects at the application/resolver boundary. Once execution starts, it receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense or checkpoint parameters.
+`RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed stage config/runtime objects at the stage and registry-builder boundary. Once execution starts, it receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense or checkpoint parameters.
 
 ## Trainable Retriever Boundary
 

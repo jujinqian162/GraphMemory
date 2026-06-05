@@ -144,8 +144,8 @@ Rules:
 - Registry keys define supported public method names and are the single source for validator and CLI method choices.
 - Registry metadata declares whether graphs, graph rerank config, dense encoder args, or checkpoint are required.
 - `experiment.py`, tuning, and scripts use registry capability queries instead of copied method tuples or string matching such as `"dense" in method`.
-- Runtime builders live in `graph_memory/retrieval/factory.py` and owned method packages under `graph_memory/retrieval/methods/`.
-- Builders receive explicit build request/runtime objects, not raw CLI args.
+- Runtime builders live in `graph_memory/registry/retrieval_builders.py` and owned method packages under `graph_memory/retrieval/methods/`.
+- Builders receive explicit registry job settings/runtime objects, not raw CLI args.
 - Trainable graph retrieval is adapted through `graph_memory/retrieval/methods/trainable_graph.py`.
 - This is a local dispatch table, not dynamic plugin discovery.
 
@@ -285,20 +285,19 @@ Rules:
 
 ## Retrieval Run Use Case
 
-Complete retrieval runs belong to the application layer:
+Complete retrieval runs belong to the retrieve stage runner:
 
 ```text
-RunRetrievalRequest
-  -> resolve_method_build_request(...)
-  -> build_retrieval_method(...)
+RetrieveStageConfig
+  -> Registry.retrieval.build(...)
   -> retrieval.execution.service.run_retrieval(...)
 ```
 
 Rules:
 
-- Scripts may parse CLI flags such as `--encoder_model`, `--query_prefix`, and `--checkpoint`, but they must convert those values into typed request/runtime objects before calling the application use case.
-- `RunRetrievalRequest` is the broad use-case boundary. It may carry optional inputs for different method families, but dense settings are grouped inside `DenseRuntime`.
-- `RetrievalMethodResolveRequest` is the retrieval resolver boundary. Resolver output must be one precise method-family build request.
+- Scripts may expose CLI flags such as `--encoder_model`, `--query_prefix`, and `--checkpoint`, but `ConfigLoader.load(Registry.configs.RETRIEVE, argv)` converts those values into typed stage config before stage orchestration.
+- `RetrieveStageConfig` is the retrieval use-case boundary. It carries `io` plus method-specific `RetrievalJobSettings`, not a wide application request.
+- Registry-owned `RetrievalJobSettings` are the retrieval build boundary. The selected settings object must be precise for the method family.
 - `retrieval.execution.service.run_retrieval` only executes an already-built `RetrievalMethod`, measures latency, assembles ranked artifacts, and validates ranked results.
 - Retrieval execution does not construct dense runtime, parse graph config, load checkpoints, or accept loose `query_prefix` / `passage_prefix` parameters.
 
@@ -307,7 +306,7 @@ Rules:
 Batch orchestration belongs in service functions beneath scripts:
 
 ```text
-application.run_retrieval(RunRetrievalRequest) -> list[RankedResult]
+stages.retrieve.run_retrieve_stage(RetrieveStageConfig, loaded artifacts) -> RetrieveStageResult
 tune_graph_rerank(...) -> GraphRerankConfig
 aggregate_tables(...) -> table artifacts
 ```

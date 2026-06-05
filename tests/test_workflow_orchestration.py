@@ -122,6 +122,31 @@ def test_workflow_registry_covers_every_runtime_method() -> None:
     assert set(METHOD_WORKFLOW_REGISTRY) == set(get_supported_methods())
 
 
+def test_workflow_ablation_suite_projects_registry_owned_patch_semantics() -> None:
+    from graph_memory.registry.ablations import RGCN_ABLATION_PATCHES
+
+    workflow_variants = {variant.identifier.value: variant for variant in RGCN_ABLATION_SUITE.variants}
+    registry_variants = {variant.identifier: variant for variant in RGCN_ABLATION_PATCHES}
+
+    assert set(workflow_variants) == set(registry_variants)
+    for identifier, registry_variant in registry_variants.items():
+        workflow_variant = workflow_variants[identifier]
+        assert {dimension.value for dimension in workflow_variant.changed_dimensions} == set(
+            registry_variant.changed_dimensions
+        )
+        assert workflow_variant.training_config_override == registry_variant.training_config_override
+        assert workflow_variant.baseline_alias is registry_variant.baseline_alias
+
+
+def test_workflow_registry_does_not_own_rgcn_variant_patch_literals() -> None:
+    source = Path("scripts/workflow/registry.py").read_text(encoding="utf-8")
+
+    assert "WO_BRIDGE" not in source
+    assert "WO_HARD_NEGATIVES" not in source
+    assert '"model": {"ablation"' not in source
+    assert '"pair_sampling"' not in source
+
+
 def test_planner_validates_registry_before_building_commands(tmp_path, monkeypatch) -> None:
     config_path = _write_ablation_experiment_config(tmp_path, variants=["wo_graph"])
     manifest = initialize_experiment(

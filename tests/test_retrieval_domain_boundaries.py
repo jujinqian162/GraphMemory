@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import importlib.util
 import inspect
 from dataclasses import fields
@@ -19,8 +18,6 @@ LEGACY_RERANK_IMPORTS = {
 }
 NO_LOOSE_DENSE_PREFIX_MODULES = (
     PACKAGE_ROOT / "retrieval" / "execution" / "service.py",
-    PACKAGE_ROOT / "retrieval" / "factory.py",
-    PACKAGE_ROOT / "retrieval" / "resolver.py",
     PACKAGE_ROOT / "retrieval" / "tuning" / "service.py",
 )
 NO_LOOSE_EXECUTION_PARAMETERS = {
@@ -91,42 +88,31 @@ def test_dense_prefixes_do_not_cross_resolver_and_factory_as_loose_fields() -> N
     assert matches == []
 
 
-def test_application_run_retrieval_is_the_use_case_boundary() -> None:
-    module_spec = importlib.util.find_spec("graph_memory.application.run_retrieval")
-    assert module_spec is not None
+def test_application_run_retrieval_layer_is_removed_after_stage_migration() -> None:
+    assert not (PACKAGE_ROOT / "application").exists()
+    assert not _has_module("graph_memory.application")
+    assert not _has_module("graph_memory.application.run_retrieval")
 
-    module = importlib.import_module("graph_memory.application.run_retrieval")
-    run_retrieval = module.run_retrieval
-    request_type = module.RunRetrievalRequest
 
-    signature = inspect.signature(run_retrieval)
-    assert list(signature.parameters) == ["request"]
+def test_trainable_retrieval_uses_unified_retrieval_script_entry() -> None:
+    assert not (REPO_ROOT / "scripts" / "run_trainable_retrieval.py").exists()
+    assert not _has_module("scripts.run_trainable_retrieval")
 
-    request_fields = {field.name for field in fields(request_type)}
-    assert {"method", "task_inputs", "graphs", "top_k", "dense_runtime", "trainable_runtime"}.issubset(
-        request_fields
-    )
+    import scripts.run_retrieval as run_retrieval_script
+
+    action = run_retrieval_script.build_parser()._option_string_actions["--method"]
+    assert action.choices is not None
+    assert "dense_rgcn_graph_retriever" in action.choices
+
+
+def test_trainable_runtime_groups_checkpoint_dependencies_instead_of_loose_request_fields() -> None:
+    from graph_memory.retrieval.requests import TrainableGraphRuntime
+
+    request_fields = {field.name for field in fields(TrainableGraphRuntime)}
+
+    assert {"checkpoint_path", "text_embedding_provider", "seed_signal_provider", "device"}.issubset(request_fields)
     assert request_fields.isdisjoint(
-        {
-            "encoder_model",
-            "query_prefix",
-            "passage_prefix",
-            "checkpoint_path",
-            "text_embedding_provider",
-            "seed_signal_provider",
-            "device",
-        }
-    )
-
-
-def test_resolver_input_groups_trainable_runtime_instead_of_loose_checkpoint_fields() -> None:
-    from graph_memory.retrieval.requests import RetrievalMethodResolveRequest
-
-    request_fields = {field.name for field in fields(RetrievalMethodResolveRequest)}
-
-    assert "trainable_runtime" in request_fields
-    assert request_fields.isdisjoint(
-        {"checkpoint_path", "text_embedding_provider", "seed_signal_provider", "device"}
+        {"task_inputs", "graphs", "top_k", "graph_config"}
     )
 
 
@@ -137,3 +123,10 @@ def test_retrieval_execution_runs_built_method_without_resolving_runtime_paramet
 
     assert "retrieval_method" in parameter_names
     assert parameter_names.isdisjoint(NO_LOOSE_EXECUTION_PARAMETERS)
+
+
+def _has_module(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False

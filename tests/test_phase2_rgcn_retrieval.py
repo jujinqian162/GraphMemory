@@ -7,13 +7,14 @@ import torch
 from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.application.run_retrieval import RunRetrievalRequest, run_retrieval as run_retrieval_app
+from graph_memory.registry.retrieval import RetrievalDependencies
+from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
-from graph_memory.retrieval.requests import TrainableGraphRuntime
+from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval_registry import METHOD_REGISTRY, get_method_spec, get_supported_methods
 from graph_memory.validation import validate_ranked_results
 from scripts.run_retrieval import build_parser as build_retrieval_parser
-from scripts.run_trainable_retrieval import main as run_trainable_retrieval_main
+from scripts.run_retrieval import main as run_retrieval_cli_main
 from tests.test_phase2_rgcn_training import (
     FakeRetriever,
     FakeTextEmbeddingProvider,
@@ -47,24 +48,22 @@ def run_retrieval(
     seed_signal_provider=None,
     device="cpu",
 ):
-    return run_retrieval_app(
-        RunRetrievalRequest(
-            method=method,
+    settings = RETRIEVAL_REGISTRY.settings_from_runtime(
+        method=method,
+        top_k=top_k,
+        checkpoint=checkpoint_path,
+        device=device,
+    )
+    method_object = RETRIEVAL_REGISTRY.build(
+        settings,
+        RetrievalDependencies(
             task_inputs=task_inputs,
             graphs=graphs,
-            top_k=top_k,
-            trainable_runtime=(
-                TrainableGraphRuntime(
-                    checkpoint_path=checkpoint_path,
-                    device=device,
-                    text_embedding_provider=text_embedding_provider,
-                    seed_signal_provider=seed_signal_provider,
-                )
-                if checkpoint_path is not None
-                else None
-            ),
+            text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
         )
     )
+    return execute_retrieval(retrieval_method=method_object, task_inputs=task_inputs, top_k=top_k)
 
 
 def write_tiny_checkpoint(path: Path, *, model_config=None) -> None:
@@ -162,17 +161,27 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp
     ]
 
 
-def test_run_trainable_retrieval_cli_writes_standard_ranked_results(tmp_path: Path):
+def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path: Path):
     checkpoint_path = tmp_path / "best.pt"
     tasks_path = tmp_path / "test.input.json"
     graphs_path = tmp_path / "test.graphs.json"
     output_path = tmp_path / "ranked.json"
-    write_tiny_checkpoint(checkpoint_path)
+    checkpoint_path.write_bytes(b"placeholder")
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
 
-    exit_code = run_trainable_retrieval_main(
+    def fake_from_checkpoint(checkpoint_path_arg, *, graphs, device="cpu", **kwargs):
+        assert checkpoint_path_arg == checkpoint_path
+        assert device == "cuda:7"
+        assert graphs == tiny_graphs()
+        return TinyTrainableRetriever()
+
+    monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
+
+    exit_code = run_retrieval_cli_main(
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--tasks",
             str(tasks_path),
             "--graphs",
@@ -183,9 +192,9 @@ def test_run_trainable_retrieval_cli_writes_standard_ranked_results(tmp_path: Pa
             str(output_path),
             "--top_k",
             "2",
+            "--device",
+            "cuda:7",
         ],
-        text_embedding_provider=FakeTextEmbeddingProvider(),
-        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
     assert exit_code == 0

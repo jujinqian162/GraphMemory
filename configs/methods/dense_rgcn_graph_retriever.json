@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "method": "dense_rgcn_graph_retriever",
+  "default_profile": "quick",
+  "encoder": {
+    "model_name": "models/intfloat-e5-base-v2",
+    "passage_prefix": "passage: ",
+    "query_prefix": "query: "
+  },
+  "model": {
+    "ablation": "full_rgcn",
+    "dropout": 0.1,
+    "hidden_dim": 128,
+    "num_layers": 2
+  },
+  "trainer": {
+    "batch_size": 8,
+    "device": "cuda",
+    "epochs": 5,
+    "learning_rate": 0.0001,
+    "max_grad_norm": 1.0,
+    "optimizer_name": "AdamW",
+    "pos_weight_enabled": true,
+    "random_seed": 13
+  },
+  "pairs": {
+    "easy_random_per_positive": 2,
+    "hard_bm25_per_positive": 2,
+    "hard_dense_per_positive": 0,
+    "hard_graph_neighbor_per_positive": 1,
+    "hard_pool_size": 30,
+    "random_seed": 13
+  },
+  "reporting": {
+    "render_training_curves": true
+  },
+  "selection": {
+    "best_metric": "dev_composite",
+    "higher_is_better": true
+  },
+  "profiles": {
+    "quick": {
+      "trainer": {
+        "batch_size": 8,
+        "device": "cuda",
+        "epochs": 5
+      }
+    },
+    "smoke": {
+      "model": {
+        "hidden_dim": 32,
+        "num_layers": 1
+      },
+      "trainer": {
+        "batch_size": 1,
+        "device": "cuda",
+        "epochs": 1
+      },
+      "pairs": {
+        "easy_random_per_positive": 1,
+        "hard_bm25_per_positive": 1,
+        "hard_dense_per_positive": 0,
+        "hard_graph_neighbor_per_positive": 1
+      }
+    },
+    "full": {
+      "model": {
+        "hidden_dim": 256,
+        "num_layers": 2
+      },
+      "trainer": {
+        "batch_size": 16,
+        "device": "cuda",
+        "epochs": 10
+      },
+      "pairs": {
+        "hard_dense_per_positive": 2
+      }
+    },
+    "cloud-quick": {
+      "trainer": {
+        "batch_size": 64,
+        "device": "cuda",
+        "epochs": 5
+      }
+    },
+    "cloud-full": {
+      "model": {
+        "hidden_dim": 256,
+        "num_layers": 2
+      },
+      "trainer": {
+        "batch_size": 128,
+        "device": "cuda",
+        "epochs": 10
+      },
+      "pairs": {
+        "hard_dense_per_positive": 2
+      }
+    }
+  }
+}

@@ -123,7 +123,7 @@ def _retrieval_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
     expected_top_k = manifest["effective_config"]["top_k"]
     if (
         summary.get("status") == "success"
-        and summary.get("inputs", {}).get("tasks") == expected_tasks
+        and _same_path(summary.get("inputs", {}).get("tasks"), expected_tasks)
         and _same_path(summary.get("outputs", {}).get("predictions"), path)
         and summary.get("effective_config", {}).get("method") == method
         and summary.get("effective_config", {}).get("top_k") == expected_top_k

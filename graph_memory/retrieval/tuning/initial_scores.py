@@ -8,13 +8,13 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
+from graph_memory.registry.retrieval import RetrievalDependencies
+from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
 from graph_memory.retrieval.catalog import get_method_spec
 from graph_memory.retrieval.execution.results import assemble_ranked_result
-from graph_memory.retrieval.factory import build_seed_retriever
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig, ensure_graph_rerank_config
 from graph_memory.retrieval.methods.graph_rerank.method import GraphRerankMethod, PrecomputedInitialRetriever
-from graph_memory.retrieval.requests import DenseRuntime, SeedRetrieverBuildRequest
-from graph_memory.retrieval.resolver import seed_method_for
+from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.validation import (
     validate_graphs,
     validate_memory_task_inputs,
@@ -35,9 +35,9 @@ def precompute_initial_score_cache(
     task_inputs: list[MemoryTaskInput],
     dense_runtime: DenseRuntime,
 ) -> InitialScoreCache:
-    seed_method = seed_method_for(method)
-    seed_retriever = build_seed_retriever(
-        SeedRetrieverBuildRequest(method=seed_method, dense_runtime=dense_runtime)
+    seed_retriever = RETRIEVAL_REGISTRY.build_seed(
+        RETRIEVAL_REGISTRY.seed_settings_for_method(method, dense_runtime.config),
+        RetrievalDependencies(task_inputs=task_inputs, dense_encoder=dense_runtime.encoder),
     )
     scores_by_task_id: dict[str, dict[str, float]] = {}
     latency_ms_by_task_id: dict[str, float] = {}

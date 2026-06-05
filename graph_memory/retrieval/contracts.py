@@ -15,7 +15,7 @@ class RankedNode:
     score: Score
 
 
-class Retriever(Protocol):
+class Retriever(Protocol): # HUMAN REVIEW POINT: 这个Retriever的协议和下面RetrievalMethod Protocol职责感觉几乎是一样的，是否是职责的重复？
     @property
     def method_name(self) -> str:
         ...
@@ -34,5 +34,5 @@ class RetrievalMethod(Protocol):
     def name(self) -> str:
         ...
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]: # HUMAN REVIEW POINT: 这个Retrieval Protocol为什么知道GraphEdge这个细节？那flat method咋办？
         ...
