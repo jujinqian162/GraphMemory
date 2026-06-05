@@ -355,6 +355,7 @@ dependencies = [
     { name = "torch" },
     { name = "torchvision" },
     { name = "tqdm" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -378,6 +379,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.11,<2.12", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", specifier = ">=0.26,<0.27", index = "https://download.pytorch.org/whl/cu128" },
     { name = "tqdm", specifier = ">=4.66" },
+    { name = "typing-extensions", specifier = ">=4.10" },
 ]
 provides-extras = ["ner"]
 

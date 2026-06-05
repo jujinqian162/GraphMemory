@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, TypedDict
+
+from typing_extensions import NotRequired
 
 from graph_memory.contracts.common import NodeId, TaskId
 
