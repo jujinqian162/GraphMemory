@@ -23,6 +23,7 @@ from scripts.workflow import (
     list_stage_specs,
     load_experiment_config,
     load_manifest,
+    prune_manifest_completed_prefix,
     run_stage_plan,
     update_manifest_status,
 )
@@ -62,6 +63,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             variants=args.variant,
             ablations_only=args.ablations_only,
         )
+        if not args.no_cache:
+            commands = list(prune_manifest_completed_prefix(manifest, commands).commands)
         print(format_commands(commands, color=_color_enabled(args.color)))
         return 0
 
@@ -77,6 +80,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             variants=args.variant,
             ablations_only=args.ablations_only,
         )
+        if not args.no_cache:
+            commands = list(prune_manifest_completed_prefix(manifest, commands).commands)
         run_stage_plan(commands)
         update_manifest_status(manifest)
         return 0
@@ -128,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--from", dest="from_stage", default=None, help="Plan from this stage onward.")
     plan_parser.add_argument("--to", dest="to_stage", default=None, help="Plan through this stage.")
     plan_parser.add_argument("--color", choices=("auto", "always", "never"), default="auto")
+    plan_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Show all selected commands instead of pruning the completed prefix from live artifact status.",
+    )
     _add_ablation_selection_args(plan_parser)
 
     run_parser = subparsers.add_parser("run", help="Execute selected experiment stages.")
@@ -136,6 +146,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--from", dest="from_stage", default=None, help="Run from this stage onward.")
     run_parser.add_argument("--to", dest="to_stage", default=None, help="Run through this stage.")
     run_parser.add_argument("--force", action="store_true", help="Reinitialize an existing manifest before running.")
+    run_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Execute all selected commands instead of pruning the completed prefix from live artifact status.",
+    )
     _add_ablation_selection_args(run_parser)
 
     status_parser = subparsers.add_parser("status", help="Show experiment artifact status.")

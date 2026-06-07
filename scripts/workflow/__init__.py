@@ -19,6 +19,14 @@ from scripts.workflow.manifest import (
     load_manifest,
 )
 from scripts.workflow.planner import build_stage_plan, format_commands, run_stage_plan
+from scripts.workflow.resume import (
+    ResumeDecision,
+    WorkflowStatusKey,
+    command_status_key,
+    prune_completed_prefix,
+    prune_manifest_completed_prefix,
+    row_status_key,
+)
 from scripts.workflow.status import format_status, inspect_experiment_status, update_manifest_status
 from scripts.workflow.types import (
     ArtifactAlias,
@@ -49,11 +57,14 @@ __all__ = [
     "WorkflowId",
     "WorkflowSpec",
     "WorkflowStepSpec",
+    "ResumeDecision",
+    "WorkflowStatusKey",
     "VariantArtifactNamespace",
     "discover_ablation_variants",
     "build_stage_plan",
     "format_commands",
     "format_status",
+    "command_status_key",
     "get_ablation_suite",
     "get_workflow",
     "initialize_experiment",
@@ -65,7 +76,10 @@ __all__ = [
     "list_stage_specs",
     "load_experiment_config",
     "load_manifest",
+    "prune_completed_prefix",
+    "prune_manifest_completed_prefix",
     "run_stage_plan",
+    "row_status_key",
     "update_manifest_status",
     "validate_workflow_registry",
 ]

@@ -17,6 +17,8 @@ from scripts.workflow import (
     list_stage_specs,
     load_experiment_config,
     load_manifest,
+    prune_completed_prefix,
+    prune_manifest_completed_prefix,
     run_stage_plan,
     update_manifest_status,
 )
@@ -59,6 +61,8 @@ __all__ = [
     "list_stage_specs",
     "load_experiment_config",
     "load_manifest",
+    "prune_completed_prefix",
+    "prune_manifest_completed_prefix",
     "required_stages_for_methods",
     "resolve_experiment_config_path",
     "resolve_training_config_path",

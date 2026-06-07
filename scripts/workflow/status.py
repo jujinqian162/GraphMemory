@@ -15,18 +15,18 @@ def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
 
     rows: list[dict[str, str]] = []
     for split in ("train", "dev", "test"):
-        rows.append(_artifact_status(stage=StageId.PREPARE.value, split=split, path=manifest["artifacts"]["inputs"][split]["input"]))
-        rows.append(_artifact_status(stage=StageId.GRAPHS.value, split=split, path=manifest["artifacts"]["graphs"][split]))
+        rows.append(_prepare_status(manifest, split))
+        rows.append(_graph_status(manifest, split))
     for method in manifest["selected_methods"]:
         if _method_has_stage(method, StageId.PAIRS):
-            rows.append(_artifact_status(stage=StageId.PAIRS.value, method=method, path=manifest["artifacts"]["learned"][method]["train_pairs"]))
+            rows.append(_pair_status(manifest, method))
         if _method_has_stage(method, StageId.TRAIN):
-            rows.append(_artifact_status(stage=StageId.TRAIN.value, method=method, path=manifest["artifacts"]["learned"][method]["best_checkpoint"]))
+            rows.append(_train_status(manifest, method))
         if _method_has_stage(method, StageId.TUNE):
-            rows.append(_artifact_status(stage=StageId.TUNE.value, method=method, path=manifest["artifacts"]["tuned"][method]))
+            rows.append(_tune_status(manifest, method))
         rows.append(_retrieval_status(manifest, method))
-        rows.append(_artifact_status(stage=StageId.EVALUATE.value, method=method, path=manifest["artifacts"]["metrics"][method]))
-    rows.append(_artifact_status(stage=StageId.AGGREGATE.value, path=manifest["artifacts"]["tables"]["main"]))
+        rows.append(_evaluate_status(manifest, method))
+    rows.append(_aggregate_status(manifest))
 
     for method, variants in manifest.get("artifacts", {}).get("ablations", {}).items():
         for variant, record in variants.items():
@@ -85,6 +85,162 @@ def _artifact_or_alias_row(
     return row
 
 
+def _prepare_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
+    artifacts = manifest["artifacts"]["inputs"][split]
+    path = artifacts["input"]
+    output_path = Path(path)
+    split_config = manifest["effective_config"]["splits"][split]
+    raw_path = manifest["effective_config"]["raw"][split_config["source"]]
+    return _summary_status(
+        stage=StageId.PREPARE.value,
+        path=path,
+        summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
+        script="prepare_hotpotqa.py",
+        expected_inputs={"raw": raw_path},
+        expected_outputs={
+            "inputs": artifacts["input"],
+            "labels": artifacts["labels"],
+            "combined": artifacts["combined"],
+        },
+        expected_config={
+            "max_examples": split_config["max_examples"],
+            "seed": split_config["seed"],
+            "offset": split_config["offset"],
+        },
+        split=split,
+    )
+
+
+def _graph_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
+    path = manifest["artifacts"]["graphs"][split]
+    output_path = Path(path)
+    return _summary_status(
+        stage=StageId.GRAPHS.value,
+        path=path,
+        summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
+        script="build_graphs.py",
+        expected_inputs={"tasks": manifest["artifacts"]["inputs"][split]["input"]},
+        expected_outputs={"graphs": path},
+        expected_config=manifest["effective_config"]["graph"],
+        split=split,
+    )
+
+
+def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
+    learned = manifest["artifacts"]["learned"][method]
+    training_config = manifest["effective_config"]["training"][method]
+    return _summary_status(
+        stage=StageId.PAIRS.value,
+        path=learned["train_pairs"],
+        summary_path=Path(learned["train_pair_run_summary"]),
+        script="build_train_pairs.py",
+        expected_inputs={
+            "tasks": manifest["artifacts"]["inputs"]["train"]["input"],
+            "labels": manifest["artifacts"]["inputs"]["train"]["labels"],
+            "graphs": manifest["artifacts"]["graphs"]["train"],
+        },
+        expected_outputs={
+            "pairs": learned["train_pairs"],
+            "summary": learned["train_pair_summary"],
+        },
+        expected_config=dict(training_config.get("pair_sampling", {})),
+        method=method,
+    )
+
+
+def _train_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
+    learned = manifest["artifacts"]["learned"][method]
+    return _summary_status(
+        stage=StageId.TRAIN.value,
+        path=learned["best_checkpoint"],
+        summary_path=Path(learned["train_run_summary"]),
+        script="train_graph_retriever.py",
+        expected_inputs={
+            "train_tasks": manifest["artifacts"]["inputs"]["train"]["input"],
+            "train_labels": manifest["artifacts"]["inputs"]["train"]["labels"],
+            "train_graphs": manifest["artifacts"]["graphs"]["train"],
+            "train_pairs": learned["train_pairs"],
+            "dev_tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+            "dev_labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+            "dev_graphs": manifest["artifacts"]["graphs"]["dev"],
+        },
+        expected_outputs={
+            "best_checkpoint": learned["best_checkpoint"],
+            "metrics": learned["train_metrics"],
+        },
+        expected_config={"training_config_path": learned["effective_training_config"]},
+        method=method,
+    )
+
+
+def _tune_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
+    path = manifest["artifacts"]["tuned"][method]
+    output_path = Path(path)
+    expected_config: dict[str, object] = {
+        "method": method,
+        "top_k": manifest["effective_config"]["top_k"],
+        "grid_config": str(manifest["effective_config"]["search_spaces"]["graph_rerank"]),
+    }
+    return _summary_status(
+        stage=StageId.TUNE.value,
+        path=path,
+        summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
+        script="tune_graph_rerank.py",
+        expected_inputs={
+            "tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+            "labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+            "graphs": manifest["artifacts"]["graphs"]["dev"],
+            "grid_config": str(manifest["effective_config"]["search_spaces"]["graph_rerank"]),
+        },
+        expected_outputs={"selected_config": path},
+        expected_config=expected_config,
+        method=method,
+    )
+
+
+def _evaluate_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
+    path = manifest["artifacts"]["metrics"][method]
+    output_path = Path(path)
+    return _summary_status(
+        stage=StageId.EVALUATE.value,
+        path=path,
+        summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
+        script="evaluate_retrieval.py",
+        expected_inputs={
+            "predictions": manifest["artifacts"]["predictions"][method],
+            "labels": manifest["artifacts"]["inputs"]["test"]["labels"],
+            "graphs": manifest["artifacts"]["graphs"]["test"],
+        },
+        expected_outputs={
+            "metrics": path,
+            "failure_cases": manifest["artifacts"]["failure_cases"][method],
+        },
+        expected_config={"failure_case_limit": 50},
+        method=method,
+    )
+
+
+def _aggregate_status(manifest: dict[str, Any]) -> dict[str, str]:
+    table = manifest["artifacts"]["tables"]["main"]
+    table_path = Path(table)
+    expected_outputs = {
+        "main": manifest["artifacts"]["tables"]["main"],
+        "path": manifest["artifacts"]["tables"]["path"],
+        "efficiency": manifest["artifacts"]["tables"]["efficiency"],
+    }
+    if "ablation" in manifest["artifacts"]["tables"]:
+        expected_outputs["ablation"] = manifest["artifacts"]["tables"]["ablation"]
+    return _summary_status(
+        stage=StageId.AGGREGATE.value,
+        path=table,
+        summary_path=table_path.with_name("aggregate_tables.run_summary.json"),
+        script="aggregate_tables.py",
+        expected_inputs={"input_dir": (Path(manifest["paths"]["run_dir"]) / "metrics").as_posix()},
+        expected_outputs=expected_outputs,
+        expected_config={},
+    )
+
+
 def _artifact_status(
     *,
     stage: str,
@@ -98,6 +254,42 @@ def _artifact_status(
         row["method"] = method
     if split is not None:
         row["split"] = split
+    return row
+
+
+def _summary_status(
+    *,
+    stage: str,
+    path: str,
+    summary_path: Path,
+    script: str,
+    expected_inputs: dict[str, object],
+    expected_outputs: dict[str, object],
+    expected_config: dict[str, object],
+    method: str | None = None,
+    split: str | None = None,
+) -> dict[str, str]:
+    row = _artifact_status(stage=stage, method=method, split=split, path=path)
+    if row["state"] == ArtifactState.MISSING.value:
+        return row
+    if not summary_path.exists():
+        row["state"] = ArtifactState.STALE.value
+        return row
+    summary = read_json(summary_path)
+    if not isinstance(summary, dict):
+        row["state"] = ArtifactState.STALE.value
+        return row
+    if summary.get("status") != "success" or summary.get("script") != script:
+        row["state"] = ArtifactState.STALE.value
+        return row
+    if not _summary_section_matches(summary.get("inputs"), expected_inputs, path_values=True):
+        row["state"] = ArtifactState.STALE.value
+        return row
+    if not _summary_section_matches(summary.get("outputs"), expected_outputs, path_values=True):
+        row["state"] = ArtifactState.STALE.value
+        return row
+    if not _summary_section_matches(summary.get("effective_config"), expected_config, path_values=False):
+        row["state"] = ArtifactState.STALE.value
     return row
 
 
@@ -156,3 +348,18 @@ def _status_key(row: dict[str, str]) -> str:
 
 def _same_path(left: object, right: str | Path) -> bool:
     return isinstance(left, str) and Path(left) == Path(right)
+
+
+def _summary_section_matches(section: object, expected: dict[str, object], *, path_values: bool) -> bool:
+    if not isinstance(section, dict):
+        return not expected
+    for key, expected_value in expected.items():
+        if key not in section:
+            return False
+        actual_value = section[key]
+        if path_values and isinstance(expected_value, (str, Path)):
+            if not _same_path(actual_value, expected_value):
+                return False
+        elif actual_value != expected_value:
+            return False
+    return True

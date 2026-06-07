@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -524,6 +525,174 @@ def test_variant_plan_rendering_and_status_are_variant_qualified(tmp_path) -> No
     assert _variant_state(status, "pairs", "wo_graph") == "alias"
 
 
+def test_command_status_key_preserves_split_method_and_variant_qualifiers() -> None:
+    from scripts.workflow.resume import command_status_key
+    from scripts.workflow.types import StageCommand
+
+    split_key = command_status_key(StageCommand(stage=StageId.PREPARE, split="train", argv=[]))
+    variant_key = command_status_key(
+        StageCommand(
+            stage=StageId.RETRIEVE,
+            method=TRAINABLE_METHOD,
+            variant="wo_graph",
+            argv=[],
+        )
+    )
+
+    assert split_key.to_manifest_key() == "prepare:train"
+    assert variant_key.to_manifest_key() == f"retrieve:{TRAINABLE_METHOD}:wo_graph"
+
+
+def test_cache_resume_prunes_only_completed_prefix() -> None:
+    from scripts.workflow.resume import prune_completed_prefix
+    from scripts.workflow.types import StageCommand
+
+    commands = [
+        StageCommand(stage=StageId.PREPARE, split="train", argv=["prepare-train"]),
+        StageCommand(stage=StageId.PREPARE, split="dev", argv=["prepare-dev"]),
+        StageCommand(stage=StageId.GRAPHS, split="train", argv=["graphs-train"]),
+    ]
+    rows = [
+        {"stage": "prepare", "split": "train", "state": "complete", "path": "train.input.json"},
+        {"stage": "prepare", "split": "dev", "state": "missing", "path": "dev.input.json"},
+        {"stage": "graphs", "split": "train", "state": "complete", "path": "train.graphs.json"},
+    ]
+
+    decision = prune_completed_prefix(commands, rows)
+
+    assert decision.skipped == tuple(commands[:1])
+    assert decision.commands == tuple(commands[1:])
+    assert decision.first_pending == commands[1]
+
+
+def test_cache_resume_stale_status_stops_prefix_pruning() -> None:
+    from scripts.workflow.resume import prune_completed_prefix
+    from scripts.workflow.types import StageCommand
+
+    commands = [
+        StageCommand(stage=StageId.PREPARE, split="train", argv=["prepare-train"]),
+        StageCommand(stage=StageId.GRAPHS, split="train", argv=["graphs-train"]),
+        StageCommand(stage=StageId.RETRIEVE, method="bm25", argv=["retrieve-bm25"]),
+    ]
+    rows = [
+        {"stage": "prepare", "split": "train", "state": "complete", "path": "train.input.json"},
+        {"stage": "graphs", "split": "train", "state": "stale", "path": "train.graphs.json"},
+        {"stage": "retrieve", "method": "bm25", "state": "complete", "path": "test.bm25.ranked.json"},
+    ]
+
+    decision = prune_completed_prefix(commands, rows)
+
+    assert decision.skipped == (commands[0],)
+    assert decision.commands == tuple(commands[1:])
+    assert decision.first_pending == commands[1]
+
+
+def test_experiment_plan_prunes_cached_prefix_unless_no_cache(capsys) -> None:
+    tmp_path = _fresh_workflow_test_root("plan-cache-prefix")
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_trainable_experiment_config(config_path, raw_path, tmp_path / "unused_training.json")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["methods"] = ["bm25"]
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    run_root = tmp_path / "runs"
+    manifest = initialize_experiment(
+        "quick_valid_100",
+        config=config,
+        run_root=run_root,
+        profile="quick",
+        methods=["bm25"],
+    )
+    _write_prepare_success_summary(manifest, "train")
+
+    assert experiment_script.main(["plan", "quick_valid_100", "--run-root", str(run_root), "--methods", "bm25"]) == 0
+    cached_plan = capsys.readouterr().out
+    assert "prepare split=train" not in cached_plan
+    assert "prepare split=dev" in cached_plan
+
+    assert (
+        experiment_script.main(
+            ["plan", "quick_valid_100", "--run-root", str(run_root), "--methods", "bm25", "--no-cache"]
+        )
+        == 0
+    )
+    full_plan = capsys.readouterr().out
+    assert "prepare split=train" in full_plan
+
+
+def test_experiment_run_prunes_cached_prefix_unless_no_cache(monkeypatch) -> None:
+    tmp_path = _fresh_workflow_test_root("run-cache-prefix")
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_trainable_experiment_config(config_path, raw_path, tmp_path / "unused_training.json")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["methods"] = ["bm25"]
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    run_root = tmp_path / "runs"
+    manifest = initialize_experiment(
+        "quick_valid_100",
+        config=config,
+        run_root=run_root,
+        profile="quick",
+        methods=["bm25"],
+    )
+    _write_prepare_success_summary(manifest, "train")
+    executed: list[list[str | None]] = []
+
+    def capture_run(commands: list[object]) -> None:
+        executed.append([getattr(command, "split", None) or getattr(command, "method", None) for command in commands])
+
+    monkeypatch.setattr(experiment_script, "run_stage_plan", capture_run)
+    monkeypatch.setattr(experiment_script, "update_manifest_status", lambda manifest: manifest)
+
+    assert experiment_script.main(["run", "quick_valid_100", "--run-root", str(run_root), "--methods", "bm25"]) == 0
+    assert executed[-1][0] == "dev"
+
+    assert (
+        experiment_script.main(
+            ["run", "quick_valid_100", "--run-root", str(run_root), "--methods", "bm25", "--no-cache"]
+        )
+        == 0
+    )
+    assert executed[-1][0] == "train"
+
+
+def test_graph_status_uses_run_summary_provenance() -> None:
+    tmp_path = _fresh_workflow_test_root("graph-status-provenance")
+    config_path = _write_ablation_experiment_config(tmp_path, variants=["wo_graph"])
+    manifest = initialize_experiment(
+        "quick_rgcn_ablation",
+        config=json.loads(config_path.read_text(encoding="utf-8")),
+        run_root=tmp_path / "runs",
+        profile="quick",
+        methods=[TRAINABLE_METHOD],
+    )
+    graph_path = Path(manifest["artifacts"]["graphs"]["train"])
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    graph_path.write_text("[]", encoding="utf-8")
+    summary_path = graph_path.with_name(f"{graph_path.stem}.run_summary.json")
+    summary_path.write_text(
+        json.dumps(
+            {
+                "script": "build_graphs.py",
+                "status": "success",
+                "inputs": {"tasks": "runs/other/inputs/train.input.json"},
+                "outputs": {
+                    "graphs": graph_path.as_posix(),
+                    "graph_stats": graph_path.with_name(f"{graph_path.stem}.stats.json").as_posix(),
+                    "run_summary": summary_path.as_posix(),
+                },
+                "effective_config": manifest["effective_config"]["graph"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = inspect_experiment_status(manifest)
+
+    assert _split_state(status, "graphs", "train") == "stale"
+
+
 def test_experiment_cli_lists_and_filters_ablation_variants(tmp_path, capsys) -> None:
     assert experiment_script.main(["ablations", "list", "--method", TRAINABLE_METHOD]) == 0
     discovery_output = capsys.readouterr().out
@@ -647,6 +816,64 @@ def _write_ablation_experiment_config(tmp_path: Path, *, variants: list[str]) ->
 
 def _variant_state(status: list[dict[str, str]], stage: str, variant: str) -> str:
     return next(row["state"] for row in status if row["stage"] == stage and row.get("variant") == variant)
+
+
+def _split_state(status: list[dict[str, str]], stage: str, split: str) -> str:
+    return next(row["state"] for row in status if row["stage"] == stage and row.get("split") == split)
+
+
+def _fresh_workflow_test_root(name: str) -> Path:
+    root = Path("report/tmp/workflow-cache-resume-tests") / name
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    return root
+
+
+def _write_prepare_success_summary(manifest: dict[str, object], split: str) -> None:
+    artifacts = manifest["artifacts"]
+    assert isinstance(artifacts, dict)
+    inputs = artifacts["inputs"]
+    assert isinstance(inputs, dict)
+    split_artifacts = inputs[split]
+    assert isinstance(split_artifacts, dict)
+    effective_config = manifest["effective_config"]
+    assert isinstance(effective_config, dict)
+    split_config = effective_config["splits"][split]
+    raw_sources = effective_config["raw"]
+    raw_path = raw_sources[split_config["source"]]
+    input_path = Path(split_artifacts["input"])
+    labels_path = Path(split_artifacts["labels"])
+    combined_path = Path(split_artifacts["combined"])
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text("[]", encoding="utf-8")
+    labels_path.write_text("[]", encoding="utf-8")
+    combined_path.write_text("[]", encoding="utf-8")
+    summary_path = input_path.with_name(f"{input_path.stem}.run_summary.json")
+    summary_path.write_text(
+        json.dumps(
+            {
+                "script": "prepare_hotpotqa.py",
+                "status": "success",
+                "inputs": {"raw": raw_path},
+                "outputs": {
+                    "inputs": input_path.as_posix(),
+                    "labels": labels_path.as_posix(),
+                    "combined": combined_path.as_posix(),
+                    "run_summary": summary_path.as_posix(),
+                },
+                "effective_config": {
+                    "max_examples": split_config["max_examples"],
+                    "seed": split_config["seed"],
+                    "offset": split_config["offset"],
+                    "drop_invalid_examples": True,
+                    "strict_invalid_examples": False,
+                    "write_combined": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _write_main_rgcn_metrics_placeholder(manifest: dict[str, object]) -> None:

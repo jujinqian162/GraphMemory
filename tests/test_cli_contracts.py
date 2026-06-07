@@ -126,6 +126,7 @@ def test_experiment_parser_contract_is_frozen() -> None:
         "from_stage": _store("--from"),
         "to_stage": _store("--to"),
         "force": _flag("--force"),
+        "no_cache": _flag("--no-cache"),
         "variant": _append("--variant"),
         "ablations_only": _flag("--ablations-only"),
     }

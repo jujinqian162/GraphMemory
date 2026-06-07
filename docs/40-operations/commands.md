@@ -18,6 +18,8 @@ The safe path uses separate input and label artifacts:
 
 Use `scripts/experiment.py` for normal runs. It creates an isolated directory under `runs/<experiment_name>/`, writes `manifest.json`, writes `config/effective_config.json`, and generates all low-level script paths.
 
+By default, `plan` and `run` inspect live artifact status and prune the completed prefix of the selected command plan. This lets repeated full-stage invocations resume from the first missing or stale command. Pass `--no-cache` when you want to see or execute the full selected plan even if earlier commands are already complete.
+
 Initialize a run:
 
 ```powershell
@@ -36,6 +38,15 @@ python scripts/experiment.py plan quick_valid_100 `
   --methods bm25
 ```
 
+Render the full selected plan without cache-aware pruning:
+
+```powershell
+python scripts/experiment.py plan quick_valid_100 `
+  --run-root runs `
+  --methods bm25 `
+  --no-cache
+```
+
 Run a BM25-only quick path:
 
 ```powershell
@@ -44,6 +55,15 @@ python scripts/experiment.py run quick_valid_100 `
   --profile quick `
   --methods dense_rgcn_graph_retriever `
   --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate
+```
+
+Force every selected command to execute instead of resuming from cached completed work:
+
+```powershell
+python scripts/experiment.py run quick_valid_100 `
+  --methods dense_rgcn_graph_retriever `
+  --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate `
+  --no-cache
 ```
 
 Resume from retrieval for selected methods:
@@ -59,6 +79,8 @@ Inspect artifact status:
 ```powershell
 python scripts/experiment.py status quick_valid_100
 ```
+
+Status uses expected output files plus matching run summaries where the low-level script writes a summary. Existing outputs with mismatched inputs, outputs, method, or effective config are reported as `stale` and stop cache-aware prefix pruning.
 
 ## Run R-GCN Ablations
 

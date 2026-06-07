@@ -245,6 +245,7 @@ def test_experiment_parser_contract_is_frozen() -> None:
         "from_stage": _store("--from"),
         "to_stage": _store("--to"),
         "color": _store("--color", default="auto", choices=("auto", "always", "never")),
+        "no_cache": _flag("--no-cache"),
         "variant": _append("--variant"),
         "ablations_only": _flag("--ablations-only"),
     }
@@ -260,6 +261,7 @@ def test_experiment_parser_contract_is_frozen() -> None:
         "from_stage": _store("--from"),
         "to_stage": _store("--to"),
         "force": _flag("--force"),
+        "no_cache": _flag("--no-cache"),
         "variant": _append("--variant"),
         "ablations_only": _flag("--ablations-only"),
     }
@@ -284,6 +286,20 @@ def test_experiment_parser_contract_is_frozen() -> None:
         assert tuple(subparsers.choices) == tuple(expected_subcommands)
         for subcommand, expected_contract in expected_subcommands.items():
             assert _parser_contract(subparsers.choices[subcommand]) == expected_contract
+
+
+def test_experiment_help_documents_cache_controls() -> None:
+    import scripts.experiment as experiment
+
+    root_subparsers = _subparsers(experiment.build_parser())
+
+    plan_help = root_subparsers.choices["plan"].format_help()
+    run_help = root_subparsers.choices["run"].format_help()
+
+    assert "--no-cache" in plan_help
+    assert "--no-cache" in run_help
+    assert "completed" in plan_help.lower()
+    assert "completed" in run_help.lower()
 
 
 def test_workflow_plan_contract_freezes_manifest_commands_and_ablation_fail_fast() -> None:

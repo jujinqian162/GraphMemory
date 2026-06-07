@@ -97,7 +97,7 @@ scripts/experiment.py
 | Validators | `graph_memory/validation/` | Enforce contracts from `object` boundaries and narrow loaded JSON/domain artifacts after runtime shape checks. | Repair, sort, drop, infer, or copy records just to satisfy IDE types. | `tests/test_phase1_real_validation.py` |
 | Metric primitives | `graph_memory/evaluation/metrics.py` and `graph_memory/evaluation/connectivity.py` | Compute node and connectivity metrics. | Re-run retrieval or read task inputs for gold fields. | `tests/test_phase1_real_evaluation.py` |
 | Run summaries | `graph_memory/infrastructure/run_summary.py` through `graph_memory/observability.py` | Preserve config, paths, counts, timings, environment, and notes. | Change algorithm behavior. | `tests/test_phase1_real_io_observability.py` |
-| Experiment workflows | `scripts/workflow/` | Registers method lifecycles, expands ablation units, records manifest aliases, and plans explicit low-level commands. | Put run-directory or resume state into runtime retriever classes. | `tests/test_experiment_runner.py`, `tests/test_workflow_orchestration.py` |
+| Experiment workflows | `scripts/workflow/` | Registers method lifecycles, expands ablation units, records manifest aliases, plans explicit low-level commands, and prunes completed command prefixes from live status evidence. | Put run-directory or resume state into runtime retriever classes. | `tests/test_experiment_runner.py`, `tests/test_workflow_orchestration.py` |
 
 ## File Map
 
@@ -127,7 +127,7 @@ scripts/experiment.py
 - Trainable retrieval inference reads task inputs, graphs, and checkpoint only.
 - Every script writes a run summary when output paths are known.
 - Experiment-runner paths stay under `runs/<experiment_name>/`.
-- `scripts/experiment.py plan` renders explicit low-level commands instead of hiding artifact contracts.
+- `scripts/experiment.py plan` renders explicit low-level commands instead of hiding artifact contracts; use `--no-cache` to render the full selected plan when the default cache-aware prefix pruning would hide completed commands.
 - Root `graph_memory` integration ports remain thin and limited to workflow-facing APIs.
 - `docs/40-operations/commands.md` matches actual script arguments.
 - Tests pass or skip only for documented local-model reasons.
