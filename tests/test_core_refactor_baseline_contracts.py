@@ -147,7 +147,7 @@ def test_public_script_parser_contracts_are_frozen() -> None:
         },
         "scripts.train_graph_retriever": {
             "train_tasks": _store("--train_tasks", required=True),
-            "train_labels": _store("--train_labels", required=True),
+            "train_labels": _store("--train_labels"),
             "train_graphs": _store("--train_graphs", required=True),
             "train_pairs": _store("--train_pairs", required=True),
             "dev_tasks": _store("--dev_tasks", required=True),

@@ -101,7 +101,7 @@ class RetrieveStageConfig:
 @dataclass(frozen=True)
 class TrainIO:
     train_tasks: Path
-    train_labels: Path
+    train_labels: Path | None
     train_graphs: Path
     train_pairs: Path
     dev_tasks: Path
@@ -171,7 +171,6 @@ def build_stage_config_registry() -> StageConfigRegistry:
             config_type=PairBuildStageConfig,
             parser_factory=_pairs_parser,
             config_path=_config_path_from_attr("config"),
-            profile_name=_no_profile,
             cli_patch=_pairs_cli_patch,
             registry_patch=_empty_registry_patch,
             normalize_raw_config=_normalize_pairs_raw_config,
@@ -182,7 +181,6 @@ def build_stage_config_registry() -> StageConfigRegistry:
             config_type=TrainStageConfig,
             parser_factory=_train_parser,
             config_path=_config_path_from_attr("config"),
-            profile_name=_no_profile,
             cli_patch=_train_cli_patch,
             registry_patch=_empty_registry_patch,
             normalize_raw_config=_normalize_train_raw_config,
@@ -192,7 +190,6 @@ def build_stage_config_registry() -> StageConfigRegistry:
             config_type=RetrieveStageConfig,
             parser_factory=_retrieve_parser,
             config_path=_no_config_path,
-            profile_name=_no_profile, # HUMAN REVIEW POINT, profile name 有何意义？没有任何使用者
             cli_patch=_retrieve_cli_patch,
             registry_patch=_empty_registry_patch,
         ),
@@ -201,7 +198,6 @@ def build_stage_config_registry() -> StageConfigRegistry:
             config_type=EvaluateStageConfig,
             parser_factory=_evaluate_parser,
             config_path=_no_config_path,
-            profile_name=_no_profile,
             cli_patch=_evaluate_cli_patch,
             registry_patch=_empty_registry_patch,
         ),
@@ -221,7 +217,6 @@ def _generic_spec(
         config_type=GenericStageConfig,
         parser_factory=parser_factory,
         config_path=_config_path_from_attr(config_attr),
-        profile_name=_no_profile,
         cli_patch=_generic_cli_patch,
         registry_patch=_empty_registry_patch,
     )
@@ -463,7 +458,7 @@ def _tune_parser() -> argparse.ArgumentParser:
 def _train_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the Phase 2 R-GCN graph retriever.")
     parser.add_argument("--train_tasks", required=True)
-    parser.add_argument("--train_labels", required=True)
+    parser.add_argument("--train_labels", default=None)
     parser.add_argument("--train_graphs", required=True)
     parser.add_argument("--train_pairs", required=True)
     parser.add_argument("--dev_tasks", required=True)
@@ -708,10 +703,6 @@ def _config_path_from_attr(name: str | None) -> Any:
 
 
 def _no_config_path(namespace: argparse.Namespace) -> Path | None:
-    return None
-
-
-def _no_profile(namespace: argparse.Namespace, raw: Mapping[str, JsonValue]) -> str | None:
     return None
 
 

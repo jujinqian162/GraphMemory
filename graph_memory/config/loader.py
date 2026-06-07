@@ -40,7 +40,7 @@ class ConfigLoader:
             raise ValueError(f"Resolved config must be a JSON object: {type(config).__name__}")
         self.codec.write(path, resolved)
 
-    def _load_raw_config(self, spec: StageConfigSpec[Any], namespace: Any) -> dict[str, Any]:
+    def _load_raw_config(self, spec: StageConfigSpec[Any], namespace: argparse.Namespace) -> dict[str, Any]:
         path = spec.config_path(namespace)
         if path is None:
             return {}
@@ -49,7 +49,7 @@ class ConfigLoader:
     def _resolve_layers(
         self,
         spec: StageConfigSpec[Any],
-        namespace: Any,
+        namespace: argparse.Namespace,
         raw: Mapping[str, JsonValue],
     ) -> dict[str, Any]:
         base = {
@@ -68,9 +68,11 @@ class ConfigLoader:
     def _profile_patch(
         self,
         spec: StageConfigSpec[Any],
-        namespace: Any, # HUMAN REVIEW POINT: namespace 是啥，为什么有Any这种糟糕的对象
+        namespace: argparse.Namespace,
         raw: Mapping[str, JsonValue],
     ) -> Mapping[str, Any]:
+        if spec.profile_name is None:
+            return {}
         profile_name = spec.profile_name(namespace, raw)
         if profile_name is None:
             return {}

@@ -76,7 +76,7 @@ def negative_sampling_config_from_training_config(config: JsonConfig) -> Negativ
     return sampling_config
 
 
-def trainable_training_config_from_training_config(config: JsonConfig) -> TrainableTrainingConfig: # HUMAN REVIEW POINT: 是不是  #TAG depreciate了？我要求过所有config相关逻辑都走config模块。
+def trainable_training_config_from_training_config(config: JsonConfig) -> TrainableTrainingConfig:
     optimization = _required_section(config, "optimization")
     training_config = TrainableTrainingConfig(
         optimizer_name=str(optimization.get("optimizer", optimization.get("optimizer_name", "AdamW"))),

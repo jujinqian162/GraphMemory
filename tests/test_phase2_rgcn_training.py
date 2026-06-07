@@ -30,6 +30,7 @@ from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
 from graph_memory.registry import Registry
 from graph_memory.registry.training import TrainDependencies
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.stages.train import run_train_stage
 from graph_memory.validation import (
     ContractValidationError,
     validate_graph_batch,
@@ -563,6 +564,54 @@ def test_training_registry_builds_trainer_from_settings_type() -> None:
     )
 
     assert callable(trainer.train)
+
+
+def test_train_stage_uses_train_labels_for_pair_validation() -> None:
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--train_tasks",
+            "train.input.json",
+            "--train_labels",
+            "train.labels.json",
+            "--train_graphs",
+            "train.graphs.json",
+            "--train_pairs",
+            "train.pairs.json",
+            "--dev_tasks",
+            "dev.input.json",
+            "--dev_labels",
+            "dev.labels.json",
+            "--dev_graphs",
+            "dev.graphs.json",
+            "--output_dir",
+            "rgcn_run",
+            "--encoder_model",
+            "fake-encoder",
+        ],
+    )
+    mismatched_labels: list[MemoryTaskLabels] = [
+        {
+            "task_id": "hotpot_rgcn_train",
+            "gold_answer": "Gamma",
+            "gold_evidence_nodes": ["m2"],
+            "gold_dependency_edges": [],
+        }
+    ]
+
+    with pytest.raises(ContractValidationError, match="positive node_id=m0 is not gold evidence"):
+        run_train_stage(
+            config,
+            train_task_inputs=tiny_task_inputs(),
+            train_labels=mismatched_labels,
+            train_graphs=tiny_graphs(),
+            train_pairs=tiny_pairs(),
+            dev_task_inputs=tiny_task_inputs(),
+            dev_labels=tiny_labels(),
+            dev_graphs=tiny_graphs(),
+            text_embedding_provider=FakeTextEmbeddingProvider(),
+            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        )
 
 
 def test_train_stage_runner_and_script_use_registry_boundary() -> None:

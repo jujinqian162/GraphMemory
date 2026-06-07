@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from graph_memory.contracts.graphs import GraphEdge
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
-from graph_memory.retrieval.contracts import RankedNode, Retriever
+from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace, SeedRanker
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.retrieval.methods.graph_rerank.engine import rank_graph_from_initial_scores
 
@@ -13,11 +12,11 @@ from graph_memory.retrieval.methods.graph_rerank.engine import rank_graph_from_i
 @dataclass(frozen=True)
 class GraphRerankMethod:
     name: str
-    retriever: Retriever
+    retriever: SeedRanker
     graphs: GraphIndex
     graph_config: GraphRerankConfig
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
         initial_ranking = self.retriever.rank(task_input)
         initial_scores = {ranked_node.node_id: ranked_node.score for ranked_node in initial_ranking}
         return self.rank_task_from_scores(task_input, initial_scores, top_k=top_k)
@@ -28,7 +27,7 @@ class GraphRerankMethod:
         initial_scores: dict[str, float],
         *,
         top_k: int,
-    ) -> tuple[list[RankedNode], list[GraphEdge]]:
+    ) -> RetrievalMethodResult:
         graph = self.graphs.get_required(task_input["task_id"])
         result = rank_graph_from_initial_scores(
             initial_scores,
@@ -36,7 +35,10 @@ class GraphRerankMethod:
             self.graph_config,
             top_k=top_k,
         )
-        return result.ranked_nodes, result.retrieved_subgraph["edges"]
+        return RetrievalMethodResult(
+            ranked_nodes=result.ranked_nodes,
+            trace=RetrievalTrace(retrieved_edges=result.retrieved_subgraph["edges"]),
+        )
 
 
 class PrecomputedInitialRetriever:

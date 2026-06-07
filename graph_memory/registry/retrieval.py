@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
@@ -11,8 +11,10 @@ from graph_memory.registry.ids import StrEnum
 
 if TYPE_CHECKING:
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-    from graph_memory.retrieval.contracts import DenseEncoder, RetrievalMethod, Retriever
+    from graph_memory.retrieval.contracts import DenseEncoder, RetrievalMethod, SeedRanker
     from graph_memory.retrieval.signals import SeedSignalProvider
+
+PayloadT = TypeVar("PayloadT")
 
 
 class RetrievalMethodId(StrEnum):
@@ -151,36 +153,60 @@ RETRIEVAL_METHOD_METADATA: Mapping[str, RetrievalMethodMetadata] = {
 
 
 @dataclass(frozen=True)
-class RetrievalDependencies: # HUMAN REVIEW POINT: 我讨厌这种上帝结构体,更糟糕的是全是optional的，这些信息config中拿不到吗？，每增加一点依赖都会往里塞入optinal的字段，和Any或者object没啥本质区别。但考虑到没有跳出registry范围，还算可以接受
+class SeedRetrieverBuildPayload:
+    dense_encoder: "DenseEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class FlatRetrievalBuildPayload:
     task_inputs: list[MemoryTaskInput]
-    graphs: list[MemoryGraph] | None = None
+    dense_encoder: "DenseEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class GraphRerankBuildPayload:
+    task_inputs: list[MemoryTaskInput]
+    graphs: list[MemoryGraph]
     graph_config: object | Mapping[str, object] | None = None
+    dense_encoder: "DenseEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class CheckpointGraphBuildPayload:
+    task_inputs: list[MemoryTaskInput]
+    graphs: list[MemoryGraph]
     dense_encoder: "DenseEncoder | None" = None
     text_embedding_provider: "TextEmbeddingProvider | None" = None
     seed_signal_provider: "SeedSignalProvider | None" = None
 
 
+def require_payload(payload: object, expected_type: type[PayloadT], *, method: str) -> PayloadT:
+    if isinstance(payload, expected_type):
+        return payload
+    raise TypeError(f"{method} expected {expected_type.__name__}, got {type(payload).__name__}.")
+
+
 @dataclass(frozen=True)
 class RetrievalBuilderSpec:
     settings_type: type[object]
-    build: Callable[[RetrievalJobSettings, RetrievalDependencies], "RetrievalMethod"]
+    build: Callable[[RetrievalJobSettings, object], "RetrievalMethod"]
 
 
 @dataclass(frozen=True)
 class RetrievalRegistry:
     metadata: Mapping[str, RetrievalMethodMetadata]
     builders: Mapping[type[object], RetrievalBuilderSpec]
-    seed_build: Callable[[SeedRetrievalSettings, RetrievalDependencies], "Retriever"]
+    seed_build: Callable[[SeedRetrievalSettings, object], "SeedRanker"]
 
-    def build_seed(self, settings: SeedRetrievalSettings, deps: RetrievalDependencies) -> Retriever:
-        return self.seed_build(settings, deps)
+    def build_seed(self, settings: SeedRetrievalSettings, payload: object) -> SeedRanker:
+        return self.seed_build(settings, payload)
 
-    def build(self, settings: RetrievalJobSettings, deps: RetrievalDependencies) -> RetrievalMethod:
+    def build(self, settings: RetrievalJobSettings, payload: object) -> RetrievalMethod:
         try:
             spec = self.builders[type(settings)]
         except KeyError as error:
             raise ValueError(f"Unsupported retrieval settings type: {type(settings).__name__}") from error
-        return spec.build(settings, deps)
+        return spec.build(settings, payload)
 
 
 def get_retrieval_method_metadata(method: str) -> RetrievalMethodMetadata:
@@ -192,18 +218,22 @@ def get_retrieval_method_metadata(method: str) -> RetrievalMethodMetadata:
 
 __all__ = [
     "Bm25RetrievalSettings",
+    "CheckpointGraphBuildPayload",
     "CheckpointGraphRetrievalSettings",
     "DenseEncoderSettings",
     "DenseRetrievalSettings",
+    "FlatRetrievalBuildPayload",
+    "GraphRerankBuildPayload",
     "GraphRerankRetrievalSettings",
     "GraphRerankSettings",
     "RetrievalBuilderSpec",
-    "RetrievalDependencies",
     "RetrievalJobSettings",
     "RetrievalMethodMetadata",
     "RetrievalMethodId",
     "RetrievalRegistry",
     "RETRIEVAL_METHOD_METADATA",
+    "SeedRetrieverBuildPayload",
     "SeedRetrievalSettings",
     "get_retrieval_method_metadata",
+    "require_payload",
 ]

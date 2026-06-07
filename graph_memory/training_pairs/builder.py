@@ -8,7 +8,7 @@ from graph_memory.contracts.common import TaskId, TrainPairSampleType
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
-from graph_memory.retrieval.contracts import Retriever
+from graph_memory.retrieval.contracts import SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignalProvider
@@ -143,8 +143,8 @@ def build_train_pairs(
     graphs: list[MemoryGraph],
     config: NegativeSamplingConfig,
     *,
-    bm25_retriever: Retriever | None = None, # HUMAN REVEIW POINT: 还是那个问题：你觉得bm25、dense这些具体的Retriever类型应该被这个函数知晓吗？至少应该用统一的retriever: Retriever，然后内部如果真的需要判断类型，就instanceof(retriever,...)吗。。。
-    dense_retriever: Retriever | None = None,
+    bm25_retriever: SeedRanker | None = None,
+    dense_retriever: SeedRanker | None = None,
     dense_seed_signal_provider: SeedSignalProvider | None = None,
     dense_config: DenseConfig | None = None, 
 ) -> TrainPairBuildResult:
@@ -169,8 +169,8 @@ def build_train_pairs(
 def _build_default_samplers(
     config: NegativeSamplingConfig,
     *,
-    bm25_retriever: Retriever | None,
-    dense_retriever: Retriever | None,
+    bm25_retriever: SeedRanker | None,
+    dense_retriever: SeedRanker | None,
     dense_seed_signal_provider: SeedSignalProvider | None,
     dense_config: DenseConfig | None,
 ) -> tuple[NegativeSampler, ...]:

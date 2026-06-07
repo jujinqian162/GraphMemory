@@ -23,9 +23,9 @@ class StageConfigSpec(Generic[ConfigT]):
     config_type: type[ConfigT]
     parser_factory: Callable[[], argparse.ArgumentParser]
     config_path: Callable[[argparse.Namespace], Path | None]
-    profile_name: Callable[[argparse.Namespace, Mapping[str, JsonValue]], str | None]
     cli_patch: Callable[[argparse.Namespace], ConfigPatch]
     registry_patch: Callable[[argparse.Namespace, Mapping[str, JsonValue]], ConfigPatch]
+    profile_name: Callable[[argparse.Namespace, Mapping[str, JsonValue]], str | None] | None = None
     normalize_raw_config: Callable[[argparse.Namespace, Mapping[str, JsonValue]], Mapping[str, JsonValue]] = (
         _identity_raw_config
     )

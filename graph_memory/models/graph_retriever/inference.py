@@ -2,22 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
-
 import torch
 
-from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
+from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import build_full_ranking_batches, move_training_batch
 from graph_memory.models.graph_retriever.checkpoint import load_trainable_checkpoint
 from graph_memory.models.graph_retriever.config.records import TrainableModelConfig
-from graph_memory.models.graph_retriever.contracts import SentenceEncoder, TextEmbeddingProvider
+from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import GraphScoringModelFactory
-from graph_memory.models.graph_retriever.text_embeddings import DenseTextEmbeddingProvider
-from graph_memory.retrieval.contracts import DenseEncoder, RankedNode
-from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
-from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignalProvider
+from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace
+from graph_memory.retrieval.signals import SeedSignalProvider
 
 
 @dataclass(frozen=True)
@@ -51,7 +47,7 @@ class GraphRetrieverInference:
     seed_signal_provider: SeedSignalProvider
     device: torch.device
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
         graph = self.graph_by_task_id.get(task_input["task_id"])
         if graph is None:
             raise ValueError(f"Missing graph for task_id={task_input['task_id']}.")
@@ -78,7 +74,10 @@ class GraphRetrieverInference:
         top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:top_k]]
         visible_graph = model_visible_graph(graph, frozenset(self.model_config.enabled_edge_types))
         retrieved_subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
-        return ranked_nodes, retrieved_subgraph["edges"]
+        return RetrievalMethodResult(
+            ranked_nodes=ranked_nodes,
+            trace=RetrievalTrace(retrieved_edges=retrieved_subgraph["edges"]),
+        )
 
 
 @dataclass(frozen=True)
@@ -95,9 +94,8 @@ class CheckpointGraphRetrieverLoader:
         checkpoint_path: str | Path,
         *,
         graphs: list[MemoryGraph],
-        text_embedding_provider: TextEmbeddingProvider | None = None,
-        seed_signal_provider: SeedSignalProvider | None = None,
-        dense_encoder: object | None = None,
+        text_embedding_provider: TextEmbeddingProvider,
+        seed_signal_provider: SeedSignalProvider,
         device: str | torch.device = "cpu",
     ) -> GraphRetrieverInference:
         """
@@ -114,31 +112,12 @@ class CheckpointGraphRetrieverLoader:
         model.load_state_dict(checkpoint.payload["model_state_dict"])
         model.eval()
 
-        resolved_text_provider = text_embedding_provider
-        if resolved_text_provider is None:
-            resolved_text_provider = DenseTextEmbeddingProvider(
-                model_name=checkpoint.model_config.encoder_model,
-                query_prefix=checkpoint.model_config.query_prefix,
-                passage_prefix=checkpoint.model_config.passage_prefix,
-                encoder=cast(SentenceEncoder | None, dense_encoder),
-            )
-        resolved_seed_provider = seed_signal_provider
-        if resolved_seed_provider is None: # HUMAN REVIEW POINT: 能不能把非空值在上层就处理好，在load这种具体实现中暴露一堆具体的class，以后要换怎么办？你这不就是相当于在实现内部提供里一个用不到的默认值吗？按理来说只要上层处理好，里面就不会有一堆optional的字段。
-            encoder = getattr(resolved_text_provider, "encoder", dense_encoder)
-            resolved_seed_provider = RetrieverSeedSignalProvider(
-                DenseTaskRetriever(
-                    model_name=checkpoint.model_config.encoder_model,
-                    query_prefix=checkpoint.model_config.query_prefix,
-                    passage_prefix=checkpoint.model_config.passage_prefix,
-                    encoder=cast(DenseEncoder | None, encoder),
-                )
-            )
         return GraphRetrieverInference(
             name=checkpoint.model_config.method_name,
             model=model,
             model_config=checkpoint.model_config,
             graph_by_task_id={graph["task_id"]: graph for graph in graphs},
-            text_embedding_provider=resolved_text_provider,
-            seed_signal_provider=resolved_seed_provider,
+            text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
             device=torch.device(device),
         )

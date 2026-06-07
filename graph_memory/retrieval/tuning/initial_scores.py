@@ -8,7 +8,7 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
-from graph_memory.registry.retrieval import RetrievalDependencies
+from graph_memory.registry.retrieval import SeedRetrieverBuildPayload
 from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
 from graph_memory.retrieval.catalog import get_method_spec
 from graph_memory.retrieval.execution.results import assemble_ranked_result
@@ -37,7 +37,7 @@ def precompute_initial_score_cache(
 ) -> InitialScoreCache:
     seed_retriever = RETRIEVAL_REGISTRY.build_seed(
         RETRIEVAL_REGISTRY.seed_settings_for_method(method, dense_runtime.config),
-        RetrievalDependencies(task_inputs=task_inputs, dense_encoder=dense_runtime.encoder),
+        SeedRetrieverBuildPayload(dense_encoder=dense_runtime.encoder),
     )
     scores_by_task_id: dict[str, dict[str, float]] = {}
     latency_ms_by_task_id: dict[str, float] = {}
@@ -86,7 +86,7 @@ def run_graph_rerank_from_initial_score_cache(
         if task_id not in initial_score_cache.scores_by_task_id:
             raise ValueError(f"Missing precomputed initial scores for task_id={task_id}.")
         started = time.perf_counter()
-        ranked_nodes, retrieved_edges = retrieval_method.rank_task_from_scores(
+        result = retrieval_method.rank_task_from_scores(
             task_input,
             initial_score_cache.scores_by_task_id[task_id],
             top_k=top_k,
@@ -97,10 +97,10 @@ def run_graph_rerank_from_initial_score_cache(
             assemble_ranked_result(
                 task_input=task_input,
                 method=method,
-                ranked_nodes=ranked_nodes,
+                ranked_nodes=result.ranked_nodes,
                 top_k=top_k,
                 latency_ms=latency_ms,
-                retrieved_edges=retrieved_edges,
+                retrieved_edges=result.trace.retrieved_edges,
             )
         )
 

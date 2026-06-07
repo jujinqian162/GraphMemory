@@ -19,8 +19,7 @@ def test_old_training_dict_slicing_helpers_are_bounded_to_compatibility_modules(
         "trainable_training_config_from_training_config",
     )
     allowed_paths = {
-        Path("graph_memory/models/graph_retriever/config/__init__.py"),
-        Path("graph_memory/models/graph_retriever/config/loading.py"),
+        Path("graph_memory/config/training_compat.py"),
         Path("graph_memory/training_config.py"),
     }
 
@@ -33,6 +32,22 @@ def test_old_training_dict_slicing_helpers_are_bounded_to_compatibility_modules(
     ]
 
     assert offenders == []
+
+
+def test_model_config_package_does_not_export_training_config_compat_helpers() -> None:
+    import graph_memory.models.graph_retriever.config as model_config_api
+
+    helper_names = (
+        "load_trainable_training_config",
+        "resolve_trainable_training_config",
+        "encoder_config_from_training_config",
+        "model_config_values_from_training_config",
+        "negative_sampling_config_from_training_config",
+        "trainable_training_config_from_training_config",
+        "device_from_training_config",
+    )
+
+    assert [helper for helper in helper_names if hasattr(model_config_api, helper)] == []
 
 
 def test_builder_id_is_bounded_to_registry_projection_compatibility() -> None:

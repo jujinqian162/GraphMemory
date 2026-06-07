@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from graph_memory.contracts.common import NodeId, Score
@@ -15,13 +15,27 @@ class RankedNode:
     score: Score
 
 
-class Retriever(Protocol): # HUMAN REVIEW POINT: 这个Retriever的协议和下面RetrievalMethod Protocol职责感觉几乎是一样的，是否是职责的重复？
+@dataclass(frozen=True)
+class RetrievalTrace:
+    retrieved_edges: list[GraphEdge] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RetrievalMethodResult:
+    ranked_nodes: list[RankedNode]
+    trace: RetrievalTrace = field(default_factory=RetrievalTrace)
+
+
+class SeedRanker(Protocol):
     @property
     def method_name(self) -> str:
         ...
 
     def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
         ...
+
+
+Retriever = SeedRanker
 
 
 class DenseEncoder(Protocol):
@@ -34,5 +48,5 @@ class RetrievalMethod(Protocol):
     def name(self) -> str:
         ...
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]: # HUMAN REVIEW POINT: 这个Retrieval Protocol为什么知道GraphEdge这个细节？那flat method咋办？
+    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
         ...

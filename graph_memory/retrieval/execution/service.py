@@ -26,16 +26,16 @@ def run_retrieval(
     predictions: list[RankedResult] = []
     for task_input in task_inputs:
         started = time.perf_counter()
-        ranked_nodes, retrieved_edges = retrieval_method.rank_task(task_input, top_k=top_k)
+        result = retrieval_method.rank_task(task_input, top_k=top_k)
         latency_ms = (time.perf_counter() - started) * 1000.0
         predictions.append(
             assemble_ranked_result(
                 task_input=task_input,
                 method=retrieval_method.name,
-                ranked_nodes=ranked_nodes,
+                ranked_nodes=result.ranked_nodes,
                 top_k=top_k,
                 latency_ms=latency_ms,
-                retrieved_edges=retrieved_edges,
+                retrieved_edges=result.trace.retrieved_edges,
             )
         )
 

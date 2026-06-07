@@ -43,7 +43,7 @@ ROOT_PORT_IMPORTS = {
         "graph_memory.infrastructure.runtime_environment",
     },
     "retrieval_registry.py": {"graph_memory.registry.projections"},
-    "training_config.py": {"graph_memory.models.graph_retriever.config.loading"},
+    "training_config.py": {"graph_memory.config.training_compat"},
     "experiment.py": {
         "scripts.workflow",
         "scripts.workflow.manifest",

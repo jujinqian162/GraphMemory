@@ -85,6 +85,48 @@ def test_load_applies_profile_registry_patch_and_cli_patch_in_order(tmp_path: Pa
     )
 
 
+def test_load_skips_profiles_when_spec_has_no_profile_selector(tmp_path: Path) -> None:
+    config_path = tmp_path / "demo.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_profile": "cloud",
+                "name": "base",
+                "path": "base.txt",
+                "stage": "retrieve",
+                "mode": "fast",
+                "nested": {"limit": 1, "tags": ["base"]},
+                "profiles": {
+                    "cloud": {
+                        "name": "profile",
+                        "path": "profile.txt",
+                        "nested": {"limit": 2, "tags": ["profile"]},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(
+        _demo_spec_without_profile_selector(),
+        [
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert config == DemoConfig(
+        schema_version=1,
+        name="base",
+        path=Path("base.txt"),
+        stage=StageId.RETRIEVE,
+        mode=DemoMode.FAST,
+        nested=DemoNestedConfig(limit=1, tags=("base",)),
+    )
+
+
 def test_loader_write_resolved_unstructures_paths_enums_and_tuples(tmp_path: Path) -> None:
     output_path = tmp_path / "resolved.json"
     config = DemoConfig(
@@ -159,6 +201,17 @@ def _demo_spec() -> StageConfigSpec[DemoConfig]:
         parser_factory=_demo_parser,
         config_path=lambda namespace: Path(namespace.config),
         profile_name=_profile_name,
+        cli_patch=_cli_patch,
+        registry_patch=_registry_patch,
+    )
+
+
+def _demo_spec_without_profile_selector() -> StageConfigSpec[DemoConfig]:
+    return StageConfigSpec(
+        stage=StageId.RETRIEVE,
+        config_type=DemoConfig,
+        parser_factory=_demo_parser,
+        config_path=lambda namespace: Path(namespace.config),
         cli_patch=_cli_patch,
         registry_patch=_registry_patch,
     )

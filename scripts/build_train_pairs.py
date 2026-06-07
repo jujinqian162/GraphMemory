@@ -15,6 +15,7 @@ from graph_memory.contracts.common import JsonValue
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
+from graph_memory.registry.conversions import dense_config_from_encoder_settings
 from graph_memory.registry.stage_configs import PairBuildStageConfig
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.training_pairs import build_train_pairs
@@ -170,18 +171,13 @@ def _effective_config(config: PairBuildStageConfig) -> dict[str, JsonValue]:
     return effective_config
 
 
-def _dense_config_from_config(config: PairBuildStageConfig) -> DenseConfig | None: # HUMAN REVIEW POINT: 这个DenseConfig和PairBuildStageConfig中的DenseEncoderSettings有什么本质区别吗？语义不重复吗？
+def _dense_config_from_config(config: PairBuildStageConfig) -> DenseConfig | None:
     job = config.job
     if job.sampling.hard_dense_per_positive <= 0 or job.hard_dense_encoder is None:
         if config.io.config is not None and job.sampling.hard_dense_per_positive > 0:
             raise ValueError("Pair build config with hard dense negatives requires encoder settings.")
         return None
-    return DenseConfig(
-        model_name=job.hard_dense_encoder.model_name,
-        query_prefix=job.hard_dense_encoder.query_prefix,
-        passage_prefix=job.hard_dense_encoder.passage_prefix,
-        batch_size=job.hard_dense_encoder.batch_size,
-    )
+    return dense_config_from_encoder_settings(job.hard_dense_encoder)
 
 
 if __name__ == "__main__":

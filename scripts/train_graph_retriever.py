@@ -84,7 +84,7 @@ class TrainGraphRetrieverArgs:
     """
 
     train_tasks: str
-    train_labels: str
+    train_labels: str | None
     train_graphs: str
     train_pairs: str
     dev_tasks: str
@@ -125,13 +125,14 @@ def main(
     run_summary_path = config.io.run_summary
     inputs = {
         "train_tasks": str(config.io.train_tasks),
-        "train_labels": str(config.io.train_labels),
         "train_graphs": str(config.io.train_graphs),
         "train_pairs": str(config.io.train_pairs),
         "dev_tasks": str(config.io.dev_tasks),
         "dev_labels": str(config.io.dev_labels),
         "dev_graphs": str(config.io.dev_graphs),
     }
+    if config.io.train_labels is not None:
+        inputs["train_labels"] = str(config.io.train_labels)
     outputs = {
         "best_checkpoint": str(checkpoint_dir / "best.pt"),
         "metrics": str(metrics_path),
@@ -142,6 +143,7 @@ def main(
         embedding_provider = _text_embedding_provider_from_config(config, text_embedding_provider)
         seed_provider = _seed_signal_provider_from_config(config, seed_signal_provider, embedding_provider)
         train_task_inputs = read_json(config.io.train_tasks)
+        train_labels = read_json(config.io.train_labels) if config.io.train_labels is not None else None
         train_graphs = read_json(config.io.train_graphs)
         train_pairs = read_json(config.io.train_pairs)
         dev_task_inputs = read_json(config.io.dev_tasks)
@@ -150,6 +152,7 @@ def main(
         result = run_train_stage(
             config,
             train_task_inputs=train_task_inputs,
+            train_labels=train_labels,
             train_graphs=train_graphs,
             train_pairs=train_pairs,
             dev_task_inputs=dev_task_inputs,

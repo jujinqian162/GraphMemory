@@ -7,9 +7,10 @@ from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     DenseEncoderSettings,
     DenseRetrievalSettings,
+    FlatRetrievalBuildPayload,
+    GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
-    RetrievalDependencies,
     RetrievalMethodId,
     SeedRetrievalSettings,
 )
@@ -20,7 +21,7 @@ from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_graphs, retr
 def test_registry_builds_bm25_method_from_settings_without_dense_fields() -> None:
     settings = Bm25RetrievalSettings(top_k=2)
 
-    method = Registry.retrieval.build(settings, RetrievalDependencies(task_inputs=retrieval_task_inputs()))
+    method = Registry.retrieval.build(settings, FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs()))
     predictions = run_retrieval(retrieval_method=method, task_inputs=retrieval_task_inputs(), top_k=settings.top_k)
 
     assert not hasattr(settings, "encoder")
@@ -36,7 +37,7 @@ def test_registry_builds_dense_method_from_settings_encoder() -> None:
 
     method = Registry.retrieval.build(
         settings,
-        RetrievalDependencies(task_inputs=retrieval_task_inputs(), dense_encoder=FakeEncoder()),
+        FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs(), dense_encoder=FakeEncoder()),
     )
     predictions = run_retrieval(retrieval_method=method, task_inputs=retrieval_task_inputs(), top_k=settings.top_k)
 
@@ -54,7 +55,7 @@ def test_registry_builds_graph_rerank_method_from_seed_settings() -> None:
 
     method = Registry.retrieval.build(
         settings,
-        RetrievalDependencies(task_inputs=retrieval_task_inputs(), graphs=retrieval_graphs()),
+        GraphRerankBuildPayload(task_inputs=retrieval_task_inputs(), graphs=retrieval_graphs()),
     )
     predictions = run_retrieval(retrieval_method=method, task_inputs=retrieval_task_inputs(), top_k=settings.top_k)
 

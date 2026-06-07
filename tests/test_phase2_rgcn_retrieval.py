@@ -1,16 +1,20 @@
 import json
 import math
+from inspect import Parameter, signature
 from pathlib import Path
 
 import torch
 
+import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.registry.retrieval import RetrievalDependencies
+from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
+from graph_memory.registry.retrieval import CheckpointGraphBuildPayload
 from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
+from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.retrieval_registry import METHOD_REGISTRY, get_method_spec, get_supported_methods
 from graph_memory.validation import validate_ranked_results
 from scripts.run_retrieval import build_parser as build_retrieval_parser
@@ -30,11 +34,13 @@ class TinyTrainableRetriever:
     name = "dense_rgcn_graph_retriever"
 
     def rank_task(self, task_input, *, top_k: int):
-        return [
-            type("Ranked", (), {"node_id": "m0", "score": 3.0})(),
-            type("Ranked", (), {"node_id": "m1", "score": 2.0})(),
-            type("Ranked", (), {"node_id": "m2", "score": 1.0})(),
-        ], []
+        return RetrievalMethodResult(
+            ranked_nodes=[
+                RankedNode(node_id="m0", score=3.0),
+                RankedNode(node_id="m1", score=2.0),
+                RankedNode(node_id="m2", score=1.0),
+            ],
+        )
 
 
 def run_retrieval(
@@ -56,7 +62,7 @@ def run_retrieval(
     )
     method_object = RETRIEVAL_REGISTRY.build(
         settings,
-        RetrievalDependencies(
+        CheckpointGraphBuildPayload(
             task_inputs=task_inputs,
             graphs=graphs,
             text_embedding_provider=text_embedding_provider,
@@ -86,6 +92,10 @@ def write_tiny_checkpoint(path: Path, *, model_config=None) -> None:
     )
 
 
+def fake_checkpoint_providers(settings, payload):
+    return FakeTextEmbeddingProvider(), RetrieverSeedSignalProvider(FakeRetriever())
+
+
 def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Path):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
@@ -96,13 +106,23 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    ranked_nodes, retrieved_edges = retriever.rank_task(tiny_task_inputs()[0], top_k=2)
+    result = retriever.rank_task(tiny_task_inputs()[0], top_k=2)
+    ranked_nodes = result.ranked_nodes
+    retrieved_edges = result.trace.retrieved_edges
 
     top_node_ids = {node.node_id for node in ranked_nodes[:2]}
     assert {node.node_id for node in ranked_nodes} == {"m0", "m1", "m2"}
     assert all(math.isfinite(node.score) for node in ranked_nodes)
     assert ranked_nodes == sorted(ranked_nodes, key=lambda node: (-node.score, node.node_id))
     assert all(edge["source"] in top_node_ids and edge["target"] in top_node_ids for edge in retrieved_edges)
+
+
+def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
+    parameters = signature(CheckpointGraphRetrieverLoader.load).parameters
+
+    assert parameters["text_embedding_provider"].default is Parameter.empty
+    assert parameters["seed_signal_provider"].default is Parameter.empty
+    assert "dense_encoder" not in parameters
 
 
 def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_path: Path):
@@ -125,7 +145,8 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    _, retrieved_edges = retriever.rank_task(tiny_task_inputs()[0], top_k=3)
+    result = retriever.rank_task(tiny_task_inputs()[0], top_k=3)
+    retrieved_edges = result.trace.retrieved_edges
 
     assert all(edge["edge_type"] != "bridge" for edge in retrieved_edges)
 
@@ -177,6 +198,7 @@ def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path
         return TinyTrainableRetriever()
 
     monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
+    monkeypatch.setattr(retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers)
 
     exit_code = run_retrieval_cli_main(
         [
@@ -217,6 +239,7 @@ def test_run_retrieval_passes_device_to_trainable_retriever(monkeypatch, tmp_pat
         return TinyTrainableRetriever()
 
     monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
+    monkeypatch.setattr(retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers)
 
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",

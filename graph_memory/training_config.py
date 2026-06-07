@@ -1,4 +1,4 @@
-from graph_memory.models.graph_retriever.config.loading import (
+from graph_memory.config.training_compat import (
     EncoderConfig,
     JsonConfig,
     ModelConfigValues,

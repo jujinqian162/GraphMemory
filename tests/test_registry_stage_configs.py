@@ -47,6 +47,22 @@ def test_stage_config_specs_do_not_expose_profile_or_defaults_keys() -> None:
         assert not hasattr(spec, "defaults_key")
 
 
+def test_stage_config_specs_do_not_declare_noop_profile_selectors() -> None:
+    for name in (
+        "PREPARE",
+        "GRAPHS",
+        "PAIRS",
+        "TUNE",
+        "TRAIN",
+        "RETRIEVE",
+        "EVALUATE",
+        "AGGREGATE",
+        "EXPERIMENT_INIT",
+    ):
+        spec = getattr(Registry.configs, name)
+        assert spec.profile_name is None
+
+
 def test_retrieve_stage_config_loads_directly_from_existing_cli_contract(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     output_path = tmp_path / "predictions.json"
@@ -355,6 +371,34 @@ def test_train_stage_config_loads_directly_from_existing_cli_contract(tmp_path: 
             selection=stage_configs.ModelSelectionSettings(),
         ),
     )
+
+
+def test_train_stage_config_allows_omitting_train_labels(tmp_path: Path) -> None:
+    output_dir = tmp_path / "rgcn_run"
+
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--train_tasks",
+            str(tmp_path / "train.input.json"),
+            "--train_graphs",
+            str(tmp_path / "train.graphs.json"),
+            "--train_pairs",
+            str(tmp_path / "train.pairs.json"),
+            "--dev_tasks",
+            str(tmp_path / "dev.input.json"),
+            "--dev_labels",
+            str(tmp_path / "dev.labels.json"),
+            "--dev_graphs",
+            str(tmp_path / "dev.graphs.json"),
+            "--output_dir",
+            str(output_dir),
+            "--encoder_model",
+            "fake-encoder",
+        ],
+    )
+
+    assert config.io.train_labels is None
 
 
 def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_values(tmp_path: Path) -> None:

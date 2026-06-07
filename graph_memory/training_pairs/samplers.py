@@ -7,7 +7,7 @@ from typing import Protocol
 from graph_memory.contracts.common import TrainPairSampleType
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.retrieval.contracts import RankedNode, Retriever
+from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.signals import SeedSignalProvider
 
 
@@ -47,7 +47,7 @@ class EasyRandomNegativeSampler:
 
 @dataclass(frozen=True)
 class BM25HardNegativeSampler:
-    retriever: Retriever
+    retriever: SeedRanker
     hard_pool_size: int
     sample_type: TrainPairSampleType = "hard_bm25"
 

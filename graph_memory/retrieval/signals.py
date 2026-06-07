@@ -5,7 +5,7 @@ from typing import Protocol
 
 from graph_memory.contracts.common import NodeId
 from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.retrieval.contracts import Retriever
+from graph_memory.retrieval.contracts import SeedRanker
 
 
 @dataclass(frozen=True)
@@ -38,10 +38,10 @@ class RetrieverSeedSignalProvider:
     基于现有 flat retriever 的 seed signal provider。
     """
 
-    retriever: Retriever
+    retriever: SeedRanker
 
     def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
-        ranked_nodes = self.retriever.rank(task_input) # HUMAN REVIEW POINT: 为什么不是用RetrievalMethod这个协议？
+        ranked_nodes = self.retriever.rank(task_input)
         expected_node_ids = {memory_item["id"] for memory_item in task_input["memory_items"]}
         observed_node_ids = {ranked_node.node_id for ranked_node in ranked_nodes}
         if observed_node_ids != expected_node_ids:

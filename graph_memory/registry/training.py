@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
-from graph_memory.models.graph_retriever.config.records import TrainableTrainingConfig
+from graph_memory.registry.conversions import trainable_training_config_from_trainer_settings
 from graph_memory.registry.retrieval import DenseEncoderSettings, RetrievalMethodId
 from graph_memory.training_pairs.config import NegativeSamplingConfig
 
@@ -35,17 +35,6 @@ class RgcnTrainerSettings:
     pos_weight_enabled: bool = False
     epochs: int = 1
     device: str = "cpu"
-
-    def to_trainable_training_config(self) -> TrainableTrainingConfig: # HUMAN REVIEW POINT: 怎么又有这种屎山适配器？又有两种语义一样的结构体何意味？可能是config和registry module重构的结构变化只能这样适配到内部的语义？
-        return TrainableTrainingConfig(
-            optimizer_name=self.optimizer_name,
-            learning_rate=self.learning_rate,
-            batch_size=self.batch_size,
-            max_grad_norm=self.max_grad_norm,
-            random_seed=self.random_seed,
-            pos_weight_enabled=self.pos_weight_enabled,
-            epochs=self.epochs,
-        )
 
 
 @dataclass(frozen=True)
@@ -96,6 +85,7 @@ class TrainMethodTrainer(Protocol):
         train_task_inputs: list[MemoryTaskInput],
         train_graphs: list[MemoryGraph],
         train_pairs: list[TrainPairRecord],
+        train_labels: list[MemoryTaskLabels] | None = None,
         dev_task_inputs: list[MemoryTaskInput],
         dev_labels: list[MemoryTaskLabels],
         dev_graphs: list[MemoryGraph],
@@ -132,6 +122,7 @@ class RgcnGraphRetrieverTrainer:
         train_task_inputs: list[MemoryTaskInput],
         train_graphs: list[MemoryGraph],
         train_pairs: list[TrainPairRecord],
+        train_labels: list[MemoryTaskLabels] | None = None,
         dev_task_inputs: list[MemoryTaskInput],
         dev_labels: list[MemoryTaskLabels],
         dev_graphs: list[MemoryGraph],
@@ -153,11 +144,12 @@ class RgcnGraphRetrieverTrainer:
             train_task_inputs=train_task_inputs,
             train_graphs=train_graphs,
             train_pairs=train_pairs,
+            train_labels=train_labels,
             dev_task_inputs=dev_task_inputs,
             dev_labels=dev_labels,
             dev_graphs=dev_graphs,
             model_config=model_config,
-            training_config=self.settings.trainer.to_trainable_training_config(),
+            training_config=trainable_training_config_from_trainer_settings(self.settings.trainer),
             text_embedding_provider=self.deps.text_embedding_provider,
             seed_signal_provider=self.deps.seed_signal_provider,
             device=self.settings.trainer.device,
