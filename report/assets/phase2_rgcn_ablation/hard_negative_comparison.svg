@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="360" viewBox="0 0 940 360">
+  <rect width="940" height="360" fill="#ffffff"/>
+  <text x="34" y="44" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="24" font-weight="700" fill="#222">困难负例策略的反常结果</text>
+  <text x="34" y="72" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" fill="#555">只使用随机负例略高，说明当前困难负例策略还需要重新调参</text>
+
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" fill="#333">
+    <text x="280" y="112" font-weight="700">完整 R-GCN</text>
+    <text x="470" y="112" font-weight="700">只使用随机负例</text>
+    <text x="690" y="112" font-weight="700">变化</text>
+  </g>
+
+  <line x1="34" y1="128" x2="900" y2="128" stroke="#d0d0d0"/>
+  <line x1="34" y1="196" x2="900" y2="196" stroke="#eeeeee"/>
+  <line x1="34" y1="264" x2="900" y2="264" stroke="#eeeeee"/>
+
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" fill="#222">
+    <text x="50" y="168">Recall@5</text>
+    <rect x="280" y="145" width="178" height="22" fill="#2f6f9f"/>
+    <rect x="470" y="145" width="180" height="22" fill="#2c7a4b"/>
+    <text x="662" y="162" fill="#2c7a4b" font-weight="700">+0.0100</text>
+    <text x="332" y="162" fill="#fff">0.8891</text>
+    <text x="522" y="162" fill="#fff">0.8991</text>
+
+    <text x="50" y="236">Full Support@5</text>
+    <rect x="280" y="213" width="153" height="22" fill="#2f6f9f"/>
+    <rect x="470" y="213" width="156" height="22" fill="#2c7a4b"/>
+    <text x="662" y="230" fill="#2c7a4b" font-weight="700">+0.0167</text>
+    <text x="326" y="230" fill="#fff">0.7643</text>
+    <text x="516" y="230" fill="#fff">0.7810</text>
+
+    <text x="50" y="304">Connected Recall@10</text>
+    <rect x="280" y="281" width="147" height="22" fill="#2f6f9f"/>
+    <rect x="470" y="281" width="150" height="22" fill="#2c7a4b"/>
+    <text x="662" y="298" fill="#2c7a4b" font-weight="700">+0.0175</text>
+    <text x="323" y="298" fill="#fff">0.7345</text>
+    <text x="513" y="298" fill="#fff">0.7519</text>
+  </g>
+
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13" fill="#555">
+    <text x="280" y="332">蓝色：完整模型</text>
+    <text x="470" y="332">绿色：只使用随机负例</text>
+  </g>
+</svg>

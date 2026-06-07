@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="520" viewBox="0 0 940 520">
+  <rect width="940" height="520" fill="#ffffff"/>
+  <text x="34" y="44" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="24" font-weight="700" fill="#222">关键指标对比</text>
+  <text x="34" y="72" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" fill="#555">图消息传递、seed score 和边类型同时影响完整证据找回与证据连通性</text>
+
+  <line x1="96" y1="410" x2="900" y2="410" stroke="#d9d9d9"/>
+  <line x1="96" y1="330" x2="900" y2="330" stroke="#eeeeee"/>
+  <line x1="96" y1="250" x2="900" y2="250" stroke="#eeeeee"/>
+  <line x1="96" y1="170" x2="900" y2="170" stroke="#eeeeee"/>
+  <line x1="96" y1="90" x2="900" y2="90" stroke="#eeeeee"/>
+
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12" fill="#666">
+    <text x="58" y="414">0.50</text>
+    <text x="58" y="334">0.60</text>
+    <text x="58" y="254">0.70</text>
+    <text x="58" y="174">0.80</text>
+    <text x="58" y="94">0.90</text>
+  </g>
+
+  <rect x="680" y="35" width="16" height="16" fill="#2f6f9f"/>
+  <text x="704" y="48" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13" fill="#333">Full Support@5</text>
+  <rect x="680" y="58" width="16" height="16" fill="#d18f28"/>
+  <text x="704" y="71" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13" fill="#333">Connected Evidence Recall@10</text>
+
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13" fill="#222">
+    <rect x="143" y="198" width="34" height="212" fill="#2f6f9f"/>
+    <rect x="181" y="212" width="34" height="198" fill="#d18f28"/>
+    <text x="125" y="440">完整 R-GCN</text>
+    <text x="138" y="188" fill="#2f6f9f">0.764</text>
+    <text x="180" y="202" fill="#d18f28">0.734</text>
+
+    <rect x="293" y="337" width="34" height="73" fill="#2f6f9f"/>
+    <rect x="331" y="294" width="34" height="116" fill="#d18f28"/>
+    <text x="268" y="440">去掉图消息传递</text>
+    <text x="288" y="327" fill="#2f6f9f">0.591</text>
+    <text x="330" y="284" fill="#d18f28">0.645</text>
+
+    <rect x="443" y="266" width="34" height="144" fill="#2f6f9f"/>
+    <rect x="481" y="252" width="34" height="158" fill="#d18f28"/>
+    <text x="418" y="440">不区分边类型</text>
+    <text x="438" y="256" fill="#2f6f9f">0.702</text>
+    <text x="480" y="242" fill="#d18f28">0.715</text>
+
+    <rect x="593" y="282" width="34" height="128" fill="#2f6f9f"/>
+    <rect x="631" y="276" width="34" height="134" fill="#d18f28"/>
+    <text x="570" y="440">去掉 seed score</text>
+    <text x="588" y="272" fill="#2f6f9f">0.682</text>
+    <text x="630" y="266" fill="#d18f28">0.685</text>
+
+    <rect x="743" y="185" width="34" height="225" fill="#2f6f9f"/>
+    <rect x="781" y="198" width="34" height="212" fill="#d18f28"/>
+    <text x="724" y="440">只使用随机负例</text>
+    <text x="738" y="175" fill="#2f6f9f">0.781</text>
+    <text x="780" y="188" fill="#d18f28">0.752</text>
+  </g>
+</svg>

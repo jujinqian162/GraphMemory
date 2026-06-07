@@ -143,10 +143,10 @@ def build_train_pairs(
     graphs: list[MemoryGraph],
     config: NegativeSamplingConfig,
     *,
-    bm25_retriever: Retriever | None = None,
+    bm25_retriever: Retriever | None = None, # HUMAN REVEIW POINT: 还是那个问题：你觉得bm25、dense这些具体的Retriever类型应该被这个函数知晓吗？至少应该用统一的retriever: Retriever，然后内部如果真的需要判断类型，就instanceof(retriever,...)吗。。。
     dense_retriever: Retriever | None = None,
     dense_seed_signal_provider: SeedSignalProvider | None = None,
-    dense_config: DenseConfig | None = None,
+    dense_config: DenseConfig | None = None, 
 ) -> TrainPairBuildResult:
     """
     Build validated train pair records from already-loaded artifacts.

@@ -170,7 +170,7 @@ def _effective_config(config: PairBuildStageConfig) -> dict[str, JsonValue]:
     return effective_config
 
 
-def _dense_config_from_config(config: PairBuildStageConfig) -> DenseConfig | None:
+def _dense_config_from_config(config: PairBuildStageConfig) -> DenseConfig | None: # HUMAN REVIEW POINT: 这个DenseConfig和PairBuildStageConfig中的DenseEncoderSettings有什么本质区别吗？语义不重复吗？
     job = config.job
     if job.sampling.hard_dense_per_positive <= 0 or job.hard_dense_encoder is None:
         if config.io.config is not None and job.sampling.hard_dense_per_positive > 0:
