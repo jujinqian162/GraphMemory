@@ -76,13 +76,13 @@ RGCN_ABLATION_PATCHES = (
     ),
 )
 
-RGCN_ABLATION_SUITE_PATCH = AblationSuitePatch(
+RGCN_ABLATION_PATCH_SUITE = AblationSuitePatch(
     method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
     variants=RGCN_ABLATION_PATCHES,
 )
 
 ABLATION_SUITE_PATCHES = {
-    RGCN_ABLATION_SUITE_PATCH.method: RGCN_ABLATION_SUITE_PATCH,
+    RGCN_ABLATION_PATCH_SUITE.method: RGCN_ABLATION_PATCH_SUITE,
 }
 
 
@@ -91,5 +91,5 @@ __all__ = [
     "AblationSuitePatch",
     "AblationVariantPatch",
     "RGCN_ABLATION_PATCHES",
-    "RGCN_ABLATION_SUITE_PATCH",
+    "RGCN_ABLATION_PATCH_SUITE",
 ]

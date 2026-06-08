@@ -116,7 +116,7 @@ def test_runtime_request_module_keeps_only_shared_runtime_objects() -> None:
     source = Path("graph_memory/retrieval/requests.py").read_text(encoding="utf-8")
 
     assert "class DenseRuntime" in source
-    assert "class TrainableGraphRuntime" in source
+    assert "class TrainableGraphRuntime" not in source
     assert "SeedRetrieverBuildRequest" not in source
     assert "RetrievalMethodResolveRequest" not in source
     assert "FlatMethodBuildRequest" not in source

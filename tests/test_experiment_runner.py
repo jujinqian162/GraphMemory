@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from graph_memory.experiment import (
+from scripts.workflow import (
     build_stage_plan,
     format_commands,
     initialize_experiment,

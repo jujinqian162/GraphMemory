@@ -4,8 +4,7 @@ from typing import TypedDict
 
 from typing_extensions import NotRequired
 
-from graph_memory.contracts.common import JsonObject, MethodName, TaskId
-from graph_memory.contracts.ranking import RankedNodeRecord
+from graph_memory.contracts.common import JsonObject
 
 
 class GraphStatistics(TypedDict):
@@ -33,18 +32,4 @@ class RunSummary(TypedDict):
     error: NotRequired[str]
 
 
-class RankedNodeDebugRecord(RankedNodeRecord, total=False):
-    score_components: object
-
-
-class ScoreDebugRecord(TypedDict, total=False):
-    debug_type: str
-    task_id: TaskId
-    method: MethodName
-    top_k: int
-    ranked_nodes: list[RankedNodeDebugRecord]
-    split: str
-    config_digest: str
-
-
-__all__ = ["GraphStatistics", "RankedNodeDebugRecord", "RunSummary", "ScoreDebugRecord"]
+__all__ = ["GraphStatistics", "RunSummary"]

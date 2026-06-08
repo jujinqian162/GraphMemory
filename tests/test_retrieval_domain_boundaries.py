@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import importlib.util
 import inspect
-from dataclasses import fields
 from pathlib import Path
 
 
@@ -15,6 +14,12 @@ LEGACY_RERANK_IMPORTS = {
     "graph_memory.rerank",
     "graph_memory.rerank_config",
     "graph_memory.tuning",
+}
+LEGACY_GRAPH_RERANK_EXPORTS = {
+    "build_score_debug_record",
+    "config_digest",
+    "graph_rerank",
+    "graph_rerank_with_breakdown",
 }
 NO_LOOSE_DENSE_PREFIX_MODULES = (
     PACKAGE_ROOT / "retrieval" / "execution" / "service.py",
@@ -77,6 +82,21 @@ def test_old_graph_rerank_import_paths_are_absent() -> None:
     assert old_imports == []
 
 
+def test_old_graph_rerank_debug_and_convenience_exports_are_absent() -> None:
+    from graph_memory.retrieval.methods import graph_rerank
+
+    source = (PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "engine.py").read_text(encoding="utf-8")
+    init_source = (PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "__init__.py").read_text(encoding="utf-8")
+
+    assert not (PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "debug.py").exists()
+    for name in LEGACY_GRAPH_RERANK_EXPORTS:
+        assert not hasattr(graph_rerank, name)
+        assert f"def {name}(" not in source
+        assert f'"{name}"' not in init_source
+        assert f"import {name}" not in init_source
+    assert "include_score_breakdown" not in source
+
+
 def test_dense_prefixes_do_not_cross_resolver_and_factory_as_loose_fields() -> None:
     matches: list[str] = []
     for path in NO_LOOSE_DENSE_PREFIX_MODULES:
@@ -105,15 +125,13 @@ def test_trainable_retrieval_uses_unified_retrieval_script_entry() -> None:
     assert "dense_rgcn_graph_retriever" in action.choices
 
 
-def test_trainable_runtime_groups_checkpoint_dependencies_instead_of_loose_request_fields() -> None:
-    from graph_memory.retrieval.requests import TrainableGraphRuntime
+def test_runtime_request_module_does_not_reintroduce_trainable_or_stage_request_objects() -> None:
+    source = (PACKAGE_ROOT / "retrieval" / "requests.py").read_text(encoding="utf-8")
 
-    request_fields = {field.name for field in fields(TrainableGraphRuntime)}
-
-    assert {"checkpoint_path", "text_embedding_provider", "seed_signal_provider", "device"}.issubset(request_fields)
-    assert request_fields.isdisjoint(
-        {"task_inputs", "graphs", "top_k", "graph_config"}
-    )
+    assert "class DenseRuntime" in source
+    assert "class TrainableGraphRuntime" not in source
+    assert "RunRetrievalRequest" not in source
+    assert "RetrievalMethodResolveRequest" not in source
 
 
 def test_retrieval_execution_runs_built_method_without_resolving_runtime_parameters() -> None:

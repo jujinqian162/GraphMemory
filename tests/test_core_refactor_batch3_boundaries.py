@@ -76,8 +76,10 @@ def _assert_edge(actual: Mapping[str, object], expected: Mapping[str, object]) -
 
 
 def test_graph_domain_package_exposes_config_builder_index_statistics_and_views() -> None:
+    import graph_memory.graphs as graphs_package
+    import graph_memory.graphs.construction as construction_package
     from graph_memory.graphs.config import GraphBuildConfig
-    from graph_memory.graphs.construction.builder import GraphBuilder, build_graph, build_graphs
+    from graph_memory.graphs.construction.builder import GraphBuilder, build_graphs
     from graph_memory.graphs.construction.rules.bridge import BridgeEdgeRule
     from graph_memory.graphs.construction.rules.entity_overlap import EntityOverlapEdgeRule
     from graph_memory.graphs.construction.rules.query_overlap import QueryOverlapEdgeRule
@@ -88,6 +90,8 @@ def test_graph_domain_package_exposes_config_builder_index_statistics_and_views(
 
     assert (ROOT / "graph_memory" / "graphs" / "__init__.py").exists()
     assert not (ROOT / "graph_memory" / "graphs.py").exists()
+    assert not hasattr(graphs_package, "build_graph")
+    assert not hasattr(construction_package, "build_graph")
     assert GraphBuildConfig.__module__ == GRAPH_BUILD_CONFIG_OWNER
 
     builder = GraphBuilder(GraphBuildConfig(max_query_overlap=20, max_entity_neighbors=10, max_bridge_edges=50))
@@ -98,7 +102,7 @@ def test_graph_domain_package_exposes_config_builder_index_statistics_and_views(
         BridgeEdgeRule,
     )
 
-    graph = build_graph(_task_input(), builder.config)
+    graph = builder.build(_task_input())
     assert build_graphs([_task_input()], builder.config) == [graph]
     assert GraphIndex.from_graphs([graph]).graph_by_task_id == {"hotpot_graph_batch3": graph}
 

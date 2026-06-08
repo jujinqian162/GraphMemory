@@ -3,7 +3,7 @@ import json
 from graph_memory.text.entities import heuristic_entities, title_aliases
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.config import GraphBuildConfig
-from graph_memory.graphs.construction.builder import build_graph
+from graph_memory.graphs.construction.builder import GraphBuilder
 from graph_memory.text.lexical import lexical_score
 from graph_memory.text.tokens import content_tokens
 
@@ -75,7 +75,7 @@ def test_heuristic_entities_and_title_aliases_are_deterministic():
 
 def test_graph_builds_typed_edges_without_label_fields():
     config = GraphBuildConfig(max_query_overlap=20, max_entity_neighbors=10, max_bridge_edges=50)
-    graph = build_graph(graph_task_input(), config)
+    graph = GraphBuilder(config).build(graph_task_input())
     encoded = json.dumps(graph)
     edge_types = {edge["edge_type"] for edge in graph["edges"]}
 
@@ -89,6 +89,6 @@ def test_graph_builds_typed_edges_without_label_fields():
 
 def test_graph_respects_query_overlap_limit():
     config = GraphBuildConfig(max_query_overlap=1, max_entity_neighbors=10, max_bridge_edges=50)
-    graph = build_graph(graph_task_input(), config)
+    graph = GraphBuilder(config).build(graph_task_input())
 
     assert sum(1 for edge in graph["edges"] if edge["edge_type"] == "query_overlap") == 1

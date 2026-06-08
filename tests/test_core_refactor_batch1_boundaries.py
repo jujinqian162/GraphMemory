@@ -40,8 +40,6 @@ MIGRATED_CONTRACT_NAMES = {
     "FailureCase",
     "GraphStatistics",
     "RunSummary",
-    "RankedNodeDebugRecord",
-    "ScoreDebugRecord",
 }
 
 
@@ -96,8 +94,6 @@ def test_foundation_contract_modules_expose_artifact_contract_names():
         "graph_memory.contracts.observability": [
             "GraphStatistics",
             "RunSummary",
-            "RankedNodeDebugRecord",
-            "ScoreDebugRecord",
         ],
     }
 

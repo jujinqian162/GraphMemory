@@ -11,7 +11,7 @@ import pytest
 
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.graphs.config import GraphBuildConfig
-from graph_memory.graphs.construction.builder import build_graph
+from graph_memory.graphs.construction.builder import GraphBuilder
 from graph_memory.datasets.hotpotqa import convert_hotpotqa_example, parse_hotpotqa_example
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
@@ -377,7 +377,7 @@ def test_workflow_plan_contract_freezes_manifest_commands_and_ablation_fail_fast
 
 def test_foundation_domain_golden_fixture_is_frozen() -> None:
     converted = convert_hotpotqa_example(parse_hotpotqa_example(_raw_hotpotqa_example()))
-    graph = build_graph(converted.task_input, GraphBuildConfig())
+    graph = GraphBuilder(GraphBuildConfig()).build(converted.task_input)
 
     assert converted.task_input == {
         "task_id": "hotpot_ex1",

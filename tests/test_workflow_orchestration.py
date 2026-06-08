@@ -13,10 +13,11 @@ from graph_memory.retrieval_registry import get_supported_methods
 from scripts.workflow.artifacts import build_main_method_artifacts, build_variant_artifact_namespace
 from scripts.workflow.manifest import initialize_experiment
 from scripts.workflow.planner import build_stage_plan, earliest_invalidated_stage, format_commands
+import scripts.workflow.registry as workflow_registry
 from scripts.workflow.registry import (
     METHOD_WORKFLOW_REGISTRY,
-    RGCN_ABLATION_SUITE,
     discover_ablation_variants,
+    get_ablation_suite,
     validate_workflow_registry,
 )
 from scripts.workflow.types import (
@@ -35,6 +36,12 @@ from tests.test_experiment_runner import (
     _write_rgcn_training_config,
     _write_trainable_experiment_config,
 )
+
+
+def _rgcn_ablation_suite():
+    suite = get_ablation_suite(TRAINABLE_METHOD)
+    assert suite is not None
+    return suite
 
 
 def test_closed_workflow_values_expose_allowed_choices() -> None:
@@ -126,7 +133,8 @@ def test_workflow_registry_covers_every_runtime_method() -> None:
 def test_workflow_ablation_suite_projects_registry_owned_patch_semantics() -> None:
     from graph_memory.registry.ablations import RGCN_ABLATION_PATCHES
 
-    workflow_variants = {variant.identifier.value: variant for variant in RGCN_ABLATION_SUITE.variants}
+    suite = _rgcn_ablation_suite()
+    workflow_variants = {variant.identifier.value: variant for variant in suite.variants}
     registry_variants = {variant.identifier: variant for variant in RGCN_ABLATION_PATCHES}
 
     assert set(workflow_variants) == set(registry_variants)
@@ -142,6 +150,7 @@ def test_workflow_ablation_suite_projects_registry_owned_patch_semantics() -> No
 def test_workflow_registry_does_not_own_rgcn_variant_patch_literals() -> None:
     source = Path("scripts/workflow/registry.py").read_text(encoding="utf-8")
 
+    assert not hasattr(workflow_registry, "RGCN_ABLATION_SUITE")
     assert "WO_BRIDGE" not in source
     assert "WO_HARD_NEGATIVES" not in source
     assert '"model": {"ablation"' not in source
@@ -171,16 +180,17 @@ def test_same_lifecycle_method_can_reuse_existing_workflow_without_planner_branc
         **METHOD_WORKFLOW_REGISTRY,
         "test_dense_clone": STATELESS_RETRIEVAL_WORKFLOW,
     }
+    suite = _rgcn_ablation_suite()
 
     validate_workflow_registry(
         runtime_methods=(*get_supported_methods(), "test_dense_clone"),
         registrations=registrations,
-        suites={"dense_rgcn_graph_retriever": RGCN_ABLATION_SUITE},
+        suites={TRAINABLE_METHOD: suite},
     )
 
 
 def test_registry_rejects_suite_for_unregistered_method() -> None:
-    invalid_suite = replace(RGCN_ABLATION_SUITE, method="missing_method")
+    invalid_suite = replace(_rgcn_ablation_suite(), method="missing_method")
 
     with pytest.raises(ValueError, match="missing_method"):
         validate_workflow_registry(
@@ -189,66 +199,70 @@ def test_registry_rejects_suite_for_unregistered_method() -> None:
 
 
 def test_registry_rejects_suite_without_exactly_one_baseline_alias() -> None:
+    suite = _rgcn_ablation_suite()
     invalid_suite = replace(
-        RGCN_ABLATION_SUITE,
-        variants=tuple(replace(variant, baseline_alias=False) for variant in RGCN_ABLATION_SUITE.variants),
+        suite,
+        variants=tuple(replace(variant, baseline_alias=False) for variant in suite.variants),
     )
 
     with pytest.raises(ValueError, match="exactly one baseline alias"):
         validate_workflow_registry(
-            suites={RGCN_ABLATION_SUITE.method: invalid_suite},
+            suites={suite.method: invalid_suite},
         )
 
 
 def test_model_structure_variant_aliases_pairs_and_allocates_train_outputs_locally(tmp_path) -> None:
     main = build_main_method_artifacts(tmp_path, "dense_rgcn_graph_retriever")
+    suite = _rgcn_ablation_suite()
     variant = next(
-        spec for spec in RGCN_ABLATION_SUITE.variants if spec.identifier is RgcnAblationVariant.WO_GRAPH
+        spec for spec in suite.variants if spec.identifier is RgcnAblationVariant.WO_GRAPH
     )
 
     assert earliest_invalidated_stage(RGCN_WORKFLOW, variant) is StageId.TRAIN
 
-    namespace = build_variant_artifact_namespace(tmp_path, RGCN_ABLATION_SUITE.method, variant, main)
+    namespace = build_variant_artifact_namespace(tmp_path, suite.method, variant, main)
 
     assert namespace.path(ArtifactRole.TRAIN_PAIRS) == main[ArtifactRole.TRAIN_PAIRS]
     assert Path(namespace.path(ArtifactRole.CHECKPOINT)) == (
-        tmp_path / "ablations" / RGCN_ABLATION_SUITE.method / "wo_graph" / "checkpoints" / "best.pt"
+        tmp_path / "ablations" / suite.method / "wo_graph" / "checkpoints" / "best.pt"
     )
     assert {alias.role for alias in namespace.aliases} >= {ArtifactRole.TRAIN_PAIRS}
 
 
 def test_pair_sampling_variant_allocates_pairs_and_all_downstream_outputs_locally(tmp_path) -> None:
     main = build_main_method_artifacts(tmp_path, "dense_rgcn_graph_retriever")
+    suite = _rgcn_ablation_suite()
     variant = next(
         spec
-        for spec in RGCN_ABLATION_SUITE.variants
+        for spec in suite.variants
         if spec.identifier is RgcnAblationVariant.WO_HARD_NEGATIVES
     )
 
     assert earliest_invalidated_stage(RGCN_WORKFLOW, variant) is StageId.PAIRS
 
-    namespace = build_variant_artifact_namespace(tmp_path, RGCN_ABLATION_SUITE.method, variant, main)
+    namespace = build_variant_artifact_namespace(tmp_path, suite.method, variant, main)
 
     assert Path(namespace.path(ArtifactRole.TRAIN_PAIRS)) == (
-        tmp_path / "ablations" / RGCN_ABLATION_SUITE.method / "wo_hard_negatives" / "train.pairs.json"
+        tmp_path / "ablations" / suite.method / "wo_hard_negatives" / "train.pairs.json"
     )
     assert Path(namespace.path(ArtifactRole.CHECKPOINT)) == (
-        tmp_path / "ablations" / RGCN_ABLATION_SUITE.method / "wo_hard_negatives" / "checkpoints" / "best.pt"
+        tmp_path / "ablations" / suite.method / "wo_hard_negatives" / "checkpoints" / "best.pt"
     )
     assert Path(namespace.path(ArtifactRole.METRICS)) == (
-        tmp_path / "ablations" / RGCN_ABLATION_SUITE.method / "wo_hard_negatives" / "metrics" / "test.metrics.csv"
+        tmp_path / "ablations" / suite.method / "wo_hard_negatives" / "metrics" / "test.metrics.csv"
     )
 
 
 def test_full_rgcn_variant_aliases_all_main_method_outputs(tmp_path) -> None:
     main = build_main_method_artifacts(tmp_path, "dense_rgcn_graph_retriever")
+    suite = _rgcn_ablation_suite()
     variant = next(
-        spec for spec in RGCN_ABLATION_SUITE.variants if spec.identifier is RgcnAblationVariant.FULL_RGCN
+        spec for spec in suite.variants if spec.identifier is RgcnAblationVariant.FULL_RGCN
     )
 
     assert earliest_invalidated_stage(RGCN_WORKFLOW, variant) is None
 
-    namespace = build_variant_artifact_namespace(tmp_path, RGCN_ABLATION_SUITE.method, variant, main)
+    namespace = build_variant_artifact_namespace(tmp_path, suite.method, variant, main)
 
     assert namespace.paths == main
     assert {alias.role for alias in namespace.aliases} == set(main)

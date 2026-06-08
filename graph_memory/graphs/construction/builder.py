@@ -51,10 +51,5 @@ def default_graph_edge_rules(config: GraphBuildConfig) -> tuple[GraphEdgeRule, .
     )
 
 
-def build_graph(task_input: MemoryTaskInput, config: GraphBuildConfig) -> MemoryGraph:
-    return GraphBuilder(config).build(task_input)
-
-
 def build_graphs(task_inputs: list[MemoryTaskInput], config: GraphBuildConfig) -> list[MemoryGraph]:
     return GraphBuilder(config).build_many(task_inputs)
-

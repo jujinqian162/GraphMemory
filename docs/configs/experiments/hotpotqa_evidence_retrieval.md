@@ -18,8 +18,8 @@
 
 - `scripts/experiment.py init ... --config configs/experiments/hotpotqa_evidence_retrieval.json`
 - `scripts/experiment.py run ... --config configs/experiments/hotpotqa_evidence_retrieval.json`
-- `graph_memory.experiment.load_experiment_config`
-- `graph_memory.experiment.build_effective_config`
+- `scripts.workflow.load_experiment_config`
+- `scripts.workflow.manifest.build_effective_config`
 
 初始化 run 后，resolved config 会写入：
 

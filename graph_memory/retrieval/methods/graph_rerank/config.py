@@ -5,7 +5,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TypedDict
 
-from graph_memory.contracts.common import NodeId
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.ranking import RetrievedSubgraph
 from graph_memory.retrieval.contracts import RankedNode
@@ -32,23 +31,9 @@ class GraphRerankConfig:
 
 
 @dataclass(frozen=True)
-class ScoreComponents:
-    initial: float
-    query: float = 0.0
-    neighbor: float = 0.0
-    bridge: float = 0.0
-    path: float = 0.0
-    final: float = 0.0
-
-
-ScoreBreakdown = dict[NodeId, ScoreComponents]
-
-
-@dataclass(frozen=True)
 class RerankResult:
     ranked_nodes: list[RankedNode]
     retrieved_subgraph: RetrievedSubgraph
-    score_breakdown: ScoreBreakdown | None = None
 
 
 class GraphRerankConfigRecord(TypedDict):

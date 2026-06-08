@@ -19,7 +19,7 @@ from graph_memory.contracts.common import (
 )
 from graph_memory.contracts.graphs import GraphEdge, GraphMemoryNode, GraphNode, MemoryGraph, QuestionNode
 from graph_memory.contracts.metrics import FailureCase, MetricRow, MetricTableRow, MetricValue, TaskMetricRow
-from graph_memory.contracts.observability import GraphStatistics, RankedNodeDebugRecord, RunSummary, ScoreDebugRecord
+from graph_memory.contracts.observability import GraphStatistics, RunSummary
 from graph_memory.contracts.ranking import RankedNodeRecord, RankedResult, RetrievedSubgraph
 from graph_memory.contracts.tasks import CombinedMemoryTask, MemoryItem, MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
@@ -50,13 +50,11 @@ __all__ = [
     "NodeId",
     "NodeType",
     "QuestionNode",
-    "RankedNodeDebugRecord",
     "RankedNodeRecord",
     "RankedResult",
     "RetrievedSubgraph",
     "RunSummary",
     "Score",
-    "ScoreDebugRecord",
     "TRAIN_PAIR_SAMPLE_TYPES",
     "TaskId",
     "TaskMetricRow",

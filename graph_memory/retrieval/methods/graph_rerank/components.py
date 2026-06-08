@@ -7,7 +7,7 @@ from typing import Literal, Protocol
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.retrieval.contracts import RankedNode
-from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig, ScoreBreakdown, ScoreComponents
+from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.retrieval.methods.graph_rerank.normalization import normalize_component_scores
 
 NormalizationMode = Literal["none", "minmax"]
@@ -102,26 +102,7 @@ def combine_component_scores(
     context: ScoreContext,
     components: Sequence[NodeScoreComponent],
 ) -> list[RankedNode]:
-    ranked_nodes, _ = combine_component_scores_with_breakdown(
-        node_scores,
-        context,
-        components,
-        include_breakdown=False,
-    )
-    return ranked_nodes
-
-
-def combine_component_scores_with_breakdown(
-    node_scores: dict[str, float],
-    context: ScoreContext,
-    components: Sequence[NodeScoreComponent],
-    *,
-    include_breakdown: bool,
-) -> tuple[list[RankedNode], ScoreBreakdown | None]:
     combined_scores = {node_id: 0.0 for node_id in node_scores}
-    component_values: dict[str, dict[ComponentName, float]] = {
-        node_id: {} for node_id in node_scores
-    }
     for component in components:
         component_scores = _normalize_component_scores(
             component.scores(context),
@@ -131,28 +112,11 @@ def combine_component_scores_with_breakdown(
         for node_id in combined_scores:
             contribution = component.weight * component_scores.get(node_id, 0.0)
             combined_scores[node_id] += contribution
-            if include_breakdown:
-                component_values[node_id][component.component_name] = contribution
     ranked_nodes = [
         RankedNode(node_id=node_id, score=score)
         for node_id, score in combined_scores.items()
     ]
-    sorted_nodes = sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
-    if not include_breakdown:
-        return sorted_nodes, None
-
-    score_breakdown: ScoreBreakdown = {}
-    for node_id, final_score in combined_scores.items():
-        values = component_values[node_id]
-        score_breakdown[node_id] = ScoreComponents(
-            initial=values.get("initial", 0.0),
-            query=values.get("query", 0.0),
-            neighbor=values.get("neighbor", 0.0),
-            bridge=values.get("bridge", 0.0),
-            path=values.get("path", 0.0),
-            final=final_score,
-        )
-    return sorted_nodes, score_breakdown
+    return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
 
 
 def query_overlap_scores(graph: MemoryGraph) -> dict[str, float]:

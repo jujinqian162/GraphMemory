@@ -40,8 +40,6 @@ def _project_variant_patch(variant: AblationVariantPatch) -> VariantSpec:
     )
 
 
-RGCN_ABLATION_SUITE = _project_ablation_suite(ABLATION_SUITE_PATCHES["dense_rgcn_graph_retriever"])
-
 ABLATION_SUITE_REGISTRY: dict[str, AblationSuiteSpec] = {
     method: _project_ablation_suite(suite)
     for method, suite in ABLATION_SUITE_PATCHES.items()

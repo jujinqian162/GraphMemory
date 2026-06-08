@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 import graph_memory.retrieval.methods.graph_rerank.engine as rerank_module
 import graph_memory.retrieval as retrieval_module
-import graph_memory.experiment as experiment_module
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import cast
@@ -14,8 +13,6 @@ from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
 from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
 from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.retrieval.methods.graph_rerank import (
-    graph_rerank,
-    graph_rerank_with_breakdown,
     neighbor_propagation_scores,
     normalize_scores,
     rank_graph_from_initial_scores,
@@ -154,6 +151,15 @@ def tune_graph_rerank(
     )
 
 
+def rank_graph_for_test(initial_scores: dict[str, float], graph: MemoryGraph, config: GraphRerankConfig):
+    return rank_graph_from_initial_scores(
+        initial_scores,
+        graph,
+        config,
+        top_k=len(initial_scores),
+    ).ranked_nodes
+
+
 def retrieval_task_inputs() -> list[MemoryTaskInput]:
     return [
         {
@@ -235,8 +241,6 @@ def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
     assert not hasattr(retrieval_module, "get_supported_methods")
     assert not hasattr(retrieval_module, "get_graph_rerank_methods")
     assert not hasattr(retrieval_module, "get_methods_requiring_dense_encoder")
-    assert not hasattr(experiment_module, "CURRENT_METHODS")
-    assert not hasattr(experiment_module, "GRAPH_RERANK_METHODS")
 
 
 def test_bm25_and_dense_emit_same_ranked_schema():
@@ -386,14 +390,12 @@ def test_query_overlap_does_not_require_neighbor_type_weight_and_uses_lambda_que
         neighbor_type_weights={"sequential": 0.0, "entity_overlap": 0.0, "bridge": 0.0},
     )
 
-    ranked, breakdown = graph_rerank_with_breakdown({"m0": 1.0, "m1": 0.0}, graph, config)
+    ranked = rank_graph_for_test({"m0": 1.0, "m1": 0.0}, graph, config)
 
     assert [node.node_id for node in ranked] == ["m1", "m0"]
-    assert breakdown["m1"].query == pytest.approx(1.0)
-    assert breakdown["m1"].final == pytest.approx(1.0)
 
     ablated_config = ensure_graph_rerank_config({**asdict(config), "lambda_query": 0.0})
-    ablated_ranked = graph_rerank({"m0": 1.0, "m1": 0.0}, graph, ablated_config)
+    ablated_ranked = rank_graph_for_test({"m0": 1.0, "m1": 0.0}, graph, ablated_config)
 
     assert [node.node_id for node in ablated_ranked] == ["m0", "m1"]
 
@@ -423,7 +425,7 @@ def test_query_overlap_component_uses_lambda_query_only():
             {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
         ],
     }
-    ranked = graph_rerank(
+    ranked = rank_graph_for_test(
         {"m0": 1.0, "m1": 0.0},
         graph,
         config,
@@ -455,13 +457,13 @@ def test_graph_rerank_uses_bridge_to_promote_connected_evidence():
         max_hops=1,
     )
 
-    ranked = graph_rerank(initial_scores, graph, config)
+    ranked = rank_graph_for_test(initial_scores, graph, config)
 
     assert {node.node_id for node in ranked[:2]} == {"m0", "m2"}
 
 
 def test_graph_rerank_returns_all_original_nodes():
-    ranked = graph_rerank(
+    ranked = rank_graph_for_test(
         {"m0": 1.0, "m1": 0.5, "m2": 0.0},
         {"task_id": "hotpot_ex1", "nodes": [], "edges": []},
         GraphRerankConfig(seed_top_s=1, max_hops=1),
@@ -471,7 +473,7 @@ def test_graph_rerank_returns_all_original_nodes():
 
 
 def test_graph_rerank_normalizes_graph_components_before_combining():
-    ranked = graph_rerank(
+    ranked = rank_graph_for_test(
         {"m0": 1.0, "m1": 0.95},
         {
             "task_id": "hotpot_ex1",

@@ -21,6 +21,7 @@ DOMAIN_PACKAGE_ROOTS = (
     PACKAGE_ROOT / "validation",
 )
 REMOVED_MODULES = {
+    "graph_memory.experiment",
     "graph_memory.types",
     "graph_memory.hotpotqa",
     "graph_memory.splits",
@@ -29,6 +30,7 @@ REMOVED_MODULES = {
     "graph_memory.learned",
 }
 REMOVED_PATHS = {
+    PACKAGE_ROOT / "experiment.py",
     PACKAGE_ROOT / "types.py",
     PACKAGE_ROOT / "hotpotqa.py",
     PACKAGE_ROOT / "splits.py",
@@ -44,19 +46,12 @@ ROOT_PORT_IMPORTS = {
     },
     "retrieval_registry.py": {"graph_memory.registry.projections"},
     "training_config.py": {"graph_memory.config.training_compat"},
-    "experiment.py": {
-        "scripts.workflow",
-        "scripts.workflow.manifest",
-        "scripts.workflow.planner",
-        "scripts.workflow.types",
-    },
 }
 ROOT_WORKFLOW_PORT_MODULES = {
     "graph_memory.io",
     "graph_memory.observability",
     "graph_memory.retrieval_registry",
     "graph_memory.training_config",
-    "graph_memory.experiment",
 }
 FORBIDDEN_PACKAGE_IMPORTS = {
     PACKAGE_ROOT / "contracts": (
