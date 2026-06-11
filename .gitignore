@@ -10,3 +10,5 @@ runs/
 report/tmp/
 
 .venv/
+
+.ck/
