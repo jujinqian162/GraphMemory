@@ -15,7 +15,7 @@ from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.graph_retriever.text_embeddings import DenseTextEmbeddingProvider
+from graph_memory.models.graph_retriever.text_embeddings import DenseGraphFeatureProvider
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
 from graph_memory.registry.stage_configs import TrainStageConfig
@@ -162,7 +162,7 @@ def _text_embedding_provider_from_config(
     if provider is not None:
         return provider
     encoder = config.job.encoder
-    return DenseTextEmbeddingProvider(
+    return DenseGraphFeatureProvider(
         model_name=encoder.model_name,
         query_prefix=encoder.query_prefix,
         passage_prefix=encoder.passage_prefix,
@@ -177,6 +177,8 @@ def _seed_signal_provider_from_config(
 ) -> SeedSignalProvider:
     if provider is not None:
         return provider
+    if isinstance(embedding_provider, DenseGraphFeatureProvider):
+        return embedding_provider
     encoder = config.job.encoder
     return RetrieverSeedSignalProvider(
         DenseTaskRetriever(

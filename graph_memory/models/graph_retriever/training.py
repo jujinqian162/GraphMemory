@@ -13,11 +13,15 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.evaluation.service import evaluate_results
-from graph_memory.models.graph_retriever.batching import build_training_batches, move_training_batch
+from graph_memory.models.graph_retriever.batching import (
+    build_full_ranking_batches,
+    build_training_batches,
+    move_training_batch,
+)
 from graph_memory.models.graph_retriever.config.records import TrainableModelConfig, TrainableTrainingConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.dev_evaluation import best_metric as select_best_metric
-from graph_memory.models.graph_retriever.dev_evaluation import predict_dev
+from graph_memory.models.graph_retriever.dev_evaluation import predict_dev_from_batches
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.validation import (
@@ -128,6 +132,15 @@ def train_graph_retriever(
     )
     if not train_batches:
         raise ValueError("Training requires at least one non-empty training batch.")
+    dev_batches = build_full_ranking_batches(
+        task_inputs=dev_task_inputs,
+        graphs=dev_graphs,
+        model_config=model_config,
+        text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
+        batch_size=training_config.batch_size,
+        labels=dev_labels,
+    )
 
     pos_weight = _pos_weight(train_pairs, device) if training_config.pos_weight_enabled else None
     metric_records: list[MetricRecord] = []
@@ -158,15 +171,13 @@ def train_graph_retriever(
             train_sample_count += sample_count
             last_grad_norm = float(grad_norm.detach().cpu() if isinstance(grad_norm, Tensor) else grad_norm)
 
-        dev_predictions, dev_loss = predict_dev(
+        dev_predictions, dev_loss = predict_dev_from_batches(
             model=model,
             task_inputs=dev_task_inputs,
             labels=dev_labels,
             graphs=dev_graphs,
             model_config=model_config,
-            text_embedding_provider=text_embedding_provider,
-            seed_signal_provider=seed_signal_provider,
-            batch_size=training_config.batch_size,
+            batches=dev_batches,
             device=device,
         )
         dev_rows = evaluate_results(dev_predictions, dev_labels, dev_graphs)

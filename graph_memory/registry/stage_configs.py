@@ -355,11 +355,14 @@ def _normalize_pairs_raw_config(
     encoder = resolved.get("encoder")
     if encoder is not None:
         encoder_config = _json_object(encoder, name="Pair encoder config")
-        job["hard_dense_encoder"] = {
+        encoder_settings: dict[str, JsonValue] = {
             "model_name": _string_config_value(encoder_config, "model"),
             "query_prefix": _string_config_value(encoder_config, "query_prefix"),
             "passage_prefix": _string_config_value(encoder_config, "passage_prefix"),
         }
+        if "batch_size" in encoder_config:
+            encoder_settings["batch_size"] = _json_int(encoder_config, "batch_size")
+        job["hard_dense_encoder"] = encoder_settings
     return {"job": job} if job else {}
 
 
@@ -596,11 +599,14 @@ def _train_job_from_resolved_config(raw: Mapping[str, JsonValue]) -> dict[str, J
 
 
 def _train_encoder_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    return {
+    encoder: dict[str, JsonValue] = {
         "model_name": _string_config_alias(config, "model_name", "model"),
         "query_prefix": _string_config_value(config, "query_prefix"),
         "passage_prefix": _string_config_value(config, "passage_prefix"),
     }
+    if "batch_size" in config:
+        encoder["batch_size"] = _json_int(config, "batch_size")
+    return encoder
 
 
 def _train_model_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:

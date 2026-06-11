@@ -126,6 +126,7 @@ Rules:
 
 - Training config records effective values after defaults and CLI overrides.
 - Training config is not a replacement for run summary; run summary still records paths, counts, timings, and environment notes.
+- `TrainableTrainingConfig.batch_size` counts task graphs. It is independent from `DenseEncoderSettings.batch_size`, which controls sentence-transformer text mini-batches.
 
 ## Negative Sampling Config
 
@@ -259,6 +260,9 @@ Rules:
 - `task_node_offsets[i] <= global_node_index < task_node_offsets[i + 1]` defines task membership.
 - `node_ids_by_task[i]` has length `task_node_offsets[i + 1] - task_node_offsets[i]`.
 - No raw artifact dictionary should be passed into the model forward path.
+- All tasks in one graph batch request frozen text features through one provider bulk operation.
+- When the same joint dense provider supplies embeddings and seed signals, both values come from one normalized encoder result.
+- When providers are different objects or lack the joint capability, each provider is called through its own bulk-or-single compatibility path.
 
 ## Training Batch
 
@@ -370,6 +374,8 @@ Dev evaluation during training should:
 2. Build in-memory ranked result records.
 3. Use existing retrieval metrics against dev labels and graphs.
 4. Select `best.pt` by the configured retrieval metric.
+
+Frozen full-ranking dev batches are constructed once before the epoch loop and retained as CPU values for the training invocation. Every epoch still moves a separate batch value to the target device and recomputes model logits, loss, retrieval metrics, and checkpoint selection. This reuse is invocation-scoped: it does not create a process-global cache or a persistent embedding artifact.
 
 If dev BCE loss is needed, compute it from full-node labels derived in memory from `dev_memory_tasks.labels.json`, not from a separate dev pairs artifact.
 

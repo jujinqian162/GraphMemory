@@ -753,7 +753,7 @@ def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():
         dense_encoder=encoder,
     )
 
-    assert encoder.encode_calls == 2
+    assert encoder.encode_calls == 1
 
 
 def test_tuning_candidate_metrics_match_normal_retrieval_path():

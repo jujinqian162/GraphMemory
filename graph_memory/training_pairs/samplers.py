@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from graph_memory.contracts.common import TrainPairSampleType
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
-from graph_memory.retrieval.signals import SeedSignalProvider
+from graph_memory.retrieval.bulk import task_groups
+from graph_memory.retrieval.signals import SeedSignal, SeedSignalProvider, score_tasks
 
 
 @dataclass(frozen=True)
@@ -64,18 +66,40 @@ class BM25HardNegativeSampler:
 class DenseHardNegativeSampler:
     seed_signal_provider: SeedSignalProvider
     hard_pool_size: int
+    precomputed_signals_by_task_id: Mapping[str, list[SeedSignal]] | None = None
     sample_type: TrainPairSampleType = "hard_dense"
 
     def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]:
+        signals = (
+            self.precomputed_signals_by_task_id.get(context.task_input["task_id"])
+            if self.precomputed_signals_by_task_id is not None
+            else None
+        )
+        if signals is None:
+            signals = self.seed_signal_provider.score_task(context.task_input)
         return _hard_retriever_negatives(
             [
                 RankedNode(node_id=signal.node_id, score=signal.score)
-                for signal in self.seed_signal_provider.score_task(context.task_input)
+                for signal in signals
             ],
             context.gold_node_ids,
             desired_count=desired_count,
             hard_pool_size=self.hard_pool_size,
         )
+
+    def precompute(
+        self,
+        task_inputs: Sequence[MemoryTaskInput],
+    ) -> DenseHardNegativeSampler:
+        signals_by_task_id: dict[str, list[SeedSignal]] = {}
+        for task_group in task_groups(task_inputs):
+            for task_input, signals in zip(
+                task_group,
+                score_tasks(self.seed_signal_provider, task_group),
+                strict=True,
+            ):
+                signals_by_task_id[task_input["task_id"]] = signals
+        return replace(self, precomputed_signals_by_task_id=signals_by_task_id)
 
 
 @dataclass(frozen=True)

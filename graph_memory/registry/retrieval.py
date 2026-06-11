@@ -10,8 +10,9 @@ from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.registry.ids import StrEnum
 
 if TYPE_CHECKING:
+    from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-    from graph_memory.retrieval.contracts import DenseEncoder, RetrievalMethod, SeedRanker
+    from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
     from graph_memory.retrieval.signals import SeedSignalProvider
 
 PayloadT = TypeVar("PayloadT")
@@ -154,13 +155,13 @@ RETRIEVAL_METHOD_METADATA: Mapping[str, RetrievalMethodMetadata] = {
 
 @dataclass(frozen=True)
 class SeedRetrieverBuildPayload:
-    dense_encoder: "DenseEncoder | None" = None
+    dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
 class FlatRetrievalBuildPayload:
     task_inputs: list[MemoryTaskInput]
-    dense_encoder: "DenseEncoder | None" = None
+    dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
@@ -168,14 +169,14 @@ class GraphRerankBuildPayload:
     task_inputs: list[MemoryTaskInput]
     graphs: list[MemoryGraph]
     graph_config: object | Mapping[str, object] | None = None
-    dense_encoder: "DenseEncoder | None" = None
+    dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
 class CheckpointGraphBuildPayload:
     task_inputs: list[MemoryTaskInput]
     graphs: list[MemoryGraph]
-    dense_encoder: "DenseEncoder | None" = None
+    dense_encoder: "SentenceEncoder | None" = None
     text_embedding_provider: "TextEmbeddingProvider | None" = None
     seed_signal_provider: "SeedSignalProvider | None" = None
 

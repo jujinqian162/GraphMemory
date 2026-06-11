@@ -6,7 +6,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
+from graph_memory.embeddings import DenseTaskEncodingRequest
+from graph_memory.models.graph_retriever.contracts import (
+    TextEmbeddingProvider,
+    build_task_feature_groups,
+)
 from graph_memory.models.graph_retriever.internals.features import NodeFeatureBuilder
 from graph_memory.models.graph_retriever.internals.tensorization import (
     ArtifactEdgeWeightPolicy,
@@ -208,18 +212,31 @@ def _build_batch(
     sample_node_ids: list[str] = []
     sample_types: list[TrainPairSampleType] = []
 
+    requests = [
+        DenseTaskEncodingRequest(
+            task_input=task.task_input,
+            node_ids=tuple(node["id"] for node in task.graph["nodes"]),
+        )
+        for task in tasks
+    ]
+    dense_features_by_task = build_task_feature_groups(
+        text_embedding_provider,
+        seed_signal_provider,
+        requests,
+    )
+
     node_offset = 0
-    for task in tasks:
+    for task, dense_features in zip(tasks, dense_features_by_task, strict=True):
         task_id = task.task_input["task_id"]
         node_ids = [node["id"] for node in task.graph["nodes"]]
         local_index_by_node_id = {node_id: index for index, node_id in enumerate(node_ids)}
         if "q" not in local_index_by_node_id:
             raise ValueError(f"Graph task_id={task_id} is missing q node.")
 
-        embeddings = text_embedding_provider.encode_task_nodes(task.task_input, node_ids)
+        embeddings = dense_features.node_embeddings
         features = feature_builder.build_node_features(
             node_ids=node_ids,
-            seed_signals=seed_signal_provider.score_task(task.task_input),
+            seed_signals=dense_features.seed_signals,
         )
         message_edges = edge_tensorizer.tensorize_edges(task.graph)
         if message_edges.edge_index.numel() > 0:

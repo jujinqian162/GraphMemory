@@ -122,7 +122,8 @@ def test_pair_build_stage_config_loads_cli_overrides_after_training_config(tmp_p
           "encoder": {
             "model": "models/file-e5",
             "query_prefix": "file query: ",
-            "passage_prefix": "file passage: "
+            "passage_prefix": "file passage: ",
+            "batch_size": 17
           },
           "pair_sampling": {
             "random_seed": 99,
@@ -170,6 +171,7 @@ def test_pair_build_stage_config_loads_cli_overrides_after_training_config(tmp_p
         model_name="models/file-e5",
         query_prefix="file query: ",
         passage_prefix="file passage: ",
+        batch_size=17,
     )
 
 
@@ -419,7 +421,8 @@ def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_va
           "encoder": {
             "model": "models/file-e5",
             "query_prefix": "file query: ",
-            "passage_prefix": "file passage: "
+            "passage_prefix": "file passage: ",
+            "batch_size": 17
           },
           "model": {
             "hidden_dim": 8,
@@ -482,6 +485,7 @@ def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_va
         model_name="models/file-e5",
         query_prefix="file query: ",
         passage_prefix="file passage: ",
+        batch_size=17,
     )
     assert config.job.model == RgcnModelSettings(
         hidden_dim=8,

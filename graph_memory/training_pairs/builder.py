@@ -74,6 +74,12 @@ class TrainPairBuilder:
         seen_pair_keys: set[tuple[TaskId, str, TrainPairSampleType]] = set()
         negative_count_by_type: Counter[str] = Counter()
         tasks_with_no_positive: list[TaskId] = []
+        prepared_samplers = tuple(
+            sampler.precompute(task_inputs)
+            if isinstance(sampler, DenseHardNegativeSampler)
+            else sampler
+            for sampler in self.samplers
+        )
 
         for task_input in task_inputs:
             task_id = task_input["task_id"]
@@ -104,7 +110,7 @@ class TrainPairBuilder:
                 rng=rng,
             )
 
-            for sampler in self.samplers:
+            for sampler in prepared_samplers:
                 desired_count = _desired_count(self.config, sampler.sample_type, positive_count=len(gold_nodes))
                 _append_negative_samples(
                     pairs,

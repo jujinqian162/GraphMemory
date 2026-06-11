@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -32,11 +31,6 @@ class SeedRanker(Protocol):
         ...
 
     def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
-        ...
-
-
-class DenseEncoder(Protocol):
-    def encode(self, texts: Sequence[str], batch_size: int = 64, normalize_embeddings: bool = True) -> object:
         ...
 
 

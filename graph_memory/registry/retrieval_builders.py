@@ -5,6 +5,7 @@ from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.embeddings import SentenceEncoder
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
@@ -25,7 +26,7 @@ from graph_memory.registry.retrieval import (
     get_retrieval_method_metadata,
     _require_payload,
 )
-from graph_memory.retrieval.contracts import DenseEncoder, RetrievalMethod, SeedRanker
+from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
@@ -143,8 +144,7 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
         return payload.text_embedding_provider, payload.seed_signal_provider
 
     from graph_memory.models.graph_retriever.checkpoint import load_trainable_checkpoint
-    from graph_memory.models.graph_retriever.contracts import SentenceEncoder
-    from graph_memory.models.graph_retriever.text_embeddings import DenseTextEmbeddingProvider
+    from graph_memory.models.graph_retriever.text_embeddings import DenseGraphFeatureProvider
     from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 
     checkpoint = load_trainable_checkpoint(
@@ -152,9 +152,18 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
         expected_method=settings.method.value,
         map_location=settings.device,
     )
+    if payload.text_embedding_provider is None and payload.seed_signal_provider is None:
+        joint_provider = DenseGraphFeatureProvider(
+            model_name=checkpoint.model_config.encoder_model,
+            query_prefix=checkpoint.model_config.query_prefix,
+            passage_prefix=checkpoint.model_config.passage_prefix,
+            encoder=cast(SentenceEncoder | None, payload.dense_encoder),
+        )
+        return joint_provider, joint_provider
+
     text_embedding_provider = payload.text_embedding_provider
     if text_embedding_provider is None:
-        text_embedding_provider = DenseTextEmbeddingProvider(
+        text_embedding_provider = DenseGraphFeatureProvider(
             model_name=checkpoint.model_config.encoder_model,
             query_prefix=checkpoint.model_config.query_prefix,
             passage_prefix=checkpoint.model_config.passage_prefix,
@@ -169,7 +178,7 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
                 model_name=checkpoint.model_config.encoder_model,
                 query_prefix=checkpoint.model_config.query_prefix,
                 passage_prefix=checkpoint.model_config.passage_prefix,
-                encoder=cast(DenseEncoder | None, encoder),
+                encoder=cast(SentenceEncoder | None, encoder),
             )
         )
     return text_embedding_provider, seed_signal_provider

@@ -1,0 +1,13 @@
+{
+  "exclude": [
+    ".ck",
+    ".git",
+    ".hf_cache",
+    ".venv",
+    "data",
+    "models",
+    "report",
+    "results",
+    "runs"
+  ]
+}

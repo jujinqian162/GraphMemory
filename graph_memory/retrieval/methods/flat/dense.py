@@ -6,7 +6,8 @@ from typing import cast
 import numpy as np
 
 from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.retrieval.contracts import DenseEncoder, RankedNode
+from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingRequest, SentenceEncoder
+from graph_memory.retrieval.contracts import RankedNode
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ class DenseTaskRetriever:
         query_prefix: str = "query: ",
         passage_prefix: str = "passage: ",
         config: DenseConfig | None = None,
-        encoder: DenseEncoder | None = None,
+        encoder: SentenceEncoder | None = None,
     ) -> None:
         self.config = config or DenseConfig(
             model_name=model_name,
@@ -36,25 +37,36 @@ class DenseTaskRetriever:
             batch_size=batch_size,
         )
         self.encoder = encoder if encoder is not None else self._load_encoder(self.config.model_name)
+        self.encoding_service = DenseEncodingService(
+            encoder=self.encoder,
+            query_prefix=self.config.query_prefix,
+            passage_prefix=self.config.passage_prefix,
+            batch_size=self.config.batch_size,
+        )
 
     def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
-        query_text = self.config.query_prefix + task_input["query"]
-        passages = [
-            self.config.passage_prefix + f'{memory_item["source"]}. {memory_item["text"]}'
-            for memory_item in task_input["memory_items"]
+        return self.rank_many([task_input])[0]
+
+    def rank_many(self, task_inputs: list[MemoryTaskInput]) -> list[list[RankedNode]]:
+        requests = [
+            DenseTaskEncodingRequest(
+                task_input=task_input,
+                node_ids=("q", *(memory_item["id"] for memory_item in task_input["memory_items"])),
+            )
+            for task_input in task_inputs
         ]
-        query_embedding = self.encoder.encode(
-            [query_text],
-            batch_size=self.config.batch_size,
-            normalize_embeddings=True,
-        )
-        passage_embeddings = self.encoder.encode(
-            passages,
-            batch_size=self.config.batch_size,
-            normalize_embeddings=True,
-        )
-        query_vector = np.asarray(query_embedding, dtype=float)[0]
-        passage_matrix = np.asarray(passage_embeddings, dtype=float)
+        return [
+            self._rank_from_embeddings(request.task_input, result.embeddings)
+            for request, result in zip(requests, self.encoding_service.encode_tasks(requests), strict=True)
+        ]
+
+    @staticmethod
+    def _rank_from_embeddings(
+        task_input: MemoryTaskInput,
+        embeddings: np.ndarray,
+    ) -> list[RankedNode]:
+        query_vector = embeddings[0]
+        passage_matrix = embeddings[1:]
         scores = passage_matrix @ query_vector
         ranked_nodes = [
             RankedNode(node_id=memory_item["id"], score=float(score))
@@ -63,11 +75,11 @@ class DenseTaskRetriever:
         return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
 
     @staticmethod
-    def _load_encoder(model_name: str) -> DenseEncoder:
+    def _load_encoder(model_name: str) -> SentenceEncoder:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as error:
             raise RuntimeError(
                 "sentence-transformers is required for dense retrieval unless a test encoder is provided."
             ) from error
-        return cast(DenseEncoder, cast(object, SentenceTransformer(model_name)))
+        return cast(SentenceEncoder, cast(object, SentenceTransformer(model_name)))

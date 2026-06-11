@@ -3,6 +3,7 @@
   "method": "dense_rgcn_graph_retriever",
   "default_profile": "quick",
   "encoder": {
+    "batch_size": 64,
     "model_name": "models/intfloat-e5-base-v2",
     "passage_prefix": "passage: ",
     "query_prefix": "query: "

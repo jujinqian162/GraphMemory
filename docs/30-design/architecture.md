@@ -50,6 +50,7 @@ The current core package is organized by domain ownership:
 graph_memory/
   contracts/
   datasets/
+  embeddings/
   evaluation/
   graphs/
   infrastructure/
@@ -87,6 +88,7 @@ They must stay thin. New core logic belongs in the domain package that owns the 
 | `validation/` | Fail-fast validators for task, graph, ranking, training-pair, metric, and model contracts. |
 | `infrastructure/` | JSON/CSV IO, run summaries, and runtime environment capture. |
 | `datasets/` | Dataset-specific parsing, conversion, compatibility records, and split helpers. |
+| `embeddings/` | Low-level sentence-encoder protocol, dense text formatting, cross-task encoding, shape validation, and deterministic task/node reconstruction. |
 | `text/` | Tokenization, lexical scoring, and entity extraction helpers. |
 | `graphs/` | Graph build config, construction rules, graph index, statistics, and graph views. |
 | `stages/` | Stage-level orchestration between scripts, registry builders, and domain services. |
@@ -119,11 +121,15 @@ retrieval execution
 trainable graph retrieval
   -> models.graph_retriever
   -> retrieval.signals
+
+flat dense retrieval / trainable graph features
+  -> embeddings
 ```
 
 Important forbidden directions:
 
 - `contracts/` must not import algorithm packages.
+- `embeddings/` must not import retrieval methods, graph-model internals, registries, stages, scripts, or workflow state.
 - `graphs/` must not import retrieval, training pairs, models, evaluation, stage orchestration, or scripts.
 - `retrieval/` must not import scripts or workflow orchestration.
 - `models/graph_retriever/` must not import scripts or workflow orchestration.
@@ -173,6 +179,8 @@ retrieval.tuning
 
 `RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed stage config/runtime objects at the stage and registry-builder boundary. Once execution starts, it receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense or checkpoint parameters.
 
+`graph_memory.embeddings.DenseEncodingService` is the shared low-level dense text boundary. Flat dense retrieval and trainable graph features both depend on it for prefixes, normalized encoder calls, encoder text mini-batch size, output-shape checks, and task/node reconstruction. Collection consumers may use optional bulk ranking capabilities with deterministic single-task fallback. Normal `retrieval.execution.service.run_retrieval()` remains task-oriented because its artifact contract measures latency around each task's `rank_task()` call.
+
 ## Trainable Retriever Boundary
 
 Train-pair generation and trainable model runtime are separate domains:
@@ -196,6 +204,8 @@ models/graph_retriever/
 ```
 
 `training_pairs` may consume retrieval seed signals for hard negatives, but it does not depend on trainable model internals. `models/graph_retriever` owns tensorization, graph-scoring model construction, checkpoint parsing, training, and inference, but it does not parse CLI args or read experiment workflow state.
+
+The default `DenseGraphFeatureProvider` implements text embeddings, dense seed signals, and a joint bulk graph-feature capability. Graph batching uses the joint path only when the embedding and seed dependencies are the same compatible object. Independently injected providers keep their own semantics through bulk-or-single fallback helpers.
 
 ## Script Boundary
 

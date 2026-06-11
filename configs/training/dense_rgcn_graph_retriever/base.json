@@ -2,6 +2,7 @@
   "default_profile": "quick",
   "defaults": {
     "encoder": {
+      "batch_size": 64,
       "model": "models/intfloat-e5-base-v2",
       "passage_prefix": "passage: ",
       "query_prefix": "query: "

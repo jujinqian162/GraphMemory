@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 
 import torch
 import torch.nn.functional as F
@@ -14,6 +15,7 @@ from graph_memory.models.graph_retriever.batching import build_full_ranking_batc
 from graph_memory.models.graph_retriever.config.records import TrainableModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
+from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.signals import SeedSignalProvider
 
@@ -39,6 +41,27 @@ def predict_dev(
         batch_size=batch_size,
         labels=labels,
     )
+    return predict_dev_from_batches(
+        model=model,
+        task_inputs=task_inputs,
+        labels=labels,
+        graphs=graphs,
+        model_config=model_config,
+        batches=batches,
+        device=device,
+    )
+
+
+def predict_dev_from_batches(
+    *,
+    model: EvidenceScoringModel,
+    task_inputs: list[MemoryTaskInput],
+    labels: list[MemoryTaskLabels],
+    graphs: list[MemoryGraph],
+    model_config: TrainableModelConfig,
+    batches: Sequence[TrainingBatch],
+    device: torch.device,
+) -> tuple[list[RankedResult], float]:
     labels_by_task_id = {label["task_id"]: label for label in labels}
     graph_by_task_id = {graph["task_id"]: graph for graph in graphs}
     logits_by_task_id: dict[str, list[RankedNode]] = defaultdict(list)

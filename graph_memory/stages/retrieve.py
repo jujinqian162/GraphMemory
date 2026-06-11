@@ -17,7 +17,7 @@ from graph_memory.registry.retrieval import (
     GraphRerankRetrievalSettings,
 )
 from graph_memory.registry.stage_configs import RetrieveStageConfig
-from graph_memory.retrieval.contracts import DenseEncoder
+from graph_memory.embeddings import SentenceEncoder
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 
@@ -33,7 +33,7 @@ def run_retrieve_stage(
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph] | None,
     graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
-    dense_encoder: DenseEncoder | None = None,
+    dense_encoder: SentenceEncoder | None = None,
 ) -> RetrieveStageResult:
     method = Registry.retrieval.build(
         config.job,
@@ -59,7 +59,7 @@ def _build_payload(
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph] | None,
     graph_config: GraphRerankConfig | Mapping[str, object] | None,
-    dense_encoder: DenseEncoder | None,
+    dense_encoder: SentenceEncoder | None,
 ) -> object:
     job = config.job
     if isinstance(job, (Bm25RetrievalSettings, DenseRetrievalSettings)):

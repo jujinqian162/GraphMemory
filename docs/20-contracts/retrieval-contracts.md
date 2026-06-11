@@ -136,6 +136,24 @@ Rules:
 - Does not write files.
 - May keep explicit model or index state.
 
+The single-task `rank()` contract remains required. A ranker may additionally implement:
+
+```python
+class BulkSeedRanker(Protocol):
+    def rank_many(
+        self,
+        task_inputs: list[MemoryTaskInput],
+    ) -> list[list[RankedNode]]:
+        ...
+```
+
+Bulk rules:
+
+- Result list order matches input task order.
+- Each per-task ranking preserves complete-node coverage, descending score order, and ascending `node_id` tie-breaks.
+- Consumers dispatch through the centralized helper and fall back to `rank()` in deterministic input order when the capability is absent.
+- Dense collection consumers use bounded task groups; they do not submit an unbounded dataset-wide embedding matrix.
+
 ## RetrievalMethod Protocol
 
 Purpose:
@@ -263,6 +281,20 @@ Provider rules:
 - Does not read labels.
 - Uses deterministic tie-breaking.
 - May share implementation with a public flat retrieval method, but the signal object must make score and rank semantics explicit.
+
+Seed providers may expose `score_tasks()` as an optional bulk capability. Fallback calls `score_task()` once per task in input order. The default dense graph provider derives seed scores from the same normalized query and passage embeddings used as graph node embeddings; this reuse is valid only when the graph embedding and seed dependencies are the same joint provider.
+
+## Dense Encoding Contract
+
+`graph_memory.embeddings.DenseEncodingService` owns:
+
+- query and passage prefix formatting.
+- one normalized sentence-encoder call for an ordered bounded task group.
+- forwarding the dense encoder text `batch_size`.
+- validation that the encoder returns a two-dimensional matrix with one row per flattened text.
+- deterministic slicing back to the original task and node order.
+
+The encoder text mini-batch size is not the trainable graph task batch size. Dense ranking uses normalized passage-query dot products, which preserve the existing cosine-score semantics. Fake-encoder tests require exact equivalence; real GPU kernels are required to preserve finite outputs and ranking invariants, not bitwise equality across physical batch shapes.
 
 ## Extension Rules
 

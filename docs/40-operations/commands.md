@@ -255,6 +255,16 @@ python scripts/train_graph_retriever.py `
 
 Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Automatic variant selection is configured at the experiment level; `base.json` remains the only hand-maintained complete R-GCN training config. The field-by-field Chinese reference lives in `docs/configs/training/dense_rgcn_graph_retriever/base.md`.
 
+### Dense encoder batching behavior
+
+`encoder.batch_size` controls Sentence-Transformers text mini-batches. `optimization.batch_size` controls how many task graphs are tensorized and trained together. They are independent settings.
+
+Dense retrieval, graph feature construction, graph-rerank initial-score precomputation, and hard-dense negative preparation flatten bounded groups of tasks before encoding. The default graph path also derives dense seed signals from the same normalized embeddings used as node embeddings, and training builds frozen dev graph batches once per invocation rather than once per epoch.
+
+These changes reduce logical encoder calls and partially filled GPU mini-batches, but they do not guarantee wall-clock speedup equal to either batch size. Actual throughput depends on text lengths, model/device transfer, GPU saturation, host memory, and kernel behavior. Increasing `encoder.batch_size` can improve utilization but can also cause GPU OOM.
+
+No persistent embedding-cache artifact or process-global embedding cache is created. Normal `scripts/run_retrieval.py` remains task-oriented so `latency_ms` continues to represent one task's `rank_task()` boundary; cross-task public retrieval throughput and amortized latency require a separate artifact contract.
+
 ## Run Flat Retrieval On Test
 
 BM25:
