@@ -139,7 +139,7 @@ def test_unreachable_refactor_leftovers_are_removed() -> None:
     import scripts.build_train_pairs as build_train_pairs
     import scripts.evaluate_retrieval as evaluate_retrieval
     import scripts.run_retrieval as run_retrieval
-    import scripts.train_graph_retriever as train_graph_retriever
+    import scripts.train_method as train_method
     import scripts.workflow.manifest as workflow_manifest
     import scripts.workflow.types as workflow_types
     from graph_memory.config.codec import JsonConfigCodec
@@ -176,7 +176,7 @@ def test_unreachable_refactor_leftovers_are_removed() -> None:
         build_train_pairs: {"BuildTrainPairsArgs", "build_parser", "parse_args"},
         evaluate_retrieval: {"build_parser"},
         run_retrieval: {"build_parser", "parse_args"},
-        train_graph_retriever: {"TrainGraphRetrieverArgs", "build_parser", "parse_args"},
+        train_method: {"TrainMethodArgs", "build_parser", "parse_args"},
     }
     for module, names in removed_script_helpers.items():
         assert names.isdisjoint(vars(module))

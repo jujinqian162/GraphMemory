@@ -11,6 +11,7 @@ from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     CheckpointGraphBuildPayload,
     CheckpointGraphRetrievalSettings,
+    DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
     FlatRetrievalBuildPayload,
     GraphRerankBuildPayload,
@@ -62,7 +63,7 @@ def _build_payload(
     dense_encoder: SentenceEncoder | None,
 ) -> object:
     job = config.job
-    if isinstance(job, (Bm25RetrievalSettings, DenseRetrievalSettings)):
+    if isinstance(job, (Bm25RetrievalSettings, DenseRetrievalSettings, DenseFinetunedRetrievalSettings)):
         return FlatRetrievalBuildPayload(task_inputs=task_inputs, dense_encoder=dense_encoder)
     if isinstance(job, GraphRerankRetrievalSettings):
         return GraphRerankBuildPayload(

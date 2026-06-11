@@ -7,9 +7,14 @@ from typing import Any
 from graph_memory.io import merge_config, read_json, write_json
 from graph_memory.observability import now_iso
 from graph_memory.retrieval_registry import get_method_spec, get_supported_methods
+from graph_memory.registry.training import training_config_required_sections
 from graph_memory.training_config import load_trainable_training_config
 from scripts.workflow.artifacts import build_main_method_artifacts, build_variant_artifact_namespace
-from scripts.workflow.registry import ABLATION_SUITE_REGISTRY, get_ablation_suite, get_variant_spec
+from scripts.workflow.registry import (
+    ABLATION_SUITE_REGISTRY,
+    get_ablation_suite,
+    get_variant_spec,
+)
 from scripts.workflow.stage_configs import attach_stage_config_projections
 from scripts.workflow.types import ArtifactRole, ConfigEntry, StageId, VariantArtifactNamespace, VariantSpec
 
@@ -24,7 +29,7 @@ STAGE_DESCRIPTIONS = {
     StageId.GRAPHS.value: "Build evidence graph artifacts for train, dev, and test splits.",
     StageId.PAIRS.value: "Build supervised training pairs for checkpoint-backed methods.",
     StageId.TUNE.value: "Select graph-rerank parameters from the search-space config.",
-    StageId.TRAIN.value: "Train checkpoint-backed graph retrievers.",
+    StageId.TRAIN.value: "Train checkpoint-backed retrieval methods.",
     StageId.RETRIEVE.value: "Write ranked evidence predictions for selected methods.",
     StageId.EVALUATE.value: "Evaluate ranked predictions and write per-method metrics.",
     StageId.AGGREGATE.value: "Aggregate per-method metrics into report tables.",
@@ -302,6 +307,7 @@ def _attach_resolved_training_configs(effective_config: dict[str, Any], selected
         resolved = load_trainable_training_config(
             resolve_training_config_path(method, config_path),
             profile=str(effective_config["profile"]),
+            required_sections=training_config_required_sections(method),
         )
         if resolved["method"] != method:
             raise ValueError(f"Training config method={resolved['method']} does not match selected method={method}.")

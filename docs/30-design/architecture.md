@@ -38,7 +38,7 @@ The workflow runner and low-level scripts remain the user-facing entry points:
 - `scripts/run_retrieval.py`
 - `scripts/tune_graph_rerank.py`
 - `scripts/build_train_pairs.py`
-- `scripts/train_graph_retriever.py`
+- `scripts/train_method.py`
 - `scripts/evaluate_retrieval.py`
 - `scripts/aggregate_tables.py`
 

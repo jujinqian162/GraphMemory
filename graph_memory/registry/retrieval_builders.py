@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
@@ -12,6 +14,7 @@ from graph_memory.registry.retrieval import (
     CheckpointGraphBuildPayload,
     CheckpointGraphRetrievalSettings,
     DenseEncoderSettings,
+    DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
     FlatRetrievalBuildPayload,
     GraphRerankBuildPayload,
@@ -32,6 +35,7 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetr
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
+from graph_memory.models.dense_finetune.training import DENSE_FT_METADATA_FILENAME
 
 
 def build_retrieval_registry() -> RetrievalRegistry:
@@ -54,6 +58,10 @@ def build_retrieval_registry() -> RetrievalRegistry:
             CheckpointGraphRetrievalSettings: RetrievalBuilderSpec(
                 CheckpointGraphRetrievalSettings,
                 lambda settings, deps: _build_checkpoint_graph(cast(CheckpointGraphRetrievalSettings, settings), deps),
+            ),
+            DenseFinetunedRetrievalSettings: RetrievalBuilderSpec(
+                DenseFinetunedRetrievalSettings,
+                lambda settings, deps: _build_dense_ft(cast(DenseFinetunedRetrievalSettings, settings), deps),
             ),
         },
     )
@@ -137,6 +145,63 @@ def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload:
         seed_signal_provider=seed_signal_provider,
         device=settings.device,
     )
+
+
+def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) -> RetrievalMethod:
+    build_payload = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
+    metadata = _load_dense_ft_metadata(settings.checkpoint)
+    encoder = build_payload.dense_encoder
+    if encoder is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as error:
+            raise RuntimeError("sentence-transformers is required for dense-ft retrieval.") from error
+        encoder = cast(
+            SentenceEncoder,
+            cast(object, SentenceTransformer(str(settings.checkpoint), device=settings.device)),
+        )
+    return ScorePipelineMethod(
+        name=settings.method.value,
+        retriever=DenseTaskRetriever(
+            config=DenseConfig(
+                model_name=str(settings.checkpoint),
+                query_prefix=_metadata_string(metadata, "query_prefix", settings.checkpoint),
+                passage_prefix=_metadata_string(metadata, "passage_prefix", settings.checkpoint),
+                batch_size=_metadata_int(metadata, "batch_size", settings.checkpoint),
+            ),
+            encoder=encoder,
+        ),
+    )
+
+
+def _load_dense_ft_metadata(checkpoint: Path) -> dict[str, object]:
+    metadata_path = checkpoint / DENSE_FT_METADATA_FILENAME
+    if not metadata_path.exists():
+        raise ValueError(f"Missing {DENSE_FT_METADATA_FILENAME} for dense_ft checkpoint: {checkpoint}")
+    try:
+        data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid {DENSE_FT_METADATA_FILENAME} for dense_ft checkpoint: {checkpoint}") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} must contain an object: {checkpoint}")
+    method = data.get("method")
+    if method != RetrievalMethodId.DENSE_FT.value:
+        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} method must be dense_ft for checkpoint: {checkpoint}")
+    return data
+
+
+def _metadata_string(metadata: Mapping[str, object], key: str, checkpoint: Path) -> str:
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} field must be a string: {key} ({checkpoint})")
+    return value
+
+
+def _metadata_int(metadata: Mapping[str, object], key: str, checkpoint: Path) -> int:
+    value = metadata.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} field must be an integer: {key} ({checkpoint})")
+    return value
 
 
 def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payload: CheckpointGraphBuildPayload):

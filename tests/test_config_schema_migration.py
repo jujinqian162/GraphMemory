@@ -5,6 +5,7 @@ from pathlib import Path
 
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
+from graph_memory.registry.stage_configs import RgcnTrainStageConfig
 from graph_memory.training_config import load_trainable_training_config
 from scripts.workflow.manifest import resolve_training_config_path
 
@@ -51,6 +52,8 @@ def test_train_stage_config_loader_reads_schema_v2_method_file(tmp_path: Path) -
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(tmp_path / "train.input.json"),
             "--train_labels",
@@ -74,6 +77,7 @@ def test_train_stage_config_loader_reads_schema_v2_method_file(tmp_path: Path) -
         ],
     )
 
+    assert isinstance(config, RgcnTrainStageConfig)
     assert config.job.trainer.batch_size == 8
     assert config.job.trainer.epochs == 1
     assert config.job.pairs.hard_dense_per_positive == 0

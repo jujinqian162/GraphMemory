@@ -30,6 +30,7 @@ class WorkflowId(StrEnum):
     STATELESS_RETRIEVAL = "stateless_retrieval"
     GRAPH_RERANK = "graph_rerank"
     RGCN_TRAINABLE_RETRIEVAL = "rgcn_trainable_retrieval"
+    DENSE_FINETUNE_RETRIEVAL = "dense_finetune_retrieval"
 
 
 class ArtifactRole(StrEnum):

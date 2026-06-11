@@ -28,7 +28,7 @@ from graph_memory.models.graph_retriever.config.records import (
 )
 from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
 from graph_memory.registry import Registry
-from graph_memory.registry.training import TrainDependencies
+from graph_memory.registry.training import RgcnTrainPayload, TrainDependencies
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.stages.train import run_train_stage
 from graph_memory.validation import (
@@ -38,8 +38,8 @@ from graph_memory.validation import (
     validate_trainable_model_config,
     validate_training_batch,
 )
-import scripts.train_graph_retriever as train_graph_retriever_script
-from scripts.train_graph_retriever import main as train_graph_retriever_main
+import scripts.train_method as train_method_script
+from scripts.train_method import main as train_method_main
 
 
 class FakeRetriever:
@@ -308,8 +308,10 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_pa
     dev_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     dev_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
 
-    exit_code = train_graph_retriever_main(
+    exit_code = train_method_main(
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(train_tasks_path),
             "--train_labels",
@@ -347,6 +349,9 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_pa
     assert (output_dir / "train_metrics.jsonl").exists()
     assert (output_dir / "train_run_summary.json").exists()
     assert (output_dir / "checkpoints" / "best.pt").exists()
+    run_summary = json.loads((output_dir / "train_run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["script"] == "train_method.py"
+    assert run_summary["effective_config"]["method"] == "dense_rgcn_graph_retriever"
 
 
 def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_path: Path):
@@ -405,8 +410,10 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
         encoding="utf-8",
     )
 
-    exit_code = train_graph_retriever_main(
+    exit_code = train_method_main(
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(train_tasks_path),
             "--train_labels",
@@ -494,8 +501,10 @@ def test_train_graph_retriever_cli_overrides_training_config_without_clobbering_
         encoding="utf-8",
     )
 
-    exit_code = train_graph_retriever_main(
+    exit_code = train_method_main(
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(train_tasks_path),
             "--train_labels",
@@ -534,6 +543,8 @@ def test_training_registry_builds_trainer_from_settings_type() -> None:
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             "train.input.json",
             "--train_labels",
@@ -555,13 +566,7 @@ def test_training_registry_builds_trainer_from_settings_type() -> None:
         ],
     )
 
-    trainer = Registry.training.build(
-        config.job,
-        TrainDependencies(
-            text_embedding_provider=FakeTextEmbeddingProvider(),
-            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
-        ),
-    )
+    trainer = Registry.training.build(config.job)
 
     assert callable(trainer.train)
 
@@ -570,6 +575,8 @@ def test_train_stage_uses_train_labels_for_pair_validation() -> None:
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             "train.input.json",
             "--train_labels",
@@ -602,29 +609,34 @@ def test_train_stage_uses_train_labels_for_pair_validation() -> None:
     with pytest.raises(ContractValidationError, match="positive node_id=m0 is not gold evidence"):
         run_train_stage(
             config,
-            train_task_inputs=tiny_task_inputs(),
-            train_labels=mismatched_labels,
-            train_graphs=tiny_graphs(),
-            train_pairs=tiny_pairs(),
-            dev_task_inputs=tiny_task_inputs(),
-            dev_labels=tiny_labels(),
-            dev_graphs=tiny_graphs(),
-            text_embedding_provider=FakeTextEmbeddingProvider(),
-            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+            payload=RgcnTrainPayload(
+                train_task_inputs=tiny_task_inputs(),
+                train_labels=mismatched_labels,
+                train_graphs=tiny_graphs(),
+                train_pairs=tiny_pairs(),
+                dev_task_inputs=tiny_task_inputs(),
+                dev_labels=tiny_labels(),
+                dev_graphs=tiny_graphs(),
+                dependencies=TrainDependencies(
+                    text_embedding_provider=FakeTextEmbeddingProvider(),
+                    seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+                ),
+            ),
         )
 
 
 def test_train_stage_runner_and_script_use_registry_boundary() -> None:
     stage_source = Path("graph_memory/stages/train.py").read_text(encoding="utf-8")
-    script_source = inspect.getsource(train_graph_retriever_script)
+    script_source = inspect.getsource(train_method_script)
 
     assert "Registry.training.build(" in stage_source
     assert "train_graph_retriever" not in stage_source
     assert "Rgcn" not in stage_source
     assert "dense_rgcn_graph_retriever" not in stage_source
     assert "CONFIG_LOADER.load(Registry.configs.TRAIN" in script_source
-    assert "run_train_stage(" in script_source
+    assert "run_train_stage(config, payload=payload)" in script_source
     assert "load_trainable_training_config" not in script_source
     assert "encoder_config_from_training_config" not in script_source
     assert "model_config_values_from_training_config" not in script_source
     assert "trainable_training_config_from_training_config" not in script_source
+    assert not Path("scripts/train_graph_retriever.py").exists()

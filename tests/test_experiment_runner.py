@@ -13,6 +13,7 @@ from scripts.workflow import (
     inspect_experiment_status,
     load_experiment_config,
 )
+from scripts.workflow.manifest import list_config_entries
 from graph_memory.training_config import load_trainable_training_config
 import scripts.experiment as experiment_script
 
@@ -412,6 +413,23 @@ def test_experiment_config_name_and_training_config_name_resolve(tmp_path):
     assert manifest["effective_config"]["training"][TRAINABLE_METHOD]["method"] == TRAINABLE_METHOD
 
 
+def test_repository_dense_ft_config_is_registered_and_profiles_are_override_only():
+    experiment_config = load_experiment_config("hotpotqa_evidence_retrieval")
+    training_config_path = Path("configs/training/dense_ft/base.json")
+    training_config = json.loads(training_config_path.read_text(encoding="utf-8"))
+
+    assert "dense_ft" in experiment_config["methods"]
+    assert experiment_config["training_configs"]["dense_ft"] == training_config_path.as_posix()
+    assert training_config["defaults"]["trainer"]["device"] == "cuda"
+    assert training_config["profiles"]["smoke"]["trainer"]["device"] == "cpu"
+    for profile in ("quick", "full", "cloud-quick", "cloud-full"):
+        assert "device" not in training_config["profiles"][profile].get("trainer", {})
+    assert any(
+        entry.name == "dense_ft/base"
+        for entry in list_config_entries("training")
+    )
+
+
 def test_initialize_experiment_generates_deterministic_run_paths(tmp_path):
     raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
     config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
@@ -465,7 +483,8 @@ def test_experiment_plan_uses_config_not_training_cli_sprawl(tmp_path):
     assert "--config" in rendered_by_stage["pairs"]
     assert "effective_training_config.json" in rendered_by_stage["pairs"]
     assert "--easy_random_per_positive" not in rendered_by_stage["pairs"]
-    assert "scripts/train_graph_retriever.py" in rendered_by_stage["train"]
+    assert "scripts/train_method.py" in rendered_by_stage["train"]
+    assert "--method dense_rgcn_graph_retriever" in rendered_by_stage["train"]
     assert "--config" in rendered_by_stage["train"]
     assert "effective_training_config.json" in rendered_by_stage["train"]
     for training_flag in ("--batch_size", "--epochs", "--hidden_dim", "--learning_rate", "--device"):
@@ -742,6 +761,34 @@ def test_experiment_cli_init_and_plan(tmp_path, capsys):
 
     assert "scripts/run_retrieval.py" in output
     assert "scripts/evaluate_retrieval.py" in output
+
+
+def test_experiment_cli_plan_can_initialize_manifest(tmp_path, capsys):
+    raw_path = Path("tests/fixtures/hotpotqa_smoke.json")
+    config_path = tmp_path / "configs" / "experiments" / "hotpotqa_evidence_retrieval.json"
+    _write_experiment_config(config_path, raw_path)
+
+    assert experiment_script.main(
+        [
+            "plan",
+            "quick_bm25",
+            "--config",
+            str(config_path),
+            "--run-root",
+            str(tmp_path / "runs"),
+            "--profile",
+            "quick",
+            "--methods",
+            "bm25",
+            "--force",
+            "--color",
+            "never",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert (tmp_path / "runs" / "quick_bm25" / "manifest.json").exists()
+    assert "scripts/run_retrieval.py" in output
 
 
 def test_experiment_cli_accepts_method_range_and_lists_resources(tmp_path, capsys):

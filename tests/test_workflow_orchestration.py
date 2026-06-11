@@ -59,6 +59,7 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
         "stateless_retrieval",
         "graph_rerank",
         "rgcn_trainable_retrieval",
+        "dense_finetune_retrieval",
     }
     assert {role.value for role in ArtifactRole} >= {
         "inputs",

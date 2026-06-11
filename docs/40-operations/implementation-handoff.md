@@ -57,9 +57,10 @@ scripts/build_train_pairs.py
   -> graph_memory.training_pairs.build_train_pairs
   -> graph_memory.validation.validate_train_pairs
 
-scripts/train_graph_retriever.py
-  -> graph_memory.models.graph_retriever.training.train_graph_retriever
-  -> graph_memory.models.graph_retriever.checkpoint.save_trainable_checkpoint
+scripts/train_method.py
+  -> graph_memory.stages.train.run_train_stage
+  -> graph_memory.registry.training
+  -> method-specific trainer and artifact output
 
 scripts/evaluate_retrieval.py
   -> graph_memory.evaluation.evaluate_results
@@ -104,7 +105,7 @@ scripts/experiment.py
 | Area | Files | What to review |
 |---|---|---|
 | Experiment runner | `scripts/experiment.py`, `scripts/workflow/`, `graph_memory/experiment.py`, `configs/experiments/*.json`, `configs/search_spaces/*.json` | Manifest paths, config precedence, workflow registration, stage planning, method filtering, status/stale detection. |
-| CLI adapters | `scripts/prepare_hotpotqa.py`, `scripts/build_graphs.py`, `scripts/run_retrieval.py`, `scripts/tune_graph_rerank.py`, `scripts/build_train_pairs.py`, `scripts/train_graph_retriever.py`, `scripts/evaluate_retrieval.py`, `scripts/aggregate_tables.py` | Argument names, config visibility, validation calls, run summaries, output paths. |
+| CLI adapters | `scripts/prepare_hotpotqa.py`, `scripts/build_graphs.py`, `scripts/run_retrieval.py`, `scripts/tune_graph_rerank.py`, `scripts/build_train_pairs.py`, `scripts/train_method.py`, `scripts/evaluate_retrieval.py`, `scripts/aggregate_tables.py` | Argument names, config visibility, validation calls, run summaries, output paths. |
 | Contracts and validation | `graph_memory/contracts/`, `graph_memory/validation/` | Field names, forbidden fields, strict invariants, readable type annotations. |
 | Data conversion | `graph_memory/datasets/`, `graph_memory/text/` | Stable task IDs, supporting-fact mapping, split determinism, label separation, text/entity behavior. |
 | Graph construction | `graph_memory/graphs/` | Edge semantics, edge limits, deterministic sorting, graph views, no label access. |

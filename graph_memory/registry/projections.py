@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     CheckpointGraphRetrievalSettings,
+    DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
     GraphRerankRetrievalSettings,
     RETRIEVAL_METHOD_METADATA,
@@ -35,6 +36,8 @@ def _legacy_builder_id_for(metadata: RetrievalMethodMetadata) -> str:
     if metadata.settings_type is Bm25RetrievalSettings:
         return "bm25"
     if metadata.settings_type is DenseRetrievalSettings:
+        return "dense"
+    if metadata.settings_type is DenseFinetunedRetrievalSettings:
         return "dense"
     if metadata.settings_type is GraphRerankRetrievalSettings:
         return "graph_rerank"

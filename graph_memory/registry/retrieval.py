@@ -21,6 +21,7 @@ PayloadT = TypeVar("PayloadT")
 class RetrievalMethodId(StrEnum):
     BM25 = "bm25"
     DENSE = "dense"
+    DENSE_FT = "dense_ft"
     BM25_GRAPH_RERANK = "bm25_graph_rerank"
     DENSE_GRAPH_RERANK = "dense_graph_rerank"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
@@ -87,11 +88,20 @@ class CheckpointGraphRetrievalSettings:
     method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER] = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
 
 
+@dataclass(frozen=True)
+class DenseFinetunedRetrievalSettings:
+    top_k: int
+    checkpoint: Path
+    device: str
+    method: Literal[RetrievalMethodId.DENSE_FT] = RetrievalMethodId.DENSE_FT
+
+
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
     | GraphRerankRetrievalSettings
     | CheckpointGraphRetrievalSettings
+    | DenseFinetunedRetrievalSettings
 )
 
 
@@ -145,6 +155,15 @@ RETRIEVAL_METHOD_METADATA: Mapping[str, RetrievalMethodMetadata] = {
         name=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
         settings_type=CheckpointGraphRetrievalSettings,
         requires_graphs=True,
+        requires_graph_config=False,
+        requires_checkpoint=True,
+        requires_dense_encoder=True,
+        seed_method=RetrievalMethodId.DENSE,
+    ),
+    RetrievalMethodId.DENSE_FT.value: RetrievalMethodMetadata(
+        name=RetrievalMethodId.DENSE_FT.value,
+        settings_type=DenseFinetunedRetrievalSettings,
+        requires_graphs=False,
         requires_graph_config=False,
         requires_checkpoint=True,
         requires_dense_encoder=True,
@@ -222,6 +241,7 @@ __all__ = [
     "CheckpointGraphBuildPayload",
     "CheckpointGraphRetrievalSettings",
     "DenseEncoderSettings",
+    "DenseFinetunedRetrievalSettings",
     "DenseRetrievalSettings",
     "FlatRetrievalBuildPayload",
     "GraphRerankBuildPayload",

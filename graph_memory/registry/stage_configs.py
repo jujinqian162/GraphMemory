@@ -4,7 +4,7 @@ import argparse
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Literal, TypeAlias, cast
 
 from graph_memory.config.patches import ConfigPatch, deep_merge_patch
 from graph_memory.contracts.common import JsonValue
@@ -17,6 +17,11 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.registry.specs import StageConfigSpec
 from graph_memory.registry.training import (
+    DenseFinetuneDataSettings,
+    DenseFinetuneMethodSettings,
+    DenseFinetuneSelectionSettings,
+    DenseFinetuneTrainerSettings,
+    RgcnMethodSettings,
     RgcnPairSamplingSettings,
     TrainJobSettings,
 )
@@ -94,7 +99,7 @@ class RetrieveStageConfig:
 
 
 @dataclass(frozen=True)
-class TrainIO:
+class RgcnTrainIO:
     train_tasks: Path
     train_labels: Path | None
     train_graphs: Path
@@ -110,11 +115,38 @@ class TrainIO:
 
 
 @dataclass(frozen=True)
-class TrainStageConfig:
-    io: TrainIO
-    job: TrainJobSettings
+class DenseFinetuneTrainIO:
+    train_tasks: Path
+    train_labels: Path
+    train_pairs: Path
+    dev_tasks: Path
+    dev_labels: Path
+    output_dir: Path
+    model_dir: Path
+    metrics: Path
+    run_summary: Path
+    config: Path | None = None
 
-    io_type: ClassVar[type[TrainIO]] = TrainIO
+
+@dataclass(frozen=True)
+class RgcnTrainStageConfig:
+    method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER]
+    io: RgcnTrainIO
+    job: RgcnMethodSettings
+
+    io_type: ClassVar[type[RgcnTrainIO]] = RgcnTrainIO
+
+
+@dataclass(frozen=True)
+class DenseFinetuneTrainStageConfig:
+    method: Literal[RetrievalMethodId.DENSE_FT]
+    io: DenseFinetuneTrainIO
+    job: DenseFinetuneMethodSettings
+
+    io_type: ClassVar[type[DenseFinetuneTrainIO]] = DenseFinetuneTrainIO
+
+
+TrainStageConfig: TypeAlias = RgcnTrainStageConfig | DenseFinetuneTrainStageConfig
 
 
 @dataclass(frozen=True)
@@ -454,15 +486,24 @@ def _tune_parser() -> argparse.ArgumentParser:
 
 
 def _train_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train the Phase 2 R-GCN graph retriever.")
+    parser = argparse.ArgumentParser(description="Train a graph-memory retrieval method.")
+    parser.add_argument(
+        "--method",
+        required=True,
+        choices=(
+            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
+            RetrievalMethodId.DENSE_FT.value,
+        ),
+    )
     parser.add_argument("--train_tasks", required=True)
     parser.add_argument("--train_labels", default=None)
-    parser.add_argument("--train_graphs", required=True)
+    parser.add_argument("--train_graphs", default=None)
     parser.add_argument("--train_pairs", required=True)
     parser.add_argument("--dev_tasks", required=True)
     parser.add_argument("--dev_labels", required=True)
-    parser.add_argument("--dev_graphs", required=True)
+    parser.add_argument("--dev_graphs", default=None)
     parser.add_argument("--output_dir", required=True)
+    parser.add_argument("--model_dir", default=None)
     parser.add_argument("--encoder_model", default="intfloat/e5-base-v2")
     parser.add_argument("--query_prefix", default="query: ")
     parser.add_argument("--passage_prefix", default="passage: ")
@@ -476,37 +517,56 @@ def _train_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--train_batch_size", type=int, default=16)
+    parser.add_argument("--eval_batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--warmup_ratio", type=float, default=0.1)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=13)
     parser.add_argument("--pos_weight", action="store_true")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--fp16", action="store_true")
+    parser.add_argument("--bf16", action="store_true")
+    parser.add_argument("--logging_steps", type=int, default=50)
+    parser.add_argument("--save_total_limit", type=int, default=2)
     parser.add_argument("--config", default=None)
     return parser
 
 
 def _train_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
     output_dir = Path(namespace.output_dir)
+    method = RetrievalMethodId(namespace.method)
+    common_io: dict[str, object] = {
+        "train_tasks": namespace.train_tasks,
+        "train_labels": namespace.train_labels,
+        "train_pairs": namespace.train_pairs,
+        "dev_tasks": namespace.dev_tasks,
+        "dev_labels": namespace.dev_labels,
+        "output_dir": namespace.output_dir,
+        "metrics": output_dir / "train_metrics.jsonl",
+        "run_summary": output_dir / "train_run_summary.json",
+        "config": namespace.config,
+    }
+    if method is RetrievalMethodId.DENSE_FT:
+        model_dir = Path(namespace.model_dir) if namespace.model_dir is not None else output_dir / "checkpoints" / "best_model"
+        return {
+            "method": method.value,
+            "io": {**common_io, "model_dir": model_dir},
+            "job": _dense_ft_train_job_cli_patch(namespace),
+        }
     return {
+        "method": method.value,
         "io": {
-            "train_tasks": namespace.train_tasks,
-            "train_labels": namespace.train_labels,
+            **common_io,
             "train_graphs": namespace.train_graphs,
-            "train_pairs": namespace.train_pairs,
-            "dev_tasks": namespace.dev_tasks,
-            "dev_labels": namespace.dev_labels,
             "dev_graphs": namespace.dev_graphs,
-            "output_dir": namespace.output_dir,
             "checkpoint_dir": output_dir / "checkpoints",
-            "metrics": output_dir / "train_metrics.jsonl",
-            "run_summary": output_dir / "train_run_summary.json",
-            "config": namespace.config,
         },
-        "job": _train_job_cli_patch(namespace),
+        "job": _rgcn_train_job_cli_patch(namespace),
     }
 
 
-def _train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, object]:
+def _rgcn_train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, object]:
     job: dict[str, object] = {}
     encoder = _train_cli_section_patch(
         namespace,
@@ -558,6 +618,82 @@ def _train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, object]:
     return {"method": RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value, **job}
 
 
+def _dense_ft_train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, object]:
+    job: dict[str, object] = {}
+    encoder = _train_cli_section_patch(
+        namespace,
+        {
+            "encoder_model": "model_name",
+            "query_prefix": "query_prefix",
+            "passage_prefix": "passage_prefix",
+        },
+    )
+    if namespace.config is None:
+        encoder["batch_size"] = 64
+    if encoder:
+        job["encoder"] = encoder
+    if namespace.config is None:
+        job["data"] = {"hard_negatives_per_positive": DenseFinetuneDataSettings().hard_negatives_per_positive}
+        trainer_defaults = DenseFinetuneTrainerSettings()
+        trainer = {
+            "learning_rate": trainer_defaults.learning_rate,
+            "train_batch_size": trainer_defaults.train_batch_size,
+            "eval_batch_size": trainer_defaults.eval_batch_size,
+            "epochs": trainer_defaults.epochs,
+            "warmup_ratio": trainer_defaults.warmup_ratio,
+            "max_grad_norm": trainer_defaults.max_grad_norm,
+            "random_seed": trainer_defaults.random_seed,
+            "device": trainer_defaults.device,
+            "fp16": trainer_defaults.fp16,
+            "bf16": trainer_defaults.bf16,
+            "logging_steps": trainer_defaults.logging_steps,
+            "save_total_limit": trainer_defaults.save_total_limit,
+        }
+        for source, target in {
+            "learning_rate": "learning_rate",
+            "train_batch_size": "train_batch_size",
+            "eval_batch_size": "eval_batch_size",
+            "epochs": "epochs",
+            "warmup_ratio": "warmup_ratio",
+            "max_grad_norm": "max_grad_norm",
+            "random_seed": "random_seed",
+            "device": "device",
+            "fp16": "fp16",
+            "bf16": "bf16",
+            "logging_steps": "logging_steps",
+            "save_total_limit": "save_total_limit",
+        }.items():
+            if _cli_option_was_provided(namespace, source):
+                trainer[target] = getattr(namespace, source)
+    else:
+        trainer = _train_cli_section_patch(
+            namespace,
+            {
+                "learning_rate": "learning_rate",
+                "train_batch_size": "train_batch_size",
+                "eval_batch_size": "eval_batch_size",
+                "epochs": "epochs",
+                "warmup_ratio": "warmup_ratio",
+                "max_grad_norm": "max_grad_norm",
+                "random_seed": "random_seed",
+                "device": "device",
+                "fp16": "fp16",
+                "bf16": "bf16",
+                "logging_steps": "logging_steps",
+                "save_total_limit": "save_total_limit",
+            },
+        )
+    if trainer:
+        job["trainer"] = trainer
+    if namespace.config is None:
+        defaults = DenseFinetuneSelectionSettings()
+        job["selection"] = {
+            "best_metric": defaults.best_metric,
+            "higher_is_better": defaults.higher_is_better,
+        }
+    return {"method": RetrievalMethodId.DENSE_FT.value, **job}
+
+
 def _train_cli_section_patch(namespace: argparse.Namespace, fields: Mapping[str, str]) -> dict[str, object]:
     patch: dict[str, object] = {}
     for source, target in fields.items():
@@ -573,12 +709,18 @@ def _normalize_train_raw_config(
     if not raw or "io" in raw or "job" in raw:
         return raw
     resolved = _resolve_legacy_training_config(raw) if "defaults" in raw else raw
-    return {"job": _train_job_from_resolved_config(resolved)}
+    method = _string_config_value(resolved, "method")
+    return {"method": method, "job": _train_job_from_resolved_config(resolved)}
 
 
 def _train_job_from_resolved_config(raw: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    method = _string_config_value(raw, "method")
+    if method == RetrievalMethodId.DENSE_FT.value:
+        return _dense_ft_train_job_from_resolved_config(raw)
+    if method != RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value:
+        raise ValueError(f"Unsupported training method: {method}")
     job: dict[str, JsonValue] = {
-        "method": _string_config_value(raw, "method"),
+        "method": method,
         "encoder": _train_encoder_from_config(_json_object(raw.get("encoder"), name="Training encoder config")),
         "model": _train_model_from_config(_json_object(raw.get("model"), name="Training model config")),
     }
@@ -595,6 +737,24 @@ def _train_job_from_resolved_config(raw: Mapping[str, JsonValue]) -> dict[str, J
     selection = raw.get("selection")
     if selection is not None:
         job["selection"] = _json_object(selection, name="Training selection config")
+    return job
+
+
+def _dense_ft_train_job_from_resolved_config(raw: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    job: dict[str, JsonValue] = {
+        "method": RetrievalMethodId.DENSE_FT.value,
+        "encoder": _train_encoder_from_config(_json_object(raw.get("encoder"), name="Dense-ft encoder config")),
+    }
+    data = raw.get("data")
+    if data is not None:
+        job["data"] = _json_object(data, name="Dense-ft data config")
+    trainer = raw.get("trainer")
+    if trainer is None:
+        raise ValueError("Dense-ft training config requires object section: trainer")
+    job["trainer"] = _dense_ft_trainer_from_config(_json_object(trainer, name="Dense-ft trainer config"))
+    selection = raw.get("selection")
+    if selection is not None:
+        job["selection"] = _dense_ft_selection_from_config(_json_object(selection, name="Dense-ft selection config"))
     return job
 
 
@@ -634,6 +794,38 @@ def _train_trainer_from_config(config: Mapping[str, JsonValue]) -> dict[str, Jso
             raise ValueError("Training config field must be a non-empty string: device")
         trainer["device"] = device
     return trainer
+
+
+def _dense_ft_trainer_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    trainer: dict[str, JsonValue] = {
+        "learning_rate": _json_float(config, "learning_rate"),
+        "train_batch_size": _json_int(config, "train_batch_size"),
+        "eval_batch_size": _json_int(config, "eval_batch_size"),
+        "epochs": _json_int(config, "epochs"),
+        "warmup_ratio": _json_float(config, "warmup_ratio"),
+        "max_grad_norm": _json_float(config, "max_grad_norm"),
+        "random_seed": _json_int(config, "random_seed"),
+        "device": _string_config_value(config, "device"),
+        "fp16": _json_bool(config, "fp16"),
+        "bf16": _json_bool(config, "bf16"),
+        "logging_steps": _json_int(config, "logging_steps"),
+        "save_total_limit": _json_int(config, "save_total_limit"),
+    }
+    return trainer
+
+
+def _dense_ft_selection_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    return {
+        "best_metric": _string_config_value(config, "best_metric"),
+        "higher_is_better": _json_bool(config, "higher_is_better"),
+    }
+
+
+def _json_bool(config: Mapping[str, JsonValue], name: str) -> bool:
+    value = config.get(name)
+    if not isinstance(value, bool):
+        raise ValueError(f"Config field must be boolean: {name}")
+    return value
 
 
 def _evaluate_parser() -> argparse.ArgumentParser:

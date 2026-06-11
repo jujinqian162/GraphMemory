@@ -8,6 +8,7 @@ from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
 from graph_memory.retrieval_registry import get_method_spec, get_methods_requiring_dense_encoder
 from graph_memory.training_config import device_from_training_config
+from scripts.workflow.registry import is_dense_finetune_method
 
 
 def attach_stage_config_projections(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -65,26 +66,36 @@ def _pair_stage_argv(manifest: dict[str, Any], method: str) -> list[str]:
 
 def _train_stage_argv(manifest: dict[str, Any], method: str) -> list[str]:
     learned = manifest["artifacts"]["learned"][method]
-    return [
+    argv = [
+        "--method",
+        method,
         "--train_tasks",
         manifest["artifacts"]["inputs"]["train"]["input"],
         "--train_labels",
         manifest["artifacts"]["inputs"]["train"]["labels"],
-        "--train_graphs",
-        manifest["artifacts"]["graphs"]["train"],
         "--train_pairs",
         learned["train_pairs"],
         "--dev_tasks",
         manifest["artifacts"]["inputs"]["dev"]["input"],
         "--dev_labels",
         manifest["artifacts"]["inputs"]["dev"]["labels"],
-        "--dev_graphs",
-        manifest["artifacts"]["graphs"]["dev"],
         "--output_dir",
         learned["training_output_dir"],
         "--config",
         learned["effective_training_config"],
     ]
+    if is_dense_finetune_method(method):
+        argv.extend(["--model_dir", learned["best_checkpoint"]])
+    else:
+        argv.extend(
+            [
+                "--train_graphs",
+                manifest["artifacts"]["graphs"]["train"],
+                "--dev_graphs",
+                manifest["artifacts"]["graphs"]["dev"],
+            ]
+        )
+    return argv
 
 
 def _retrieve_stage_argv(manifest: dict[str, Any], method: str) -> list[str]:

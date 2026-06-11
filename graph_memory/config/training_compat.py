@@ -82,12 +82,12 @@ def trainable_training_config_from_training_config(config: JsonConfig) -> Traina
 
 
 def device_from_training_config(config: JsonConfig, *, default: str = "cpu") -> str:
-    optimization = config.get("optimization")
-    if not isinstance(optimization, dict):
+    settings = config.get("trainer", config.get("optimization"))
+    if not isinstance(settings, dict):
         return default
-    device = optimization.get("device", default)
+    device = settings.get("device", default)
     if not isinstance(device, str) or not device:
-        raise ValueError("Training config optimization.device must be a non-empty string.")
+        raise ValueError("Training config device must be a non-empty string.")
     return device
 
 

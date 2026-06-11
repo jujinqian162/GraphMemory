@@ -225,7 +225,12 @@ def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
 
     assert supported_methods == tuple(METHOD_REGISTRY)
     assert get_graph_rerank_methods() == ("bm25_graph_rerank", "dense_graph_rerank")
-    assert get_methods_requiring_dense_encoder() == ("dense", "dense_graph_rerank", "dense_rgcn_graph_retriever")
+    assert get_methods_requiring_dense_encoder() == (
+        "dense",
+        "dense_graph_rerank",
+        "dense_rgcn_graph_retriever",
+        "dense_ft",
+    )
     assert parser_method_action.choices is not None
     assert tuple(parser_method_action.choices) == supported_methods
     assert METHOD_REGISTRY["bm25"].requires_graphs is False

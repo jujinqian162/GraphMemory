@@ -8,8 +8,9 @@ import pytest
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
 from graph_memory.registry.ids import StageId
-from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings
+from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings, RetrievalMethodId
 from graph_memory.registry.training import (
+    DenseFinetuneMethodSettings,
     ModelSelectionSettings,
     RgcnMethodSettings,
     RgcnModelSettings,
@@ -18,7 +19,12 @@ from graph_memory.registry.training import (
     TrainingReportingSettings,
 )
 import graph_memory.registry.stage_configs as stage_configs
-from graph_memory.registry.stage_configs import EvaluateStageConfig, RetrieveStageConfig, TrainStageConfig
+from graph_memory.registry.stage_configs import (
+    DenseFinetuneTrainStageConfig,
+    EvaluateStageConfig,
+    RetrieveStageConfig,
+    RgcnTrainStageConfig,
+)
 
 
 def test_registry_exposes_stage_root_config_specs() -> None:
@@ -304,6 +310,8 @@ def test_train_stage_config_loads_directly_from_existing_cli_contract(tmp_path: 
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(train_tasks_path),
             "--train_labels",
@@ -339,8 +347,9 @@ def test_train_stage_config_loads_directly_from_existing_cli_contract(tmp_path: 
         ],
     )
 
-    assert config == TrainStageConfig(
-        io=TrainStageConfig.io_type(
+    assert config == RgcnTrainStageConfig(
+        method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        io=RgcnTrainStageConfig.io_type(
             train_tasks=train_tasks_path,
             train_labels=train_labels_path,
             train_graphs=train_graphs_path,
@@ -388,6 +397,8 @@ def test_train_stage_config_allows_omitting_train_labels(tmp_path: Path) -> None
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(tmp_path / "train.input.json"),
             "--train_graphs",
@@ -407,6 +418,7 @@ def test_train_stage_config_allows_omitting_train_labels(tmp_path: Path) -> None
         ],
     )
 
+    assert isinstance(config, RgcnTrainStageConfig)
     assert config.io.train_labels is None
 
 
@@ -456,6 +468,8 @@ def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_va
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(tmp_path / "train.input.json"),
             "--train_labels",
@@ -481,6 +495,7 @@ def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_va
         ],
     )
 
+    assert isinstance(config, RgcnTrainStageConfig)
     assert config.job.encoder == DenseEncoderSettings(
         model_name="models/file-e5",
         query_prefix="file query: ",
@@ -572,6 +587,8 @@ def test_train_stage_config_resolves_legacy_defaults_profiles_before_cli(tmp_pat
     config = CONFIG_LOADER.load(
         Registry.configs.TRAIN,
         [
+            "--method",
+            "dense_rgcn_graph_retriever",
             "--train_tasks",
             str(tmp_path / "train.input.json"),
             "--train_labels",
@@ -595,6 +612,7 @@ def test_train_stage_config_resolves_legacy_defaults_profiles_before_cli(tmp_pat
         ],
     )
 
+    assert isinstance(config, RgcnTrainStageConfig)
     assert config.job.model == RgcnModelSettings(
         hidden_dim=32,
         num_layers=1,
@@ -605,8 +623,196 @@ def test_train_stage_config_resolves_legacy_defaults_profiles_before_cli(tmp_pat
     assert config.job.trainer.batch_size == 1
 
 
-def test_train_stage_config_has_io_and_job_roots() -> None:
-    assert [field.name for field in fields(TrainStageConfig)] == ["io", "job"]
+def test_train_stage_config_loads_dense_ft_without_graph_io(tmp_path: Path) -> None:
+    output_dir = tmp_path / "dense_ft_run"
+
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--method",
+            "dense_ft",
+            "--train_tasks",
+            str(tmp_path / "train.input.json"),
+            "--train_labels",
+            str(tmp_path / "train.labels.json"),
+            "--train_pairs",
+            str(tmp_path / "train.pairs.json"),
+            "--dev_tasks",
+            str(tmp_path / "dev.input.json"),
+            "--dev_labels",
+            str(tmp_path / "dev.labels.json"),
+            "--output_dir",
+            str(output_dir),
+            "--encoder_model",
+            "fake-e5",
+            "--device",
+            "cpu",
+        ],
+    )
+
+    assert config == DenseFinetuneTrainStageConfig(
+        method=RetrievalMethodId.DENSE_FT,
+        io=DenseFinetuneTrainStageConfig.io_type(
+            train_tasks=tmp_path / "train.input.json",
+            train_labels=tmp_path / "train.labels.json",
+            train_pairs=tmp_path / "train.pairs.json",
+            dev_tasks=tmp_path / "dev.input.json",
+            dev_labels=tmp_path / "dev.labels.json",
+            output_dir=output_dir,
+            model_dir=output_dir / "checkpoints" / "best_model",
+            metrics=output_dir / "train_metrics.jsonl",
+            run_summary=output_dir / "train_run_summary.json",
+        ),
+        job=DenseFinetuneMethodSettings(
+            encoder=DenseEncoderSettings(model_name="fake-e5", query_prefix="query: ", passage_prefix="passage: "),
+            trainer=stage_configs.DenseFinetuneTrainerSettings(device="cpu"),
+        ),
+    )
+    assert not hasattr(config.io, "train_graphs")
+    assert not hasattr(config.io, "dev_graphs")
+
+
+def test_train_stage_config_loads_dense_ft_legacy_defaults_profile(tmp_path: Path) -> None:
+    config_path = tmp_path / "dense_ft_base.json"
+    config_path.write_text(
+        """
+        {
+          "schema_version": 1,
+          "method": "dense_ft",
+          "default_profile": "smoke",
+          "defaults": {
+            "encoder": {
+              "model": "models/default-e5",
+              "query_prefix": "query: ",
+              "passage_prefix": "passage: ",
+              "batch_size": 64
+            },
+            "data": {
+              "hard_negatives_per_positive": 1
+            },
+            "trainer": {
+              "learning_rate": 0.00002,
+              "train_batch_size": 16,
+              "eval_batch_size": 64,
+              "epochs": 2,
+              "warmup_ratio": 0.1,
+              "max_grad_norm": 1.0,
+              "random_seed": 13,
+              "device": "cuda",
+              "fp16": false,
+              "bf16": false,
+              "logging_steps": 50,
+              "save_total_limit": 2
+            },
+            "selection": {
+              "best_metric": "eval_dev_cosine_ndcg@10",
+              "higher_is_better": true
+            }
+          },
+          "profiles": {
+            "smoke": {
+              "trainer": {
+                "train_batch_size": 1,
+                "eval_batch_size": 4,
+                "epochs": 1,
+                "device": "cpu",
+                "logging_steps": 1
+              }
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--method",
+            "dense_ft",
+            "--train_tasks",
+            str(tmp_path / "train.input.json"),
+            "--train_labels",
+            str(tmp_path / "train.labels.json"),
+            "--train_pairs",
+            str(tmp_path / "train.pairs.json"),
+            "--dev_tasks",
+            str(tmp_path / "dev.input.json"),
+            "--dev_labels",
+            str(tmp_path / "dev.labels.json"),
+            "--output_dir",
+            str(tmp_path / "dense_ft_run"),
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert isinstance(config, DenseFinetuneTrainStageConfig)
+    assert config.job.encoder == DenseEncoderSettings(
+        model_name="models/default-e5",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        batch_size=64,
+    )
+    assert config.job.trainer.device == "cpu"
+    assert config.job.trainer.train_batch_size == 1
+    assert config.job.trainer.eval_batch_size == 4
+    assert config.job.trainer.epochs == 1
+
+
+def test_train_stage_config_variants_have_method_io_and_job_roots() -> None:
+    assert [field.name for field in fields(RgcnTrainStageConfig)] == ["method", "io", "job"]
+    assert [field.name for field in fields(DenseFinetuneTrainStageConfig)] == ["method", "io", "job"]
+
+
+def test_training_registry_builds_method_trainers_without_global_deps(tmp_path: Path) -> None:
+    rgcn_config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--method",
+            "dense_rgcn_graph_retriever",
+            "--train_tasks",
+            str(tmp_path / "train.input.json"),
+            "--train_graphs",
+            str(tmp_path / "train.graphs.json"),
+            "--train_pairs",
+            str(tmp_path / "train.pairs.json"),
+            "--dev_tasks",
+            str(tmp_path / "dev.input.json"),
+            "--dev_labels",
+            str(tmp_path / "dev.labels.json"),
+            "--dev_graphs",
+            str(tmp_path / "dev.graphs.json"),
+            "--output_dir",
+            str(tmp_path / "rgcn_run"),
+            "--encoder_model",
+            "fake-e5",
+        ],
+    )
+    dense_ft_config = CONFIG_LOADER.load(
+        Registry.configs.TRAIN,
+        [
+            "--method",
+            "dense_ft",
+            "--train_tasks",
+            str(tmp_path / "train.input.json"),
+            "--train_labels",
+            str(tmp_path / "train.labels.json"),
+            "--train_pairs",
+            str(tmp_path / "train.pairs.json"),
+            "--dev_tasks",
+            str(tmp_path / "dev.input.json"),
+            "--dev_labels",
+            str(tmp_path / "dev.labels.json"),
+            "--output_dir",
+            str(tmp_path / "dense_ft_run"),
+            "--encoder_model",
+            "fake-e5",
+        ],
+    )
+
+    assert callable(Registry.training.build(rgcn_config.job).train)
+    assert callable(Registry.training.build(dense_ft_config.job).train)
 
 
 def test_evaluate_stage_config_loads_directly_from_existing_cli_contract(tmp_path: Path) -> None:

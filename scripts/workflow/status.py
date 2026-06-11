@@ -154,7 +154,7 @@ def _train_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         stage=StageId.TRAIN.value,
         path=learned["best_checkpoint"],
         summary_path=Path(learned["train_run_summary"]),
-        script="train_graph_retriever.py",
+        script="train_method.py",
         expected_inputs={
             "train_tasks": manifest["artifacts"]["inputs"]["train"]["input"],
             "train_labels": manifest["artifacts"]["inputs"]["train"]["labels"],

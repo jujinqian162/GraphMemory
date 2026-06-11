@@ -20,7 +20,7 @@ def _identity_raw_config(namespace: argparse.Namespace, raw: Mapping[str, JsonVa
 @dataclass(frozen=True)
 class StageConfigSpec(Generic[ConfigT]):
     stage: StageId
-    config_type: type[ConfigT]
+    config_type: type[ConfigT] | object
     parser_factory: Callable[[], argparse.ArgumentParser]
     config_path: Callable[[argparse.Namespace], Path | None]
     cli_patch: Callable[[argparse.Namespace], ConfigPatch]

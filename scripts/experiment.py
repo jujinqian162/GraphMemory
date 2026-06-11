@@ -52,7 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "plan":
-        manifest = load_manifest(args.name, run_root=args.run_root)
+        manifest = _load_or_initialize_for_run(args)
         methods = _parse_methods(args)
         commands = build_stage_plan(
             manifest,
@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--force", action="store_true", help="Reinitialize an existing manifest.")
 
     plan_parser = subparsers.add_parser("plan", help="Print low-level commands without executing them.")
-    _add_existing_manifest_args(plan_parser)
+    _add_common_run_args(plan_parser, include_config=True)
     plan_parser.add_argument("--stages", default=None, help="Comma-separated stages to plan.")
     plan_parser.add_argument("--from", dest="from_stage", default=None, help="Plan from this stage onward.")
     plan_parser.add_argument("--to", dest="to_stage", default=None, help="Plan through this stage.")
@@ -138,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show all selected commands instead of pruning the completed prefix from live artifact status.",
     )
+    plan_parser.add_argument("--force", action="store_true", help="Reinitialize an existing manifest before planning.")
     _add_ablation_selection_args(plan_parser)
 
     run_parser = subparsers.add_parser("run", help="Execute selected experiment stages.")

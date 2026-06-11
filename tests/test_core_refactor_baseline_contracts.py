@@ -103,8 +103,9 @@ def test_public_script_parser_contracts_are_frozen() -> None:
                     "bm25",
                     "dense",
                     "bm25_graph_rerank",
-                    "dense_graph_rerank",
-                    "dense_rgcn_graph_retriever",
+                        "dense_graph_rerank",
+                        "dense_rgcn_graph_retriever",
+                        "dense_ft",
                 ),
             ),
             "tasks": _store("--tasks", required=True),
@@ -143,15 +144,21 @@ def test_public_script_parser_contracts_are_frozen() -> None:
             "hard_pool_size": _store("--hard_pool_size", default=30, value_type="int"),
             "config": _store("--config"),
         },
-        "scripts.train_graph_retriever": {
+        "scripts.train_method": {
+            "method": _store(
+                "--method",
+                required=True,
+                choices=("dense_rgcn_graph_retriever", "dense_ft"),
+            ),
             "train_tasks": _store("--train_tasks", required=True),
             "train_labels": _store("--train_labels"),
-            "train_graphs": _store("--train_graphs", required=True),
+            "train_graphs": _store("--train_graphs"),
             "train_pairs": _store("--train_pairs", required=True),
             "dev_tasks": _store("--dev_tasks", required=True),
             "dev_labels": _store("--dev_labels", required=True),
-            "dev_graphs": _store("--dev_graphs", required=True),
+            "dev_graphs": _store("--dev_graphs"),
             "output_dir": _store("--output_dir", required=True),
+            "model_dir": _store("--model_dir"),
             "encoder_model": _store("--encoder_model", default="intfloat/e5-base-v2"),
             "query_prefix": _store("--query_prefix", default="query: "),
             "passage_prefix": _store("--passage_prefix", default="passage: "),
@@ -165,11 +172,18 @@ def test_public_script_parser_contracts_are_frozen() -> None:
             ),
             "epochs": _store("--epochs", default=1, value_type="int"),
             "batch_size": _store("--batch_size", default=1, value_type="int"),
+            "train_batch_size": _store("--train_batch_size", default=16, value_type="int"),
+            "eval_batch_size": _store("--eval_batch_size", default=64, value_type="int"),
             "learning_rate": _store("--learning_rate", default=0.0001, value_type="float"),
+            "warmup_ratio": _store("--warmup_ratio", default=0.1, value_type="float"),
             "max_grad_norm": _store("--max_grad_norm", default=1.0, value_type="float"),
             "random_seed": _store("--random_seed", default=13, value_type="int"),
             "pos_weight": _flag("--pos_weight"),
             "device": _store("--device", default="cpu"),
+            "fp16": _flag("--fp16"),
+            "bf16": _flag("--bf16"),
+            "logging_steps": _store("--logging_steps", default=50, value_type="int"),
+            "save_total_limit": _store("--save_total_limit", default=2, value_type="int"),
             "config": _store("--config"),
         },
         "scripts.evaluate_retrieval": {
@@ -197,7 +211,7 @@ def test_public_script_parser_contracts_are_frozen() -> None:
         "scripts.run_retrieval": _parser_contract(Registry.configs.RETRIEVE.parser_factory()),
         "scripts.tune_graph_rerank": _parser_contract(tune_graph_rerank.build_parser()),
         "scripts.build_train_pairs": _parser_contract(Registry.configs.PAIRS.parser_factory()),
-        "scripts.train_graph_retriever": _parser_contract(Registry.configs.TRAIN.parser_factory()),
+        "scripts.train_method": _parser_contract(Registry.configs.TRAIN.parser_factory()),
         "scripts.evaluate_retrieval": _parser_contract(Registry.configs.EVALUATE.parser_factory()),
         "scripts.aggregate_tables": _parser_contract(aggregate_tables.build_parser()),
     }
@@ -237,13 +251,17 @@ def test_experiment_parser_contract_is_frozen() -> None:
     assert _parser_contract(root_subparsers.choices["plan"]) == {
         "name": _positional(),
         "run_root": _store("--run-root", default="runs"),
+        "profile": _store("--profile"),
         "method": _append("--method"),
         "methods": _store("--methods"),
+        "top_k": _store("--top-k", value_type="int"),
+        "config": _store("--config"),
         "stages": _store("--stages"),
         "from_stage": _store("--from"),
         "to_stage": _store("--to"),
         "color": _store("--color", default="auto", choices=("auto", "always", "never")),
         "no_cache": _flag("--no-cache"),
+        "force": _flag("--force"),
         "variant": _append("--variant"),
         "ablations_only": _flag("--ablations-only"),
     }
@@ -363,7 +381,8 @@ def test_workflow_plan_contract_freezes_manifest_commands_and_ablation_fail_fast
     assert pair_command.argv[pair_command.argv.index("--output") + 1].endswith(
         "learned/dense_rgcn_graph_retriever/train.pairs.json"
     )
-    assert train_command.argv[1].endswith("scripts/train_graph_retriever.py")
+    assert train_command.argv[1].endswith("scripts/train_method.py")
+    assert train_command.argv[train_command.argv.index("--method") + 1] == TRAINABLE_METHOD
     assert _posix_arg(train_command.argv[train_command.argv.index("--output_dir") + 1]).endswith(
         "ablations/dense_rgcn_graph_retriever/wo_graph"
     )

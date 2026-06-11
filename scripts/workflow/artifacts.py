@@ -10,6 +10,7 @@ from scripts.workflow.types import (
     VariantArtifactNamespace,
     VariantSpec,
 )
+from scripts.workflow.registry import checkpoint_artifact_name
 
 
 _ROLE_STAGE = {
@@ -38,7 +39,7 @@ def build_main_method_artifacts(run_dir: str | Path, method: str) -> dict[Artifa
         ArtifactRole.EFFECTIVE_TRAINING_CONFIG: (learned / "effective_training_config.json").as_posix(),
         ArtifactRole.TRAIN_METRICS: (learned / "train_metrics.jsonl").as_posix(),
         ArtifactRole.TRAIN_RUN_SUMMARY: (learned / "train_run_summary.json").as_posix(),
-        ArtifactRole.CHECKPOINT: (learned / "checkpoints" / "best.pt").as_posix(),
+        ArtifactRole.CHECKPOINT: (learned / "checkpoints" / checkpoint_artifact_name(method)).as_posix(),
         ArtifactRole.PREDICTIONS: (root / "predictions" / f"test.{method}.ranked.json").as_posix(),
         ArtifactRole.METRICS: (root / "metrics" / f"test.{method}.metrics.csv").as_posix(),
         ArtifactRole.FAILURE_CASES: (root / "debug" / f"failure_cases_{method}.jsonl").as_posix(),

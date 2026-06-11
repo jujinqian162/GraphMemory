@@ -12,7 +12,12 @@ from scripts.workflow.types import (
     VariantSpec,
     WorkflowSpec,
 )
-from scripts.workflow.workflows import GRAPH_RERANK_WORKFLOW, RGCN_WORKFLOW, STATELESS_RETRIEVAL_WORKFLOW
+from scripts.workflow.workflows import (
+    DENSE_FT_WORKFLOW,
+    GRAPH_RERANK_WORKFLOW,
+    RGCN_WORKFLOW,
+    STATELESS_RETRIEVAL_WORKFLOW,
+)
 
 
 METHOD_WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
@@ -21,7 +26,16 @@ METHOD_WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
     "bm25_graph_rerank": GRAPH_RERANK_WORKFLOW,
     "dense_graph_rerank": GRAPH_RERANK_WORKFLOW,
     "dense_rgcn_graph_retriever": RGCN_WORKFLOW,
+    "dense_ft": DENSE_FT_WORKFLOW,
 }
+
+
+def is_dense_finetune_method(method: str) -> bool:
+    return method == "dense_ft"
+
+
+def checkpoint_artifact_name(method: str) -> str:
+    return "best_model" if is_dense_finetune_method(method) else "best.pt"
 
 
 def _project_ablation_suite(suite: AblationSuitePatch) -> AblationSuiteSpec:

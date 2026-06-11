@@ -89,7 +89,7 @@ RGCN_WORKFLOW = WorkflowSpec(
             inputs=(ArtifactRole.INPUTS, ArtifactRole.LABELS, ArtifactRole.GRAPHS, ArtifactRole.TRAIN_PAIRS),
             outputs=(ArtifactRole.CHECKPOINT,),
             invalidated_by=_TRAIN_INVALIDATIONS,
-            command_adapter="scripts/train_graph_retriever.py",
+            command_adapter="scripts/train_method.py",
         ),
         WorkflowStepSpec(
             stage=StageId.RETRIEVE,
@@ -105,6 +105,34 @@ RGCN_WORKFLOW = WorkflowSpec(
             invalidated_by=_TRAIN_INVALIDATIONS,
             command_adapter="scripts/evaluate_retrieval.py",
         ),
+        _AGGREGATE,
+    ),
+)
+
+DENSE_FT_WORKFLOW = WorkflowSpec(
+    identifier=WorkflowId.DENSE_FINETUNE_RETRIEVAL,
+    steps=(
+        _PREPARE,
+        _GRAPHS,
+        WorkflowStepSpec(
+            stage=StageId.PAIRS,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.LABELS, ArtifactRole.GRAPHS),
+            outputs=(ArtifactRole.TRAIN_PAIRS,),
+            command_adapter="scripts/build_train_pairs.py",
+        ),
+        WorkflowStepSpec(
+            stage=StageId.TRAIN,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.LABELS, ArtifactRole.TRAIN_PAIRS),
+            outputs=(ArtifactRole.CHECKPOINT,),
+            command_adapter="scripts/train_method.py",
+        ),
+        WorkflowStepSpec(
+            stage=StageId.RETRIEVE,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.CHECKPOINT),
+            outputs=(ArtifactRole.PREDICTIONS,),
+            command_adapter="scripts/run_retrieval.py",
+        ),
+        _EVALUATE,
         _AGGREGATE,
     ),
 )
@@ -215,50 +243,63 @@ def build_train_commands(manifest: dict[str, Any], methods: Sequence[str]) -> li
             io = projection["io"]
             argv = [
                 sys.executable,
-                "scripts/train_graph_retriever.py",
+                "scripts/train_method.py",
+                "--method",
+                method,
                 "--train_tasks",
                 str(io["train_tasks"]),
-                "--train_labels",
-                str(io["train_labels"]),
-                "--train_graphs",
-                str(io["train_graphs"]),
                 "--train_pairs",
                 str(io["train_pairs"]),
                 "--dev_tasks",
                 str(io["dev_tasks"]),
                 "--dev_labels",
                 str(io["dev_labels"]),
-                "--dev_graphs",
-                str(io["dev_graphs"]),
                 "--output_dir",
                 str(io["output_dir"]),
             ]
+            if io.get("train_labels") is not None:
+                argv.extend(["--train_labels", str(io["train_labels"])])
+            if io.get("train_graphs") is not None:
+                argv.extend(["--train_graphs", str(io["train_graphs"])])
+            if io.get("dev_graphs") is not None:
+                argv.extend(["--dev_graphs", str(io["dev_graphs"])])
+            if io.get("model_dir") is not None:
+                argv.extend(["--model_dir", str(io["model_dir"])])
             if io.get("config") is not None:
                 argv.extend(["--config", str(io["config"])])
         else:
             learned = manifest["artifacts"]["learned"][method]
             argv = [
                 sys.executable,
-                "scripts/train_graph_retriever.py",
+                "scripts/train_method.py",
+                "--method",
+                method,
                 "--train_tasks",
                 manifest["artifacts"]["inputs"]["train"]["input"],
                 "--train_labels",
                 manifest["artifacts"]["inputs"]["train"]["labels"],
-                "--train_graphs",
-                manifest["artifacts"]["graphs"]["train"],
                 "--train_pairs",
                 learned["train_pairs"],
                 "--dev_tasks",
                 manifest["artifacts"]["inputs"]["dev"]["input"],
                 "--dev_labels",
                 manifest["artifacts"]["inputs"]["dev"]["labels"],
-                "--dev_graphs",
-                manifest["artifacts"]["graphs"]["dev"],
                 "--output_dir",
                 learned["training_output_dir"],
                 "--config",
                 learned["effective_training_config"],
             ]
+            if method == "dense_ft":
+                argv.extend(["--model_dir", learned["best_checkpoint"]])
+            else:
+                argv.extend(
+                    [
+                        "--train_graphs",
+                        manifest["artifacts"]["graphs"]["train"],
+                        "--dev_graphs",
+                        manifest["artifacts"]["graphs"]["dev"],
+                    ]
+                )
         commands.append(
             StageCommand(
                 stage=StageId.TRAIN,

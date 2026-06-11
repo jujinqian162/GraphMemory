@@ -238,10 +238,11 @@ For normal experiment runs, edit `configs/training/dense_rgcn_graph_retriever/ba
 
 ## Train Phase 2 R-GCN Retriever
 
-`train_graph_retriever.py` reads train input/label/graph/pair artifacts and dev input/label/graph artifacts. It writes `train_metrics.jsonl`, `train_run_summary.json`, `checkpoints/checkpoint_epoch_<n>.pt`, and `checkpoints/best.pt` under `--output_dir`.
+`train_method.py --method dense_rgcn_graph_retriever` reads train input/label/graph/pair artifacts and dev input/label/graph artifacts. It writes `train_metrics.jsonl`, `train_run_summary.json`, `checkpoints/checkpoint_epoch_<n>.pt`, and `checkpoints/best.pt` under `--output_dir`.
 
 ```powershell
-python scripts/train_graph_retriever.py `
+python scripts/train_method.py `
+  --method dense_rgcn_graph_retriever `
   --train_tasks data/hotpotqa/processed/train_memory_tasks.input.json `
   --train_labels data/hotpotqa/processed/train_memory_tasks.labels.json `
   --train_graphs data/hotpotqa/processed/train_graphs.json `
@@ -254,6 +255,48 @@ python scripts/train_graph_retriever.py `
 ```
 
 Training hyperparameters live in `configs/training/dense_rgcn_graph_retriever/base.json`. To change batch size for the quick profile, edit `profiles.quick.optimization.batch_size`; to change the default for all profiles, edit `defaults.optimization.batch_size`. Automatic variant selection is configured at the experiment level; `base.json` remains the only hand-maintained complete R-GCN training config. The field-by-field Chinese reference lives in `docs/configs/training/dense_rgcn_graph_retriever/base.md`.
+
+## 运行 Dense-FT
+
+Dense-FT 通过统一入口 `scripts/train_method.py --method dense_ft` 训练。workflow 中的 checkpoint 是 SentenceTransformer 模型目录 `learned/dense_ft/checkpoints/best_model`，不是 `.pt` 文件。检索阶段读取目录内的 `dense_ft_model_config.json`，无需重复传 encoder model 和文本前缀。
+
+Smoke：
+
+```powershell
+uv run python scripts/experiment.py run dense_ft_smoke `
+  --profile smoke `
+  --methods dense_ft `
+  --force
+```
+
+Quick：
+
+```powershell
+uv run python scripts/experiment.py run dense_ft_quick `
+  --profile quick `
+  --methods dense_ft `
+  --force
+```
+
+Full：
+
+```powershell
+uv run python scripts/experiment.py run dense_ft_full `
+  --profile full `
+  --methods dense_ft `
+  --force
+```
+
+只生成计划、不执行：
+
+```powershell
+uv run python scripts/experiment.py plan dense_ft_smoke `
+  --profile smoke `
+  --methods dense_ft `
+  --force
+```
+
+配置字段说明见 `docs/configs/training/dense_ft/base.md`。`profiles` 是 override，不应重复 `defaults` 中已有的 `device: "cuda"`。
 
 ### Dense encoder batching behavior
 

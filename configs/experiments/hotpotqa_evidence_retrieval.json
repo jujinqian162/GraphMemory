@@ -19,7 +19,8 @@
     "dense",
     "bm25_graph_rerank",
     "dense_graph_rerank",
-    "dense_rgcn_graph_retriever"
+    "dense_rgcn_graph_retriever",
+    "dense_ft"
   ],
   "profiles": {
     "full": {
@@ -68,6 +69,7 @@
   },
   "task": "evidence_retrieval",
   "training_configs": {
-    "dense_rgcn_graph_retriever": "configs/training/dense_rgcn_graph_retriever/base.json"
+    "dense_rgcn_graph_retriever": "configs/training/dense_rgcn_graph_retriever/base.json",
+    "dense_ft": "configs/training/dense_ft/base.json"
   }
 }

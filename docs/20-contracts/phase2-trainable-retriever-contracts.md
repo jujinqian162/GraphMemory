@@ -138,7 +138,7 @@ scripts/build_train_pairs.py
 Consumers:
 
 ```text
-scripts/train_graph_retriever.py
+scripts/train_method.py --method dense_rgcn_graph_retriever
 graph_memory.training_pairs
 ```
 

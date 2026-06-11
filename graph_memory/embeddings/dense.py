@@ -7,8 +7,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from graph_memory.contracts.common import NodeId, TaskId
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.contracts.tasks import MemoryItem, MemoryTaskInput
 from graph_memory.embeddings.contracts import SentenceEncoder
+
+
+def format_dense_query(task_input: MemoryTaskInput, *, query_prefix: str) -> str:
+    return query_prefix + task_input["query"]
+
+
+def format_dense_passage(memory_item: MemoryItem, *, passage_prefix: str) -> str:
+    return passage_prefix + f'{memory_item["source"]}. {memory_item["text"]}'
 
 
 @dataclass(frozen=True)
@@ -89,10 +97,11 @@ class DenseEncodingService:
         return results
 
     def _texts_for_request(self, request: DenseTaskEncodingRequest) -> list[str]:
-        text_by_node_id = {"q": self.query_prefix + request.task_input["query"]}
+        text_by_node_id = {"q": format_dense_query(request.task_input, query_prefix=self.query_prefix)}
         for memory_item in request.task_input["memory_items"]:
-            text_by_node_id[memory_item["id"]] = (
-                self.passage_prefix + f'{memory_item["source"]}. {memory_item["text"]}'
+            text_by_node_id[memory_item["id"]] = format_dense_passage(
+                memory_item,
+                passage_prefix=self.passage_prefix,
             )
         try:
             return [text_by_node_id[node_id] for node_id in request.node_ids]
