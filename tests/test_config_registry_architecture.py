@@ -11,10 +11,8 @@ LEGACY_RETRIEVAL_BUILD_MODULES = {
 }
 
 
-def test_old_training_dict_slicing_helpers_are_bounded_to_compatibility_modules() -> None:
+def test_remaining_training_dict_slicing_helpers_are_bounded_to_compatibility_modules() -> None:
     helper_names = (
-        "encoder_config_from_training_config",
-        "model_config_values_from_training_config",
         "negative_sampling_config_from_training_config",
         "trainable_training_config_from_training_config",
     )

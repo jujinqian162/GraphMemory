@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -21,50 +19,6 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.training_pairs import build_train_pairs
 
 LOGGER = logging.getLogger("build_train_pairs")
-
-
-@dataclass(frozen=True)
-class BuildTrainPairsArgs:
-    """
-    Parsed CLI arguments for train pair artifact construction.
-    训练 pair artifact 构造脚本的 CLI 参数。
-
-    Fields / 字段:
-    - tasks: Path to `*_memory_tasks.input.json`.
-      tasks：`*_memory_tasks.input.json` 路径。
-    - labels: Path to `*_memory_tasks.labels.json`.
-      labels：`*_memory_tasks.labels.json` 路径。
-    - graphs: Path to `*_graphs.json`.
-      graphs：`*_graphs.json` 路径。
-    - output: Path to write `*_pairs.json`.
-      output：写入 `*_pairs.json` 的路径。
-    - random_seed: Seed used by deterministic negative sampling.
-      random_seed：确定性负采样使用的种子。
-    - easy_random_per_positive: Easy random negatives per positive.
-      easy_random_per_positive：每个正例对应的 easy random 负例数量。
-    - hard_bm25_per_positive: Hard BM25 negatives per positive.
-      hard_bm25_per_positive：每个正例对应的 hard BM25 负例数量。
-    - hard_dense_per_positive: Hard dense negatives per positive.
-      hard_dense_per_positive：每个正例对应的 hard dense 负例数量。
-    - hard_graph_neighbor_per_positive: Graph-neighbor negatives per positive.
-      hard_graph_neighbor_per_positive：每个正例对应的 graph-neighbor 负例数量。
-    - hard_pool_size: Candidate pool size for hard retriever negatives.
-      hard_pool_size：hard retriever 负例候选池大小。
-    - config: Optional resolved trainable training config path.
-      config：可选的已解析可训练 training config 路径。
-    """
-
-    tasks: str
-    labels: str
-    graphs: str
-    output: str
-    random_seed: int
-    easy_random_per_positive: int
-    hard_bm25_per_positive: int
-    hard_dense_per_positive: int
-    hard_graph_neighbor_per_positive: int
-    hard_pool_size: int
-    config: str | None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -132,27 +86,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         write_run_summary(run_summary_path, summary)
         raise
-
-
-def build_parser() -> argparse.ArgumentParser:
-    return Registry.configs.PAIRS.parser_factory()
-
-
-def parse_args(argv: Sequence[str] | None = None) -> BuildTrainPairsArgs:
-    namespace = build_parser().parse_args(argv)
-    return BuildTrainPairsArgs(
-        tasks=namespace.tasks,
-        labels=namespace.labels,
-        graphs=namespace.graphs,
-        output=namespace.output,
-        random_seed=namespace.random_seed,
-        easy_random_per_positive=namespace.easy_random_per_positive,
-        hard_bm25_per_positive=namespace.hard_bm25_per_positive,
-        hard_dense_per_positive=namespace.hard_dense_per_positive,
-        hard_graph_neighbor_per_positive=namespace.hard_graph_neighbor_per_positive,
-        hard_pool_size=namespace.hard_pool_size,
-        config=namespace.config,
-    )
 
 
 def _effective_config(config: PairBuildStageConfig) -> dict[str, JsonValue]:

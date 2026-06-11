@@ -8,8 +8,9 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
+from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import SeedRetrieverBuildPayload
-from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
+from graph_memory.registry.retrieval_builders import seed_retrieval_settings_for_method
 from graph_memory.retrieval.catalog import get_method_spec
 from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig, ensure_graph_rerank_config
@@ -35,8 +36,8 @@ def precompute_initial_score_cache(
     task_inputs: list[MemoryTaskInput],
     dense_runtime: DenseRuntime,
 ) -> InitialScoreCache:
-    seed_retriever = RETRIEVAL_REGISTRY.build_seed(
-        RETRIEVAL_REGISTRY.seed_settings_for_method(method, dense_runtime.config),
+    seed_retriever = Registry.retrieval.build_seed(
+        seed_retrieval_settings_for_method(method=method, dense_config=dense_runtime.config),
         SeedRetrieverBuildPayload(dense_encoder=dense_runtime.encoder),
     )
     scores_by_task_id: dict[str, dict[str, float]] = {}

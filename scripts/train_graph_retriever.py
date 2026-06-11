@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -26,86 +24,6 @@ from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSign
 from graph_memory.stages.train import run_train_stage
 
 LOGGER = logging.getLogger("train_graph_retriever")
-
-
-@dataclass(frozen=True)
-class TrainGraphRetrieverArgs:
-    """
-    Parsed CLI arguments for trainable graph retriever training.
-    可训练图检索器训练脚本的 CLI 参数。
-
-    Fields / 字段:
-    - train_tasks: Path to train task input artifact.
-      train_tasks：train task input artifact 路径。
-    - train_labels: Path to train label artifact.
-      train_labels：train label artifact 路径。
-    - train_graphs: Path to train graph artifact.
-      train_graphs：train graph artifact 路径。
-    - train_pairs: Path to train pair artifact.
-      train_pairs：train pair artifact 路径。
-    - dev_tasks: Path to dev task input artifact.
-      dev_tasks：dev task input artifact 路径。
-    - dev_labels: Path to dev label artifact.
-      dev_labels：dev label artifact 路径。
-    - dev_graphs: Path to dev graph artifact.
-      dev_graphs：dev graph artifact 路径。
-    - output_dir: Directory for checkpoints, metrics, and run summary.
-      output_dir：checkpoint、metrics 和 run summary 输出目录。
-    - encoder_model: Frozen text encoder model name or local path.
-      encoder_model：冻结文本 encoder 模型名或本地路径。
-    - query_prefix: Query encoding prefix.
-      query_prefix：query 编码前缀。
-    - passage_prefix: Passage encoding prefix.
-      passage_prefix：passage 编码前缀。
-    - hidden_dim: Hidden dimension.
-      hidden_dim：隐藏维度。
-    - num_layers: Number of R-GCN layers.
-      num_layers：R-GCN 层数。
-    - dropout: Dropout probability.
-      dropout：dropout 概率。
-    - ablation: Canonical ablation name.
-      ablation：规范化 ablation 名称。
-    - epochs: Number of epochs.
-      epochs：epoch 数量。
-    - batch_size: Task graphs per batch.
-      batch_size：每个 batch 的 task graph 数量。
-    - learning_rate: AdamW learning rate.
-      learning_rate：AdamW 学习率。
-    - max_grad_norm: Gradient clipping max norm.
-      max_grad_norm：梯度裁剪最大 norm。
-    - random_seed: Run random seed.
-      random_seed：运行随机种子。
-    - pos_weight: Whether to enable BCE pos_weight.
-      pos_weight：是否启用 BCE pos_weight。
-    - device: Torch device.
-      device：torch device。
-    - config: Optional resolved trainable training config path.
-      config：可选的已解析可训练 training config 路径。
-    """
-
-    train_tasks: str
-    train_labels: str | None
-    train_graphs: str
-    train_pairs: str
-    dev_tasks: str
-    dev_labels: str
-    dev_graphs: str
-    output_dir: str
-    encoder_model: str
-    query_prefix: str
-    passage_prefix: str
-    hidden_dim: int
-    num_layers: int
-    dropout: float
-    ablation: str
-    epochs: int
-    batch_size: int
-    learning_rate: float
-    max_grad_norm: float
-    random_seed: int
-    pos_weight: bool
-    device: str
-    config: str | None
 
 
 def main(
@@ -235,39 +153,6 @@ def main(
         )
         write_run_summary(run_summary_path, summary)
         raise
-
-
-def build_parser() -> argparse.ArgumentParser:
-    return Registry.configs.TRAIN.parser_factory()
-
-
-def parse_args(argv: Sequence[str] | None = None) -> TrainGraphRetrieverArgs:
-    namespace = build_parser().parse_args(argv)
-    return TrainGraphRetrieverArgs(
-        train_tasks=namespace.train_tasks,
-        train_labels=namespace.train_labels,
-        train_graphs=namespace.train_graphs,
-        train_pairs=namespace.train_pairs,
-        dev_tasks=namespace.dev_tasks,
-        dev_labels=namespace.dev_labels,
-        dev_graphs=namespace.dev_graphs,
-        output_dir=namespace.output_dir,
-        encoder_model=namespace.encoder_model,
-        query_prefix=namespace.query_prefix,
-        passage_prefix=namespace.passage_prefix,
-        hidden_dim=namespace.hidden_dim,
-        num_layers=namespace.num_layers,
-        dropout=namespace.dropout,
-        ablation=namespace.ablation,
-        epochs=namespace.epochs,
-        batch_size=namespace.batch_size,
-        learning_rate=namespace.learning_rate,
-        max_grad_norm=namespace.max_grad_norm,
-        random_seed=namespace.random_seed,
-        pos_weight=namespace.pos_weight,
-        device=namespace.device,
-        config=namespace.config,
-    )
 
 
 def _text_embedding_provider_from_config(

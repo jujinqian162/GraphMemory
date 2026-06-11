@@ -46,15 +46,6 @@ def write_jsonl(path: str | Path, records: list[Any]) -> None:
             file.write("\n")
 
 
-def load_config(path: str | Path | None) -> JsonDict:
-    if path is None:
-        return {}
-    config = read_json(path)
-    if not isinstance(config, dict):
-        raise ValueError(f"Config must be a JSON object: {path}")
-    return config
-
-
 def merge_config(
     defaults: JsonDict,
     config_file: JsonDict | None = None,
@@ -80,7 +71,6 @@ def _deep_merge(base: JsonDict, override: JsonDict) -> JsonDict:
 
 __all__ = [
     "JsonDict",
-    "load_config",
     "merge_config",
     "read_csv",
     "read_json",

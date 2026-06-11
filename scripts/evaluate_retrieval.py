@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
 import time
@@ -95,10 +94,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         write_run_summary(summary_path, summary)
         raise
-
-
-def build_parser() -> argparse.ArgumentParser:
-    return Registry.configs.EVALUATE.parser_factory()
 
 
 if __name__ == "__main__":

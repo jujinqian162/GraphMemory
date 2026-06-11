@@ -19,7 +19,6 @@ SEARCH_SPACE_CONFIG_DIR = CONFIG_ROOT / "search_spaces"
 TRAINING_CONFIG_DIR = CONFIG_ROOT / "training"
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
 DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
-STAGE_ORDER = tuple(stage.value for stage in StageId)
 STAGE_DESCRIPTIONS = {
     StageId.PREPARE.value: "Build split-specific task, label, and combined input artifacts.",
     StageId.GRAPHS.value: "Build evidence graph artifacts for train, dev, and test splits.",

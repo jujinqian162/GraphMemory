@@ -127,8 +127,7 @@ def test_load_skips_profiles_when_spec_has_no_profile_selector(tmp_path: Path) -
     )
 
 
-def test_loader_write_resolved_unstructures_paths_enums_and_tuples(tmp_path: Path) -> None:
-    output_path = tmp_path / "resolved.json"
+def test_loader_to_json_unstructures_paths_enums_and_tuples() -> None:
     config = DemoConfig(
         schema_version=2,
         name="resolved",
@@ -139,9 +138,7 @@ def test_loader_write_resolved_unstructures_paths_enums_and_tuples(tmp_path: Pat
         optional_path=Path("maybe.json"),
     )
 
-    CONFIG_LOADER.write_resolved(output_path, config)
-
-    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+    assert CONFIG_LOADER.to_json(config) == {
         "mode": "slow",
         "name": "resolved",
         "nested": {"limit": 9, "tags": ["a", "b"]},
@@ -189,6 +186,7 @@ def test_config_api_stays_small() -> None:
 
     assert hasattr(config_api, "ConfigLoader")
     assert hasattr(config_api, "CONFIG_LOADER")
+    assert not hasattr(config_api.ConfigLoader, "write_resolved")
     assert not hasattr(config_api, "load_cli_config")
     assert not hasattr(config_api, "load_profiled_file")
     assert not hasattr(config_api, "ConfigSource")

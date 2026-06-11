@@ -16,16 +16,6 @@ class WorkflowStatusKey:
     split: str | None = None
     variant: str | None = None
 
-    def to_manifest_key(self) -> str:
-        if self.variant is not None and self.method is not None:
-            return f"{self.stage.value}:{self.method}:{self.variant}"
-        if self.method is not None:
-            return f"{self.stage.value}:{self.method}"
-        if self.split is not None:
-            return f"{self.stage.value}:{self.split}"
-        return self.stage.value
-
-
 @dataclass(frozen=True)
 class ResumeDecision:
     """Cache-aware command selection produced from live status evidence."""

@@ -10,14 +10,13 @@ from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkp
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
-from graph_memory.registry.retrieval import CheckpointGraphBuildPayload
-from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
+from graph_memory.registry import Registry
+from graph_memory.registry.retrieval import CheckpointGraphBuildPayload, CheckpointGraphRetrievalSettings
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.retrieval_registry import METHOD_REGISTRY, get_method_spec, get_supported_methods
 from graph_memory.validation import validate_ranked_results
-from scripts.run_retrieval import build_parser as build_retrieval_parser
 from scripts.run_retrieval import main as run_retrieval_cli_main
 from tests.test_phase2_rgcn_training import (
     FakeRetriever,
@@ -54,13 +53,16 @@ def run_retrieval(
     seed_signal_provider=None,
     device="cpu",
 ):
-    settings = RETRIEVAL_REGISTRY.settings_from_runtime(
-        method=method,
+    if method != "dense_rgcn_graph_retriever":
+        raise ValueError(f"Unsupported test method: {method}")
+    if checkpoint_path is None:
+        raise ValueError("checkpoint_path is required")
+    settings = CheckpointGraphRetrievalSettings(
         top_k=top_k,
-        checkpoint=checkpoint_path,
+        checkpoint=Path(checkpoint_path),
         device=device,
     )
-    method_object = RETRIEVAL_REGISTRY.build(
+    method_object = Registry.retrieval.build(
         settings,
         CheckpointGraphBuildPayload(
             task_inputs=task_inputs,
@@ -161,7 +163,7 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp
     assert spec.requires_checkpoint is True
     assert spec.seed_method == "dense"
     assert METHOD_REGISTRY["dense_rgcn_graph_retriever"].builder_id == "trainable_graph"
-    choices = build_retrieval_parser()._option_string_actions["--method"].choices
+    choices = Registry.configs.RETRIEVE.parser_factory()._option_string_actions["--method"].choices
     assert choices is not None
     assert "dense_rgcn_graph_retriever" in choices
 

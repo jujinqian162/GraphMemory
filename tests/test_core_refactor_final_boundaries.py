@@ -127,6 +127,61 @@ def test_obsolete_compatibility_paths_are_removed() -> None:
     assert importable_modules == []
 
 
+def test_unreachable_refactor_leftovers_are_removed() -> None:
+    import graph_memory.config.training_compat as training_compat
+    import graph_memory.infrastructure.io as infrastructure_io
+    import graph_memory.io as root_io
+    import graph_memory.registry.retrieval_builders as retrieval_builders
+    import graph_memory.registry.training as training_registry
+    import graph_memory.retrieval.contracts as retrieval_contracts
+    import graph_memory.retrieval.methods.graph_rerank.components as rerank_components
+    import graph_memory.training_config as root_training_config
+    import scripts.build_train_pairs as build_train_pairs
+    import scripts.evaluate_retrieval as evaluate_retrieval
+    import scripts.run_retrieval as run_retrieval
+    import scripts.train_graph_retriever as train_graph_retriever
+    import scripts.workflow.manifest as workflow_manifest
+    import scripts.workflow.types as workflow_types
+    from graph_memory.config.codec import JsonConfigCodec
+    from graph_memory.config.loader import ConfigLoader
+    from scripts.workflow.resume import WorkflowStatusKey
+
+    removed_training_helpers = {
+        "EncoderConfig",
+        "ModelConfigValues",
+        "encoder_config_from_training_config",
+        "model_config_values_from_training_config",
+    }
+    for module in (training_compat, root_training_config):
+        assert removed_training_helpers.isdisjoint(vars(module))
+
+    assert not hasattr(infrastructure_io, "load_config")
+    assert not hasattr(root_io, "load_config")
+    assert not hasattr(ConfigLoader, "write_resolved")
+    assert not hasattr(JsonConfigCodec, "write")
+
+    assert not hasattr(retrieval_builders, "RETRIEVAL_REGISTRY")
+    assert not hasattr(retrieval_builders, "RuntimeRetrievalRegistry")
+    assert not hasattr(training_registry, "TRAINING_REGISTRY")
+    assert not hasattr(retrieval_contracts, "Retriever")
+
+    assert not hasattr(rerank_components, "ComponentName")
+    assert not hasattr(rerank_components.InitialScoreComponent(weight=1.0, normalization="minmax"), "component_name")
+
+    assert not hasattr(workflow_types, "RunUnit")
+    assert not hasattr(WorkflowStatusKey, "to_manifest_key")
+    assert not hasattr(workflow_manifest, "STAGE_ORDER")
+
+    removed_script_helpers = {
+        build_train_pairs: {"BuildTrainPairsArgs", "build_parser", "parse_args"},
+        evaluate_retrieval: {"build_parser"},
+        run_retrieval: {"build_parser", "parse_args"},
+        train_graph_retriever: {"TrainGraphRetrieverArgs", "build_parser", "parse_args"},
+    }
+    for module, names in removed_script_helpers.items():
+        assert names.isdisjoint(vars(module))
+
+
 def test_source_imports_do_not_use_removed_compatibility_paths() -> None:
     old_imports: list[str] = []
     for path in _python_files():

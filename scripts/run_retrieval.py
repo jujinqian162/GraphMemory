@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
 import time
@@ -101,14 +100,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         write_run_summary(summary_path, summary)
         raise
-
-
-def build_parser() -> argparse.ArgumentParser:
-    return Registry.configs.RETRIEVE.parser_factory()
-
-
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    return build_parser().parse_args(argv)
 
 
 def _read_graph_config(path: Path | None) -> JsonObject | None:

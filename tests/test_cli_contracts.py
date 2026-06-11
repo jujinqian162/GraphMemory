@@ -3,14 +3,11 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from graph_memory.registry import Registry
+
 
 def test_core_script_parser_contracts_are_frozen() -> None:
-    import scripts.build_train_pairs as build_train_pairs
-    import scripts.evaluate_retrieval as evaluate_retrieval
-    import scripts.run_retrieval as run_retrieval
-    import scripts.train_graph_retriever as train_graph_retriever
-
-    assert _parser_contract(run_retrieval.build_parser()) == {
+    assert _parser_contract(Registry.configs.RETRIEVE.parser_factory()) == {
         "method": _store(
             "--method",
             required=True,
@@ -33,7 +30,7 @@ def test_core_script_parser_contracts_are_frozen() -> None:
         "checkpoint": _store("--checkpoint"),
         "device": _store("--device", default="cpu"),
     }
-    assert _parser_contract(build_train_pairs.build_parser()) == {
+    assert _parser_contract(Registry.configs.PAIRS.parser_factory()) == {
         "tasks": _store("--tasks", required=True),
         "labels": _store("--labels", required=True),
         "graphs": _store("--graphs", required=True),
@@ -46,7 +43,7 @@ def test_core_script_parser_contracts_are_frozen() -> None:
         "hard_pool_size": _store("--hard_pool_size", default=30, value_type="int"),
         "config": _store("--config"),
     }
-    assert _parser_contract(train_graph_retriever.build_parser()) == {
+    assert _parser_contract(Registry.configs.TRAIN.parser_factory()) == {
         "train_tasks": _store("--train_tasks", required=True),
         "train_labels": _store("--train_labels"),
         "train_graphs": _store("--train_graphs", required=True),
@@ -75,7 +72,7 @@ def test_core_script_parser_contracts_are_frozen() -> None:
         "device": _store("--device", default="cpu"),
         "config": _store("--config"),
     }
-    assert _parser_contract(evaluate_retrieval.build_parser()) == {
+    assert _parser_contract(Registry.configs.EVALUATE.parser_factory()) == {
         "pred": _store("--pred", required=True),
         "labels": _store("--labels"),
         "gold": _store("--gold"),

@@ -11,14 +11,9 @@ from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.retrieval.methods.graph_rerank.normalization import normalize_component_scores
 
 NormalizationMode = Literal["none", "minmax"]
-ComponentName = Literal["initial", "query", "neighbor", "bridge", "path"]
 
 
 class NodeScoreComponent(Protocol):
-    @property
-    def component_name(self) -> ComponentName:
-        ...
-
     @property
     def weight(self) -> float:
         ...
@@ -44,7 +39,6 @@ class ScoreContext:
 class InitialScoreComponent:
     weight: float
     normalization: NormalizationMode
-    component_name: ComponentName = "initial"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         return context.initial_scores
@@ -54,7 +48,6 @@ class InitialScoreComponent:
 class QueryOverlapScoreComponent:
     weight: float
     normalization: NormalizationMode = "minmax"
-    component_name: ComponentName = "query"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         if context.graph is None:
@@ -66,7 +59,6 @@ class QueryOverlapScoreComponent:
 class NeighborPropagationScoreComponent:
     weight: float
     normalization: NormalizationMode = "minmax"
-    component_name: ComponentName = "neighbor"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         if context.graph is None or context.graph_config is None:
@@ -79,7 +71,6 @@ class NeighborPropagationScoreComponent:
 class BridgeScoreComponent:
     weight: float
     normalization: NormalizationMode = "minmax"
-    component_name: ComponentName = "bridge"
 
     def scores(self, context: ScoreContext) -> dict[str, float]:
         if context.graph is None or context.graph_config is None:

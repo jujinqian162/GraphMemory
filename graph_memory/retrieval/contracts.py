@@ -35,9 +35,6 @@ class SeedRanker(Protocol):
         ...
 
 
-Retriever = SeedRanker
-
-
 class DenseEncoder(Protocol):
     def encode(self, texts: Sequence[str], batch_size: int = 64, normalize_embeddings: bool = True) -> object:
         ...

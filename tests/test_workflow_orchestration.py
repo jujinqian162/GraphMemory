@@ -540,7 +540,7 @@ def test_variant_plan_rendering_and_status_are_variant_qualified(tmp_path) -> No
 
 
 def test_command_status_key_preserves_split_method_and_variant_qualifiers() -> None:
-    from scripts.workflow.resume import command_status_key
+    from scripts.workflow.resume import WorkflowStatusKey, command_status_key
     from scripts.workflow.types import StageCommand
 
     split_key = command_status_key(StageCommand(stage=StageId.PREPARE, split="train", argv=[]))
@@ -553,8 +553,12 @@ def test_command_status_key_preserves_split_method_and_variant_qualifiers() -> N
         )
     )
 
-    assert split_key.to_manifest_key() == "prepare:train"
-    assert variant_key.to_manifest_key() == f"retrieve:{TRAINABLE_METHOD}:wo_graph"
+    assert split_key == WorkflowStatusKey(stage=StageId.PREPARE, split="train")
+    assert variant_key == WorkflowStatusKey(
+        stage=StageId.RETRIEVE,
+        method=TRAINABLE_METHOD,
+        variant="wo_graph",
+    )
 
 
 def test_cache_resume_prunes_only_completed_prefix() -> None:

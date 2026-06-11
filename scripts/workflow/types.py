@@ -123,18 +123,6 @@ class AblationSuiteSpec:
 
 
 @dataclass(frozen=True)
-class RunUnit:
-    """One ordinary or variant execution unit. / 一个普通或 variant 执行单元。"""
-
-    method: str
-    variant: str | None = None
-
-    @property
-    def qualifier(self) -> str:
-        return self.method if self.variant is None else f"{self.method}/{self.variant}"
-
-
-@dataclass(frozen=True)
 class ArtifactAlias:
     """A variant artifact reference reused from main. / 从主实验复用的 variant artifact 引用。"""
 

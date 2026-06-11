@@ -150,7 +150,6 @@ def test_io_and_observability_root_ports_are_narrow_infrastructure_reexports():
         "read_csv",
         "write_csv",
         "write_jsonl",
-        "load_config",
         "merge_config",
     }
     assert set(root_io.__all__) == io_names
@@ -163,6 +162,7 @@ def test_io_and_observability_root_ports_are_narrow_infrastructure_reexports():
     assert root_observability.now_iso is run_summary.now_iso
     assert root_observability.build_run_summary is run_summary.build_run_summary
     assert root_observability.write_run_summary is run_summary.write_run_summary
+    assert not hasattr(root_io, "load_config")
     for removed_name in ["graph_statistics", "config_digest", "build_score_debug_record"]:
         assert not hasattr(root_observability, removed_name)
 

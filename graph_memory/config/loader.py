@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any, TypeVar
 
 from graph_memory.config.codec import JsonConfigCodec
@@ -33,12 +32,6 @@ class ConfigLoader:
 
     def to_json(self, config: object) -> JsonValue:
         return self.converter.unstructure(config)
-
-    def write_resolved(self, path: str | Path, config: object) -> None:
-        resolved = self.to_json(config)
-        if not isinstance(resolved, dict):
-            raise ValueError(f"Resolved config must be a JSON object: {type(config).__name__}")
-        self.codec.write(path, resolved)
 
     def _load_raw_config(self, spec: StageConfigSpec[Any], namespace: argparse.Namespace) -> dict[str, Any]:
         path = spec.config_path(namespace)

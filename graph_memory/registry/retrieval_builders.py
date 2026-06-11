@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
@@ -19,7 +18,6 @@ from graph_memory.registry.retrieval import (
     GraphRerankSettings,
     RETRIEVAL_METHOD_METADATA,
     RetrievalBuilderSpec,
-    RetrievalJobSettings,
     RetrievalMethodId,
     RetrievalRegistry,
     SeedRetrieverBuildPayload,
@@ -35,54 +33,8 @@ from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 
-class RuntimeRetrievalRegistry(RetrievalRegistry):
-    def settings_from_runtime(
-        self,
-        *,
-        method: str,
-        top_k: int,
-        dense_config: DenseConfig | None = None,
-        graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
-        checkpoint: str | Path | None = None,
-        device: str = "cpu",
-    ) -> RetrievalJobSettings:
-        metadata = get_retrieval_method_metadata(method)
-        method_id = RetrievalMethodId(metadata.name)
-        settings_type = metadata.settings_type
-
-        if settings_type is Bm25RetrievalSettings:
-            return Bm25RetrievalSettings(top_k=top_k)
-        if settings_type is DenseRetrievalSettings:
-            return DenseRetrievalSettings(
-                top_k=top_k,
-                encoder=_dense_encoder_settings(dense_config),
-            )
-        if settings_type is GraphRerankRetrievalSettings:
-            return GraphRerankRetrievalSettings(
-                method=cast(
-                    Literal[RetrievalMethodId.BM25_GRAPH_RERANK, RetrievalMethodId.DENSE_GRAPH_RERANK],
-                    method_id,
-                ),
-                top_k=top_k,
-                seed=seed_retrieval_settings_for_method(method=method, dense_config=dense_config),
-                rerank=_graph_rerank_settings_from_config(graph_config),
-            )
-        if settings_type is CheckpointGraphRetrievalSettings:
-            if checkpoint is None:
-                raise ValueError(f"Trainable graph method={method} requires a checkpoint path.")
-            return CheckpointGraphRetrievalSettings(top_k=top_k, checkpoint=Path(checkpoint), device=device)
-        raise ValueError(f"Unsupported retrieval settings type: {settings_type.__name__}")
-
-    def seed_settings_for_method(
-        self,
-        method: str,
-        dense_config: DenseConfig | None = None,
-    ) -> SeedRetrievalSettings:
-        return seed_retrieval_settings_for_method(method=method, dense_config=dense_config)
-
-
-def build_retrieval_registry() -> RuntimeRetrievalRegistry:
-    return RuntimeRetrievalRegistry(
+def build_retrieval_registry() -> RetrievalRegistry:
+    return RetrievalRegistry(
         metadata=RETRIEVAL_METHOD_METADATA,
         seed_build=_build_seed_retriever,
         builders={
@@ -127,22 +79,6 @@ def _dense_encoder_settings(config: DenseConfig | None) -> DenseEncoderSettings:
         query_prefix=config.query_prefix,
         passage_prefix=config.passage_prefix,
         batch_size=config.batch_size,
-    )
-
-
-def _graph_rerank_settings_from_config(value: GraphRerankConfig | Mapping[str, object] | None) -> GraphRerankSettings:
-    from graph_memory.retrieval.methods.graph_rerank.config import ensure_graph_rerank_config
-
-    config = ensure_graph_rerank_config(value)
-    return GraphRerankSettings(
-        lambda_init=config.lambda_init,
-        lambda_query=config.lambda_query,
-        lambda_neighbor=config.lambda_neighbor,
-        lambda_bridge=config.lambda_bridge,
-        lambda_path=config.lambda_path,
-        seed_top_s=config.seed_top_s,
-        max_hops=config.max_hops,
-        neighbor_type_weights=dict(config.neighbor_type_weights),
     )
 
 
@@ -282,12 +218,7 @@ def _validated_graph_index(method: str, task_inputs: list[MemoryTaskInput], grap
     return GraphIndex.from_graphs(graphs)
 
 
-RETRIEVAL_REGISTRY = build_retrieval_registry()
-
-
 __all__ = [
-    "RETRIEVAL_REGISTRY",
-    "RuntimeRetrievalRegistry",
     "build_retrieval_registry",
     "seed_retrieval_settings_for_method",
 ]

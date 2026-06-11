@@ -118,9 +118,9 @@ def test_trainable_retrieval_uses_unified_retrieval_script_entry() -> None:
     assert not (REPO_ROOT / "scripts" / "run_trainable_retrieval.py").exists()
     assert not _has_module("scripts.run_trainable_retrieval")
 
-    import scripts.run_retrieval as run_retrieval_script
+    from graph_memory.registry import Registry
 
-    action = run_retrieval_script.build_parser()._option_string_actions["--method"]
+    action = Registry.configs.RETRIEVE.parser_factory()._option_string_actions["--method"]
     assert action.choices is not None
     assert "dense_rgcn_graph_retriever" in action.choices
 

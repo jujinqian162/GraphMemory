@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from graph_memory.infrastructure.io import merge_config, read_json
 from graph_memory.models.graph_retriever.config.records import TrainableTrainingConfig
@@ -11,19 +11,6 @@ from graph_memory.validation import validate_negative_sampling_config, validate_
 
 
 JsonConfig = dict[str, Any]
-
-
-class EncoderConfig(TypedDict):
-    model: str
-    query_prefix: str
-    passage_prefix: str
-
-
-class ModelConfigValues(TypedDict):
-    hidden_dim: int
-    num_layers: int
-    dropout: float
-    ablation: str
 
 
 def load_trainable_training_config(
@@ -92,25 +79,6 @@ def trainable_training_config_from_training_config(config: JsonConfig) -> Traina
     )
     validate_trainable_training_config(training_config)
     return training_config
-
-
-def encoder_config_from_training_config(config: JsonConfig) -> EncoderConfig:
-    encoder = _required_section(config, "encoder")
-    return {
-        "model": _string_value(encoder, "model"),
-        "query_prefix": _string_value(encoder, "query_prefix"),
-        "passage_prefix": _string_value(encoder, "passage_prefix"),
-    }
-
-
-def model_config_values_from_training_config(config: JsonConfig) -> ModelConfigValues:
-    model = _required_section(config, "model")
-    return {
-        "hidden_dim": _int_value(model, "hidden_dim"),
-        "num_layers": _int_value(model, "num_layers"),
-        "dropout": _float_value(model, "dropout"),
-        "ablation": _string_value(model, "ablation"),
-    }
 
 
 def device_from_training_config(config: JsonConfig, *, default: str = "cpu") -> str:
@@ -234,11 +202,4 @@ def _bool_value(config: JsonConfig, key: str) -> bool:
     value = config.get(key)
     if not isinstance(value, bool):
         raise ValueError(f"Training config field must be boolean: {key}")
-    return value
-
-
-def _string_value(config: JsonConfig, key: str) -> str:
-    value = config.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"Training config field must be a non-empty string: {key}")
     return value

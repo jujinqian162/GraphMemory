@@ -3,14 +3,13 @@ import pytest
 import graph_memory.retrieval.methods.graph_rerank.engine as rerank_module
 import graph_memory.retrieval as retrieval_module
 from dataclasses import asdict, fields
-from pathlib import Path
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
-from graph_memory.registry.retrieval_builders import RETRIEVAL_REGISTRY
-from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
+from graph_memory.config import CONFIG_LOADER
+from graph_memory.registry import Registry
 from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.retrieval.methods.graph_rerank import (
     neighbor_propagation_scores,
@@ -32,7 +31,6 @@ from graph_memory.retrieval.methods.graph_rerank.config import (
     TuningCandidateRow,
     ensure_graph_rerank_config,
 )
-from scripts.run_retrieval import build_parser
 from graph_memory.retrieval.tuning import (
     InitialScoreCache,
     graph_rerank_grid,
@@ -85,33 +83,30 @@ def run_retrieval(
     passage_prefix="passage: ",
     dense_encoder=None,
     graph_config=None,
-    checkpoint_path=None,
-    text_embedding_provider=None,
-    seed_signal_provider=None,
-    device="cpu",
 ):
-    job = RETRIEVAL_REGISTRY.settings_from_runtime(
-        method=method,
-        top_k=top_k,
-        dense_config=DenseConfig(
-            model_name=encoder_model,
-            query_prefix=query_prefix,
-            passage_prefix=passage_prefix,
-        ),
-        graph_config=graph_config,
-        checkpoint=checkpoint_path,
-        device=device,
-    )
+    argv = [
+        "--method",
+        method,
+        "--tasks",
+        "memory_tasks.input.json",
+        "--output",
+        "ranked.json",
+        "--top_k",
+        str(top_k),
+        "--encoder_model",
+        encoder_model,
+        "--query_prefix",
+        query_prefix,
+        "--passage_prefix",
+        passage_prefix,
+    ]
+    if graphs is not None:
+        argv.extend(["--graphs", "graphs.json"])
+    if graph_config is not None:
+        argv.extend(["--graph_config", "graph_config.json"])
+    config = CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
     result = run_retrieve_stage(
-        RetrieveStageConfig(
-            io=RetrieveIO(
-                tasks=Path("memory_tasks.input.json"),
-                graphs=Path("graphs.json") if graphs is not None else None,
-                output=Path("ranked.json"),
-                summary=Path("ranked.run_summary.json"),
-            ),
-            job=job,
-        ),
+        config,
         task_inputs=task_inputs,
         graphs=graphs,
         graph_config=graph_config,
@@ -225,7 +220,9 @@ def retrieval_graphs() -> list[MemoryGraph]:
 
 def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
     supported_methods = get_supported_methods()
-    parser_method_action = next(action for action in build_parser()._actions if action.dest == "method")
+    parser_method_action = next(
+        action for action in Registry.configs.RETRIEVE.parser_factory()._actions if action.dest == "method"
+    )
 
     assert supported_methods == tuple(METHOD_REGISTRY)
     assert get_graph_rerank_methods() == ("bm25_graph_rerank", "dense_graph_rerank")
@@ -275,16 +272,6 @@ def test_flat_methods_accept_missing_graph_inputs():
 
         assert result[0]["method"] == method
         assert result[0]["retrieved_subgraph"]["edges"] == []
-
-
-def test_graph_pipeline_requires_graph_config_before_processing():
-    with pytest.raises(ValueError, match="Graph rerank methods require graph_config"):
-        run_retrieval(
-            method="bm25_graph_rerank",
-            task_inputs=retrieval_task_inputs(),
-            graphs=retrieval_graphs(),
-            top_k=2,
-        )
 
 
 def test_graph_rerank_config_uses_neighbor_type_weights_as_canonical_field():

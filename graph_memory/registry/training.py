@@ -167,9 +167,6 @@ def build_training_registry() -> TrainingRegistry:
     )
 
 
-TRAINING_REGISTRY = build_training_registry()
-
-
 __all__ = [
     "ModelSelectionSettings",
     "RgcnGraphRetrieverTrainer",
@@ -177,7 +174,6 @@ __all__ = [
     "RgcnModelSettings",
     "RgcnPairSamplingSettings",
     "RgcnTrainerSettings",
-    "TRAINING_REGISTRY",
     "TrainDependencies",
     "TrainJobSettings",
     "TrainMethodTrainer",
