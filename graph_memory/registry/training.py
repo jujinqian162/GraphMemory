@@ -169,15 +169,12 @@ def build_training_registry() -> TrainingRegistry:
 
 __all__ = [
     "ModelSelectionSettings",
-    "RgcnGraphRetrieverTrainer",
     "RgcnMethodSettings",
     "RgcnModelSettings",
     "RgcnPairSamplingSettings",
     "RgcnTrainerSettings",
     "TrainDependencies",
     "TrainJobSettings",
-    "TrainMethodTrainer",
-    "TrainingBuilderSpec",
     "TrainingRegistry",
     "TrainingReportingSettings",
     "build_training_registry",

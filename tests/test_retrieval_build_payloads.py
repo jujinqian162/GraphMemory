@@ -11,7 +11,7 @@ from graph_memory.registry.retrieval import (
     GraphRerankSettings,
     RetrievalMethodId,
     SeedRetrievalSettings,
-    require_payload,
+    _require_payload,
 )
 from tests.test_phase2_rgcn_training import tiny_graphs, tiny_task_inputs
 
@@ -19,12 +19,12 @@ from tests.test_phase2_rgcn_training import tiny_graphs, tiny_task_inputs
 def test_require_payload_accepts_expected_payload_type() -> None:
     payload = FlatRetrievalBuildPayload(task_inputs=tiny_task_inputs())
 
-    assert require_payload(payload, FlatRetrievalBuildPayload, method="bm25") is payload
+    assert _require_payload(payload, FlatRetrievalBuildPayload, method="bm25") is payload
 
 
 def test_require_payload_rejects_incompatible_payload_type() -> None:
     with pytest.raises(TypeError, match="bm25 expected FlatRetrievalBuildPayload"):
-        require_payload(object(), FlatRetrievalBuildPayload, method="bm25")
+        _require_payload(object(), FlatRetrievalBuildPayload, method="bm25")
 
 
 def test_bm25_builder_accepts_flat_payload() -> None:

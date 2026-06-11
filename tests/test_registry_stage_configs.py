@@ -9,7 +9,14 @@ from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
 from graph_memory.registry.ids import StageId
 from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings
-from graph_memory.registry.training import RgcnMethodSettings
+from graph_memory.registry.training import (
+    ModelSelectionSettings,
+    RgcnMethodSettings,
+    RgcnModelSettings,
+    RgcnPairSamplingSettings,
+    RgcnTrainerSettings,
+    TrainingReportingSettings,
+)
 import graph_memory.registry.stage_configs as stage_configs
 from graph_memory.registry.stage_configs import EvaluateStageConfig, RetrieveStageConfig, TrainStageConfig
 
@@ -350,13 +357,13 @@ def test_train_stage_config_loads_directly_from_existing_cli_contract(tmp_path: 
                 query_prefix="query: ",
                 passage_prefix="passage: ",
             ),
-            model=stage_configs.RgcnModelSettings(
+            model=RgcnModelSettings(
                 hidden_dim=8,
                 num_layers=1,
                 dropout=0.0,
                 ablation="full_rgcn",
             ),
-            trainer=stage_configs.RgcnTrainerSettings(
+            trainer=RgcnTrainerSettings(
                 optimizer_name="AdamW",
                 learning_rate=0.01,
                 batch_size=3,
@@ -366,9 +373,9 @@ def test_train_stage_config_loads_directly_from_existing_cli_contract(tmp_path: 
                 epochs=2,
                 device="cpu",
             ),
-            pairs=stage_configs.RgcnPairSamplingSettings(),
-            reporting=stage_configs.TrainingReportingSettings(),
-            selection=stage_configs.ModelSelectionSettings(),
+            pairs=RgcnPairSamplingSettings(),
+            reporting=TrainingReportingSettings(),
+            selection=ModelSelectionSettings(),
         ),
     )
 
@@ -476,13 +483,13 @@ def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_va
         query_prefix="file query: ",
         passage_prefix="file passage: ",
     )
-    assert config.job.model == stage_configs.RgcnModelSettings(
+    assert config.job.model == RgcnModelSettings(
         hidden_dim=8,
         num_layers=1,
         dropout=0.0,
         ablation="wo_bridge",
     )
-    assert config.job.trainer == stage_configs.RgcnTrainerSettings(
+    assert config.job.trainer == RgcnTrainerSettings(
         optimizer_name="AdamW",
         learning_rate=0.02,
         batch_size=4,
@@ -492,7 +499,7 @@ def test_train_stage_config_loads_config_without_cli_defaults_clobbering_file_va
         epochs=1,
         device="cpu",
     )
-    assert config.job.pairs == stage_configs.RgcnPairSamplingSettings(
+    assert config.job.pairs == RgcnPairSamplingSettings(
         random_seed=17,
         easy_random_per_positive=1,
         hard_bm25_per_positive=0,
@@ -584,7 +591,7 @@ def test_train_stage_config_resolves_legacy_defaults_profiles_before_cli(tmp_pat
         ],
     )
 
-    assert config.job.model == stage_configs.RgcnModelSettings(
+    assert config.job.model == RgcnModelSettings(
         hidden_dim=32,
         num_layers=1,
         dropout=0.0,

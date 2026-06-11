@@ -1,13 +1,3 @@
-from graph_memory.models.graph_retriever.config.defaults import default_model_config
-from graph_memory.models.graph_retriever.config.records import (
-    NodeFeatureConfig,
-    TrainableModelConfig,
-    TrainableTrainingConfig,
-)
+"""Graph retriever configuration APIs live in their owned modules."""
 
-__all__ = [
-    "NodeFeatureConfig",
-    "TrainableModelConfig",
-    "TrainableTrainingConfig",
-    "default_model_config",
-]
+__all__: list[str] = []

@@ -23,7 +23,7 @@ from graph_memory.registry.retrieval import (
     SeedRetrieverBuildPayload,
     SeedRetrievalSettings,
     get_retrieval_method_metadata,
-    require_payload,
+    _require_payload,
 )
 from graph_memory.retrieval.contracts import DenseEncoder, RetrievalMethod, SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
@@ -83,12 +83,12 @@ def _dense_encoder_settings(config: DenseConfig | None) -> DenseEncoderSettings:
 
 
 def _build_bm25(settings: Bm25RetrievalSettings, payload: object) -> RetrievalMethod:
-    _ = require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
+    _ = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
     return ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever())
 
 
 def _build_dense(settings: DenseRetrievalSettings, payload: object) -> RetrievalMethod:
-    build_payload = require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
+    build_payload = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
     return ScorePipelineMethod(
         name=settings.method.value,
         retriever=_build_seed_retriever(
@@ -102,7 +102,7 @@ def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object)
     from graph_memory.retrieval.methods.graph_rerank.config import ensure_graph_rerank_config
     from graph_memory.retrieval.methods.graph_rerank.method import GraphRerankMethod
 
-    build_payload = require_payload(payload, GraphRerankBuildPayload, method=settings.method.value)
+    build_payload = _require_payload(payload, GraphRerankBuildPayload, method=settings.method.value)
     return GraphRerankMethod(
         name=settings.method.value,
         retriever=_build_seed_retriever(
@@ -121,7 +121,7 @@ def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object)
 def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload: object) -> RetrievalMethod:
     from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 
-    build_payload = require_payload(payload, CheckpointGraphBuildPayload, method=settings.method.value)
+    build_payload = _require_payload(payload, CheckpointGraphBuildPayload, method=settings.method.value)
     text_embedding_provider, seed_signal_provider = _checkpoint_graph_providers(settings, build_payload)
     return TrainableGraphRetrievalMethod.from_checkpoint(
         settings.checkpoint,
@@ -176,7 +176,7 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
 
 
 def _build_seed_retriever(settings: SeedRetrievalSettings, payload: object) -> SeedRanker:
-    build_payload = require_payload(payload, SeedRetrieverBuildPayload, method=settings.method.value)
+    build_payload = _require_payload(payload, SeedRetrieverBuildPayload, method=settings.method.value)
     if settings.method is RetrievalMethodId.BM25:
         return BM25TaskRetriever()
     if settings.encoder is None:

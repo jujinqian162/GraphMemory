@@ -180,7 +180,7 @@ class CheckpointGraphBuildPayload:
     seed_signal_provider: "SeedSignalProvider | None" = None
 
 
-def require_payload(payload: object, expected_type: type[PayloadT], *, method: str) -> PayloadT:
+def _require_payload(payload: object, expected_type: type[PayloadT], *, method: str) -> PayloadT:
     if isinstance(payload, expected_type):
         return payload
     raise TypeError(f"{method} expected {expected_type.__name__}, got {type(payload).__name__}.")
@@ -235,5 +235,4 @@ __all__ = [
     "SeedRetrieverBuildPayload",
     "SeedRetrievalSettings",
     "get_retrieval_method_metadata",
-    "require_payload",
 ]

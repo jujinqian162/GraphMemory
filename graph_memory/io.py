@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from graph_memory.infrastructure.io import (
-    JsonDict,
     merge_config,
     read_csv,
     read_json,
@@ -11,7 +10,6 @@ from graph_memory.infrastructure.io import (
 )
 
 __all__ = [
-    "JsonDict",
     "merge_config",
     "read_csv",
     "read_json",

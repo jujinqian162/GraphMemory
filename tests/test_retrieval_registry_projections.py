@@ -45,7 +45,7 @@ def test_catalog_and_root_registry_project_registry_metadata_source() -> None:
         assert catalog_spec.requires_checkpoint == source.requires_checkpoint
         assert catalog_spec.requires_dense_encoder == source.requires_dense_encoder
         assert catalog_spec.seed_method == expected_seed
-        assert catalog_spec.builder_id == projections.legacy_builder_id_for(source)
+        assert catalog_spec.builder_id == projections._legacy_builder_id_for(source)
 
 
 def test_catalog_and_root_registry_have_no_local_method_tables() -> None:
@@ -75,7 +75,7 @@ def test_projection_helper_projects_new_registry_metadata_without_catalog_edit()
         name="dense_clone_for_projection",
     )
 
-    projected = projections.project_retrieval_method_registry(extended)
+    projected = projections._project_retrieval_method_registry(extended)
 
     assert projected["dense_clone_for_projection"].name == "dense_clone_for_projection"
     assert projected["dense_clone_for_projection"].requires_dense_encoder is True

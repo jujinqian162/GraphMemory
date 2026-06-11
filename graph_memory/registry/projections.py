@@ -31,7 +31,7 @@ class RetrievalMethodSpec:
     builder_id: str
 
 
-def legacy_builder_id_for(metadata: RetrievalMethodMetadata) -> str:
+def _legacy_builder_id_for(metadata: RetrievalMethodMetadata) -> str:
     if metadata.settings_type is Bm25RetrievalSettings:
         return "bm25"
     if metadata.settings_type is DenseRetrievalSettings:
@@ -43,7 +43,7 @@ def legacy_builder_id_for(metadata: RetrievalMethodMetadata) -> str:
     raise ValueError(f"Unsupported retrieval settings projection: {metadata.settings_type.__name__}")
 
 
-def project_retrieval_method_registry(
+def _project_retrieval_method_registry(
     metadata: Mapping[str, RetrievalMethodMetadata] = RETRIEVAL_METHOD_METADATA,
 ) -> dict[str, RetrievalMethodSpec]:
     return {
@@ -54,13 +54,13 @@ def project_retrieval_method_registry(
             requires_checkpoint=source.requires_checkpoint,
             requires_dense_encoder=source.requires_dense_encoder,
             seed_method=source.seed_method.value if source.seed_method is not None else None,
-            builder_id=legacy_builder_id_for(source),
+            builder_id=_legacy_builder_id_for(source),
         )
         for method, source in metadata.items()
     }
 
 
-METHOD_REGISTRY: dict[str, RetrievalMethodSpec] = project_retrieval_method_registry()
+METHOD_REGISTRY: dict[str, RetrievalMethodSpec] = _project_retrieval_method_registry()
 
 
 def get_supported_methods() -> tuple[str, ...]:
@@ -89,6 +89,4 @@ __all__ = [
     "get_method_spec",
     "get_methods_requiring_dense_encoder",
     "get_supported_methods",
-    "legacy_builder_id_for",
-    "project_retrieval_method_registry",
 ]

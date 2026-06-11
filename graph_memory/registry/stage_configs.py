@@ -17,12 +17,7 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.registry.specs import StageConfigSpec
 from graph_memory.registry.training import (
-    ModelSelectionSettings,
-    RgcnMethodSettings,
-    RgcnModelSettings,
     RgcnPairSamplingSettings,
-    RgcnTrainerSettings,
-    TrainingReportingSettings,
     TrainJobSettings,
 )
 from graph_memory.training_pairs.config import NegativeSamplingConfig
@@ -711,23 +706,10 @@ def _empty_registry_patch(namespace: argparse.Namespace, raw: Mapping[str, JsonV
 
 
 __all__ = [
-    "GenericStageConfig",
-    "EvaluateIO",
     "EvaluateStageConfig",
-    "ModelSelectionSettings",
-    "PairBuildIO",
-    "PairBuildJobSettings",
     "PairBuildStageConfig",
-    "PairSamplingSettings",
-    "RgcnMethodSettings",
-    "RgcnModelSettings",
-    "RgcnPairSamplingSettings",
-    "RgcnTrainerSettings",
-    "RetrieveIO",
     "RetrieveStageConfig",
     "StageConfigRegistry",
-    "TrainIO",
     "TrainStageConfig",
-    "TrainingReportingSettings",
     "build_stage_config_registry",
 ]

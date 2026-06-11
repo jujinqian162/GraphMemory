@@ -144,7 +144,6 @@ def test_io_and_observability_root_ports_are_narrow_infrastructure_reexports():
     root_observability = importlib.import_module("graph_memory.observability")
 
     io_names = {
-        "JsonDict",
         "read_json",
         "write_json",
         "read_csv",

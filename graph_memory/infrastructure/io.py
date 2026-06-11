@@ -70,7 +70,6 @@ def _deep_merge(base: JsonDict, override: JsonDict) -> JsonDict:
 
 
 __all__ = [
-    "JsonDict",
     "merge_config",
     "read_csv",
     "read_json",

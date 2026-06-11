@@ -11,11 +11,9 @@ from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
 from graph_memory.stages.retrieve import run_retrieve_stage
-from graph_memory.retrieval.methods.graph_rerank import (
-    neighbor_propagation_scores,
-    normalize_scores,
-    rank_graph_from_initial_scores,
-)
+from graph_memory.retrieval.methods.graph_rerank.components import neighbor_propagation_scores
+from graph_memory.retrieval.methods.graph_rerank.engine import rank_graph_from_initial_scores
+from graph_memory.retrieval.methods.graph_rerank.normalization import normalize_scores
 from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
@@ -31,11 +29,12 @@ from graph_memory.retrieval.methods.graph_rerank.config import (
     TuningCandidateRow,
     ensure_graph_rerank_config,
 )
-from graph_memory.retrieval.tuning import (
+from graph_memory.retrieval.tuning.grid import graph_rerank_grid, graph_rerank_grid_from_record
+from graph_memory.retrieval.tuning.initial_scores import (
     InitialScoreCache,
-    graph_rerank_grid,
-    graph_rerank_grid_from_record,
     run_graph_rerank_from_initial_score_cache,
+)
+from graph_memory.retrieval.tuning.service import (
     select_best_config,
     tune_graph_rerank as tune_graph_rerank_service,
     tuning_objective,
