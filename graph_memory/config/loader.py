@@ -26,7 +26,7 @@ class ConfigLoader:
         parser = spec.parser_factory()
         namespace = parser.parse_args(argv)
         _set_provided_options(namespace, parser, argv)
-        raw = spec.normalize_raw_config(namespace, self._load_raw_config(spec, namespace))
+        raw = self._load_raw_config(spec, namespace)
         merged = self._resolve_layers(spec, namespace, raw)
         return self.converter.structure(merged, spec.config_type)
 

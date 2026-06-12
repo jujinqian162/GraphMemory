@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from graph_memory.models.graph_retriever.config.records import NodeFeatureConfig, TrainableModelConfig
+from graph_memory.models.graph_retriever.config.records import NodeFeatureConfig, RgcnModelConfig
 
 
 def default_model_config(
@@ -9,11 +9,12 @@ def default_model_config(
     encoder_dim: int,
     query_prefix: str,
     passage_prefix: str,
+    encoder_batch_size: int,
     hidden_dim: int = 256,
     num_layers: int = 2,
     dropout: float = 0.1,
     ablation_name: str = "full_rgcn",
-) -> TrainableModelConfig:
+) -> RgcnModelConfig:
     """
     Build the default trainable model config for one ablation name.
     为一个 ablation 名称构造默认可训练模型配置。
@@ -46,12 +47,13 @@ def default_model_config(
     elif ablation_name == "wo_seed_score":
         feature_config = NodeFeatureConfig(node_feature_names=("is_question_node",), scorer_feature_names=())
 
-    return TrainableModelConfig(
+    return RgcnModelConfig(
         method_name="dense_rgcn_graph_retriever",
         encoder_model=encoder_model,
         encoder_dim=encoder_dim,
         query_prefix=query_prefix,
         passage_prefix=passage_prefix,
+        encoder_batch_size=encoder_batch_size,
         hidden_dim=hidden_dim,
         num_layers=layer_count,
         dropout=dropout,

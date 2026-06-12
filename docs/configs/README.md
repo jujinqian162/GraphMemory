@@ -10,8 +10,8 @@
 configs/experiments/hotpotqa_evidence_retrieval.json
 docs/configs/experiments/hotpotqa_evidence_retrieval.md
 
-configs/training/dense_rgcn_graph_retriever/base.json
-docs/configs/training/dense_rgcn_graph_retriever/base.md
+configs/methods/dense_rgcn_graph_retriever.json
+docs/configs/methods/dense_rgcn_graph_retriever.md
 ```
 
 如果新增一个正式配置文件，应同时新增对应的 `docs/configs/.../*.md`，并在本页登记。
@@ -23,8 +23,8 @@ docs/configs/training/dense_rgcn_graph_retriever/base.md
 | `configs/experiments/hotpotqa_evidence_retrieval.json` | `experiments/hotpotqa_evidence_retrieval.md` | HotpotQA evidence retrieval 的默认 experiment runner 配置。 |
 | `configs/experiments/hotpoqa_dev_full.json` | `experiments/hotpoqa_dev_full.md` | 使用完整 dev 作为 test 区间的 HotpotQA dev-full 变体配置。 |
 | `configs/experiments/hotpotqa_rgcn_ablation_selected.json` | `experiments/hotpotqa_rgcn_ablation_selected.md` | 服务器上运行选定 R-GCN variants 的 ablation 配置。 |
-| `configs/training/dense_rgcn_graph_retriever/base.json` | `training/dense_rgcn_graph_retriever/base.md` | R-GCN trainable graph retriever 的默认训练配置。 |
-| `configs/training/dense_rgcn_graph_retriever/ablations.json` | `training/dense_rgcn_graph_retriever/ablations.md` | R-GCN variant 选择说明，不保存完整训练超参。 |
+| `configs/methods/dense_rgcn_graph_retriever.json` | `methods/dense_rgcn_graph_retriever.md` | R-GCN trainable graph retriever 的当前方法配置。 |
+| `configs/methods/dense_ft.json` | `methods/dense_ft.md` | Dense-FT trainable retriever 的当前方法配置。 |
 | `configs/search_spaces/graph_rerank.json` | `search_spaces/graph_rerank.md` | BM25/dense graph rerank 的 tuning search space。 |
 
 ## 维护原则

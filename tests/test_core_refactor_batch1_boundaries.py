@@ -118,14 +118,14 @@ def test_validation_is_split_into_domain_modules_and_reexports_root_api():
             "validate_negative_sampling_config",
             "validate_train_pair_build_summary",
         ],
-        "graph_memory.validation.model": [
-            "validate_trainable_model_config",
-            "validate_trainable_training_config",
-            "validate_trainable_checkpoint_metadata",
-            "validate_graph_batch",
-            "validate_training_batch",
-            "validate_graph_rerank_config",
-        ],
+            "graph_memory.validation.model": [
+                "validate_rgcn_model_config",
+                "validate_rgcn_training_config",
+                "validate_rgcn_checkpoint_metadata",
+                "validate_graph_batch",
+                "validate_training_batch",
+                "validate_graph_rerank_config",
+            ],
         "graph_memory.validation.metrics": ["validate_metric_rows"],
         "graph_memory.validation.common": ["ContractValidationError", "validate_task_id_alignment"],
     }

@@ -23,60 +23,41 @@ Retrieval code must not:
 
 Current registry methods:
 
-| Method | Kind | Required graph | Required config | Required checkpoint | Dense encoder args | Seed method |
-|---|---|---:|---:|---:|---:|---|
-| `bm25` | flat seed retrieval | no | no | no | no | none |
-| `dense` | flat seed retrieval | no | no | no | yes | none |
-| `bm25_graph_rerank` | graph rerank | yes | yes | no | no | `bm25` |
-| `dense_graph_rerank` | graph rerank | yes | yes | no | yes | `dense` |
-| `dense_rgcn_graph_retriever` | trainable graph retrieval | yes | no | yes | yes | `dense` |
+| Method | Lifecycle | Graph source | Graph config source | Model source | Encoder source | Train artifact |
+|---|---|---|---|---|---|---|
+| `bm25` | stateless | none | none | none | none | none |
+| `dense` | stateless | none | none | none | experiment config | none |
+| `bm25_graph_rerank` | graph rerank | graph artifact | tuned artifact | none | none | none |
+| `dense_graph_rerank` | graph rerank | graph artifact | tuned artifact | none | experiment config | none |
+| `dense_rgcn_graph_retriever` | R-GCN trainable | graph artifact | none | checkpoint file | checkpoint metadata | `best.pt` file |
+| `dense_ft` | dense finetune | none | none | model directory | checkpoint metadata | `best_model` directory |
 
 Method names are artifact-level contract values. Renaming a method creates a new result namespace and must be treated as a compatibility change.
 
 ## Retrieval Method Registry
 
-Scattered `method in {...}` checks are not allowed for public method dispatch. Use the static lightweight catalog in `graph_memory/retrieval/catalog.py`. `graph_memory/retrieval_registry.py` remains a thin workflow integration port that re-exports the catalog for scripts and workflow code. This is not dynamic plugin discovery.
+Public method semantics live in `graph_memory.registry.methods`. Callers consume `Registry.methods` directly; there is no catalog facade, projection layer, builder identifier, or capability-boolean API.
 
 ```python
 @dataclass(frozen=True)
-class RetrievalMethodSpec:
-    """
-    Static metadata for one public retrieval method.
-    一个公开检索方法的静态元数据。
-
-    Fields / 字段:
-    - name: Public method name written into ranked result artifacts.
-      name：写入 ranked result artifact 的公开方法名。
-    - requires_graphs: Whether this method requires `*_graphs.json`.
-      requires_graphs：该方法是否需要 `*_graphs.json`。
-    - requires_graph_config: Whether this method requires graph rerank config.
-      requires_graph_config：该方法是否需要 graph rerank config。
-    - requires_checkpoint: Whether this method requires a trainable model checkpoint.
-      requires_checkpoint：该方法是否需要可训练模型 checkpoint。
-    - requires_dense_encoder: Whether this method needs dense encoder runtime args.
-      requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
-    - seed_method: Optional flat seed method used by this method, such as `dense`.
-      seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder_id: Legacy compatibility projection for registry-owned runtime builders.
-      builder_id：registry-owned runtime builder 的 legacy compatibility projection。
-    """
-
-    name: MethodName
-    requires_graphs: bool
-    requires_graph_config: bool
-    requires_checkpoint: bool
-    requires_dense_encoder: bool
-    seed_method: MethodName | None
-    builder_id: str
+class MethodDefinition:
+    identifier: RetrievalMethodId
+    lifecycle: RetrievalLifecycle
+    retrieval_settings_type: type[object]
+    dependencies: RetrievalDependencySpec
+    method_config_type: type[object] | None
+    train_artifact: TrainArtifactSpec | None
+    seed_method: RetrievalMethodId | None = None
 ```
 
 Registry rules:
 
-- Supported methods, validation method checks, experiment method filters, and CLI `choices` are derived from `METHOD_REGISTRY.keys()` or registry capability queries.
-- Method capability queries such as graph-rerank methods and dense-encoder methods are derived from `RetrievalMethodSpec` fields, not string matching.
+- Supported methods, validation, experiment filters, and workflow selection are derived from `Registry.methods`.
+- Dependencies are represented by source enums for graphs, graph config, model, and encoder data.
+- Train artifacts declare basename and file-or-directory shape.
 - All public methods, including trainable methods, are registered through the same registry.
 - Runtime builders live in `graph_memory/registry/retrieval_builders.py` and method-family packages under `graph_memory/retrieval/methods/`.
-- Registry entries declare requirements; scripts validate missing inputs before invoking core retrieval.
+- Builders return the method together with typed runtime provenance.
 - Adding a method requires adding one registry entry, tests for requirement validation, and an example command in operations docs when it becomes user-facing.
 
 ## Runtime Requests
@@ -301,7 +282,7 @@ The encoder text mini-batch size is not the trainable graph task batch size. Den
 When adding a retrieval method:
 
 1. Add or reuse a concrete `RetrievalMethod` implementation.
-2. Add one `RetrievalMethodSpec` registry entry.
+2. Add one complete `MethodDefinition` registry entry.
 3. Add requirement validation tests for missing graphs, configs, or checkpoints.
 4. Add ranked-result validation tests if the method returns subgraph edges.
 5. Add command documentation only when the method is intended for normal user runs.

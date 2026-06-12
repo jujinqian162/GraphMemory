@@ -4,27 +4,23 @@ import argparse
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypeAlias, cast
+from typing import Any, ClassVar, Literal, TypeAlias
 
 from graph_memory.config.patches import ConfigPatch, deep_merge_patch
 from graph_memory.contracts.common import JsonValue
 from graph_memory.registry.ids import StageId
+from graph_memory.registry.method_configs import TrainableMethodConfig
+from graph_memory.registry.method_configs import (
+    DenseFinetuneMethodSettings,
+    RgcnMethodSettings,
+    validate_complete_method_config_record,
+)
 from graph_memory.registry.retrieval import (
-    RETRIEVAL_METHOD_METADATA,
     DenseEncoderSettings,
     RetrievalJobSettings,
     RetrievalMethodId,
 )
 from graph_memory.registry.specs import StageConfigSpec
-from graph_memory.registry.training import (
-    DenseFinetuneDataSettings,
-    DenseFinetuneMethodSettings,
-    DenseFinetuneSelectionSettings,
-    DenseFinetuneTrainerSettings,
-    RgcnMethodSettings,
-    RgcnPairSamplingSettings,
-    TrainJobSettings,
-)
 from graph_memory.training_pairs.config import NegativeSamplingConfig
 
 
@@ -41,7 +37,6 @@ class PairBuildIO:
     output: Path
     summary: Path
     run_summary: Path
-    config: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -85,9 +80,6 @@ class RetrieveIO:
     output: Path
     summary: Path
     graph_config: Path | None = None
-    encoder_model: str = "intfloat/e5-base-v2"
-    query_prefix: str = "query: "
-    passage_prefix: str = "passage: "
 
 
 @dataclass(frozen=True)
@@ -111,7 +103,6 @@ class RgcnTrainIO:
     checkpoint_dir: Path
     metrics: Path
     run_summary: Path
-    config: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -125,7 +116,6 @@ class DenseFinetuneTrainIO:
     model_dir: Path
     metrics: Path
     run_summary: Path
-    config: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -166,18 +156,9 @@ class EvaluateStageConfig:
     io_type: ClassVar[type[EvaluateIO]] = EvaluateIO
 
 
-_PAIR_SAMPLING_FIELDS = (
-    "random_seed",
-    "easy_random_per_positive",
-    "hard_bm25_per_positive",
-    "hard_dense_per_positive",
-    "hard_graph_neighbor_per_positive",
-    "hard_pool_size",
-)
-
-
 @dataclass(frozen=True)
 class StageConfigRegistry:
+    TRAINABLE_METHOD: StageConfigSpec[TrainableMethodConfig]
     PREPARE: StageConfigSpec[GenericStageConfig]
     GRAPHS: StageConfigSpec[GenericStageConfig]
     PAIRS: StageConfigSpec[PairBuildStageConfig]
@@ -191,45 +172,43 @@ class StageConfigRegistry:
 
 def build_stage_config_registry() -> StageConfigRegistry:
     return StageConfigRegistry(
+        TRAINABLE_METHOD=StageConfigSpec(
+            stage=StageId.EXPERIMENT_INIT,
+            config_type=TrainableMethodConfig,
+            parser_factory=_method_config_parser,
+            config_path=_config_path_from_attr("config"),
+            profile_name=_method_config_profile_name,
+            cli_patch=_empty_cli_patch,
+            registry_patch=_validate_method_config_profiles,
+        ),
         PREPARE=_generic_spec(StageId.PREPARE, _prepare_parser),
         GRAPHS=_generic_spec(StageId.GRAPHS, _graphs_parser),
-        PAIRS=StageConfigSpec(
-            stage=StageId.PAIRS,
-            config_type=PairBuildStageConfig,
-            parser_factory=_pairs_parser,
-            config_path=_config_path_from_attr("config"),
-            cli_patch=_pairs_cli_patch,
-            registry_patch=_empty_registry_patch,
-            normalize_raw_config=_normalize_pairs_raw_config,
-        ),
+        PAIRS=_stage_file_spec(StageId.PAIRS, PairBuildStageConfig, "Build train pair artifacts."),
         TUNE=_generic_spec(StageId.TUNE, _tune_parser),
-        TRAIN=StageConfigSpec(
-            stage=StageId.TRAIN,
-            config_type=TrainStageConfig,
-            parser_factory=_train_parser,
-            config_path=_config_path_from_attr("config"),
-            cli_patch=_train_cli_patch,
-            registry_patch=_empty_registry_patch,
-            normalize_raw_config=_normalize_train_raw_config,
-        ),
-        RETRIEVE=StageConfigSpec(
-            stage=StageId.RETRIEVE,
-            config_type=RetrieveStageConfig,
-            parser_factory=_retrieve_parser,
-            config_path=_no_config_path,
-            cli_patch=_retrieve_cli_patch,
-            registry_patch=_empty_registry_patch,
-        ),
-        EVALUATE=StageConfigSpec(
-            stage=StageId.EVALUATE,
-            config_type=EvaluateStageConfig,
-            parser_factory=_evaluate_parser,
-            config_path=_no_config_path,
-            cli_patch=_evaluate_cli_patch,
-            registry_patch=_empty_registry_patch,
-        ),
+        TRAIN=_stage_file_spec(StageId.TRAIN, TrainStageConfig, "Train a retrieval method."),
+        RETRIEVE=_stage_file_spec(StageId.RETRIEVE, RetrieveStageConfig, "Run a retrieval method."),
+        EVALUATE=_stage_file_spec(StageId.EVALUATE, EvaluateStageConfig, "Evaluate retrieval predictions."),
         AGGREGATE=_generic_spec(StageId.AGGREGATE, _aggregate_parser),
-        EXPERIMENT_INIT=_generic_spec(StageId.EXPERIMENT_INIT, _experiment_init_parser, config_attr="config"),
+        EXPERIMENT_INIT=_generic_spec(
+            StageId.EXPERIMENT_INIT,
+            _experiment_init_parser,
+            config_attr="config",
+        ),
+    )
+
+
+def _stage_file_spec(
+    stage: StageId,
+    config_type: type[Any] | object,
+    description: str,
+) -> StageConfigSpec[Any]:
+    return StageConfigSpec(
+        stage=stage,
+        config_type=config_type,
+        parser_factory=lambda: _stage_file_parser(description),
+        config_path=_config_path_from_attr("config"),
+        cli_patch=_empty_cli_patch,
+        registry_patch=_empty_registry_patch,
     )
 
 
@@ -249,67 +228,60 @@ def _generic_spec(
     )
 
 
-def _retrieve_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run Phase 1 retrieval methods.")
-    parser.add_argument("--method", required=True, choices=tuple(RETRIEVAL_METHOD_METADATA))
-    parser.add_argument("--tasks", required=True, help="Path to *_memory_tasks.input.json.")
-    parser.add_argument("--graphs", default=None, help="Path to *_graphs.json. Required for graph rerank methods.")
-    parser.add_argument("--output", required=True, help="Path to write ranked result JSON.")
-    parser.add_argument("--top_k", type=int, default=10)
-    parser.add_argument("--encoder_model", default="intfloat/e5-base-v2")
-    parser.add_argument("--query_prefix", default="query: ")
-    parser.add_argument("--passage_prefix", default="passage: ")
-    parser.add_argument("--graph_config", default=None, help="Path to graph rerank config JSON.")
-    parser.add_argument("--checkpoint", default=None, help="Path to trainable retriever checkpoint.")
-    parser.add_argument("--device", default="cpu", help="Torch device for trainable retriever inference.")
+def _method_config_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Load a current trainable retrieval method config.")
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--profile", default=None)
     return parser
 
 
-def _retrieve_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
-    output = Path(namespace.output)
-    return {
-        "io": {
-            "tasks": namespace.tasks,
-            "graphs": namespace.graphs,
-            "graph_config": namespace.graph_config,
-            "output": namespace.output,
-            "summary": output.with_name(f"{output.stem}.run_summary.json"),
-            "encoder_model": namespace.encoder_model,
-            "query_prefix": namespace.query_prefix,
-            "passage_prefix": namespace.passage_prefix,
-        },
-        "job": _retrieval_job_patch(namespace),
-    }
+def _method_config_profile_name(
+    namespace: argparse.Namespace,
+    raw: Mapping[str, JsonValue],
+) -> str | None:
+    if namespace.profile is not None:
+        return str(namespace.profile)
+    configured = raw.get("default_profile")
+    return str(configured) if configured is not None else None
 
 
-def _retrieval_job_patch(namespace: argparse.Namespace) -> dict[str, object]:
-    encoder = {
-        "model_name": namespace.encoder_model,
-        "query_prefix": namespace.query_prefix,
-        "passage_prefix": namespace.passage_prefix,
+def _validate_method_config_profiles(
+    namespace: argparse.Namespace,
+    raw: Mapping[str, JsonValue],
+) -> ConfigPatch:
+    _ = namespace
+    if "default_profile" not in raw:
+        raise ValueError("Method config requires field: default_profile")
+    if "profiles" not in raw:
+        raise ValueError("Method config requires field: profiles")
+    default_profile = raw["default_profile"]
+    profiles = raw["profiles"]
+    if not isinstance(default_profile, str) or not default_profile:
+        raise ValueError("Method config default_profile must be a non-empty string.")
+    if not isinstance(profiles, Mapping):
+        raise ValueError("Method config profiles must be an object.")
+    if default_profile not in profiles:
+        raise ValueError(f"Unknown default method config profile: {default_profile}")
+
+    base = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"default_profile", "profiles"}
     }
-    method = RetrievalMethodId(namespace.method)
-    if method is RetrievalMethodId.BM25:
-        return {"method": method.value, "top_k": namespace.top_k}
-    if method is RetrievalMethodId.DENSE:
-        return {"method": method.value, "top_k": namespace.top_k, "encoder": encoder}
-    if method in {RetrievalMethodId.BM25_GRAPH_RERANK, RetrievalMethodId.DENSE_GRAPH_RERANK}:
-        seed_method = RetrievalMethodId.DENSE if method is RetrievalMethodId.DENSE_GRAPH_RERANK else RetrievalMethodId.BM25
-        seed: dict[str, object] = {"method": seed_method.value}
-        if seed_method is RetrievalMethodId.DENSE:
-            seed["encoder"] = encoder
-        return {
-            "method": method.value,
-            "top_k": namespace.top_k,
-            "seed": seed,
-            "rerank": {},
-        }
-    return {
-        "method": method.value,
-        "top_k": namespace.top_k,
-        "checkpoint": namespace.checkpoint,
-        "device": namespace.device,
-    }
+    validate_complete_method_config_record(base)
+    for name, profile in profiles.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("Method config profile names must be non-empty strings.")
+        if not isinstance(profile, Mapping):
+            raise ValueError(f"Method config profile must be an object: {name}")
+        validate_complete_method_config_record(deep_merge_patch(base, profile))
+    return {}
+
+
+def _stage_file_parser(description: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--config", required=True)
+    return parser
 
 
 def _prepare_parser() -> argparse.ArgumentParser:
@@ -336,143 +308,9 @@ def _graphs_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _pairs_parser() -> argparse.ArgumentParser:
-    defaults = NegativeSamplingConfig()
-    parser = argparse.ArgumentParser(description="Build train pair artifacts for the trainable graph retriever.")
-    parser.add_argument("--tasks", required=True)
-    parser.add_argument("--labels", required=True)
-    parser.add_argument("--graphs", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--random_seed", type=int, default=defaults.random_seed)
-    parser.add_argument("--easy_random_per_positive", type=int, default=defaults.easy_random_per_positive)
-    parser.add_argument("--hard_bm25_per_positive", type=int, default=defaults.hard_bm25_per_positive)
-    parser.add_argument("--hard_dense_per_positive", type=int, default=defaults.hard_dense_per_positive)
-    parser.add_argument("--hard_graph_neighbor_per_positive", type=int, default=defaults.hard_graph_neighbor_per_positive)
-    parser.add_argument("--hard_pool_size", type=int, default=defaults.hard_pool_size)
-    parser.add_argument("--config", default=None)
-    return parser
-
-
-def _pairs_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
-    output = Path(namespace.output)
-    sampling_patch: dict[str, object] = {}
-    for field_name in _PAIR_SAMPLING_FIELDS:
-        if namespace.config is None or _cli_option_was_provided(namespace, field_name):
-            sampling_patch[field_name] = getattr(namespace, field_name)
-    return {
-        "io": {
-            "tasks": namespace.tasks,
-            "labels": namespace.labels,
-            "graphs": namespace.graphs,
-            "output": namespace.output,
-            "summary": output.with_name(f"{output.stem}.summary.json"),
-            "run_summary": output.with_name(f"{output.stem}.run_summary.json"),
-            "config": namespace.config,
-        },
-        "job": {"sampling": sampling_patch},
-    }
-
-
-def _normalize_pairs_raw_config(
-    namespace: argparse.Namespace,
-    raw: Mapping[str, JsonValue],
-) -> Mapping[str, JsonValue]:
-    if not raw or "io" in raw or "job" in raw:
-        return raw
-    resolved = _resolve_legacy_training_config(raw) if "defaults" in raw else raw
-    job: dict[str, JsonValue] = {}
-    pair_sampling = resolved.get("pair_sampling")
-    if pair_sampling is not None:
-        job["sampling"] = _json_object(pair_sampling, name="Pair sampling config")
-    encoder = resolved.get("encoder")
-    if encoder is not None:
-        encoder_config = _json_object(encoder, name="Pair encoder config")
-        encoder_settings: dict[str, JsonValue] = {
-            "model_name": _string_config_value(encoder_config, "model"),
-            "query_prefix": _string_config_value(encoder_config, "query_prefix"),
-            "passage_prefix": _string_config_value(encoder_config, "passage_prefix"),
-        }
-        if "batch_size" in encoder_config:
-            encoder_settings["batch_size"] = _json_int(encoder_config, "batch_size")
-        job["hard_dense_encoder"] = encoder_settings
-    return {"job": job} if job else {}
-
-
-def _resolve_legacy_training_config(raw: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
-    method = _string_config_value(raw, "method")
-    defaults = _json_object(raw.get("defaults"), name="Training config defaults")
-    profile_name = _legacy_profile_name(raw)
-    profiles = raw.get("profiles", {})
-    if not isinstance(profiles, Mapping):
-        raise ValueError("Training config profiles must be an object.")
-    if profile_name not in profiles:
-        raise ValueError(f"Unknown training config profile: {profile_name}")
-    profile = _json_object(profiles[profile_name], name=f"Training config profile: {profile_name}")
-    resolved = deep_merge_patch(defaults, profile)
-    return {
-        "schema_version": raw.get("schema_version", 1),
-        "method": method,
-        "profile": profile_name,
-        **resolved,
-    }
-
-
-def _legacy_profile_name(raw: Mapping[str, JsonValue]) -> str:
-    value = raw.get("default_profile", "quick")
-    if not isinstance(value, str) or not value:
-        raise ValueError("Training config requires a non-empty default_profile.")
-    return value
-
-
-def _cli_option_was_provided(namespace: argparse.Namespace, name: str) -> bool:
-    provided = getattr(namespace, "_provided_options", frozenset())
-    return name in provided
-
-
-def _json_object(value: JsonValue, *, name: str) -> dict[str, JsonValue]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{name} must be an object.")
-    return {str(key): cast(JsonValue, item) for key, item in value.items()}
-
-
-def _string_config_value(config: Mapping[str, JsonValue], name: str) -> str:
-    value = config.get(name)
-    if not isinstance(value, str):
-        raise ValueError(f"Config field must be a string: {name}")
-    return value
-
-
-def _string_config_alias(config: Mapping[str, JsonValue], primary: str, legacy: str) -> str:
-    if primary in config:
-        return _string_config_value(config, primary)
-    return _string_config_value(config, legacy)
-
-
-def _json_int(config: Mapping[str, JsonValue], name: str) -> int:
-    value = config.get(name)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"Config field must be an integer: {name}")
-    return value
-
-
-def _json_float(config: Mapping[str, JsonValue], name: str) -> float:
-    value = config.get(name)
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise ValueError(f"Config field must be numeric: {name}")
-    return float(value)
-
-
-def _json_bool_alias(config: Mapping[str, JsonValue], primary: str, legacy: str) -> bool:
-    name = primary if primary in config else legacy
-    value = config.get(name)
-    if not isinstance(value, bool):
-        raise ValueError(f"Config field must be boolean: {name}")
-    return value
-
-
 def _tune_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank config.")
-    parser.add_argument("--method", required=True, choices=("bm25_graph_rerank", "dense_graph_rerank"))
+    parser.add_argument("--method", required=True)
     parser.add_argument("--tasks", required=True)
     parser.add_argument("--labels", required=True)
     parser.add_argument("--graphs", required=True)
@@ -485,364 +323,8 @@ def _tune_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _train_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train a graph-memory retrieval method.")
-    parser.add_argument(
-        "--method",
-        required=True,
-        choices=(
-            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
-            RetrievalMethodId.DENSE_FT.value,
-        ),
-    )
-    parser.add_argument("--train_tasks", required=True)
-    parser.add_argument("--train_labels", default=None)
-    parser.add_argument("--train_graphs", default=None)
-    parser.add_argument("--train_pairs", required=True)
-    parser.add_argument("--dev_tasks", required=True)
-    parser.add_argument("--dev_labels", required=True)
-    parser.add_argument("--dev_graphs", default=None)
-    parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--model_dir", default=None)
-    parser.add_argument("--encoder_model", default="intfloat/e5-base-v2")
-    parser.add_argument("--query_prefix", default="query: ")
-    parser.add_argument("--passage_prefix", default="passage: ")
-    parser.add_argument("--hidden_dim", type=int, default=256)
-    parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument(
-        "--ablation",
-        default="full_rgcn",
-        choices=["full_rgcn", "wo_graph", "wo_edge_type", "wo_bridge", "wo_edge_weight", "wo_seed_score"],
-    )
-    parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--train_batch_size", type=int, default=16)
-    parser.add_argument("--eval_batch_size", type=int, default=64)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--warmup_steps", type=int, default=0)
-    parser.add_argument("--max_grad_norm", type=float, default=1.0)
-    parser.add_argument("--random_seed", type=int, default=13)
-    parser.add_argument("--pos_weight", action="store_true")
-    parser.add_argument("--device", default="cpu")
-    parser.add_argument("--use_amp", action="store_true")
-    parser.add_argument("--config", default=None)
-    return parser
-
-
-def _train_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
-    output_dir = Path(namespace.output_dir)
-    method = RetrievalMethodId(namespace.method)
-    common_io: dict[str, object] = {
-        "train_tasks": namespace.train_tasks,
-        "train_labels": namespace.train_labels,
-        "train_pairs": namespace.train_pairs,
-        "dev_tasks": namespace.dev_tasks,
-        "dev_labels": namespace.dev_labels,
-        "output_dir": namespace.output_dir,
-        "metrics": output_dir / "train_metrics.jsonl",
-        "run_summary": output_dir / "train_run_summary.json",
-        "config": namespace.config,
-    }
-    if method is RetrievalMethodId.DENSE_FT:
-        model_dir = Path(namespace.model_dir) if namespace.model_dir is not None else output_dir / "checkpoints" / "best_model"
-        return {
-            "method": method.value,
-            "io": {**common_io, "model_dir": model_dir},
-            "job": _dense_ft_train_job_cli_patch(namespace),
-        }
-    return {
-        "method": method.value,
-        "io": {
-            **common_io,
-            "train_graphs": namespace.train_graphs,
-            "dev_graphs": namespace.dev_graphs,
-            "checkpoint_dir": output_dir / "checkpoints",
-        },
-        "job": _rgcn_train_job_cli_patch(namespace),
-    }
-
-
-def _rgcn_train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, object]:
-    job: dict[str, object] = {}
-    encoder = _train_cli_section_patch(
-        namespace,
-        {
-            "encoder_model": "model_name",
-            "query_prefix": "query_prefix",
-            "passage_prefix": "passage_prefix",
-        },
-    )
-    if encoder:
-        job["encoder"] = encoder
-    model = _train_cli_section_patch(
-        namespace,
-        {
-            "hidden_dim": "hidden_dim",
-            "num_layers": "num_layers",
-            "dropout": "dropout",
-            "ablation": "ablation",
-        },
-    )
-    if model:
-        job["model"] = model
-    trainer = _train_cli_section_patch(
-        namespace,
-        {
-            "learning_rate": "learning_rate",
-            "batch_size": "batch_size",
-            "max_grad_norm": "max_grad_norm",
-            "random_seed": "random_seed",
-            "epochs": "epochs",
-            "device": "device",
-            "pos_weight": "pos_weight_enabled",
-        },
-    )
-    if namespace.config is None:
-        trainer["optimizer_name"] = "AdamW"
-    if trainer:
-        job["trainer"] = trainer
-    if namespace.config is None:
-        defaults = RgcnPairSamplingSettings()
-        job["pairs"] = {
-            "random_seed": defaults.random_seed,
-            "easy_random_per_positive": defaults.easy_random_per_positive,
-            "hard_bm25_per_positive": defaults.hard_bm25_per_positive,
-            "hard_dense_per_positive": defaults.hard_dense_per_positive,
-            "hard_graph_neighbor_per_positive": defaults.hard_graph_neighbor_per_positive,
-            "hard_pool_size": defaults.hard_pool_size,
-        }
-    return {"method": RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value, **job}
-
-
-def _dense_ft_train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, object]:
-    job: dict[str, object] = {}
-    encoder = _train_cli_section_patch(
-        namespace,
-        {
-            "encoder_model": "model_name",
-            "query_prefix": "query_prefix",
-            "passage_prefix": "passage_prefix",
-        },
-    )
-    if namespace.config is None:
-        encoder["batch_size"] = 64
-    if encoder:
-        job["encoder"] = encoder
-    if namespace.config is None:
-        job["data"] = {"hard_negatives_per_positive": DenseFinetuneDataSettings().hard_negatives_per_positive}
-        trainer_defaults = DenseFinetuneTrainerSettings()
-        trainer = {
-            "learning_rate": trainer_defaults.learning_rate,
-            "train_batch_size": trainer_defaults.train_batch_size,
-            "eval_batch_size": trainer_defaults.eval_batch_size,
-            "epochs": trainer_defaults.epochs,
-            "warmup_steps": trainer_defaults.warmup_steps,
-            "max_grad_norm": trainer_defaults.max_grad_norm,
-            "random_seed": trainer_defaults.random_seed,
-            "device": trainer_defaults.device,
-            "use_amp": trainer_defaults.use_amp,
-        }
-        for source, target in {
-            "learning_rate": "learning_rate",
-            "train_batch_size": "train_batch_size",
-            "eval_batch_size": "eval_batch_size",
-            "epochs": "epochs",
-            "warmup_steps": "warmup_steps",
-            "max_grad_norm": "max_grad_norm",
-            "random_seed": "random_seed",
-            "device": "device",
-            "use_amp": "use_amp",
-        }.items():
-            if _cli_option_was_provided(namespace, source):
-                trainer[target] = getattr(namespace, source)
-    else:
-        trainer = _train_cli_section_patch(
-            namespace,
-            {
-                "learning_rate": "learning_rate",
-                "train_batch_size": "train_batch_size",
-                "eval_batch_size": "eval_batch_size",
-                "epochs": "epochs",
-                "warmup_steps": "warmup_steps",
-                "max_grad_norm": "max_grad_norm",
-                "random_seed": "random_seed",
-                "device": "device",
-                "use_amp": "use_amp",
-            },
-        )
-    if trainer:
-        job["trainer"] = trainer
-    if namespace.config is None:
-        defaults = DenseFinetuneSelectionSettings()
-        job["selection"] = {
-            "best_metric": defaults.best_metric,
-            "higher_is_better": defaults.higher_is_better,
-        }
-    return {"method": RetrievalMethodId.DENSE_FT.value, **job}
-
-
-def _train_cli_section_patch(namespace: argparse.Namespace, fields: Mapping[str, str]) -> dict[str, object]:
-    patch: dict[str, object] = {}
-    for source, target in fields.items():
-        if namespace.config is None or _cli_option_was_provided(namespace, source):
-            patch[target] = getattr(namespace, source)
-    return patch
-
-
-def _normalize_train_raw_config(
-    namespace: argparse.Namespace,
-    raw: Mapping[str, JsonValue],
-) -> Mapping[str, JsonValue]:
-    if not raw or "io" in raw or "job" in raw:
-        return raw
-    resolved = _resolve_legacy_training_config(raw) if "defaults" in raw else raw
-    method = _string_config_value(resolved, "method")
-    return {"method": method, "job": _train_job_from_resolved_config(resolved)}
-
-
-def _train_job_from_resolved_config(raw: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    method = _string_config_value(raw, "method")
-    if method == RetrievalMethodId.DENSE_FT.value:
-        return _dense_ft_train_job_from_resolved_config(raw)
-    if method != RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value:
-        raise ValueError(f"Unsupported training method: {method}")
-    job: dict[str, JsonValue] = {
-        "method": method,
-        "encoder": _train_encoder_from_config(_json_object(raw.get("encoder"), name="Training encoder config")),
-        "model": _train_model_from_config(_json_object(raw.get("model"), name="Training model config")),
-    }
-    trainer_source = raw.get("trainer", raw.get("optimization"))
-    if trainer_source is None:
-        raise ValueError("Training config requires object section: optimization")
-    job["trainer"] = _train_trainer_from_config(_json_object(trainer_source, name="Training trainer config"))
-    pair_sampling = raw.get("pairs", raw.get("pair_sampling"))
-    if pair_sampling is not None:
-        job["pairs"] = _json_object(pair_sampling, name="Training pair sampling config")
-    reporting = raw.get("reporting")
-    if reporting is not None:
-        job["reporting"] = _json_object(reporting, name="Training reporting config")
-    selection = raw.get("selection")
-    if selection is not None:
-        job["selection"] = _json_object(selection, name="Training selection config")
-    return job
-
-
-def _dense_ft_train_job_from_resolved_config(raw: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    job: dict[str, JsonValue] = {
-        "method": RetrievalMethodId.DENSE_FT.value,
-        "encoder": _train_encoder_from_config(_json_object(raw.get("encoder"), name="Dense-ft encoder config")),
-    }
-    data = raw.get("data")
-    if data is not None:
-        job["data"] = _json_object(data, name="Dense-ft data config")
-    trainer = raw.get("trainer")
-    if trainer is None:
-        raise ValueError("Dense-ft training config requires object section: trainer")
-    job["trainer"] = _dense_ft_trainer_from_config(_json_object(trainer, name="Dense-ft trainer config"))
-    selection = raw.get("selection")
-    if selection is not None:
-        job["selection"] = _dense_ft_selection_from_config(_json_object(selection, name="Dense-ft selection config"))
-    return job
-
-
-def _train_encoder_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    encoder: dict[str, JsonValue] = {
-        "model_name": _string_config_alias(config, "model_name", "model"),
-        "query_prefix": _string_config_value(config, "query_prefix"),
-        "passage_prefix": _string_config_value(config, "passage_prefix"),
-    }
-    if "batch_size" in config:
-        encoder["batch_size"] = _json_int(config, "batch_size")
-    return encoder
-
-
-def _train_model_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    return {
-        "hidden_dim": _json_int(config, "hidden_dim"),
-        "num_layers": _json_int(config, "num_layers"),
-        "dropout": _json_float(config, "dropout"),
-        "ablation": _string_config_alias(config, "ablation", "ablation_name"),
-    }
-
-
-def _train_trainer_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    trainer: dict[str, JsonValue] = {
-        "optimizer_name": _string_config_alias(config, "optimizer_name", "optimizer"),
-        "learning_rate": _json_float(config, "learning_rate"),
-        "batch_size": _json_int(config, "batch_size"),
-        "max_grad_norm": _json_float(config, "max_grad_norm"),
-        "random_seed": _json_int(config, "random_seed"),
-        "pos_weight_enabled": _json_bool_alias(config, "pos_weight_enabled", "pos_weight"),
-        "epochs": _json_int(config, "epochs"),
-    }
-    device = config.get("device")
-    if device is not None:
-        if not isinstance(device, str) or not device:
-            raise ValueError("Training config field must be a non-empty string: device")
-        trainer["device"] = device
-    return trainer
-
-
-def _dense_ft_trainer_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    trainer: dict[str, JsonValue] = {
-        "learning_rate": _json_float(config, "learning_rate"),
-        "train_batch_size": _json_int(config, "train_batch_size"),
-        "eval_batch_size": _json_int(config, "eval_batch_size"),
-        "epochs": _json_int(config, "epochs"),
-        "warmup_steps": _json_int(config, "warmup_steps"),
-        "max_grad_norm": _json_float(config, "max_grad_norm"),
-        "random_seed": _json_int(config, "random_seed"),
-        "device": _string_config_value(config, "device"),
-        "use_amp": _json_bool(config, "use_amp"),
-    }
-    return trainer
-
-
-def _dense_ft_selection_from_config(config: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    return {
-        "best_metric": _string_config_value(config, "best_metric"),
-        "higher_is_better": _json_bool(config, "higher_is_better"),
-    }
-
-
-def _json_bool(config: Mapping[str, JsonValue], name: str) -> bool:
-    value = config.get(name)
-    if not isinstance(value, bool):
-        raise ValueError(f"Config field must be boolean: {name}")
-    return value
-
-
-def _evaluate_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Evaluate Phase 1 ranked retrieval results.")
-    parser.add_argument("--pred", required=True)
-    parser.add_argument("--labels", default=None)
-    parser.add_argument("--gold", default=None)
-    parser.add_argument("--graphs", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--failure_cases_output", default=None)
-    parser.add_argument("--failure_case_limit", type=int, default=0)
-    return parser
-
-
-def _evaluate_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
-    label_path = namespace.labels or namespace.gold
-    if label_path is None:
-        raise ValueError("--labels is required; --gold is accepted as a compatibility alias.")
-    return {
-        "io": {
-            "predictions": namespace.pred,
-            "labels": label_path,
-            "graphs": namespace.graphs,
-            "output": namespace.output,
-            "failure_cases_output": namespace.failure_cases_output,
-        },
-        "failure_case_limit": namespace.failure_case_limit,
-    }
-
-
 def _aggregate_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Aggregate per-method metric CSVs into final tables.")
+    parser = argparse.ArgumentParser(description="Aggregate retrieval metrics into report tables.")
     parser.add_argument("--input_dir", required=True)
     parser.add_argument("--output_main", required=True)
     parser.add_argument("--output_path", required=True)
@@ -870,6 +352,10 @@ def _generic_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
     return {"args": dict(vars(namespace))}
 
 
+def _empty_cli_patch(namespace: argparse.Namespace) -> ConfigPatch:
+    return {}
+
+
 def _config_path_from_attr(name: str | None) -> Any:
     def config_path(namespace: argparse.Namespace) -> Path | None:
         if name is None:
@@ -880,18 +366,19 @@ def _config_path_from_attr(name: str | None) -> Any:
     return config_path
 
 
-def _no_config_path(namespace: argparse.Namespace) -> Path | None:
-    return None
-
-
-def _empty_registry_patch(namespace: argparse.Namespace, raw: Mapping[str, JsonValue]) -> ConfigPatch:
+def _empty_registry_patch(
+    namespace: argparse.Namespace,
+    raw: Mapping[str, JsonValue],
+) -> ConfigPatch:
     return {}
 
 
 __all__ = [
+    "DenseFinetuneTrainStageConfig",
     "EvaluateStageConfig",
     "PairBuildStageConfig",
     "RetrieveStageConfig",
+    "RgcnTrainStageConfig",
     "StageConfigRegistry",
     "TrainStageConfig",
     "build_stage_config_registry",

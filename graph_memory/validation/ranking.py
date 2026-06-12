@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from graph_memory.retrieval.catalog import get_supported_methods
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.validation.common import (
     ContractValidationError,
     _memory_node_ids,
@@ -45,7 +45,9 @@ def validate_ranked_results(predictions: object, inputs_by_task_id: object) -> N
             raise ContractValidationError(f"Invalid ranked results: task_id={task_id} has no matching input task.")
 
         method = _required_string(prediction, "method", "ranked result", task_id)
-        if method not in get_supported_methods():
+        try:
+            RetrievalMethodId(method)
+        except ValueError:
             raise ContractValidationError(f"Invalid ranked results: task_id={task_id} unsupported method={method}.")
 
         ranked_nodes = prediction.get("ranked_nodes")

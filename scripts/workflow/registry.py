@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from graph_memory.registry import Registry
 from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES, AblationSuitePatch, AblationVariantPatch
-from graph_memory.retrieval_registry import get_supported_methods
+from graph_memory.registry.methods import RetrievalLifecycle
 from scripts.workflow.types import (
     AblationSuiteSpec,
     ChangeDimension,
@@ -20,22 +21,12 @@ from scripts.workflow.workflows import (
 )
 
 
-METHOD_WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
-    "bm25": STATELESS_RETRIEVAL_WORKFLOW,
-    "dense": STATELESS_RETRIEVAL_WORKFLOW,
-    "bm25_graph_rerank": GRAPH_RERANK_WORKFLOW,
-    "dense_graph_rerank": GRAPH_RERANK_WORKFLOW,
-    "dense_rgcn_graph_retriever": RGCN_WORKFLOW,
-    "dense_ft": DENSE_FT_WORKFLOW,
+WORKFLOW_BY_LIFECYCLE: dict[RetrievalLifecycle, WorkflowSpec] = {
+    RetrievalLifecycle.STATELESS: STATELESS_RETRIEVAL_WORKFLOW,
+    RetrievalLifecycle.GRAPH_RERANK: GRAPH_RERANK_WORKFLOW,
+    RetrievalLifecycle.RGCN_TRAINABLE: RGCN_WORKFLOW,
+    RetrievalLifecycle.DENSE_FINETUNE: DENSE_FT_WORKFLOW,
 }
-
-
-def is_dense_finetune_method(method: str) -> bool:
-    return method == "dense_ft"
-
-
-def checkpoint_artifact_name(method: str) -> str:
-    return "best_model" if is_dense_finetune_method(method) else "best.pt"
 
 
 def _project_ablation_suite(suite: AblationSuitePatch) -> AblationSuiteSpec:
@@ -62,9 +53,10 @@ ABLATION_SUITE_REGISTRY: dict[str, AblationSuiteSpec] = {
 
 def get_workflow(method: str) -> WorkflowSpec:
     try:
-        return METHOD_WORKFLOW_REGISTRY[method]
-    except KeyError as error:
-        allowed = ", ".join(sorted(METHOD_WORKFLOW_REGISTRY))
+        definition = Registry.methods.get(method)
+        return WORKFLOW_BY_LIFECYCLE[definition.lifecycle]
+    except (KeyError, ValueError) as error:
+        allowed = ", ".join(method_id.value for method_id in Registry.methods.list_ids())
         raise ValueError(f"Unsupported workflow method={method!r}; allowed values: {allowed}") from error
 
 
@@ -111,8 +103,11 @@ def validate_workflow_registry(
     registrations: Mapping[str, WorkflowSpec] | None = None,
     suites: Mapping[str, AblationSuiteSpec] | None = None,
 ) -> None:
-    selected_runtime_methods = set(runtime_methods or get_supported_methods())
-    selected_registrations = registrations or METHOD_WORKFLOW_REGISTRY
+    selected_runtime_methods = set(runtime_methods or (method.value for method in Registry.methods.list_ids()))
+    selected_registrations = registrations or {
+        method.value: get_workflow(method.value)
+        for method in Registry.methods.list_ids()
+    }
     selected_suites = suites or ABLATION_SUITE_REGISTRY
     missing = sorted(selected_runtime_methods - set(selected_registrations))
     extra = sorted(set(selected_registrations) - selected_runtime_methods)

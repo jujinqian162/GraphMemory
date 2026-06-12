@@ -22,7 +22,7 @@ from graph_memory.contracts.common import TaskId, TrainPairSampleType
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
-from graph_memory.models.graph_retriever.config.records import TrainableModelConfig
+from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
 from graph_memory.validation import (
     validate_graph_batch,
@@ -53,7 +53,7 @@ class TaskBatchInputs:
     pairs: list[TrainPairRecord]
 
 
-def build_edge_tensorizer(model_config: TrainableModelConfig) -> EdgeTensorizer: #TAG: Distribute
+def build_edge_tensorizer(model_config: RgcnModelConfig) -> EdgeTensorizer: #TAG: Distribute
     """
     Build the edge tensorizer selected by model config.
     根据 model config 构造 edge tensorizer。
@@ -77,7 +77,7 @@ def build_training_batches(
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph],
     pairs: list[TrainPairRecord],
-    model_config: TrainableModelConfig,
+    model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
@@ -120,7 +120,7 @@ def build_full_ranking_batches(
     *,
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph],
-    model_config: TrainableModelConfig,
+    model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
@@ -187,7 +187,7 @@ def move_training_batch(batch: TrainingBatch, device: torch.device | str) -> Tra
 def _build_batch(
     *,
     tasks: list[TaskBatchInputs],
-    model_config: TrainableModelConfig,
+    model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     include_all_memory_nodes: bool,

@@ -63,63 +63,35 @@ Do not rely on ad hoc inline comments as the only field explanation. Inline comm
 
 ## Retrieval Method Registry
 
-Phase 2 must use the existing static lightweight registry in `graph_memory/retrieval_registry.py`; scattered `method in {...}` checks are not allowed. This is not a plugin system and should not do dynamic discovery.
+Phase 2 uses `graph_memory.registry.methods` as the single method-semantics registry. Callers consume `Registry.methods` directly; there is no compatibility facade, projection, builder identifier, or capability-boolean combination.
 
 ```python
 @dataclass(frozen=True)
-class RetrievalMethodSpec:
-    """
-    Static metadata for one public retrieval method.
-    一个公开检索方法的静态元数据。
-
-    Fields / 字段:
-    - name: Public method name written into ranked result artifacts.
-      name：写入 ranked result artifact 的公开方法名。
-    - requires_graphs: Whether this method requires `*_graphs.json`.
-      requires_graphs：该方法是否需要 `*_graphs.json`。
-    - requires_graph_config: Whether this method requires graph rerank config.
-      requires_graph_config：该方法是否需要 graph rerank config。
-    - requires_checkpoint: Whether this method requires a trainable model checkpoint.
-      requires_checkpoint：该方法是否需要可训练模型 checkpoint。
-    - requires_dense_encoder: Whether this method needs dense encoder runtime args.
-      requires_dense_encoder：该方法是否需要 dense encoder 运行参数。
-    - seed_method: Optional flat seed method used by this method, such as `dense`.
-      seed_method：该方法使用的可选 flat seed method，例如 `dense`。
-    - builder_id: Legacy compatibility projection for registry-owned runtime builders.
-      builder_id：registry-owned runtime builder 的 legacy compatibility projection。
-    """
-
-    name: MethodName
-    requires_graphs: bool
-    requires_graph_config: bool
-    requires_checkpoint: bool
-    requires_dense_encoder: bool
-    seed_method: MethodName | None
-    builder_id: str
+class MethodDefinition:
+    identifier: RetrievalMethodId
+    lifecycle: RetrievalLifecycle
+    retrieval_settings_type: type[object]
+    dependencies: RetrievalDependencySpec
+    method_config_type: type[object] | None
+    train_artifact: TrainArtifactSpec | None
+    seed_method: RetrievalMethodId | None = None
 ```
 
 Registry rules:
 
-- supported methods and CLI `choices` are derived from `METHOD_REGISTRY.keys()`.
-- Graph-rerank and dense-encoder method sets are derived from registry capability fields, not method-name string matching.
-- `dense_rgcn_graph_retriever` must be registered through the same registry as Phase 1 methods.
+- Supported methods and workflow selection are derived from `Registry.methods`.
+- Graph, graph-config, model, and encoder dependencies are represented by source enums.
+- Train artifacts declare basename and file-or-directory shape.
+- `dense_rgcn_graph_retriever` and `dense_ft` are registered through the same registry as stateless methods.
 - Runtime builders live in `graph_memory/registry/retrieval_builders.py`; trainable graph retrieval is adapted through `graph_memory/retrieval/methods/trainable_graph.py`.
-- Registry entries declare required inputs; scripts should reject missing graphs, graph configs, or checkpoints before invoking core retrieval.
+- Runtime builders return typed provenance with the built retrieval method.
 
-Current registry entries before Phase 2:
+Current trainable definitions:
 
-| Method | Graphs | Graph config | Checkpoint | Dense encoder args | Seed method |
-|---|---:|---:|---:|---:|---|
-| `bm25` | no | no | no | no | none |
-| `dense` | no | no | no | yes | none |
-| `bm25_graph_rerank` | yes | yes | no | no | `bm25` |
-| `dense_graph_rerank` | yes | yes | no | yes | `dense` |
-
-Phase 2 adds:
-
-| Method | Graphs | Graph config | Checkpoint | Dense encoder args | Seed method |
-|---|---:|---:|---:|---:|---|
-| `dense_rgcn_graph_retriever` | yes | no | yes | yes | `dense` |
+| Method | Graph source | Model source | Encoder source | Train artifact |
+|---|---|---|---|---|
+| `dense_rgcn_graph_retriever` | graph artifact | checkpoint file | checkpoint metadata | `best.pt` file |
+| `dense_ft` | none | model directory | checkpoint metadata | `best_model` directory |
 
 ## Train Pair Artifact
 
@@ -550,7 +522,6 @@ Checkpoint files are PyTorch checkpoint dictionaries, not JSON artifacts. Their 
 Required top-level keys:
 
 ```text
-checkpoint_version
 method_name
 model_state_dict
 optimizer_state_dict
@@ -565,6 +536,8 @@ created_at
 
 Rules:
 
+- The R-GCN checkpoint is current-only and contains no format version field.
+- Unknown top-level fields are rejected.
 - `model_config.feature_config` and `model_config.relation_vocab` are required for inference.
 - Loading must fail if checkpoint `method_name` does not match the requested retrieval method.
 - Loading must fail if config values needed to reconstruct dimensions are missing.

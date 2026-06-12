@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
+from graph_memory.registry import Registry
 from scripts.workflow.types import (
     ArtifactAlias,
     ArtifactRole,
@@ -10,14 +11,13 @@ from scripts.workflow.types import (
     VariantArtifactNamespace,
     VariantSpec,
 )
-from scripts.workflow.registry import checkpoint_artifact_name
 
 
 _ROLE_STAGE = {
     ArtifactRole.TRAIN_PAIRS: StageId.PAIRS,
     ArtifactRole.TRAIN_PAIR_SUMMARY: StageId.PAIRS,
     ArtifactRole.TRAIN_PAIR_RUN_SUMMARY: StageId.PAIRS,
-    ArtifactRole.EFFECTIVE_TRAINING_CONFIG: StageId.TRAIN,
+    ArtifactRole.EFFECTIVE_METHOD_CONFIG: StageId.TRAIN,
     ArtifactRole.TRAIN_METRICS: StageId.TRAIN,
     ArtifactRole.TRAIN_RUN_SUMMARY: StageId.TRAIN,
     ArtifactRole.CHECKPOINT: StageId.TRAIN,
@@ -32,14 +32,17 @@ def build_main_method_artifacts(run_dir: str | Path, method: str) -> dict[Artifa
 
     root = Path(run_dir)
     learned = root / "learned" / method
+    train_artifact = Registry.methods.get(method).train_artifact
+    if train_artifact is None:
+        raise ValueError(f"Method does not produce a train artifact: {method}")
     return {
         ArtifactRole.TRAIN_PAIRS: (learned / "train.pairs.json").as_posix(),
         ArtifactRole.TRAIN_PAIR_SUMMARY: (learned / "train.pairs.summary.json").as_posix(),
         ArtifactRole.TRAIN_PAIR_RUN_SUMMARY: (learned / "train.pairs.run_summary.json").as_posix(),
-        ArtifactRole.EFFECTIVE_TRAINING_CONFIG: (learned / "effective_training_config.json").as_posix(),
+        ArtifactRole.EFFECTIVE_METHOD_CONFIG: (learned / "effective_method_config.json").as_posix(),
         ArtifactRole.TRAIN_METRICS: (learned / "train_metrics.jsonl").as_posix(),
         ArtifactRole.TRAIN_RUN_SUMMARY: (learned / "train_run_summary.json").as_posix(),
-        ArtifactRole.CHECKPOINT: (learned / "checkpoints" / checkpoint_artifact_name(method)).as_posix(),
+        ArtifactRole.CHECKPOINT: (learned / "checkpoints" / train_artifact.basename).as_posix(),
         ArtifactRole.PREDICTIONS: (root / "predictions" / f"test.{method}.ranked.json").as_posix(),
         ArtifactRole.METRICS: (root / "metrics" / f"test.{method}.metrics.csv").as_posix(),
         ArtifactRole.FAILURE_CASES: (root / "debug" / f"failure_cases_{method}.jsonl").as_posix(),
@@ -96,14 +99,17 @@ def build_variant_artifact_namespace(
 
 def _variant_local_paths(run_dir: str | Path, method: str, variant: str) -> dict[ArtifactRole, str]:
     root = Path(run_dir) / "ablations" / method / variant
+    train_artifact = Registry.methods.get(method).train_artifact
+    if train_artifact is None:
+        raise ValueError(f"Method does not produce a train artifact: {method}")
     return {
         ArtifactRole.TRAIN_PAIRS: (root / "train.pairs.json").as_posix(),
         ArtifactRole.TRAIN_PAIR_SUMMARY: (root / "train.pairs.summary.json").as_posix(),
         ArtifactRole.TRAIN_PAIR_RUN_SUMMARY: (root / "train.pairs.run_summary.json").as_posix(),
-        ArtifactRole.EFFECTIVE_TRAINING_CONFIG: (root / "effective_training_config.json").as_posix(),
+        ArtifactRole.EFFECTIVE_METHOD_CONFIG: (root / "effective_method_config.json").as_posix(),
         ArtifactRole.TRAIN_METRICS: (root / "train_metrics.jsonl").as_posix(),
         ArtifactRole.TRAIN_RUN_SUMMARY: (root / "train_run_summary.json").as_posix(),
-        ArtifactRole.CHECKPOINT: (root / "checkpoints" / "best.pt").as_posix(),
+        ArtifactRole.CHECKPOINT: (root / "checkpoints" / train_artifact.basename).as_posix(),
         ArtifactRole.PREDICTIONS: (root / "predictions" / "test.ranked.json").as_posix(),
         ArtifactRole.METRICS: (root / "metrics" / "test.metrics.csv").as_posix(),
         ArtifactRole.FAILURE_CASES: (root / "debug" / "failure_cases.jsonl").as_posix(),

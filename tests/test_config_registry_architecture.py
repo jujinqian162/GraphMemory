@@ -11,20 +11,15 @@ LEGACY_RETRIEVAL_BUILD_MODULES = {
 }
 
 
-def test_remaining_training_dict_slicing_helpers_are_bounded_to_compatibility_modules() -> None:
+def test_training_dict_slicing_helpers_are_removed() -> None:
     helper_names = (
         "negative_sampling_config_from_training_config",
         "trainable_training_config_from_training_config",
     )
-    allowed_paths = {
-        Path("graph_memory/config/training_compat.py"),
-        Path("graph_memory/training_config.py"),
-    }
 
     offenders = [
         f"{path}:{helper}"
         for path in _production_python_files()
-        if path not in allowed_paths
         for helper in helper_names
         if helper in path.read_text(encoding="utf-8")
     ]
@@ -48,32 +43,22 @@ def test_model_config_package_does_not_export_training_config_compat_helpers() -
     assert [helper for helper in helper_names if hasattr(model_config_api, helper)] == []
 
 
-def test_builder_id_is_bounded_to_registry_projection_compatibility() -> None:
-    allowed_paths = {
-        Path("graph_memory/registry/projections.py"),
-        Path("graph_memory/retrieval/catalog.py"),
-        Path("graph_memory/retrieval_registry.py"),
-    }
-
+def test_builder_id_is_removed() -> None:
     offenders = [
         str(path)
         for path in _production_python_files()
-        if path not in allowed_paths and "builder_id" in path.read_text(encoding="utf-8")
+        if "builder_id" in path.read_text(encoding="utf-8")
     ]
 
     assert offenders == []
 
 
-def test_public_method_string_dispatch_is_bounded_to_registry_and_workflow_projection() -> None:
+def test_public_method_string_dispatch_is_bounded_to_current_registry() -> None:
     allowed_paths = {
+        Path("graph_memory/registry/methods.py"),
         Path("graph_memory/registry/retrieval.py"),
         Path("graph_memory/registry/retrieval_builders.py"),
         Path("graph_memory/registry/stage_configs.py"),
-        Path("graph_memory/registry/projections.py"),
-        Path("graph_memory/retrieval/catalog.py"),
-        Path("graph_memory/retrieval_registry.py"),
-        Path("scripts/workflow/registry.py"),
-        Path("scripts/workflow/workflows.py"),
     }
     patterns = ("method ==", "method in {", "method in (")
 

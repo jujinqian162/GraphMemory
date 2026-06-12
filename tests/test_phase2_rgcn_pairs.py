@@ -4,8 +4,17 @@ import json
 import pytest
 
 import graph_memory.training_pairs.builder as pair_builder
+from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.io import write_json
+from graph_memory.registry.retrieval import DenseEncoderSettings
+from graph_memory.registry.stage_configs import (
+    PairBuildIO,
+    PairBuildJobSettings,
+    PairBuildStageConfig,
+    PairSamplingSettings,
+)
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.config import NegativeSamplingConfig
@@ -89,6 +98,52 @@ def by_task_id(records):
     return {record["task_id"]: record for record in records}
 
 
+def write_pair_stage_config(
+    path,
+    *,
+    tasks_path,
+    labels_path,
+    graphs_path,
+    output_path,
+    sampling: PairSamplingSettings,
+    hard_dense_encoder: DenseEncoderSettings | None = None,
+) -> None:
+    config = PairBuildStageConfig(
+        io=PairBuildIO(
+            tasks=tasks_path,
+            labels=labels_path,
+            graphs=graphs_path,
+            output=output_path,
+            summary=output_path.with_name("train_pairs.summary.json"),
+            run_summary=output_path.with_name("train_pairs.run_summary.json"),
+        ),
+        job=PairBuildJobSettings(
+            sampling=sampling,
+            hard_dense_encoder=hard_dense_encoder,
+        ),
+    )
+    write_json(path, CONFIG_LOADER.to_json(config))
+
+
+def pair_sampling(
+    *,
+    easy_random_per_positive: int,
+    hard_bm25_per_positive: int,
+    hard_dense_per_positive: int,
+    hard_graph_neighbor_per_positive: int,
+    random_seed: int = 7,
+    hard_pool_size: int = 10,
+) -> PairSamplingSettings:
+    return PairSamplingSettings(
+        random_seed=random_seed,
+        easy_random_per_positive=easy_random_per_positive,
+        hard_bm25_per_positive=hard_bm25_per_positive,
+        hard_dense_per_positive=hard_dense_per_positive,
+        hard_graph_neighbor_per_positive=hard_graph_neighbor_per_positive,
+        hard_pool_size=hard_pool_size,
+    )
+
+
 def test_train_pair_validation_rejects_question_node_sample():
     pairs = [
         {"task_id": "hotpot_pair_test", "node_id": "m1", "label": 1, "sample_type": "positive"},
@@ -128,30 +183,28 @@ def test_build_train_pairs_cli_writes_pairs_summary_and_run_summary(tmp_path):
     labels_path = tmp_path / "train_memory_tasks.labels.json"
     graphs_path = tmp_path / "train_graphs.json"
     output_path = tmp_path / "train_pairs.json"
+    config_path = tmp_path / "pair_stage_config.json"
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
+    write_pair_stage_config(
+        config_path,
+        tasks_path=tasks_path,
+        labels_path=labels_path,
+        graphs_path=graphs_path,
+        output_path=output_path,
+        sampling=pair_sampling(
+            easy_random_per_positive=1,
+            hard_bm25_per_positive=0,
+            hard_dense_per_positive=0,
+            hard_graph_neighbor_per_positive=1,
+        ),
+    )
 
     exit_code = build_train_pairs_main(
         [
-            "--tasks",
-            str(tasks_path),
-            "--labels",
-            str(labels_path),
-            "--graphs",
-            str(graphs_path),
-            "--output",
-            str(output_path),
-            "--random_seed",
-            "7",
-            "--easy_random_per_positive",
-            "1",
-            "--hard_bm25_per_positive",
-            "0",
-            "--hard_dense_per_positive",
-            "0",
-            "--hard_graph_neighbor_per_positive",
-            "1",
+            "--config",
+            str(config_path),
         ]
     )
 
@@ -170,38 +223,26 @@ def test_build_train_pairs_cli_reads_pair_sampling_from_config(tmp_path):
     labels_path = tmp_path / "train_memory_tasks.labels.json"
     graphs_path = tmp_path / "train_graphs.json"
     output_path = tmp_path / "train_pairs.json"
-    config_path = tmp_path / "effective_training_config.json"
+    config_path = tmp_path / "pair_stage_config.json"
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "method": "dense_rgcn_graph_retriever",
-                "profile": "quick",
-                "pair_sampling": {
-                    "random_seed": 7,
-                    "easy_random_per_positive": 1,
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 0,
-                    "hard_graph_neighbor_per_positive": 1,
-                    "hard_pool_size": 10,
-                },
-            }
+    write_pair_stage_config(
+        config_path,
+        tasks_path=tasks_path,
+        labels_path=labels_path,
+        graphs_path=graphs_path,
+        output_path=output_path,
+        sampling=pair_sampling(
+            easy_random_per_positive=1,
+            hard_bm25_per_positive=0,
+            hard_dense_per_positive=0,
+            hard_graph_neighbor_per_positive=1,
         ),
-        encoding="utf-8",
     )
 
     exit_code = build_train_pairs_main(
         [
-            "--tasks",
-            str(tasks_path),
-            "--labels",
-            str(labels_path),
-            "--graphs",
-            str(graphs_path),
-            "--output",
-            str(output_path),
             "--config",
             str(config_path),
         ]
@@ -220,32 +261,29 @@ def test_build_train_pairs_cli_uses_config_encoder_for_hard_dense_negatives(tmp_
     labels_path = tmp_path / "train_memory_tasks.labels.json"
     graphs_path = tmp_path / "train_graphs.json"
     output_path = tmp_path / "train_pairs.json"
-    config_path = tmp_path / "effective_training_config.json"
+    config_path = tmp_path / "pair_stage_config.json"
     observed_model_names = []
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "method": "dense_rgcn_graph_retriever",
-                "profile": "full",
-                "encoder": {
-                    "model": "models/local-e5",
-                    "query_prefix": "query: ",
-                    "passage_prefix": "passage: ",
-                },
-                "pair_sampling": {
-                    "random_seed": 7,
-                    "easy_random_per_positive": 0,
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 1,
-                    "hard_graph_neighbor_per_positive": 0,
-                    "hard_pool_size": 10,
-                },
-            }
+    write_pair_stage_config(
+        config_path,
+        tasks_path=tasks_path,
+        labels_path=labels_path,
+        graphs_path=graphs_path,
+        output_path=output_path,
+        sampling=pair_sampling(
+            easy_random_per_positive=0,
+            hard_bm25_per_positive=0,
+            hard_dense_per_positive=1,
+            hard_graph_neighbor_per_positive=0,
         ),
-        encoding="utf-8",
+        hard_dense_encoder=DenseEncoderSettings(
+            model_name="models/local-e5",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
+        ),
     )
 
     class FakeDenseTaskRetriever:
@@ -270,14 +308,6 @@ def test_build_train_pairs_cli_uses_config_encoder_for_hard_dense_negatives(tmp_
 
     exit_code = build_train_pairs_main(
         [
-            "--tasks",
-            str(tasks_path),
-            "--labels",
-            str(labels_path),
-            "--graphs",
-            str(graphs_path),
-            "--output",
-            str(output_path),
             "--config",
             str(config_path),
         ]
@@ -287,37 +317,28 @@ def test_build_train_pairs_cli_uses_config_encoder_for_hard_dense_negatives(tmp_
     assert observed_model_names == ["models/local-e5"]
 
 
-def test_build_train_pairs_cli_overrides_config_pair_sampling(tmp_path, monkeypatch):
+def test_build_train_pairs_stage_config_controls_sampling_without_cli_overrides(tmp_path, monkeypatch):
     tasks_path = tmp_path / "train_memory_tasks.input.json"
     labels_path = tmp_path / "train_memory_tasks.labels.json"
     graphs_path = tmp_path / "train_graphs.json"
     output_path = tmp_path / "train_pairs.json"
-    config_path = tmp_path / "effective_training_config.json"
+    config_path = tmp_path / "pair_stage_config.json"
     observed_model_names = []
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "method": "dense_rgcn_graph_retriever",
-                "profile": "full",
-                "encoder": {
-                    "model": "models/local-e5",
-                    "query_prefix": "query: ",
-                    "passage_prefix": "passage: ",
-                },
-                "pair_sampling": {
-                    "random_seed": 7,
-                    "easy_random_per_positive": 0,
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 1,
-                    "hard_graph_neighbor_per_positive": 0,
-                    "hard_pool_size": 10,
-                },
-            }
+    write_pair_stage_config(
+        config_path,
+        tasks_path=tasks_path,
+        labels_path=labels_path,
+        graphs_path=graphs_path,
+        output_path=output_path,
+        sampling=pair_sampling(
+            easy_random_per_positive=1,
+            hard_bm25_per_positive=0,
+            hard_dense_per_positive=0,
+            hard_graph_neighbor_per_positive=0,
         ),
-        encoding="utf-8",
     )
 
     class FakeDenseTaskRetriever:
@@ -342,20 +363,8 @@ def test_build_train_pairs_cli_overrides_config_pair_sampling(tmp_path, monkeypa
 
     exit_code = build_train_pairs_main(
         [
-            "--tasks",
-            str(tasks_path),
-            "--labels",
-            str(labels_path),
-            "--graphs",
-            str(graphs_path),
-            "--output",
-            str(output_path),
             "--config",
             str(config_path),
-            "--easy_random_per_positive",
-            "1",
-            "--hard_dense_per_positive",
-            "0",
         ]
     )
 
@@ -373,26 +382,22 @@ def test_build_train_pairs_config_hard_dense_requires_config_encoder(tmp_path, m
     labels_path = tmp_path / "train_memory_tasks.labels.json"
     graphs_path = tmp_path / "train_graphs.json"
     output_path = tmp_path / "train_pairs.json"
-    config_path = tmp_path / "effective_training_config.json"
+    config_path = tmp_path / "pair_stage_config.json"
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "method": "dense_rgcn_graph_retriever",
-                "profile": "full",
-                "pair_sampling": {
-                    "random_seed": 7,
-                    "easy_random_per_positive": 0,
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 1,
-                    "hard_graph_neighbor_per_positive": 0,
-                    "hard_pool_size": 10,
-                },
-            }
+    write_pair_stage_config(
+        config_path,
+        tasks_path=tasks_path,
+        labels_path=labels_path,
+        graphs_path=graphs_path,
+        output_path=output_path,
+        sampling=pair_sampling(
+            easy_random_per_positive=0,
+            hard_bm25_per_positive=0,
+            hard_dense_per_positive=1,
+            hard_graph_neighbor_per_positive=0,
         ),
-        encoding="utf-8",
     )
 
     class UnexpectedDenseTaskRetriever:
@@ -404,14 +409,6 @@ def test_build_train_pairs_config_hard_dense_requires_config_encoder(tmp_path, m
     with pytest.raises(ValueError, match="encoder"):
         build_train_pairs_main(
             [
-                "--tasks",
-                str(tasks_path),
-                "--labels",
-                str(labels_path),
-                "--graphs",
-                str(graphs_path),
-                "--output",
-                str(output_path),
                 "--config",
                 str(config_path),
             ]

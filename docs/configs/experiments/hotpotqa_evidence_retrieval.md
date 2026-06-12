@@ -2,9 +2,9 @@
 
 对应配置文件：`configs/experiments/hotpotqa_evidence_retrieval.json`
 
-这个文件是 HotpotQA evidence retrieval 的默认 experiment runner 配置。它决定一次实验使用什么数据集、哪些 split、哪些 retrieval method、图构建参数、graph-rerank tuning 搜索空间，以及 trainable R-GCN retriever 应引用哪个 training config。
+这个文件是 HotpotQA evidence retrieval 的默认 experiment runner 配置。它决定一次实验使用什么数据集、哪些 split、哪些 retrieval method、图构建参数、graph-rerank tuning 搜索空间，以及 trainable method 应引用哪个 method config。
 
-它不直接保存 R-GCN 的 batch size、epochs、hidden dim 等训练超参。训练细节由 `training_configs.dense_rgcn_graph_retriever` 指向的 training config 管理。
+它不直接保存 R-GCN 的 batch size、epochs、hidden dim 或 Dense-FT 的 trainer 参数。训练细节由 `method_configs` 指向的 method config 管理。
 
 默认配置显式设置：
 
@@ -167,7 +167,7 @@ experiment runner 的默认参数。
 - `seed`：prepare split sampling 使用的随机种子。
 - `top_k`：retrieval 输出和 evaluation 使用的默认 top-k。
 
-注意：R-GCN training 自己的 encoder 配置在 training config 中；这里的 `dense_encoder` 不等同于 R-GCN 训练 encoder，除非两个 config 手动保持一致。
+注意：trainable method 自己的 encoder 配置在 method config 中；这里的 `dense_encoder` 只用于 dense baseline 和 graph-rerank seed dense retrieval。
 
 ### `profiles`
 
@@ -231,6 +231,7 @@ split 语义：
 - `bm25_graph_rerank`
 - `dense_graph_rerank`
 - `dense_rgcn_graph_retriever`
+- `dense_ft`
 
 用途：
 
@@ -253,24 +254,27 @@ tuning search-space 配置路径。
 
 - `graph_rerank`：`tune` stage 为 `bm25_graph_rerank` 和 `dense_graph_rerank` 使用的 grid search 配置。
 
-### `training_configs`
+### `method_configs`
 
-trainable method 到 training config 的映射。
+trainable method 到当前 method config 的映射。
 
 当前字段：
 
 ```json
-"training_configs": {
-  "dense_rgcn_graph_retriever": "configs/training/dense_rgcn_graph_retriever/base.json"
+"method_configs": {
+  "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+  "dense_ft": "configs/methods/dense_ft.json"
 }
 ```
 
 字段含义：
 
 - key 必须是 trainable retrieval method 名称。
-- value 是该 method 的 training config 路径。
+- value 是该 method 的 current-only method config 路径。
 
-experiment runner 会按当前 experiment `--profile` 解析 training config 中同名 profile。例如 experiment profile 为 `quick` 时，会解析 training config 的 `profiles.quick`。
+experiment runner 会按当前 experiment `--profile` 解析 method config 中同名 profile。例如 experiment profile 为 `quick` 时，会解析 method config 的 `profiles.quick`。
+
+旧 experiment 训练配置入口、旧训练配置目录、版本字段和旧 run manifest 都不再读取。需要重新运行时，删除旧 run 目录或使用新 run name 后重新 `init`。
 
 ## 常见修改位置
 
@@ -297,7 +301,7 @@ python scripts/experiment.py init rgcn_cloud_quick --profile cloud-quick --confi
 python scripts/experiment.py init rgcn_cloud_full --profile cloud-full --config configs/experiments/hotpoqa_dev_full.json
 ```
 
-`cloud-quick` 和 `cloud-full` 必须在 experiment config 与 `configs/training/dense_rgcn_graph_retriever/base.json` 中同名存在，因为 runner 会把 `--profile` 原样传给 training config。
+`cloud-quick` 和 `cloud-full` 必须在 experiment config 与对应 `configs/methods/*.json` 中同名存在，因为 runner 会把 `--profile` 原样传给 method config。
 
 ### 改 dense baseline 模型
 
@@ -311,14 +315,15 @@ python scripts/experiment.py init rgcn_cloud_full --profile cloud-full --config 
 
 如果使用本地模型路径，需要确认路径在运行机器上存在。
 
-### 改 R-GCN training config
+### 改 trainable method config
 
 修改：
 
 ```json
-"training_configs": {
-  "dense_rgcn_graph_retriever": "configs/training/dense_rgcn_graph_retriever/base.json"
+"method_configs": {
+  "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+  "dense_ft": "configs/methods/dense_ft.json"
 }
 ```
 
-训练超参本身不要写在 experiment config 里，应写在对应 training config。
+训练超参本身不要写在 experiment config 里，应写在对应 method config。

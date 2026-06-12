@@ -106,70 +106,17 @@ RetrievalJobSettings: TypeAlias = (
 
 
 @dataclass(frozen=True)
-class RetrievalMethodMetadata:
-    name: str
-    settings_type: type[object]
-    requires_graphs: bool
-    requires_graph_config: bool
-    requires_checkpoint: bool
-    requires_dense_encoder: bool
-    seed_method: RetrievalMethodId | None = None
+class RetrievalProvenance:
+    method: RetrievalMethodId
+    model: Path | None
+    device: str | None
+    encoder: DenseEncoderSettings | None
 
 
-RETRIEVAL_METHOD_METADATA: Mapping[str, RetrievalMethodMetadata] = {
-    RetrievalMethodId.BM25.value: RetrievalMethodMetadata(
-        name=RetrievalMethodId.BM25.value,
-        settings_type=Bm25RetrievalSettings,
-        requires_graphs=False,
-        requires_graph_config=False,
-        requires_checkpoint=False,
-        requires_dense_encoder=False,
-    ),
-    RetrievalMethodId.DENSE.value: RetrievalMethodMetadata(
-        name=RetrievalMethodId.DENSE.value,
-        settings_type=DenseRetrievalSettings,
-        requires_graphs=False,
-        requires_graph_config=False,
-        requires_checkpoint=False,
-        requires_dense_encoder=True,
-    ),
-    RetrievalMethodId.BM25_GRAPH_RERANK.value: RetrievalMethodMetadata(
-        name=RetrievalMethodId.BM25_GRAPH_RERANK.value,
-        settings_type=GraphRerankRetrievalSettings,
-        requires_graphs=True,
-        requires_graph_config=True,
-        requires_checkpoint=False,
-        requires_dense_encoder=False,
-        seed_method=RetrievalMethodId.BM25,
-    ),
-    RetrievalMethodId.DENSE_GRAPH_RERANK.value: RetrievalMethodMetadata(
-        name=RetrievalMethodId.DENSE_GRAPH_RERANK.value,
-        settings_type=GraphRerankRetrievalSettings,
-        requires_graphs=True,
-        requires_graph_config=True,
-        requires_checkpoint=False,
-        requires_dense_encoder=True,
-        seed_method=RetrievalMethodId.DENSE,
-    ),
-    RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value: RetrievalMethodMetadata(
-        name=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
-        settings_type=CheckpointGraphRetrievalSettings,
-        requires_graphs=True,
-        requires_graph_config=False,
-        requires_checkpoint=True,
-        requires_dense_encoder=True,
-        seed_method=RetrievalMethodId.DENSE,
-    ),
-    RetrievalMethodId.DENSE_FT.value: RetrievalMethodMetadata(
-        name=RetrievalMethodId.DENSE_FT.value,
-        settings_type=DenseFinetunedRetrievalSettings,
-        requires_graphs=False,
-        requires_graph_config=False,
-        requires_checkpoint=True,
-        requires_dense_encoder=True,
-        seed_method=RetrievalMethodId.DENSE,
-    ),
-}
+@dataclass(frozen=True)
+class BuiltRetrievalMethod:
+    method: "RetrievalMethod"
+    provenance: RetrievalProvenance
 
 
 @dataclass(frozen=True)
@@ -209,35 +156,27 @@ def _require_payload(payload: object, expected_type: type[PayloadT], *, method: 
 @dataclass(frozen=True)
 class RetrievalBuilderSpec:
     settings_type: type[object]
-    build: Callable[[RetrievalJobSettings, object], "RetrievalMethod"]
+    build: Callable[[RetrievalJobSettings, object], BuiltRetrievalMethod]
 
 
 @dataclass(frozen=True)
 class RetrievalRegistry:
-    metadata: Mapping[str, RetrievalMethodMetadata]
     builders: Mapping[type[object], RetrievalBuilderSpec]
     seed_build: Callable[[SeedRetrievalSettings, object], "SeedRanker"]
 
     def build_seed(self, settings: SeedRetrievalSettings, payload: object) -> SeedRanker:
         return self.seed_build(settings, payload)
 
-    def build(self, settings: RetrievalJobSettings, payload: object) -> RetrievalMethod:
+    def build(self, settings: RetrievalJobSettings, payload: object) -> BuiltRetrievalMethod:
         try:
             spec = self.builders[type(settings)]
         except KeyError as error:
             raise ValueError(f"Unsupported retrieval settings type: {type(settings).__name__}") from error
         return spec.build(settings, payload)
 
-
-def get_retrieval_method_metadata(method: str) -> RetrievalMethodMetadata:
-    try:
-        return RETRIEVAL_METHOD_METADATA[method]
-    except KeyError as error:
-        raise ValueError(f"Unsupported retrieval method: {method}") from error
-
-
 __all__ = [
     "Bm25RetrievalSettings",
+    "BuiltRetrievalMethod",
     "CheckpointGraphBuildPayload",
     "CheckpointGraphRetrievalSettings",
     "DenseEncoderSettings",
@@ -249,11 +188,9 @@ __all__ = [
     "GraphRerankSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
-    "RetrievalMethodMetadata",
     "RetrievalMethodId",
+    "RetrievalProvenance",
     "RetrievalRegistry",
-    "RETRIEVAL_METHOD_METADATA",
     "SeedRetrieverBuildPayload",
     "SeedRetrievalSettings",
-    "get_retrieval_method_metadata",
 ]

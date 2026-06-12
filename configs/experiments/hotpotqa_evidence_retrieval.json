@@ -68,8 +68,8 @@
     "train": "train"
   },
   "task": "evidence_retrieval",
-  "training_configs": {
-    "dense_rgcn_graph_retriever": "configs/training/dense_rgcn_graph_retriever/base.json",
-    "dense_ft": "configs/training/dense_ft/base.json"
+  "method_configs": {
+    "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+    "dense_ft": "configs/methods/dense_ft.json"
   }
 }

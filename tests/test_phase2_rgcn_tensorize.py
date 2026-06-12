@@ -96,6 +96,7 @@ def test_edge_view_ablation_model_configs_remove_exactly_one_visible_edge_type()
             encoder_dim=4,
             query_prefix="query: ",
             passage_prefix="passage: ",
+            encoder_batch_size=64,
             ablation_name=ablation_name,
         )
 

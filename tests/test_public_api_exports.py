@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 
 import pytest
 
@@ -20,15 +21,13 @@ import pytest
             {"merge_config", "read_csv", "read_json", "write_csv", "write_json", "write_jsonl"},
         ),
         (
-            "graph_memory.training_config",
-            {"device_from_training_config", "load_trainable_training_config"},
-        ),
-        (
             "graph_memory.registry.stage_configs",
             {
+                "DenseFinetuneTrainStageConfig",
                 "EvaluateStageConfig",
                 "PairBuildStageConfig",
                 "RetrieveStageConfig",
+                "RgcnTrainStageConfig",
                 "StageConfigRegistry",
                 "TrainStageConfig",
                 "build_stage_config_registry",
@@ -37,15 +36,8 @@ import pytest
         (
             "graph_memory.registry.training",
             {
-                "ModelSelectionSettings",
-                "RgcnMethodSettings",
-                "RgcnModelSettings",
-                "RgcnPairSamplingSettings",
-                "RgcnTrainerSettings",
                 "TrainDependencies",
-                "TrainJobSettings",
                 "TrainingRegistry",
-                "TrainingReportingSettings",
                 "build_training_registry",
             },
         ),
@@ -88,7 +80,7 @@ def test_public_modules_export_only_stable_entry_points(module_name: str, expect
         ("graph_memory.graphs.construction.rules", {"BridgeEdgeRule", "GraphEdgeRule"}),
         (
             "graph_memory.models.graph_retriever.config",
-            {"NodeFeatureConfig", "TrainableModelConfig", "default_model_config"},
+            {"NodeFeatureConfig", "RgcnModelConfig", "default_model_config"},
         ),
         ("graph_memory.retrieval.execution", {"assemble_ranked_result", "run_retrieval"}),
         ("graph_memory.retrieval.methods.flat", {"BM25TaskRetriever", "DenseConfig", "ScorePipelineMethod"}),
@@ -109,13 +101,9 @@ def test_internal_packages_do_not_reexport_leaf_implementations(
     assert old_exports.isdisjoint(vars(module))
 
 
-def test_registry_projection_helpers_are_private() -> None:
-    projections = importlib.import_module("graph_memory.registry.projections")
+def test_registry_projection_helpers_are_removed() -> None:
     retrieval = importlib.import_module("graph_memory.registry.retrieval")
 
-    assert "legacy_builder_id_for" not in projections.__all__
-    assert "project_retrieval_method_registry" not in projections.__all__
-    assert not hasattr(projections, "legacy_builder_id_for")
-    assert not hasattr(projections, "project_retrieval_method_registry")
     assert "require_payload" not in retrieval.__all__
     assert not hasattr(retrieval, "require_payload")
+    assert importlib.util.find_spec("graph_memory.registry.projections") is None

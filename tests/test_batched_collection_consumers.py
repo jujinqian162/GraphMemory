@@ -57,6 +57,7 @@ def test_initial_score_precompute_uses_bounded_bulk_ranking_and_preserves_maps(m
     tasks = [_task(f"t{index:02d}") for index in range(33)]
     ranker = BulkRanker()
     registry = SimpleNamespace(
+        methods=initial_scores.Registry.methods,
         retrieval=SimpleNamespace(build_seed=lambda settings, payload: ranker),
     )
     monkeypatch.setattr(initial_scores, "Registry", registry)

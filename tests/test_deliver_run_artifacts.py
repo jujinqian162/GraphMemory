@@ -24,7 +24,7 @@ def test_collect_run_artifacts_preserves_selected_paths(tmp_path: Path) -> None:
         "metrics/test.dense_rgcn_graph_retriever.metrics.run_summary.json",
         "graphs/test.graphs.stats.json",
         "graphs/test.graphs.run_summary.json",
-        "learned/dense_rgcn_graph_retriever/effective_training_config.json",
+            "learned/dense_rgcn_graph_retriever/effective_method_config.json",
         "learned/dense_rgcn_graph_retriever/train_metrics.jsonl",
         "learned/dense_rgcn_graph_retriever/train_run_summary.json",
         "learned/dense_rgcn_graph_retriever/train.pairs.summary.json",
@@ -57,7 +57,7 @@ def test_collect_run_artifacts_preserves_ablation_lightweight_outputs(tmp_path: 
     skipped = {entry["relative_path"]: entry["reason"] for entry in manifest["skipped"]}
 
     assert {
-        "ablations/dense_rgcn_graph_retriever/wo_bridge/effective_training_config.json",
+            "ablations/dense_rgcn_graph_retriever/wo_bridge/effective_method_config.json",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train_metrics.jsonl",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train_run_summary.json",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.summary.json",
@@ -148,7 +148,7 @@ def _make_run_tree(tmp_path: Path) -> Path:
         "graphs/test.graphs.json": "x" * 128,
         "inputs/train.input.json": "x" * 128,
         "predictions/test.dense.ranked.json": "x" * 128,
-        "learned/dense_rgcn_graph_retriever/effective_training_config.json": "{}\n",
+        "learned/dense_rgcn_graph_retriever/effective_method_config.json": "{}\n",
         "learned/dense_rgcn_graph_retriever/train_metrics.jsonl": '{"epoch":1}\n',
         "learned/dense_rgcn_graph_retriever/train_run_summary.json": "{}\n",
         "learned/dense_rgcn_graph_retriever/train.pairs.json": "x" * 128,
@@ -158,7 +158,7 @@ def _make_run_tree(tmp_path: Path) -> Path:
         "tuned/dense_graph_rerank.dev_selected.json": "{}\n",
         "tuned/dense_graph_rerank.dev_selected.candidates.json": "x" * 128,
         "debug/failure_cases_dense_rgcn_graph_retriever.jsonl": '{"task_id":"1"}\n' * 4,
-        "ablations/dense_rgcn_graph_retriever/wo_bridge/effective_training_config.json": "{}\n",
+        "ablations/dense_rgcn_graph_retriever/wo_bridge/effective_method_config.json": "{}\n",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train_metrics.jsonl": '{"epoch":1}\n',
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train_run_summary.json": "{}\n",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.json": "x" * 128,

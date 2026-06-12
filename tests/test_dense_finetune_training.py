@@ -7,8 +7,10 @@ from typing import Any, cast
 
 import pytest
 import scripts.train_method as train_method_script
+from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.io import write_json
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
     DenseFinetuneSelectionSettings,
@@ -20,6 +22,9 @@ from graph_memory.models.dense_finetune.training import (
 )
 import graph_memory.models.dense_finetune.training as dense_ft_training
 from graph_memory.models.dense_finetune.data import DenseFinetuneDataSettings
+from graph_memory.registry.method_configs import DenseFinetuneMethodSettings
+from graph_memory.registry.retrieval import DenseEncoderSettings, RetrievalMethodId
+from graph_memory.registry.stage_configs import DenseFinetuneTrainIO, DenseFinetuneTrainStageConfig
 from scripts.train_method import main as train_method_main
 
 
@@ -62,6 +67,43 @@ def _pairs(task_id: str) -> list[TrainPairRecord]:
         {"task_id": task_id, "node_id": "m0", "label": 1, "sample_type": "positive"},
         {"task_id": task_id, "node_id": "m1", "label": 0, "sample_type": "hard_dense"},
     ]
+
+
+def write_dense_ft_train_stage_config(
+    path: Path,
+    *,
+    train_tasks_path: Path,
+    train_labels_path: Path,
+    train_pairs_path: Path,
+    dev_tasks_path: Path,
+    dev_labels_path: Path,
+    output_dir: Path,
+    model_dir: Path,
+) -> None:
+    config = DenseFinetuneTrainStageConfig(
+        method=RetrievalMethodId.DENSE_FT,
+        io=DenseFinetuneTrainIO(
+            train_tasks=train_tasks_path,
+            train_labels=train_labels_path,
+            train_pairs=train_pairs_path,
+            dev_tasks=dev_tasks_path,
+            dev_labels=dev_labels_path,
+            output_dir=output_dir,
+            model_dir=model_dir,
+            metrics=output_dir / "train_metrics.jsonl",
+            run_summary=output_dir / "train_run_summary.json",
+        ),
+        job=DenseFinetuneMethodSettings(
+            encoder=DenseEncoderSettings(
+                model_name="fake-e5",
+                query_prefix="query: ",
+                passage_prefix="passage: ",
+                batch_size=64,
+            ),
+            trainer=DenseFinetuneTrainerSettings(device="cpu"),
+        ),
+    )
+    write_json(path, CONFIG_LOADER.to_json(config))
 
 
 class FakeSentenceTransformer:
@@ -250,12 +292,12 @@ def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(t
 
     metadata = json.loads((tmp_path / "model" / "dense_ft_model_config.json").read_text(encoding="utf-8"))
     assert metadata == {
-        "schema_version": 1,
         "method": "dense_ft",
         "base_model": "fake-e5",
         "query_prefix": "Q: ",
         "passage_prefix": "P: ",
         "batch_size": 32,
+        "device": "cpu",
         "selection": {
             "selected_metric": "eval_dev_cos_sim_map@100",
             "higher_is_better": True,
@@ -606,11 +648,22 @@ def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch,
     dev_labels_path = tmp_path / "dev.labels.json"
     output_dir = tmp_path / "dense_ft_run"
     model_dir = output_dir / "checkpoints" / "best_model"
+    config_path = tmp_path / "dense_ft_train_stage_config.json"
     train_tasks_path.write_text(json.dumps([_task("train", query="train query")]), encoding="utf-8")
     train_labels_path.write_text(json.dumps([_labels("train")]), encoding="utf-8")
     train_pairs_path.write_text(json.dumps(_pairs("train")), encoding="utf-8")
     dev_tasks_path.write_text(json.dumps([_task("dev", query="dev query")]), encoding="utf-8")
     dev_labels_path.write_text(json.dumps([_labels("dev")]), encoding="utf-8")
+    write_dense_ft_train_stage_config(
+        config_path,
+        train_tasks_path=train_tasks_path,
+        train_labels_path=train_labels_path,
+        train_pairs_path=train_pairs_path,
+        dev_tasks_path=dev_tasks_path,
+        dev_labels_path=dev_labels_path,
+        output_dir=output_dir,
+        model_dir=model_dir,
+    )
     monkeypatch.setattr(
         dense_ft_training,
         "_load_sentence_transformer",
@@ -624,26 +677,8 @@ def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch,
 
     exit_code = train_method_main(
         [
-            "--method",
-            "dense_ft",
-            "--train_tasks",
-            str(train_tasks_path),
-            "--train_labels",
-            str(train_labels_path),
-            "--train_pairs",
-            str(train_pairs_path),
-            "--dev_tasks",
-            str(dev_tasks_path),
-            "--dev_labels",
-            str(dev_labels_path),
-            "--output_dir",
-            str(output_dir),
-            "--model_dir",
-            str(model_dir),
-            "--encoder_model",
-            "fake-e5",
-            "--device",
-            "cpu",
+            "--config",
+            str(config_path),
         ]
     )
 

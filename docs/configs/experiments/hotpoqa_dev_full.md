@@ -77,7 +77,7 @@ test: raw dev offset 500, 取 6869 条
 - `graph`
 - `methods`
 - `search_spaces`
-- `training_configs`
+- `method_configs`
 
 详细解释见：
 

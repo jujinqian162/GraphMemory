@@ -3,6 +3,8 @@ from __future__ import annotations
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.registry import Registry
+from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig, GraphRerankConfigRecord, TuningCandidateRow
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
@@ -11,7 +13,6 @@ from graph_memory.retrieval.tuning.initial_scores import (
     run_graph_rerank_from_initial_score_cache,
 )
 from graph_memory.retrieval.tuning.grid import graph_rerank_grid
-from graph_memory.retrieval.catalog import get_graph_rerank_methods
 
 
 def tuning_objective(row: MetricRow) -> float:
@@ -50,7 +51,11 @@ def tune_graph_rerank(
 ) -> tuple[GraphRerankConfigRecord, list[TuningCandidateRow]]:
     from graph_memory.evaluation.service import evaluate_results
 
-    if method not in get_graph_rerank_methods():
+    graph_rerank_methods = {
+        method_id.value
+        for method_id in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
+    }
+    if method not in graph_rerank_methods:
         raise ValueError(f"Tuning requires a graph rerank method, got method={method}.")
 
     candidate_rows: list[TuningCandidateRow] = []

@@ -179,7 +179,7 @@ def _is_included(parts: tuple[str, ...], name: str, relative_path: str) -> bool:
     if top == "tuned" and name.endswith(".dev_selected.json"):
         return True
     if top == "learned" and name in {
-        "effective_training_config.json",
+        "effective_method_config.json",
         "train_metrics.jsonl",
         "train_run_summary.json",
         "train.pairs.summary.json",
@@ -193,7 +193,7 @@ def _is_included_ablation_file(parts: tuple[str, ...], name: str) -> bool:
     if len(parts) < 4 or parts[0] != "ablations":
         return False
     if name in {
-        "effective_training_config.json",
+        "effective_method_config.json",
         "train_metrics.jsonl",
         "train_run_summary.json",
         "train.pairs.summary.json",

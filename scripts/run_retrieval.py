@@ -15,10 +15,7 @@ from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
-    CheckpointGraphRetrievalSettings,
-    DenseRetrievalSettings,
-    GraphRerankRetrievalSettings,
-    RetrievalJobSettings,
+    RetrievalProvenance,
 )
 from graph_memory.registry.stage_configs import RetrieveStageConfig
 from graph_memory.stages.retrieve import run_retrieve_stage
@@ -38,7 +35,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     start_time = time.perf_counter()
     summary_path = config.io.summary
     graph_config = _read_graph_config(config.io.graph_config)
-    effective_config = _effective_config(config, graph_config)
+    effective_config = _effective_config(config, graph_config, provenance=None)
     inputs = {"tasks": str(config.io.tasks)}
     if config.io.graphs is not None:
         inputs["graphs"] = str(config.io.graphs)
@@ -55,6 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             graph_config=graph_config,
         )
         predictions = result.predictions
+        effective_config = _effective_config(config, graph_config, provenance=result.provenance)
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         validate_ranked_results(predictions, inputs_by_task_id)
         write_json(config.io.output, predictions)
@@ -111,52 +109,19 @@ def _read_graph_config(path: Path | None) -> JsonObject | None:
     return cast(JsonObject, value)
 
 
-def _effective_config(config: RetrieveStageConfig, graph_config: JsonValue) -> JsonObject:
-    encoder = _encoder_settings(config)
+def _effective_config(
+    config: RetrieveStageConfig,
+    graph_config: JsonValue,
+    *,
+    provenance: RetrievalProvenance | None,
+) -> JsonObject:
     return {
         "method": config.job.method.value,
         "top_k": config.job.top_k,
-        "encoder_model": encoder["model_name"],
-        "query_prefix": encoder["query_prefix"],
-        "passage_prefix": encoder["passage_prefix"],
         "graph_config_path": str(config.io.graph_config) if config.io.graph_config is not None else None,
         "graph_config": graph_config,
-        "checkpoint": _checkpoint_path(config.job),
-        "device": _device(config.job),
+        "provenance": None if provenance is None else cast(JsonObject, CONFIG_LOADER.to_json(provenance)),
     }
-
-
-def _encoder_settings(config: RetrieveStageConfig) -> dict[str, str]:
-    job = config.job
-    if isinstance(job, DenseRetrievalSettings):
-        return {
-            "model_name": job.encoder.model_name,
-            "query_prefix": job.encoder.query_prefix,
-            "passage_prefix": job.encoder.passage_prefix,
-        }
-    if isinstance(job, GraphRerankRetrievalSettings) and job.seed.encoder is not None:
-        return {
-            "model_name": job.seed.encoder.model_name,
-            "query_prefix": job.seed.encoder.query_prefix,
-            "passage_prefix": job.seed.encoder.passage_prefix,
-        }
-    return {
-        "model_name": config.io.encoder_model,
-        "query_prefix": config.io.query_prefix,
-        "passage_prefix": config.io.passage_prefix,
-    }
-
-
-def _checkpoint_path(job: RetrievalJobSettings) -> str | None:
-    if isinstance(job, CheckpointGraphRetrievalSettings):
-        return str(job.checkpoint)
-    return None
-
-
-def _device(job: RetrievalJobSettings) -> str:
-    if isinstance(job, CheckpointGraphRetrievalSettings):
-        return job.device
-    return "cpu"
 
 
 if __name__ == "__main__":

@@ -120,9 +120,10 @@ def test_trainable_retrieval_uses_unified_retrieval_script_entry() -> None:
 
     from graph_memory.registry import Registry
 
-    action = Registry.configs.RETRIEVE.parser_factory()._option_string_actions["--method"]
-    assert action.choices is not None
-    assert "dense_rgcn_graph_retriever" in action.choices
+    parser = Registry.configs.RETRIEVE.parser_factory()
+    assert set(parser._option_string_actions) >= {"--config"}
+    assert "--method" not in parser._option_string_actions
+    assert Registry.methods.get("dense_rgcn_graph_retriever").identifier.value == "dense_rgcn_graph_retriever"
 
 
 def test_runtime_request_module_does_not_reintroduce_trainable_or_stage_request_objects() -> None:

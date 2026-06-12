@@ -28,12 +28,12 @@ def test_require_payload_rejects_incompatible_payload_type() -> None:
 
 
 def test_bm25_builder_accepts_flat_payload() -> None:
-    method = Registry.retrieval.build(
+    built = Registry.retrieval.build(
         Bm25RetrievalSettings(top_k=2),
         FlatRetrievalBuildPayload(task_inputs=tiny_task_inputs()),
     )
 
-    assert method.name == "bm25"
+    assert built.method.name == "bm25"
 
 
 def test_graph_rerank_builder_requires_graph_payload() -> None:
@@ -56,7 +56,7 @@ def test_graph_rerank_builder_accepts_graph_payload() -> None:
         rerank=GraphRerankSettings(),
     )
 
-    method = Registry.retrieval.build(
+    built = Registry.retrieval.build(
         settings,
         GraphRerankBuildPayload(
             task_inputs=tiny_task_inputs(),
@@ -65,4 +65,4 @@ def test_graph_rerank_builder_accepts_graph_payload() -> None:
         ),
     )
 
-    assert method.name == "bm25_graph_rerank"
+    assert built.method.name == "bm25_graph_rerank"

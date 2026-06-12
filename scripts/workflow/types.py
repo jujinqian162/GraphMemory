@@ -42,7 +42,7 @@ class ArtifactRole(StrEnum):
     TRAIN_PAIRS = "train_pairs"
     TRAIN_PAIR_SUMMARY = "train_pair_summary"
     TRAIN_PAIR_RUN_SUMMARY = "train_pair_run_summary"
-    EFFECTIVE_TRAINING_CONFIG = "effective_training_config"
+    EFFECTIVE_METHOD_CONFIG = "effective_method_config"
     TRAIN_METRICS = "train_metrics"
     TRAIN_RUN_SUMMARY = "train_run_summary"
     TUNED_CONFIG = "tuned_config"

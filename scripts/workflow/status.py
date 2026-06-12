@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from graph_memory.registry import Registry
+from graph_memory.registry.methods import ArtifactKind, GraphInputSource
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import now_iso
 from scripts.workflow.planner import _materialize_variant_manifest, _method_has_stage
@@ -128,7 +130,7 @@ def _graph_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
 
 def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
     learned = manifest["artifacts"]["learned"][method]
-    training_config = manifest["effective_config"]["training"][method]
+    method_config = manifest["effective_config"]["resolved_method_configs"][method]
     return _summary_status(
         stage=StageId.PAIRS.value,
         path=learned["train_pairs"],
@@ -143,32 +145,39 @@ def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
             "pairs": learned["train_pairs"],
             "summary": learned["train_pair_summary"],
         },
-        expected_config=dict(training_config.get("pair_sampling", {})),
+        expected_config=dict(method_config.get("pairs", {})),
         method=method,
     )
 
 
 def _train_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
     learned = manifest["artifacts"]["learned"][method]
+    definition = Registry.methods.get(method)
+    expected_inputs = {
+        "train_tasks": manifest["artifacts"]["inputs"]["train"]["input"],
+        "train_labels": manifest["artifacts"]["inputs"]["train"]["labels"],
+        "train_pairs": learned["train_pairs"],
+        "dev_tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+        "dev_labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+    }
+    if definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT:
+        expected_inputs["train_graphs"] = manifest["artifacts"]["graphs"]["train"]
+        expected_inputs["dev_graphs"] = manifest["artifacts"]["graphs"]["dev"]
+    train_artifact = definition.train_artifact
+    if train_artifact is None:
+        raise ValueError(f"Trainable workflow requires a train artifact: {method}")
     return _summary_status(
         stage=StageId.TRAIN.value,
         path=learned["best_checkpoint"],
         summary_path=Path(learned["train_run_summary"]),
         script="train_method.py",
-        expected_inputs={
-            "train_tasks": manifest["artifacts"]["inputs"]["train"]["input"],
-            "train_labels": manifest["artifacts"]["inputs"]["train"]["labels"],
-            "train_graphs": manifest["artifacts"]["graphs"]["train"],
-            "train_pairs": learned["train_pairs"],
-            "dev_tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
-            "dev_labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
-            "dev_graphs": manifest["artifacts"]["graphs"]["dev"],
-        },
+        expected_inputs=expected_inputs,
         expected_outputs={
             "best_checkpoint": learned["best_checkpoint"],
             "metrics": learned["train_metrics"],
         },
-        expected_config={"training_config_path": learned["effective_training_config"]},
+        expected_config={"method": method},
+        artifact_kind=train_artifact.kind,
         method=method,
     )
 
@@ -247,8 +256,15 @@ def _artifact_status(
     path: str,
     method: str | None = None,
     split: str | None = None,
+    artifact_kind: ArtifactKind | None = None,
 ) -> dict[str, str]:
-    state = ArtifactState.COMPLETE.value if Path(path).exists() else ArtifactState.MISSING.value
+    artifact_path = Path(path)
+    exists = artifact_path.exists()
+    if exists and artifact_kind is ArtifactKind.FILE:
+        exists = artifact_path.is_file()
+    if exists and artifact_kind is ArtifactKind.DIRECTORY:
+        exists = artifact_path.is_dir()
+    state = ArtifactState.COMPLETE.value if exists else ArtifactState.MISSING.value
     row = {"stage": stage, "state": state, "path": path}
     if method is not None:
         row["method"] = method
@@ -268,8 +284,15 @@ def _summary_status(
     expected_config: dict[str, object],
     method: str | None = None,
     split: str | None = None,
+    artifact_kind: ArtifactKind | None = None,
 ) -> dict[str, str]:
-    row = _artifact_status(stage=stage, method=method, split=split, path=path)
+    row = _artifact_status(
+        stage=stage,
+        method=method,
+        split=split,
+        path=path,
+        artifact_kind=artifact_kind,
+    )
     if row["state"] == ArtifactState.MISSING.value:
         return row
     if not summary_path.exists():
@@ -305,7 +328,7 @@ def _retrieval_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         return row
     summary_path = path.with_name(f"{path.stem}.run_summary.json")
     if not summary_path.exists():
-        row["state"] = ArtifactState.COMPLETE.value
+        row["state"] = ArtifactState.STALE.value
         return row
     summary = read_json(summary_path)
     if not isinstance(summary, dict):

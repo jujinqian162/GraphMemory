@@ -139,6 +139,10 @@ def _indexed_ablation_rows(index_path: str, selection_values: Sequence[str] = ()
     index = read_json(index_path)
     if not isinstance(index, dict) or not isinstance(index.get("metrics"), list):
         raise ValueError(f"Ablation metric index must contain a metrics list: {index_path}")
+    unsupported_fields = sorted(set(index) - {"metrics"})
+    if unsupported_fields:
+        fields = ", ".join(unsupported_fields)
+        raise ValueError(f"Ablation metric index has unsupported fields: {fields}")
     requested = {_parse_ablation_selection(value) for value in selection_values}
     matched: set[tuple[str, str]] = set()
     rows: list[dict[str, object]] = []

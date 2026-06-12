@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
@@ -11,6 +10,7 @@ from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
+    BuiltRetrievalMethod,
     CheckpointGraphBuildPayload,
     CheckpointGraphRetrievalSettings,
     DenseEncoderSettings,
@@ -20,13 +20,12 @@ from graph_memory.registry.retrieval import (
     GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
-    RETRIEVAL_METHOD_METADATA,
     RetrievalBuilderSpec,
     RetrievalMethodId,
+    RetrievalProvenance,
     RetrievalRegistry,
     SeedRetrieverBuildPayload,
     SeedRetrievalSettings,
-    get_retrieval_method_metadata,
     _require_payload,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
@@ -35,12 +34,11 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetr
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
-from graph_memory.models.dense_finetune.training import DENSE_FT_METADATA_FILENAME
+from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
 
 
 def build_retrieval_registry() -> RetrievalRegistry:
     return RetrievalRegistry(
-        metadata=RETRIEVAL_METHOD_METADATA,
         seed_build=_build_seed_retriever,
         builders={
             Bm25RetrievalSettings: RetrievalBuilderSpec(
@@ -68,16 +66,14 @@ def build_retrieval_registry() -> RetrievalRegistry:
 
 def seed_retrieval_settings_for_method(
     *,
-    method: str,
+    method: RetrievalMethodId,
     dense_config: DenseConfig | None = None,
 ) -> SeedRetrievalSettings:
-    metadata = get_retrieval_method_metadata(method)
-    seed_method = metadata.seed_method or RetrievalMethodId(metadata.name)
-    if seed_method is RetrievalMethodId.BM25:
+    if method is RetrievalMethodId.BM25:
         return SeedRetrievalSettings(method=RetrievalMethodId.BM25)
-    if seed_method is RetrievalMethodId.DENSE:
+    if method is RetrievalMethodId.DENSE:
         return SeedRetrievalSettings(method=RetrievalMethodId.DENSE, encoder=_dense_encoder_settings(dense_config))
-    raise ValueError(f"Unsupported seed retrieval method: {seed_method.value}")
+    raise ValueError(f"Unsupported seed retrieval method: {method.value}")
 
 
 def _dense_encoder_settings(config: DenseConfig | None) -> DenseEncoderSettings:
@@ -91,65 +87,88 @@ def _dense_encoder_settings(config: DenseConfig | None) -> DenseEncoderSettings:
     )
 
 
-def _build_bm25(settings: Bm25RetrievalSettings, payload: object) -> RetrievalMethod:
+def _build_bm25(settings: Bm25RetrievalSettings, payload: object) -> BuiltRetrievalMethod:
     _ = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
-    return ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever())
-
-
-def _build_dense(settings: DenseRetrievalSettings, payload: object) -> RetrievalMethod:
-    build_payload = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
-    return ScorePipelineMethod(
-        name=settings.method.value,
-        retriever=_build_seed_retriever(
-            SeedRetrievalSettings(method=RetrievalMethodId.DENSE, encoder=settings.encoder),
-            SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
-        ),
+    return _built(
+        ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever()),
+        method=settings.method,
     )
 
 
-def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object) -> RetrievalMethod:
+def _build_dense(settings: DenseRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
+    build_payload = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
+    return _built(
+        ScorePipelineMethod(
+            name=settings.method.value,
+            retriever=_build_seed_retriever(
+                SeedRetrievalSettings(method=RetrievalMethodId.DENSE, encoder=settings.encoder),
+                SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
+            ),
+        ),
+        method=settings.method,
+        encoder=settings.encoder,
+    )
+
+
+def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
     from graph_memory.retrieval.methods.graph_rerank.config import ensure_graph_rerank_config
     from graph_memory.retrieval.methods.graph_rerank.method import GraphRerankMethod
 
     build_payload = _require_payload(payload, GraphRerankBuildPayload, method=settings.method.value)
-    return GraphRerankMethod(
-        name=settings.method.value,
-        retriever=_build_seed_retriever(
-            settings.seed,
-            SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
+    return _built(
+        GraphRerankMethod(
+            name=settings.method.value,
+            retriever=_build_seed_retriever(
+                settings.seed,
+                SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
+            ),
+            graphs=_validated_graph_index(settings.method.value, build_payload.task_inputs, build_payload.graphs),
+            graph_config=(
+                ensure_graph_rerank_config(cast(GraphRerankConfig | Mapping[str, object] | None, build_payload.graph_config))
+                if build_payload.graph_config is not None
+                else _graph_rerank_config(settings.rerank)
+            ),
         ),
-        graphs=_validated_graph_index(settings.method.value, build_payload.task_inputs, build_payload.graphs),
-        graph_config=(
-            ensure_graph_rerank_config(cast(GraphRerankConfig | Mapping[str, object] | None, build_payload.graph_config))
-            if build_payload.graph_config is not None
-            else _graph_rerank_config(settings.rerank)
-        ),
+        method=settings.method,
+        encoder=settings.seed.encoder,
     )
 
 
-def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload: object) -> RetrievalMethod:
+def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
     from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 
     build_payload = _require_payload(payload, CheckpointGraphBuildPayload, method=settings.method.value)
-    text_embedding_provider, seed_signal_provider = _checkpoint_graph_providers(settings, build_payload)
-    return TrainableGraphRetrievalMethod.from_checkpoint(
-        settings.checkpoint,
-        graphs=list(
-            _validated_graph_index(
-                settings.method.value,
-                build_payload.task_inputs,
-                build_payload.graphs,
-            ).graph_by_task_id.values()
-        ),
-        text_embedding_provider=text_embedding_provider,
-        seed_signal_provider=seed_signal_provider,
+    text_embedding_provider, seed_signal_provider, checkpoint = _checkpoint_graph_providers(settings, build_payload)
+    method = TrainableGraphRetrievalMethod.from_checkpoint(
+            settings.checkpoint,
+            graphs=list(
+                _validated_graph_index(
+                    settings.method.value,
+                    build_payload.task_inputs,
+                    build_payload.graphs,
+                ).graph_by_task_id.values()
+            ),
+            text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
+            device=settings.device,
+        )
+    return _built(
+        method,
+        method=settings.method,
+        model=settings.checkpoint,
         device=settings.device,
+        encoder=DenseEncoderSettings(
+            model_name=checkpoint.model_config.encoder_model,
+            query_prefix=checkpoint.model_config.query_prefix,
+            passage_prefix=checkpoint.model_config.passage_prefix,
+            batch_size=checkpoint.model_config.encoder_batch_size,
+        ),
     )
 
 
-def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) -> RetrievalMethod:
+def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
     build_payload = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
-    metadata = _load_dense_ft_metadata(settings.checkpoint)
+    metadata = load_dense_ft_model_metadata(settings.checkpoint)
     encoder = build_payload.dense_encoder
     if encoder is None:
         try:
@@ -159,63 +178,44 @@ def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) 
             )
         except RuntimeError as error:
             raise RuntimeError("sentence-transformers is required for dense-ft retrieval.") from error
-    return ScorePipelineMethod(
-        name=settings.method.value,
-        retriever=DenseTaskRetriever(
-            config=DenseConfig(
-                model_name=str(settings.checkpoint),
-                query_prefix=_metadata_string(metadata, "query_prefix", settings.checkpoint),
-                passage_prefix=_metadata_string(metadata, "passage_prefix", settings.checkpoint),
-                batch_size=_metadata_int(metadata, "batch_size", settings.checkpoint),
+    method = ScorePipelineMethod(
+            name=settings.method.value,
+            retriever=DenseTaskRetriever(
+                config=DenseConfig(
+                    model_name=str(settings.checkpoint),
+                    query_prefix=metadata.query_prefix,
+                    passage_prefix=metadata.passage_prefix,
+                    batch_size=metadata.batch_size,
+                ),
+                encoder=encoder,
             ),
-            encoder=encoder,
+        )
+    return _built(
+        method,
+        method=settings.method,
+        model=settings.checkpoint,
+        device=settings.device,
+        encoder=DenseEncoderSettings(
+            model_name=metadata.base_model,
+            query_prefix=metadata.query_prefix,
+            passage_prefix=metadata.passage_prefix,
+            batch_size=metadata.batch_size,
         ),
     )
 
 
-def _load_dense_ft_metadata(checkpoint: Path) -> dict[str, object]:
-    metadata_path = checkpoint / DENSE_FT_METADATA_FILENAME
-    if not metadata_path.exists():
-        raise ValueError(f"Missing {DENSE_FT_METADATA_FILENAME} for dense_ft checkpoint: {checkpoint}")
-    try:
-        data = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Invalid {DENSE_FT_METADATA_FILENAME} for dense_ft checkpoint: {checkpoint}") from error
-    if not isinstance(data, dict):
-        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} must contain an object: {checkpoint}")
-    method = data.get("method")
-    if method != RetrievalMethodId.DENSE_FT.value:
-        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} method must be dense_ft for checkpoint: {checkpoint}")
-    return data
-
-
-def _metadata_string(metadata: Mapping[str, object], key: str, checkpoint: Path) -> str:
-    value = metadata.get(key)
-    if not isinstance(value, str):
-        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} field must be a string: {key} ({checkpoint})")
-    return value
-
-
-def _metadata_int(metadata: Mapping[str, object], key: str, checkpoint: Path) -> int:
-    value = metadata.get(key)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{DENSE_FT_METADATA_FILENAME} field must be an integer: {key} ({checkpoint})")
-    return value
-
-
 def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payload: CheckpointGraphBuildPayload):
-    if payload.text_embedding_provider is not None and payload.seed_signal_provider is not None:
-        return payload.text_embedding_provider, payload.seed_signal_provider
-
-    from graph_memory.models.graph_retriever.checkpoint import load_trainable_checkpoint
+    from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
     from graph_memory.models.graph_retriever.text_embeddings import DenseGraphFeatureProvider
     from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 
-    checkpoint = load_trainable_checkpoint(
+    checkpoint = load_rgcn_checkpoint(
         settings.checkpoint,
         expected_method=settings.method.value,
-        map_location=settings.device,
+        map_location="cpu",
     )
+    if payload.text_embedding_provider is not None and payload.seed_signal_provider is not None:
+        return payload.text_embedding_provider, payload.seed_signal_provider, checkpoint
     if payload.text_embedding_provider is None and payload.seed_signal_provider is None:
         joint_provider = DenseGraphFeatureProvider(
             model_name=checkpoint.model_config.encoder_model,
@@ -223,7 +223,7 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
             passage_prefix=checkpoint.model_config.passage_prefix,
             encoder=cast(SentenceEncoder | None, payload.dense_encoder),
         )
-        return joint_provider, joint_provider
+        return joint_provider, joint_provider, checkpoint
 
     text_embedding_provider = payload.text_embedding_provider
     if text_embedding_provider is None:
@@ -245,7 +245,26 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
                 encoder=cast(SentenceEncoder | None, encoder),
             )
         )
-    return text_embedding_provider, seed_signal_provider
+    return text_embedding_provider, seed_signal_provider, checkpoint
+
+
+def _built(
+    retrieval_method: RetrievalMethod,
+    *,
+    method: RetrievalMethodId,
+    model: Path | None = None,
+    device: str | None = None,
+    encoder: DenseEncoderSettings | None = None,
+) -> BuiltRetrievalMethod:
+    return BuiltRetrievalMethod(
+        method=retrieval_method,
+        provenance=RetrievalProvenance(
+            method=method,
+            model=model,
+            device=device,
+            encoder=encoder,
+        ),
+    )
 
 
 def _build_seed_retriever(settings: SeedRetrievalSettings, payload: object) -> SeedRanker:

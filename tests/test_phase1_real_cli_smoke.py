@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from graph_memory.io import read_json
+from graph_memory.config import CONFIG_LOADER
+from graph_memory.io import read_json, write_json
+from graph_memory.registry.retrieval import Bm25RetrievalSettings
+from graph_memory.registry.stage_configs import EvaluateIO, EvaluateStageConfig, RetrieveIO, RetrieveStageConfig
 import scripts.aggregate_tables as aggregate_tables
 import scripts.build_graphs as build_graphs
 import scripts.evaluate_retrieval as evaluate_retrieval
@@ -18,14 +21,58 @@ import scripts.tune_graph_rerank as tune_graph_rerank
 FIXTURE = Path(__file__).parent / "fixtures" / "hotpotqa_smoke.json"
 
 
+def write_bm25_retrieve_stage_config(
+    path: Path,
+    *,
+    tasks_path: Path,
+    predictions_path: Path,
+    top_k: int,
+) -> None:
+    config = RetrieveStageConfig(
+        io=RetrieveIO(
+            tasks=tasks_path,
+            graphs=None,
+            output=predictions_path,
+            summary=predictions_path.with_name(f"{predictions_path.stem}.run_summary.json"),
+        ),
+        job=Bm25RetrievalSettings(top_k=top_k),
+    )
+    write_json(path, CONFIG_LOADER.to_json(config))
+
+
+def write_evaluate_stage_config(
+    path: Path,
+    *,
+    predictions_path: Path,
+    labels_path: Path,
+    graphs_path: Path,
+    metrics_path: Path,
+    failures_path: Path,
+    failure_case_limit: int,
+) -> None:
+    config = EvaluateStageConfig(
+        io=EvaluateIO(
+            predictions=predictions_path,
+            labels=labels_path,
+            graphs=graphs_path,
+            output=metrics_path,
+            failure_cases_output=failures_path,
+        ),
+        failure_case_limit=failure_case_limit,
+    )
+    write_json(path, CONFIG_LOADER.to_json(config))
+
+
 def test_phase1_cli_pipeline_writes_contract_artifacts(tmp_path):
     task_inputs_path = tmp_path / "test_memory_tasks.input.json"
     labels_path = tmp_path / "test_memory_tasks.labels.json"
     combined_path = tmp_path / "test_memory_tasks.json"
     graphs_path = tmp_path / "test_graphs.json"
     predictions_path = tmp_path / "main_results_bm25.predictions.json"
+    retrieval_config_path = tmp_path / "bm25_retrieve_stage_config.json"
     metrics_path = tmp_path / "main_results_bm25.csv"
     failures_path = tmp_path / "failure_cases_bm25.jsonl"
+    evaluate_config_path = tmp_path / "bm25_evaluate_stage_config.json"
     aggregate_main_path = tmp_path / "main_results.csv"
     aggregate_path_path = tmp_path / "path_results.csv"
     aggregate_efficiency_path = tmp_path / "efficiency_results.csv"
@@ -62,32 +109,31 @@ def test_phase1_cli_pipeline_writes_contract_artifacts(tmp_path):
             "50",
         ]
     ) == 0
+    write_bm25_retrieve_stage_config(
+        retrieval_config_path,
+        tasks_path=task_inputs_path,
+        predictions_path=predictions_path,
+        top_k=10,
+    )
     assert run_retrieval.main(
         [
-            "--method",
-            "bm25",
-            "--tasks",
-            str(task_inputs_path),
-            "--output",
-            str(predictions_path),
-            "--top_k",
-            "10",
+            "--config",
+            str(retrieval_config_path),
         ]
     ) == 0
+    write_evaluate_stage_config(
+        evaluate_config_path,
+        predictions_path=predictions_path,
+        labels_path=labels_path,
+        graphs_path=graphs_path,
+        metrics_path=metrics_path,
+        failures_path=failures_path,
+        failure_case_limit=5,
+    )
     assert evaluate_retrieval.main(
         [
-            "--pred",
-            str(predictions_path),
-            "--labels",
-            str(labels_path),
-            "--graphs",
-            str(graphs_path),
-            "--output",
-            str(metrics_path),
-            "--failure_cases_output",
-            str(failures_path),
-            "--failure_case_limit",
-            "5",
+            "--config",
+            str(evaluate_config_path),
         ]
     ) == 0
     assert aggregate_tables.main(
@@ -268,7 +314,6 @@ def test_aggregate_tables_writes_indexed_ablation_results(tmp_path):
     index_path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
                 "metrics": [
                     {
                         "method": "dense_rgcn_graph_retriever",
@@ -318,6 +363,37 @@ def test_aggregate_tables_writes_indexed_ablation_results(tmp_path):
         "dense_rgcn_graph_retriever,full_rgcn,0.2,0.6,1.0,0.12,12.3",
         "dense_rgcn_graph_retriever,wo_bridge,0.21,0.61,1.01,0.13,13.3",
     ]
+
+
+def test_aggregate_tables_rejects_versioned_ablation_index(tmp_path):
+    index_path = tmp_path / "ablation_metrics_index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "metrics": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="schema_version"):
+        aggregate_tables.main(
+            [
+                "--input_dir",
+                str(tmp_path / "ordinary_metrics"),
+                "--output_main",
+                str(tmp_path / "main_results.csv"),
+                "--output_path",
+                str(tmp_path / "path_results.csv"),
+                "--output_efficiency",
+                str(tmp_path / "efficiency_results.csv"),
+                "--ablation_index",
+                str(index_path),
+                "--output_ablation",
+                str(tmp_path / "ablation_results.csv"),
+            ]
+        )
 
 
 def test_prepare_hotpotqa_drops_invalid_examples_before_sampling(tmp_path):

@@ -12,10 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
+from graph_memory.registry import Registry
+from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
-from graph_memory.retrieval_registry import get_graph_rerank_methods
 from graph_memory.validation import (
     validate_graphs,
     validate_memory_task_inputs,
@@ -136,7 +137,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank parameters on dev labels.")
-    parser.add_argument("--method", required=True, choices=get_graph_rerank_methods())
+    parser.add_argument(
+        "--method",
+        required=True,
+        choices=tuple(
+            method.value
+            for method in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
+        ),
+    )
     parser.add_argument("--tasks", required=True, help="Path to dev *_memory_tasks.input.json.")
     parser.add_argument("--labels", required=True, help="Path to dev *_memory_tasks.labels.json.")
     parser.add_argument("--graphs", required=True, help="Path to dev *_graphs.json.")

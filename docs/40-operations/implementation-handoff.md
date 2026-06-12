@@ -43,7 +43,7 @@ scripts/build_graphs.py
 scripts/run_retrieval.py
   -> graph_memory.config.CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
   -> graph_memory.stages.retrieve.run_retrieve_stage
-  -> graph_memory.registry.retrieval_builders.RETRIEVAL_REGISTRY
+  -> Registry.retrieval
   -> graph_memory.retrieval.execution.service.run_retrieval
   -> graph_memory.validation.validate_ranked_results
 
@@ -86,7 +86,7 @@ scripts/experiment.py
 | `RankedResult` | `graph_memory/contracts/ranking.py` | Persisted ranked-result artifact shape. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `RetrieveStageConfig` | `graph_memory/registry/stage_configs.py` | Stage-level request for one complete retrieval run. | Carry unrelated method-family optional bags. | `tests/test_retrieval_domain_boundaries.py`, `tests/test_registry_stage_configs.py` |
 | `Retriever` | `graph_memory/retrieval/contracts.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
-| `RetrievalMethodSpec` catalog | `graph_memory/retrieval/catalog.py` through `graph_memory/retrieval_registry.py` | Single source for public method names and capabilities. | Import concrete retrieval builders or duplicate method lists elsewhere. | `tests/test_phase1_real_retrieval.py`, `tests/test_experiment_runner.py` |
+| `MethodDefinition` registry | `graph_memory/registry/methods.py` through `Registry.methods` | Single source for lifecycle, dependency sources, method config type, and train artifact shape. | Recreate capability booleans, method-specific projections, or duplicate method lists elsewhere. | `tests/test_method_registry.py`, `tests/test_experiment_runner.py` |
 | `RetrievalMethod` | `graph_memory/retrieval/contracts.py` | Internal boundary for a public method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py` |
 | `FlatRetrievalMethod` | `graph_memory/retrieval/methods/flat/method.py` | Wraps BM25 and dense seed retrievers for flat public methods. | Own graph-rerank score composition, labels, metrics, or file IO. | `tests/test_phase1_real_retrieval.py` |
 | `InitialScoreCache` | `graph_memory/retrieval/tuning/initial_scores.py` | Holds per-task seed scores for one tuning invocation. | Persist scores or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
@@ -109,7 +109,7 @@ scripts/experiment.py
 | Contracts and validation | `graph_memory/contracts/`, `graph_memory/validation/` | Field names, forbidden fields, strict invariants, readable type annotations. |
 | Data conversion | `graph_memory/datasets/`, `graph_memory/text/` | Stable task IDs, supporting-fact mapping, split determinism, label separation, text/entity behavior. |
 | Graph construction | `graph_memory/graphs/` | Edge semantics, edge limits, deterministic sorting, graph views, no label access. |
-| Retrieval | `graph_memory/stages/retrieve.py`, `graph_memory/registry/retrieval*.py`, `graph_memory/retrieval/catalog.py`, `graph_memory/retrieval/`, `graph_memory/retrieval_registry.py` | Stage orchestration, method capability projections, complete rankings, method construction, graph-method requirements. |
+| Retrieval | `graph_memory/stages/retrieve.py`, `graph_memory/registry/methods.py`, `graph_memory/registry/retrieval*.py`, `graph_memory/retrieval/` | Stage orchestration, complete method semantics, rankings, runtime construction, and builder-produced provenance. |
 | Train pairs | `graph_memory/training_pairs/` | Sampling order, random seed behavior, positive/negative invariants. |
 | Trainable model | `graph_memory/models/graph_retriever/` | Tensorization, feature order, neural model construction, checkpoint schema, inference boundary. |
 | Evaluation | `graph_memory/evaluation/` | Metric definitions, exact joins, shared-graph connectivity, N/A path metrics. |

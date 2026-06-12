@@ -26,48 +26,48 @@ RGCN_ABLATION_PATCHES = (
     AblationVariantPatch(
         "wo_bridge",
         frozenset({"model_graph_view"}),
-        {"model": {"ablation": "wo_bridge"}},
+        {"train": {"model": {"ablation": "wo_bridge"}}},
     ),
     AblationVariantPatch(
         "wo_entity_overlap",
         frozenset({"model_graph_view"}),
-        {"model": {"ablation": "wo_entity_overlap"}},
+        {"train": {"model": {"ablation": "wo_entity_overlap"}}},
     ),
     AblationVariantPatch(
         "wo_sequential",
         frozenset({"model_graph_view"}),
-        {"model": {"ablation": "wo_sequential"}},
+        {"train": {"model": {"ablation": "wo_sequential"}}},
     ),
     AblationVariantPatch(
         "wo_query_overlap",
         frozenset({"model_graph_view"}),
-        {"model": {"ablation": "wo_query_overlap"}},
+        {"train": {"model": {"ablation": "wo_query_overlap"}}},
     ),
     AblationVariantPatch(
         "wo_graph",
         frozenset({"model_structure"}),
-        {"model": {"ablation": "wo_graph", "num_layers": 0}},
+        {"train": {"model": {"ablation": "wo_graph", "num_layers": 0}}},
     ),
     AblationVariantPatch(
         "wo_edge_type",
         frozenset({"model_structure"}),
-        {"model": {"ablation": "wo_edge_type"}},
+        {"train": {"model": {"ablation": "wo_edge_type"}}},
     ),
     AblationVariantPatch(
         "wo_edge_weight",
         frozenset({"model_structure"}),
-        {"model": {"ablation": "wo_edge_weight"}},
+        {"train": {"model": {"ablation": "wo_edge_weight"}}},
     ),
     AblationVariantPatch(
         "wo_seed_score",
         frozenset({"model_structure"}),
-        {"model": {"ablation": "wo_seed_score"}},
+        {"train": {"model": {"ablation": "wo_seed_score"}}},
     ),
     AblationVariantPatch(
         "wo_hard_negatives",
         frozenset({"pair_sampling"}),
         {
-            "pair_sampling": {
+            "pairs": {
                 "hard_bm25_per_positive": 0,
                 "hard_dense_per_positive": 0,
                 "hard_graph_neighbor_per_positive": 0,

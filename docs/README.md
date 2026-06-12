@@ -20,6 +20,8 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Original student experiment plan: `archive/original-student-experiment-plan.md`
 - Phase 1 implementation plan: `10-plans/phase1-real-graph-memory.md`
 - Phase 2 R-GCN trainable retriever plan: `10-plans/phase2-rgcn-trainable-retriever.md`
+- Dense-FT implementation plan: `10-plans/dense-ft-implementation-plan.md`
+- Trainable-stack current-only refactor plan: `10-plans/trainable-stack-zero-compatibility-refactor-plan.md`
 - Engineering quality discussion log: `10-plans/engineering-quality-brainstorm.md`
 - Architecture: `30-design/architecture.md`
 - Abstractions: `30-design/abstractions.md`
@@ -49,14 +51,26 @@ graph_memory/datasets/
 graph_memory/evaluation/
 graph_memory/graphs/
 graph_memory/infrastructure/
+graph_memory/models/dense_finetune/
 graph_memory/models/graph_retriever/
+graph_memory/registry/
 graph_memory/retrieval/
+graph_memory/stages/
 graph_memory/text/
 graph_memory/training_pairs/
 graph_memory/validation/
 ```
 
-Only four root modules are retained as thin workflow integration ports: `graph_memory/io.py`, `graph_memory/observability.py`, `graph_memory/retrieval_registry.py`, and `graph_memory/training_config.py`. Complete retrieval run orchestration now flows through `scripts/run_retrieval.py`, `graph_memory/stages/retrieve.py`, and the typed registry builders; public retrieval method metadata is implemented under `graph_memory/registry/` and re-exported by the root registry port.
+The maintained runtime boundary is one-way:
+
+```text
+scripts/workflow/
+  -> low-level scripts with complete stage configs
+  -> graph_memory/stages/
+  -> registry builders and domain packages
+```
+
+`graph_memory/registry/` owns current method identity, lifecycle, dependency, config, and builder dispatch. `graph_memory/stages/` owns stage execution. Root `graph_memory/io.py` and `graph_memory/observability.py` remain thin integration ports. The retired `graph_memory/retrieval_registry.py`, `graph_memory/training_config.py`, registry projection/catalog facades, and trainable compatibility loaders no longer exist.
 
 ## Maintenance Rules
 

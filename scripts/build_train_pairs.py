@@ -107,7 +107,7 @@ def _effective_config(config: PairBuildStageConfig) -> dict[str, JsonValue]:
 def _dense_config_from_config(config: PairBuildStageConfig) -> DenseConfig | None:
     job = config.job
     if job.sampling.hard_dense_per_positive <= 0 or job.hard_dense_encoder is None:
-        if config.io.config is not None and job.sampling.hard_dense_per_positive > 0:
+        if job.sampling.hard_dense_per_positive > 0:
             raise ValueError("Pair build config with hard dense negatives requires encoder settings.")
         return None
     return dense_config_from_encoder_settings(job.hard_dense_encoder)

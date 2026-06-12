@@ -15,8 +15,8 @@ from graph_memory.models.graph_retriever.batching import (
 )
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
-    TrainableModelConfig,
-    TrainableTrainingConfig,
+    RgcnModelConfig,
+    RgcnTrainingConfig,
 )
 from graph_memory.models.graph_retriever.text_embeddings import DenseGraphFeatureProvider
 from graph_memory.models.graph_retriever.training import train_graph_retriever
@@ -89,13 +89,14 @@ def _graph(task_input: MemoryTaskInput) -> MemoryGraph:
     }
 
 
-def _model_config() -> TrainableModelConfig:
-    return TrainableModelConfig(
+def _model_config() -> RgcnModelConfig:
+    return RgcnModelConfig(
         method_name="dense_rgcn_graph_retriever",
         encoder_model="fake",
         encoder_dim=4,
         query_prefix="query: ",
         passage_prefix="passage: ",
+        encoder_batch_size=64,
         hidden_dim=8,
         num_layers=1,
         dropout=0.0,
@@ -268,7 +269,7 @@ def test_multi_epoch_training_builds_frozen_dev_features_once_but_evaluates_each
         dev_labels=labels,
         dev_graphs=graphs,
         model_config=_model_config(),
-        training_config=TrainableTrainingConfig(
+        training_config=RgcnTrainingConfig(
             optimizer_name="AdamW",
             learning_rate=0.01,
             batch_size=2,
@@ -333,7 +334,7 @@ def test_frozen_feature_reuse_does_not_cross_training_invocations() -> None:
     ]
     encoder = RecordingEncoder(vectors)
     provider = DenseGraphFeatureProvider(encoder=encoder)
-    training_config = TrainableTrainingConfig(
+    training_config = RgcnTrainingConfig(
         optimizer_name="AdamW",
         learning_rate=0.01,
         batch_size=2,

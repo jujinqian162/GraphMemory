@@ -17,7 +17,7 @@ class NodeFeatureConfig:
 
 
 @dataclass(frozen=True)
-class TrainableModelConfig:
+class RgcnModelConfig:
     """
     Minimal model reconstruction config saved in every trainable checkpoint.
     每个可训练 checkpoint 中保存的最小模型重建配置。
@@ -28,6 +28,7 @@ class TrainableModelConfig:
     encoder_dim: int
     query_prefix: str
     passage_prefix: str
+    encoder_batch_size: int
     hidden_dim: int
     num_layers: int
     dropout: float
@@ -46,6 +47,7 @@ class TrainableModelConfig:
             "encoder_dim": self.encoder_dim,
             "query_prefix": self.query_prefix,
             "passage_prefix": self.passage_prefix,
+            "encoder_batch_size": self.encoder_batch_size,
             "hidden_dim": self.hidden_dim,
             "num_layers": self.num_layers,
             "dropout": self.dropout,
@@ -63,7 +65,7 @@ class TrainableModelConfig:
 
 
 @dataclass(frozen=True)
-class TrainableTrainingConfig:
+class RgcnTrainingConfig:
     """
     Minimal training config needed to resume or audit a trainable run.
     用于恢复或审计可训练运行的最小训练配置。
@@ -91,6 +93,6 @@ class TrainableTrainingConfig:
 
 __all__ = [
     "NodeFeatureConfig",
-    "TrainableModelConfig",
-    "TrainableTrainingConfig",
+    "RgcnModelConfig",
+    "RgcnTrainingConfig",
 ]

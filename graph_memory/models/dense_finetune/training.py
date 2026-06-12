@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import random
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -12,8 +11,11 @@ from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.embeddings import load_sentence_transformer
 from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings, DenseFinetuneIREvaluatorPayload
 from graph_memory.models.dense_finetune.data import build_dense_finetune_examples, build_ir_evaluator_payload
-
-DENSE_FT_METADATA_FILENAME = "dense_ft_model_config.json"
+from graph_memory.models.dense_finetune.metadata import (
+    DenseFinetuneModelMetadata,
+    DenseFinetuneSelectionMetadata,
+    write_dense_ft_model_metadata,
+)
 
 
 @dataclass(frozen=True)
@@ -345,7 +347,20 @@ def train_dense_finetune(
     )
     trainer.train()
     metric_records = _trainer_metric_records(trainer)
-    metadata_path = write_dense_ft_model_metadata(config=config, model_dir=model_dir)
+    metadata_path = write_dense_ft_model_metadata(
+        model_dir=model_dir,
+        metadata=DenseFinetuneModelMetadata(
+            base_model=config.base_model,
+            query_prefix=config.query_prefix,
+            passage_prefix=config.passage_prefix,
+            batch_size=config.batch_size,
+            device=config.trainer.device,
+            selection=DenseFinetuneSelectionMetadata(
+                selected_metric=config.selection.best_metric,
+                higher_is_better=config.selection.higher_is_better,
+            ),
+        ),
+    )
     selected_value = _selected_metric_value(metric_records, config.selection.best_metric)
     return DenseFinetuneTrainingResult(
         model_dir=model_dir,
@@ -372,25 +387,6 @@ def _selected_metric_value(
     last_record = metric_records[-1]
     value = last_record.get("best_dev_metric", last_record.get(selected_metric_name))
     return None if value is None else float(cast(float, value))
-
-
-def write_dense_ft_model_metadata(*, config: DenseFinetuneRunConfig, model_dir: Path) -> Path:
-    model_dir.mkdir(parents=True, exist_ok=True)
-    metadata = {
-        "schema_version": 1,
-        "method": "dense_ft",
-        "base_model": config.base_model,
-        "query_prefix": config.query_prefix,
-        "passage_prefix": config.passage_prefix,
-        "batch_size": config.batch_size,
-        "selection": {
-            "selected_metric": config.selection.best_metric,
-            "higher_is_better": config.selection.higher_is_better,
-        },
-    }
-    metadata_path = model_dir / DENSE_FT_METADATA_FILENAME
-    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
-    return metadata_path
 
 
 def _load_sentence_transformer(model_name: str, device: str) -> DenseFinetuneModel:

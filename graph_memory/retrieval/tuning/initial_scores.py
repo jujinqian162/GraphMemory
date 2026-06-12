@@ -9,9 +9,9 @@ from graph_memory.contracts.ranking import RankedResult
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.registry import Registry
+from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.registry.retrieval import SeedRetrieverBuildPayload
 from graph_memory.registry.retrieval_builders import seed_retrieval_settings_for_method
-from graph_memory.retrieval.catalog import get_method_spec
 from graph_memory.retrieval.bulk import BulkSeedRanker, rank_tasks, task_groups
 from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig, ensure_graph_rerank_config
@@ -37,8 +37,10 @@ def precompute_initial_score_cache(
     task_inputs: list[MemoryTaskInput],
     dense_runtime: DenseRuntime,
 ) -> InitialScoreCache:
+    definition = Registry.methods.get(method)
+    seed_method = definition.seed_method or definition.identifier
     seed_retriever = Registry.retrieval.build_seed(
-        seed_retrieval_settings_for_method(method=method, dense_config=dense_runtime.config),
+        seed_retrieval_settings_for_method(method=seed_method, dense_config=dense_runtime.config),
         SeedRetrieverBuildPayload(dense_encoder=dense_runtime.encoder),
     )
     scores_by_task_id: dict[str, dict[str, float]] = {}
@@ -79,8 +81,8 @@ def run_graph_rerank_from_initial_score_cache(
     top_k: int,
     graph_config: GraphRerankConfig | Mapping[str, object],
 ) -> list[RankedResult]:
-    spec = get_method_spec(method)
-    if not spec.requires_graphs or not spec.requires_graph_config or spec.requires_checkpoint:
+    definition = Registry.methods.get(method)
+    if definition.lifecycle is not RetrievalLifecycle.GRAPH_RERANK:
         raise ValueError(f"Precomputed graph rerank requires a graph rerank method, got method={method}.")
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")

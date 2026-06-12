@@ -16,6 +16,7 @@ from graph_memory.registry.retrieval import (
     FlatRetrievalBuildPayload,
     GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
+    RetrievalProvenance,
 )
 from graph_memory.registry.stage_configs import RetrieveStageConfig
 from graph_memory.embeddings import SentenceEncoder
@@ -26,6 +27,7 @@ from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 @dataclass(frozen=True)
 class RetrieveStageResult:
     predictions: list[RankedResult]
+    provenance: RetrievalProvenance
 
 
 def run_retrieve_stage(
@@ -36,7 +38,7 @@ def run_retrieve_stage(
     graph_config: GraphRerankConfig | Mapping[str, object] | None = None,
     dense_encoder: SentenceEncoder | None = None,
 ) -> RetrieveStageResult:
-    method = Registry.retrieval.build(
+    built = Registry.retrieval.build(
         config.job,
         _build_payload(
             config,
@@ -47,11 +49,11 @@ def run_retrieve_stage(
         ),
     )
     predictions = run_retrieval(
-        retrieval_method=method,
+        retrieval_method=built.method,
         task_inputs=task_inputs,
         top_k=config.job.top_k,
     )
-    return RetrieveStageResult(predictions=predictions)
+    return RetrieveStageResult(predictions=predictions, provenance=built.provenance)
 
 
 def _build_payload(

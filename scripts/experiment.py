@@ -171,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     configs_list_parser = configs_subparsers.add_parser("list", help="List known config files.")
     configs_list_parser.add_argument(
         "--kind",
-        choices=("all", "experiments", "search-spaces", "training"),
+        choices=("all", "experiments", "search-spaces", "methods"),
         default="all",
     )
 
@@ -281,10 +281,11 @@ def _format_method_specs(rows: Sequence[dict[str, str]]) -> str:
     for row in rows:
         lines.append(
             f"{row['name']}\tworkflow={row['workflow']}\t"
-            f"graphs={row['requires_graphs']}\t"
-            f"tune_config={row['requires_graph_config']}\t"
-            f"checkpoint={row['requires_checkpoint']}\t"
-            f"dense_encoder={row['requires_dense_encoder']}"
+            f"lifecycle={row['lifecycle']}\t"
+            f"graphs={row['graph_source']}\t"
+            f"graph_config={row['graph_config_source']}\t"
+            f"model={row['model_source']}\t"
+            f"encoder={row['encoder_source']}"
         )
     return "\n".join(lines)
 

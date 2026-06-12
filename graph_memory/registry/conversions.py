@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from graph_memory.models.graph_retriever.config.records import TrainableTrainingConfig
+from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 
@@ -39,8 +39,8 @@ def dense_config_from_encoder_settings(settings: DenseEncoderSettings) -> DenseC
     )
 
 
-def trainable_training_config_from_trainer_settings(settings: TrainerSettingsLike) -> TrainableTrainingConfig:
-    return TrainableTrainingConfig(
+def rgcn_training_config_from_trainer_settings(settings: TrainerSettingsLike) -> RgcnTrainingConfig:
+    return RgcnTrainingConfig(
         optimizer_name=settings.optimizer_name,
         learning_rate=settings.learning_rate,
         batch_size=settings.batch_size,
@@ -53,5 +53,5 @@ def trainable_training_config_from_trainer_settings(settings: TrainerSettingsLik
 
 __all__ = [
     "dense_config_from_encoder_settings",
-    "trainable_training_config_from_trainer_settings",
+    "rgcn_training_config_from_trainer_settings",
 ]

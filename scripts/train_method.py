@@ -8,6 +8,7 @@ from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import cast
+from typing_extensions import assert_never
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,10 +19,10 @@ from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.dense_finetune.training import DenseFinetuneTrainingResult
-from graph_memory.models.graph_retriever.checkpoint import save_trainable_checkpoint
+from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.graph_retriever.training import TrainableTrainingResult
+from graph_memory.models.graph_retriever.training import RgcnTrainingResult
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
 from graph_memory.registry.stage_configs import (
@@ -36,7 +37,7 @@ from graph_memory.registry.training import (
     TrainPayload,
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.stages.train import run_train_stage
+from graph_memory.stages.train import TrainingResult, run_train_stage
 
 LOGGER = logging.getLogger("train_method")
 
@@ -130,28 +131,30 @@ def _load_payload(config: TrainStageConfig, *, dependencies: TrainDependencies |
             dev_graphs=cast(list[MemoryGraph], read_json(config.io.dev_graphs)),
             dependencies=dependencies,
         )
-    if dependencies is not None:
-        raise ValueError("Provider overrides are only valid for R-GCN training.")
-    return DenseFinetuneTrainPayload(
-        train_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.train_tasks)),
-        train_labels=cast(list[MemoryTaskLabels], read_json(config.io.train_labels)),
-        train_pairs=cast(list[TrainPairRecord], read_json(config.io.train_pairs)),
-        dev_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.dev_tasks)),
-        dev_labels=cast(list[MemoryTaskLabels], read_json(config.io.dev_labels)),
-        output_dir=config.io.output_dir,
-        model_dir=config.io.model_dir,
-    )
+    if isinstance(config, DenseFinetuneTrainStageConfig):
+        if dependencies is not None:
+            raise ValueError("Provider overrides are only valid for R-GCN training.")
+        return DenseFinetuneTrainPayload(
+            train_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.train_tasks)),
+            train_labels=cast(list[MemoryTaskLabels], read_json(config.io.train_labels)),
+            train_pairs=cast(list[TrainPairRecord], read_json(config.io.train_pairs)),
+            dev_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.dev_tasks)),
+            dev_labels=cast(list[MemoryTaskLabels], read_json(config.io.dev_labels)),
+            output_dir=config.io.output_dir,
+            model_dir=config.io.model_dir,
+        )
+    assert_never(config)
 
 
-def _write_method_artifacts(config: TrainStageConfig, result: object) -> JsonObject:
+def _write_method_artifacts(config: TrainStageConfig, result: TrainingResult) -> JsonObject:
     if isinstance(config, RgcnTrainStageConfig):
-        if not isinstance(result, TrainableTrainingResult):
+        if not isinstance(result, RgcnTrainingResult):
             raise TypeError(f"R-GCN training returned {type(result).__name__}.")
         best_model = build_model_from_config(result.model_config)
         best_model.load_state_dict(result.best_model_state_dict)
         epoch_checkpoint = config.io.checkpoint_dir / f"checkpoint_epoch_{result.best_epoch}.pt"
         for path in (epoch_checkpoint, config.io.checkpoint_dir / "best.pt"):
-            save_trainable_checkpoint(
+            save_rgcn_checkpoint(
                 path,
                 method_name=result.model_config.method_name,
                 model=best_model,
@@ -164,16 +167,19 @@ def _write_method_artifacts(config: TrainStageConfig, result: object) -> JsonObj
                 training_config=result.training_config,
             )
         return {"epoch_checkpoint": str(epoch_checkpoint)}
-    if not isinstance(result, DenseFinetuneTrainingResult):
-        raise TypeError(f"Dense-ft training returned {type(result).__name__}.")
-    return {"model_metadata": str(result.metadata_path)}
+    if isinstance(config, DenseFinetuneTrainStageConfig):
+        if not isinstance(result, DenseFinetuneTrainingResult):
+            raise TypeError(f"Dense-FT training returned {type(result).__name__}.")
+        return {"model_metadata": str(result.metadata_path)}
+    assert_never(config)
 
 
-def _metric_records(result: object) -> list[dict[str, object]]:
-    records = getattr(result, "metric_records", None)
-    if not isinstance(records, (list, tuple)):
-        raise TypeError(f"Training result has invalid metric_records: {type(records).__name__}.")
-    return list(records)
+def _metric_records(result: TrainingResult) -> list[dict[str, object]]:
+    if isinstance(result, RgcnTrainingResult):
+        return list(result.metric_records)
+    if isinstance(result, DenseFinetuneTrainingResult):
+        return list(result.metric_records)
+    assert_never(result)
 
 
 def _input_paths(config: TrainStageConfig) -> JsonObject:
@@ -189,15 +195,20 @@ def _input_paths(config: TrainStageConfig) -> JsonObject:
         inputs["dev_graphs"] = str(config.io.dev_graphs)
         if config.io.train_labels is None:
             inputs.pop("train_labels")
+    elif isinstance(config, DenseFinetuneTrainStageConfig):
+        pass
+    else:
+        assert_never(config)
     return inputs
 
 
 def _output_paths(config: TrainStageConfig) -> JsonObject:
-    best_checkpoint = (
-        config.io.checkpoint_dir / "best.pt"
-        if isinstance(config, RgcnTrainStageConfig)
-        else config.io.model_dir
-    )
+    if isinstance(config, RgcnTrainStageConfig):
+        best_checkpoint = config.io.checkpoint_dir / "best.pt"
+    elif isinstance(config, DenseFinetuneTrainStageConfig):
+        best_checkpoint = config.io.model_dir
+    else:
+        assert_never(config)
     return {
         "best_checkpoint": str(best_checkpoint),
         "metrics": str(config.io.metrics),
@@ -205,28 +216,37 @@ def _output_paths(config: TrainStageConfig) -> JsonObject:
     }
 
 
-def _effective_config(config: TrainStageConfig, result: object) -> JsonObject:
+def _effective_config(config: TrainStageConfig, result: TrainingResult) -> JsonObject:
     effective: dict[str, JsonValue] = {
         "method": config.method.value,
-        "training_config_path": str(config.io.config) if config.io.config is not None else None,
     }
-    if isinstance(result, TrainableTrainingResult):
+    if isinstance(config, RgcnTrainStageConfig):
+        if not isinstance(result, RgcnTrainingResult):
+            raise TypeError(f"R-GCN training returned {type(result).__name__}.")
         effective["model_config"] = cast(JsonObject, result.model_config.to_json_dict())
         effective["training_config"] = cast(JsonObject, result.training_config.to_json_dict())
-    else:
+    elif isinstance(config, DenseFinetuneTrainStageConfig):
+        if not isinstance(result, DenseFinetuneTrainingResult):
+            raise TypeError(f"Dense-FT training returned {type(result).__name__}.")
         effective["job"] = cast(JsonObject, _json_ready(config.job))
+    else:
+        assert_never(config)
     return effective
 
 
-def _result_counts(payload: TrainPayload, result: object) -> JsonObject:
+def _result_counts(payload: TrainPayload, result: TrainingResult) -> JsonObject:
     counts: dict[str, JsonValue] = {
         "train_tasks": len(payload.train_task_inputs),
         "train_pairs": len(payload.train_pairs),
         "dev_tasks": len(payload.dev_task_inputs),
     }
-    if isinstance(result, TrainableTrainingResult):
+    if isinstance(result, RgcnTrainingResult):
         counts["epochs"] = result.training_config.epochs
         counts["global_step"] = result.global_step
+    elif isinstance(result, DenseFinetuneTrainingResult):
+        pass
+    else:
+        assert_never(result)
     return counts
 
 

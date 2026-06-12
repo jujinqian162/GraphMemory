@@ -342,7 +342,6 @@ Checkpoint files are PyTorch checkpoint dictionaries, not JSON artifacts. Their 
 Required top-level keys:
 
 ```text
-checkpoint_version
 method_name
 model_state_dict
 optimizer_state_dict
@@ -357,12 +356,18 @@ created_at
 
 Rules:
 
+- The checkpoint is current-only and contains no format version field.
+- Unknown top-level fields are rejected.
 - `model_config.feature_config` and `model_config.relation_vocab` are required for inference.
 - Loading must fail if checkpoint `method_name` does not match the requested retrieval method.
 - Loading must fail if config values needed to reconstruct dimensions are missing.
 - `best.pt` is used for retrieval inference.
 - Epoch checkpoints may be used for resume and debugging.
 - Checkpoint loading belongs in `graph_memory.models.graph_retriever.checkpoint` or trainable retrieval builders, not in generic artifact IO.
+
+Dense-FT writes a model directory whose metadata is validated by
+`DenseFinetuneModelMetadata`. That metadata is also current-only, contains no
+format version field, and is the source of encoder provenance during retrieval.
 
 ## Dev Evaluation During Training
 

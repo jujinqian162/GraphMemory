@@ -18,12 +18,13 @@ from graph_memory.validation.common import (
 )
 
 NODE_FEATURE_CONFIG_FIELDS = {"node_feature_names", "scorer_feature_names"}
-TRAINABLE_MODEL_CONFIG_FIELDS = {
+RGCN_MODEL_CONFIG_FIELDS = {
     "method_name",
     "encoder_model",
     "encoder_dim",
     "query_prefix",
     "passage_prefix",
+    "encoder_batch_size",
     "hidden_dim",
     "num_layers",
     "dropout",
@@ -35,7 +36,7 @@ TRAINABLE_MODEL_CONFIG_FIELDS = {
     "enabled_edge_types",
     "ablation_name",
 }
-TRAINABLE_TRAINING_CONFIG_FIELDS = {
+RGCN_TRAINING_CONFIG_FIELDS = {
     "optimizer_name",
     "learning_rate",
     "batch_size",
@@ -44,8 +45,7 @@ TRAINABLE_TRAINING_CONFIG_FIELDS = {
     "pos_weight_enabled",
     "epochs",
 }
-TRAINABLE_CHECKPOINT_FIELDS = {
-    "checkpoint_version",
+RGCN_CHECKPOINT_FIELDS = {
     "method_name",
     "model_state_dict",
     "optimizer_state_dict",
@@ -60,77 +60,75 @@ TRAINABLE_CHECKPOINT_FIELDS = {
 KNOWN_NODE_FEATURES = {"seed_score", "seed_rank_percentile", "is_question_node"}
 
 
-def validate_trainable_model_config(config: object) -> None:
+def validate_rgcn_model_config(config: object) -> None:
     config_dict = _to_plain_dict(config)
-    _reject_unknown_fields(config_dict, TRAINABLE_MODEL_CONFIG_FIELDS, "trainable model config")
-    _required_string(config_dict, "method_name", "trainable model config")
-    _required_string(config_dict, "encoder_model", "trainable model config")
-    _required_int(config_dict, "encoder_dim", "trainable model config", minimum=1)
-    _required_string(config_dict, "query_prefix", "trainable model config")
-    _required_string(config_dict, "passage_prefix", "trainable model config")
-    _required_int(config_dict, "hidden_dim", "trainable model config", minimum=1)
-    _required_int(config_dict, "num_layers", "trainable model config", minimum=0)
-    dropout = _required_finite_number(config_dict, "dropout", "trainable model config", minimum=0.0)
+    _reject_unknown_fields(config_dict, RGCN_MODEL_CONFIG_FIELDS, "R-GCN model config")
+    _required_string(config_dict, "method_name", "R-GCN model config")
+    _required_string(config_dict, "encoder_model", "R-GCN model config")
+    _required_int(config_dict, "encoder_dim", "R-GCN model config", minimum=1)
+    _required_string(config_dict, "query_prefix", "R-GCN model config")
+    _required_string(config_dict, "passage_prefix", "R-GCN model config")
+    _required_int(config_dict, "encoder_batch_size", "R-GCN model config", minimum=1)
+    _required_int(config_dict, "hidden_dim", "R-GCN model config", minimum=1)
+    _required_int(config_dict, "num_layers", "R-GCN model config", minimum=0)
+    dropout = _required_finite_number(config_dict, "dropout", "R-GCN model config", minimum=0.0)
     if dropout >= 1.0:
-        raise ContractValidationError("Invalid trainable model config: dropout must be < 1.0.")
+        raise ContractValidationError("Invalid R-GCN model config: dropout must be < 1.0.")
 
     _validate_node_feature_config(config_dict.get("feature_config"))
     _validate_string_sequence(config_dict.get("relation_vocab"), "relation_vocab", allow_empty=False)
-    graph_encoder_type = _required_string(config_dict, "graph_encoder_type", "trainable model config")
+    graph_encoder_type = _required_string(config_dict, "graph_encoder_type", "R-GCN model config")
     if graph_encoder_type not in {"identity", "rgcn"}:
-        raise ContractValidationError("Invalid trainable model config: graph_encoder_type must be identity or rgcn.")
-    message_transform_type = _required_string(config_dict, "message_transform_type", "trainable model config")
+        raise ContractValidationError("Invalid R-GCN model config: graph_encoder_type must be identity or rgcn.")
+    message_transform_type = _required_string(config_dict, "message_transform_type", "R-GCN model config")
     if message_transform_type not in {"typed", "shared"}:
-        raise ContractValidationError("Invalid trainable model config: message_transform_type must be typed or shared.")
-    edge_weight_policy = _required_string(config_dict, "edge_weight_policy", "trainable model config")
+        raise ContractValidationError("Invalid R-GCN model config: message_transform_type must be typed or shared.")
+    edge_weight_policy = _required_string(config_dict, "edge_weight_policy", "R-GCN model config")
     if edge_weight_policy not in {"artifact", "uniform"}:
-        raise ContractValidationError("Invalid trainable model config: edge_weight_policy must be artifact or uniform.")
+        raise ContractValidationError("Invalid R-GCN model config: edge_weight_policy must be artifact or uniform.")
     enabled_edge_types = set(_validate_string_sequence(config_dict.get("enabled_edge_types"), "enabled_edge_types", allow_empty=True))
     unknown_edge_types = sorted(enabled_edge_types - ALLOWED_EDGE_TYPES)
     if unknown_edge_types:
         raise ContractValidationError(
-            f"Invalid trainable model config: unsupported enabled_edge_types={unknown_edge_types}."
+            f"Invalid R-GCN model config: unsupported enabled_edge_types={unknown_edge_types}."
         )
-    _required_string(config_dict, "ablation_name", "trainable model config")
+    _required_string(config_dict, "ablation_name", "R-GCN model config")
 
 
-def validate_trainable_training_config(config: object) -> None:
+def validate_rgcn_training_config(config: object) -> None:
     config_dict = _to_plain_dict(config)
-    _reject_unknown_fields(config_dict, TRAINABLE_TRAINING_CONFIG_FIELDS, "trainable training config")
-    if _required_string(config_dict, "optimizer_name", "trainable training config") != "AdamW":
-        raise ContractValidationError("Invalid trainable training config: optimizer_name must be AdamW.")
-    _required_finite_number(config_dict, "learning_rate", "trainable training config", minimum=0.0)
-    _required_int(config_dict, "batch_size", "trainable training config", minimum=1)
-    _required_finite_number(config_dict, "max_grad_norm", "trainable training config", minimum=0.0)
-    _required_int(config_dict, "random_seed", "trainable training config")
+    _reject_unknown_fields(config_dict, RGCN_TRAINING_CONFIG_FIELDS, "R-GCN training config")
+    if _required_string(config_dict, "optimizer_name", "R-GCN training config") != "AdamW":
+        raise ContractValidationError("Invalid R-GCN training config: optimizer_name must be AdamW.")
+    _required_finite_number(config_dict, "learning_rate", "R-GCN training config", minimum=0.0)
+    _required_int(config_dict, "batch_size", "R-GCN training config", minimum=1)
+    _required_finite_number(config_dict, "max_grad_norm", "R-GCN training config", minimum=0.0)
+    _required_int(config_dict, "random_seed", "R-GCN training config")
     if not isinstance(config_dict.get("pos_weight_enabled"), bool):
-        raise ContractValidationError("Invalid trainable training config: pos_weight_enabled must be boolean.")
-    _required_int(config_dict, "epochs", "trainable training config", minimum=1)
+        raise ContractValidationError("Invalid R-GCN training config: pos_weight_enabled must be boolean.")
+    _required_int(config_dict, "epochs", "R-GCN training config", minimum=1)
 
 
-def validate_trainable_checkpoint_metadata(checkpoint: object, *, expected_method: str | None = None) -> None:
-    checkpoint = _require_record(checkpoint, "trainable checkpoint")
-    _reject_unknown_fields(checkpoint, TRAINABLE_CHECKPOINT_FIELDS, "trainable checkpoint")
-    version = _required_int(checkpoint, "checkpoint_version", "trainable checkpoint", minimum=1)
-    if version != 1:
-        raise ContractValidationError(f"Invalid trainable checkpoint: unsupported checkpoint_version={version}.")
-    method_name = _required_string(checkpoint, "method_name", "trainable checkpoint")
+def validate_rgcn_checkpoint_metadata(checkpoint: object, *, expected_method: str | None = None) -> None:
+    checkpoint = _require_record(checkpoint, "R-GCN checkpoint")
+    _reject_unknown_fields(checkpoint, RGCN_CHECKPOINT_FIELDS, "R-GCN checkpoint")
+    method_name = _required_string(checkpoint, "method_name", "R-GCN checkpoint")
     if expected_method is not None and method_name != expected_method:
         raise ContractValidationError(
-            f"Invalid trainable checkpoint: method_name={method_name} does not match expected_method={expected_method}."
+            f"Invalid R-GCN checkpoint: method_name={method_name} does not match expected_method={expected_method}."
         )
     if not isinstance(checkpoint.get("model_state_dict"), dict):
-        raise ContractValidationError("Invalid trainable checkpoint: model_state_dict must be present.")
+        raise ContractValidationError("Invalid R-GCN checkpoint: model_state_dict must be present.")
     if not isinstance(checkpoint.get("optimizer_state_dict"), dict):
-        raise ContractValidationError("Invalid trainable checkpoint: optimizer_state_dict must be present.")
+        raise ContractValidationError("Invalid R-GCN checkpoint: optimizer_state_dict must be present.")
     if not isinstance(checkpoint.get("scheduler_state_dict"), dict):
-        raise ContractValidationError("Invalid trainable checkpoint: scheduler_state_dict must be present.")
-    _required_int(checkpoint, "epoch", "trainable checkpoint", minimum=0)
-    _required_int(checkpoint, "global_step", "trainable checkpoint", minimum=0)
-    _required_finite_number(checkpoint, "best_dev_metric", "trainable checkpoint")
-    validate_trainable_model_config(checkpoint.get("model_config"))
-    validate_trainable_training_config(checkpoint.get("training_config"))
-    _required_string(checkpoint, "created_at", "trainable checkpoint")
+        raise ContractValidationError("Invalid R-GCN checkpoint: scheduler_state_dict must be present.")
+    _required_int(checkpoint, "epoch", "R-GCN checkpoint", minimum=0)
+    _required_int(checkpoint, "global_step", "R-GCN checkpoint", minimum=0)
+    _required_finite_number(checkpoint, "best_dev_metric", "R-GCN checkpoint")
+    validate_rgcn_model_config(checkpoint.get("model_config"))
+    validate_rgcn_training_config(checkpoint.get("training_config"))
+    _required_string(checkpoint, "created_at", "R-GCN checkpoint")
 
 
 def validate_graph_batch(batch: object) -> None:
@@ -246,8 +244,8 @@ def _validate_node_feature_config(value: object) -> None:
 __all__ = [
     "validate_graph_batch",
     "validate_graph_rerank_config",
-    "validate_trainable_checkpoint_metadata",
-    "validate_trainable_model_config",
-    "validate_trainable_training_config",
+    "validate_rgcn_checkpoint_metadata",
+    "validate_rgcn_model_config",
+    "validate_rgcn_training_config",
     "validate_training_batch",
 ]

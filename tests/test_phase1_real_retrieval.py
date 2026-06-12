@@ -3,13 +3,24 @@ import pytest
 import graph_memory.retrieval.methods.graph_rerank.engine as rerank_module
 import graph_memory.retrieval as retrieval_module
 from dataclasses import asdict, fields
+from pathlib import Path
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
-from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
+from graph_memory.registry.methods import EncoderSource, GraphConfigSource, GraphInputSource, ModelSource, RetrievalLifecycle
+from graph_memory.registry.retrieval import (
+    Bm25RetrievalSettings,
+    DenseEncoderSettings,
+    DenseRetrievalSettings,
+    GraphRerankRetrievalSettings,
+    GraphRerankSettings,
+    RetrievalMethodId,
+    SeedRetrievalSettings,
+)
+from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
 from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.retrieval.methods.graph_rerank.components import neighbor_propagation_scores
 from graph_memory.retrieval.methods.graph_rerank.engine import rank_graph_from_initial_scores
@@ -18,12 +29,6 @@ from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
-from graph_memory.retrieval_registry import (
-    METHOD_REGISTRY,
-    get_graph_rerank_methods,
-    get_methods_requiring_dense_encoder,
-    get_supported_methods,
-)
 from graph_memory.retrieval.methods.graph_rerank.config import (
     GraphRerankConfig,
     TuningCandidateRow,
@@ -83,27 +88,68 @@ def run_retrieval(
     dense_encoder=None,
     graph_config=None,
 ):
-    argv = [
-        "--method",
-        method,
-        "--tasks",
-        "memory_tasks.input.json",
-        "--output",
-        "ranked.json",
-        "--top_k",
-        str(top_k),
-        "--encoder_model",
-        encoder_model,
-        "--query_prefix",
-        query_prefix,
-        "--passage_prefix",
-        passage_prefix,
-    ]
-    if graphs is not None:
-        argv.extend(["--graphs", "graphs.json"])
-    if graph_config is not None:
-        argv.extend(["--graph_config", "graph_config.json"])
-    config = CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
+    encoder = DenseEncoderSettings(
+        model_name=encoder_model,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
+    )
+    method_id = RetrievalMethodId(method)
+    if method_id is RetrievalMethodId.BM25:
+        job = Bm25RetrievalSettings(top_k=top_k)
+    elif method_id is RetrievalMethodId.DENSE:
+        job = DenseRetrievalSettings(top_k=top_k, encoder=encoder)
+    elif method_id is RetrievalMethodId.BM25_GRAPH_RERANK:
+        rerank = ensure_graph_rerank_config(graph_config) if graph_config is not None else GraphRerankConfig()
+        job = GraphRerankRetrievalSettings(
+            method=method_id,
+            top_k=top_k,
+            seed=SeedRetrievalSettings(
+                method=RetrievalMethodId.BM25,
+                encoder=None,
+            ),
+            rerank=GraphRerankSettings(
+                lambda_init=rerank.lambda_init,
+                lambda_query=rerank.lambda_query,
+                lambda_neighbor=rerank.lambda_neighbor,
+                lambda_bridge=rerank.lambda_bridge,
+                lambda_path=rerank.lambda_path,
+                seed_top_s=rerank.seed_top_s,
+                max_hops=rerank.max_hops,
+                neighbor_type_weights=dict(rerank.neighbor_type_weights),
+            ),
+        )
+    elif method_id is RetrievalMethodId.DENSE_GRAPH_RERANK:
+        rerank = ensure_graph_rerank_config(graph_config) if graph_config is not None else GraphRerankConfig()
+        job = GraphRerankRetrievalSettings(
+            method=method_id,
+            top_k=top_k,
+            seed=SeedRetrievalSettings(
+                method=RetrievalMethodId.DENSE,
+                encoder=encoder,
+            ),
+            rerank=GraphRerankSettings(
+                lambda_init=rerank.lambda_init,
+                lambda_query=rerank.lambda_query,
+                lambda_neighbor=rerank.lambda_neighbor,
+                lambda_bridge=rerank.lambda_bridge,
+                lambda_path=rerank.lambda_path,
+                seed_top_s=rerank.seed_top_s,
+                max_hops=rerank.max_hops,
+                neighbor_type_weights=dict(rerank.neighbor_type_weights),
+            ),
+        )
+    else:
+        raise ValueError(f"Unsupported test method: {method}")
+    config = RetrieveStageConfig(
+        io=RetrieveIO(
+            tasks=Path("memory_tasks.input.json"),
+            graphs=None if graphs is None else Path("graphs.json"),
+            output=Path("ranked.json"),
+            summary=Path("ranked.run_summary.json"),
+            graph_config=None if graph_config is None else Path("graph_config.json"),
+        ),
+        job=job,
+    )
     result = run_retrieve_stage(
         config,
         task_inputs=task_inputs,
@@ -218,26 +264,19 @@ def retrieval_graphs() -> list[MemoryGraph]:
 
 
 def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
-    supported_methods = get_supported_methods()
-    parser_method_action = next(
-        action for action in Registry.configs.RETRIEVE.parser_factory()._actions if action.dest == "method"
-    )
+    supported_methods = tuple(method.value for method in Registry.methods.list_ids())
 
-    assert supported_methods == tuple(METHOD_REGISTRY)
-    assert get_graph_rerank_methods() == ("bm25_graph_rerank", "dense_graph_rerank")
-    assert get_methods_requiring_dense_encoder() == (
-        "dense",
-        "dense_graph_rerank",
-        "dense_rgcn_graph_retriever",
-        "dense_ft",
-    )
-    assert parser_method_action.choices is not None
-    assert tuple(parser_method_action.choices) == supported_methods
-    assert METHOD_REGISTRY["bm25"].requires_graphs is False
-    assert METHOD_REGISTRY["dense"].requires_graph_config is False
-    assert METHOD_REGISTRY["bm25_graph_rerank"].requires_graphs is True
-    assert METHOD_REGISTRY["dense_graph_rerank"].seed_method == "dense"
-    assert METHOD_REGISTRY["dense_rgcn_graph_retriever"].requires_checkpoint is True
+    assert supported_methods == tuple(method.value for method in RetrievalMethodId)
+    assert tuple(
+        method.value
+        for method in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
+    ) == ("bm25_graph_rerank", "dense_graph_rerank")
+    assert Registry.methods.get("bm25").dependencies.graphs is GraphInputSource.NONE
+    assert Registry.methods.get("dense").dependencies.graph_config is GraphConfigSource.NONE
+    assert Registry.methods.get("dense").dependencies.encoder is EncoderSource.EXPERIMENT_CONFIG
+    assert Registry.methods.get("bm25_graph_rerank").dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
+    assert Registry.methods.get("dense_graph_rerank").seed_method is RetrievalMethodId.DENSE
+    assert Registry.methods.get("dense_rgcn_graph_retriever").dependencies.model is ModelSource.CHECKPOINT_FILE
     assert not hasattr(retrieval_module, "METHOD_REGISTRY")
     assert not hasattr(retrieval_module, "get_supported_methods")
     assert not hasattr(retrieval_module, "get_graph_rerank_methods")

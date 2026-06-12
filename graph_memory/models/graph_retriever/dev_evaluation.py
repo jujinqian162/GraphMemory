@@ -12,7 +12,7 @@ from graph_memory.contracts.ranking import RankedResult
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import build_full_ranking_batches, move_training_batch
-from graph_memory.models.graph_retriever.config.records import TrainableModelConfig
+from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
 from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
@@ -26,7 +26,7 @@ def predict_dev(
     task_inputs: list[MemoryTaskInput],
     labels: list[MemoryTaskLabels],
     graphs: list[MemoryGraph],
-    model_config: TrainableModelConfig,
+    model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
@@ -58,7 +58,7 @@ def predict_dev_from_batches(
     task_inputs: list[MemoryTaskInput],
     labels: list[MemoryTaskLabels],
     graphs: list[MemoryGraph],
-    model_config: TrainableModelConfig,
+    model_config: RgcnModelConfig,
     batches: Sequence[TrainingBatch],
     device: torch.device,
 ) -> tuple[list[RankedResult], float]:

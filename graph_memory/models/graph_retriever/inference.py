@@ -8,8 +8,8 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import build_full_ranking_batches, move_training_batch
-from graph_memory.models.graph_retriever.checkpoint import load_trainable_checkpoint
-from graph_memory.models.graph_retriever.config.records import TrainableModelConfig
+from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
+from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import GraphScoringModelFactory
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace
@@ -41,7 +41,7 @@ class GraphRetrieverInference:
 
     name: str
     model: torch.nn.Module
-    model_config: TrainableModelConfig
+    model_config: RgcnModelConfig
     graph_by_task_id: dict[str, MemoryGraph]
     text_embedding_provider: TextEmbeddingProvider
     seed_signal_provider: SeedSignalProvider
@@ -103,7 +103,7 @@ class CheckpointGraphRetrieverLoader:
         从 `best.pt` 加载可训练图检索推理 runtime。
         """
 
-        checkpoint = load_trainable_checkpoint(
+        checkpoint = load_rgcn_checkpoint(
             checkpoint_path,
             expected_method="dense_rgcn_graph_retriever",
             map_location=device,

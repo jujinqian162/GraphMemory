@@ -6,36 +6,40 @@ import pytest
 import torch
 
 from graph_memory.models.graph_retriever.batching import build_training_batches
-from graph_memory.models.graph_retriever.checkpoint import load_trainable_checkpoint, save_trainable_checkpoint
+from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint, save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.internals.features import (
     NodeFeatureBuilder,
 )
 from graph_memory.models.graph_retriever.training import (
-    TrainableTrainingResult,
+    RgcnTrainingResult,
     train_graph_retriever,
 )
 from graph_memory.config import CONFIG_LOADER
+from graph_memory.io import write_json
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
-    TrainableModelConfig,
-    TrainableTrainingConfig,
+    RgcnModelConfig,
+    RgcnTrainingConfig,
 )
 from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
 from graph_memory.registry import Registry
+from graph_memory.registry.method_configs import RgcnMethodSettings, RgcnModelSettings, RgcnTrainerSettings
+from graph_memory.registry.retrieval import DenseEncoderSettings, RetrievalMethodId
+from graph_memory.registry.stage_configs import RgcnTrainIO, RgcnTrainStageConfig
 from graph_memory.registry.training import RgcnTrainPayload, TrainDependencies
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.stages.train import run_train_stage
 from graph_memory.validation import (
     ContractValidationError,
     validate_graph_batch,
-    validate_trainable_checkpoint_metadata,
-    validate_trainable_model_config,
+    validate_rgcn_checkpoint_metadata,
+    validate_rgcn_model_config,
     validate_training_batch,
 )
 import scripts.train_method as train_method_script
@@ -137,13 +141,14 @@ def tiny_pairs() -> list[TrainPairRecord]:
     ]
 
 
-def tiny_model_config() -> TrainableModelConfig:
-    return TrainableModelConfig(
+def tiny_model_config() -> RgcnModelConfig:
+    return RgcnModelConfig(
         method_name="dense_rgcn_graph_retriever",
         encoder_model="fake-encoder",
         encoder_dim=4,
         query_prefix="query: ",
         passage_prefix="passage: ",
+        encoder_batch_size=64,
         hidden_dim=8,
         num_layers=1,
         dropout=0.0,
@@ -165,8 +170,8 @@ def tiny_model_config() -> TrainableModelConfig:
     )
 
 
-def tiny_training_config() -> TrainableTrainingConfig:
-    return TrainableTrainingConfig(
+def tiny_training_config() -> RgcnTrainingConfig:
+    return RgcnTrainingConfig(
         optimizer_name="AdamW",
         learning_rate=0.01,
         batch_size=1,
@@ -175,6 +180,66 @@ def tiny_training_config() -> TrainableTrainingConfig:
         pos_weight_enabled=False,
         epochs=2,
     )
+
+
+def make_rgcn_train_stage_config(
+    *,
+    train_tasks_path: Path = Path("train.input.json"),
+    train_labels_path: Path | None = Path("train.labels.json"),
+    train_graphs_path: Path = Path("train.graphs.json"),
+    train_pairs_path: Path = Path("train.pairs.json"),
+    dev_tasks_path: Path = Path("dev.input.json"),
+    dev_labels_path: Path = Path("dev.labels.json"),
+    dev_graphs_path: Path = Path("dev.graphs.json"),
+    output_dir: Path = Path("rgcn_run"),
+    hidden_dim: int = 8,
+    num_layers: int = 1,
+    dropout: float = 0.0,
+    epochs: int = 1,
+    batch_size: int = 1,
+    learning_rate: float = 0.01,
+    device: str = "cpu",
+) -> RgcnTrainStageConfig:
+    return RgcnTrainStageConfig(
+        method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        io=RgcnTrainIO(
+            train_tasks=train_tasks_path,
+            train_labels=train_labels_path,
+            train_graphs=train_graphs_path,
+            train_pairs=train_pairs_path,
+            dev_tasks=dev_tasks_path,
+            dev_labels=dev_labels_path,
+            dev_graphs=dev_graphs_path,
+            output_dir=output_dir,
+            checkpoint_dir=output_dir / "checkpoints",
+            metrics=output_dir / "train_metrics.jsonl",
+            run_summary=output_dir / "train_run_summary.json",
+        ),
+        job=RgcnMethodSettings(
+            encoder=DenseEncoderSettings(
+                model_name="fake-encoder",
+                query_prefix="query: ",
+                passage_prefix="passage: ",
+                batch_size=64,
+            ),
+            model=RgcnModelSettings(
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                dropout=dropout,
+                ablation="full_rgcn",
+            ),
+            trainer=RgcnTrainerSettings(
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate,
+                device=device,
+            ),
+        ),
+    )
+
+
+def write_rgcn_train_stage_config(path: Path, config: RgcnTrainStageConfig) -> None:
+    write_json(path, CONFIG_LOADER.to_json(config))
 
 
 def test_seed_signal_provider_and_feature_builder_share_rank_semantics():
@@ -211,12 +276,12 @@ def test_seed_signal_provider_and_feature_builder_share_rank_semantics():
 
 def test_model_and_checkpoint_config_validation_reject_missing_dimension():
     valid_config = tiny_model_config()
-    validate_trainable_model_config(valid_config)
+    validate_rgcn_model_config(valid_config)
 
     invalid = json.loads(json.dumps(valid_config.to_json_dict()))
     invalid.pop("encoder_dim")
     with pytest.raises(ContractValidationError, match="encoder_dim"):
-        validate_trainable_model_config(invalid)
+        validate_rgcn_model_config(invalid)
 
 
 def test_build_training_batches_uses_dataclasses_not_raw_artifact_dicts():
@@ -244,10 +309,10 @@ def test_build_training_batches_uses_dataclasses_not_raw_artifact_dicts():
 def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path):
     checkpoint_dir = tmp_path / "checkpoints"
 
-    def checkpoint_callback(result: TrainableTrainingResult) -> None:
+    def checkpoint_callback(result: RgcnTrainingResult) -> None:
         model = build_model_from_config(result.model_config)
         model.load_state_dict(result.best_model_state_dict)
-        save_trainable_checkpoint(
+        save_rgcn_checkpoint(
             checkpoint_dir / "best.pt",
             method_name=result.model_config.method_name,
             model=model,
@@ -283,11 +348,11 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
     assert "hard_graph_neighbor" in negative_counts
     assert (checkpoint_dir / "best.pt").exists()
 
-    checkpoint = load_trainable_checkpoint(
+    checkpoint = load_rgcn_checkpoint(
         checkpoint_dir / "best.pt",
         expected_method="dense_rgcn_graph_retriever",
     )
-    validate_trainable_checkpoint_metadata(checkpoint.payload)
+    validate_rgcn_checkpoint_metadata(checkpoint.payload)
     assert checkpoint.model_config == tiny_model_config()
 
 
@@ -300,6 +365,7 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_pa
     dev_labels_path = tmp_path / "dev.labels.json"
     dev_graphs_path = tmp_path / "dev.graphs.json"
     output_dir = tmp_path / "rgcn_run"
+    config_path = tmp_path / "rgcn_train_stage_config.json"
     train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -307,39 +373,29 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_pa
     dev_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     dev_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     dev_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
+    write_rgcn_train_stage_config(
+        config_path,
+        make_rgcn_train_stage_config(
+            train_tasks_path=train_tasks_path,
+            train_labels_path=train_labels_path,
+            train_graphs_path=train_graphs_path,
+            train_pairs_path=train_pairs_path,
+            dev_tasks_path=dev_tasks_path,
+            dev_labels_path=dev_labels_path,
+            dev_graphs_path=dev_graphs_path,
+            output_dir=output_dir,
+            hidden_dim=8,
+            num_layers=1,
+            dropout=0.0,
+            epochs=1,
+            learning_rate=0.01,
+        ),
+    )
 
     exit_code = train_method_main(
         [
-            "--method",
-            "dense_rgcn_graph_retriever",
-            "--train_tasks",
-            str(train_tasks_path),
-            "--train_labels",
-            str(train_labels_path),
-            "--train_graphs",
-            str(train_graphs_path),
-            "--train_pairs",
-            str(train_pairs_path),
-            "--dev_tasks",
-            str(dev_tasks_path),
-            "--dev_labels",
-            str(dev_labels_path),
-            "--dev_graphs",
-            str(dev_graphs_path),
-            "--output_dir",
-            str(output_dir),
-            "--encoder_model",
-            "fake-encoder",
-            "--hidden_dim",
-            "8",
-            "--num_layers",
-            "1",
-            "--dropout",
-            "0.0",
-            "--epochs",
-            "1",
-            "--learning_rate",
-            "0.01",
+            "--config",
+            str(config_path),
         ],
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
@@ -363,7 +419,7 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
     dev_labels_path = tmp_path / "dev.labels.json"
     dev_graphs_path = tmp_path / "dev.graphs.json"
     output_dir = tmp_path / "rgcn_run"
-    config_path = tmp_path / "effective_training_config.json"
+    config_path = tmp_path / "rgcn_train_stage_config.json"
     train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -371,65 +427,29 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
     dev_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     dev_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     dev_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "method": "dense_rgcn_graph_retriever",
-                "profile": "quick",
-                "encoder": {
-                    "model": "fake-encoder",
-                    "query_prefix": "query: ",
-                    "passage_prefix": "passage: ",
-                },
-                "model": {
-                    "hidden_dim": 8,
-                    "num_layers": 1,
-                    "dropout": 0.0,
-                    "ablation": "full_rgcn",
-                },
-                "optimization": {
-                    "optimizer": "AdamW",
-                    "epochs": 1,
-                    "batch_size": 1,
-                    "learning_rate": 0.01,
-                    "max_grad_norm": 1.0,
-                    "random_seed": 13,
-                    "pos_weight": False,
-                    "device": "cpu",
-                },
-                "pair_sampling": {
-                    "random_seed": 13,
-                    "easy_random_per_positive": 1,
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 0,
-                    "hard_graph_neighbor_per_positive": 1,
-                    "hard_pool_size": 10,
-                },
-            }
+    write_rgcn_train_stage_config(
+        config_path,
+        make_rgcn_train_stage_config(
+            train_tasks_path=train_tasks_path,
+            train_labels_path=train_labels_path,
+            train_graphs_path=train_graphs_path,
+            train_pairs_path=train_pairs_path,
+            dev_tasks_path=dev_tasks_path,
+            dev_labels_path=dev_labels_path,
+            dev_graphs_path=dev_graphs_path,
+            output_dir=output_dir,
+            hidden_dim=8,
+            num_layers=1,
+            dropout=0.0,
+            epochs=1,
+            batch_size=1,
+            learning_rate=0.01,
+            device="cpu",
         ),
-        encoding="utf-8",
     )
 
     exit_code = train_method_main(
         [
-            "--method",
-            "dense_rgcn_graph_retriever",
-            "--train_tasks",
-            str(train_tasks_path),
-            "--train_labels",
-            str(train_labels_path),
-            "--train_graphs",
-            str(train_graphs_path),
-            "--train_pairs",
-            str(train_pairs_path),
-            "--dev_tasks",
-            str(dev_tasks_path),
-            "--dev_labels",
-            str(dev_labels_path),
-            "--dev_graphs",
-            str(dev_graphs_path),
-            "--output_dir",
-            str(output_dir),
             "--config",
             str(config_path),
         ],
@@ -445,7 +465,7 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
     assert run_summary["effective_config"]["training_config"]["epochs"] == 1
 
 
-def test_train_graph_retriever_cli_overrides_training_config_without_clobbering_file_values(tmp_path: Path):
+def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: Path):
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_graphs_path = tmp_path / "train.graphs.json"
@@ -454,7 +474,7 @@ def test_train_graph_retriever_cli_overrides_training_config_without_clobbering_
     dev_labels_path = tmp_path / "dev.labels.json"
     dev_graphs_path = tmp_path / "dev.graphs.json"
     output_dir = tmp_path / "rgcn_run"
-    config_path = tmp_path / "effective_training_config.json"
+    config_path = tmp_path / "rgcn_train_stage_config.json"
     train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -462,71 +482,31 @@ def test_train_graph_retriever_cli_overrides_training_config_without_clobbering_
     dev_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     dev_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     dev_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "method": "dense_rgcn_graph_retriever",
-                "profile": "quick",
-                "encoder": {
-                    "model": "fake-encoder",
-                    "query_prefix": "query: ",
-                    "passage_prefix": "passage: ",
-                },
-                "model": {
-                    "hidden_dim": 8,
-                    "num_layers": 1,
-                    "dropout": 0.0,
-                    "ablation": "full_rgcn",
-                },
-                "optimization": {
-                    "optimizer": "AdamW",
-                    "epochs": 3,
-                    "batch_size": 1,
-                    "learning_rate": 0.01,
-                    "max_grad_norm": 1.0,
-                    "random_seed": 13,
-                    "pos_weight": False,
-                    "device": "cuda",
-                },
-                "pair_sampling": {
-                    "random_seed": 13,
-                    "easy_random_per_positive": 1,
-                    "hard_bm25_per_positive": 0,
-                    "hard_dense_per_positive": 0,
-                    "hard_graph_neighbor_per_positive": 1,
-                    "hard_pool_size": 10,
-                },
-            }
+    write_rgcn_train_stage_config(
+        config_path,
+        make_rgcn_train_stage_config(
+            train_tasks_path=train_tasks_path,
+            train_labels_path=train_labels_path,
+            train_graphs_path=train_graphs_path,
+            train_pairs_path=train_pairs_path,
+            dev_tasks_path=dev_tasks_path,
+            dev_labels_path=dev_labels_path,
+            dev_graphs_path=dev_graphs_path,
+            output_dir=output_dir,
+            hidden_dim=8,
+            num_layers=1,
+            dropout=0.0,
+            epochs=1,
+            batch_size=1,
+            learning_rate=0.01,
+            device="cpu",
         ),
-        encoding="utf-8",
     )
 
     exit_code = train_method_main(
         [
-            "--method",
-            "dense_rgcn_graph_retriever",
-            "--train_tasks",
-            str(train_tasks_path),
-            "--train_labels",
-            str(train_labels_path),
-            "--train_graphs",
-            str(train_graphs_path),
-            "--train_pairs",
-            str(train_pairs_path),
-            "--dev_tasks",
-            str(dev_tasks_path),
-            "--dev_labels",
-            str(dev_labels_path),
-            "--dev_graphs",
-            str(dev_graphs_path),
-            "--output_dir",
-            str(output_dir),
             "--config",
             str(config_path),
-            "--epochs",
-            "1",
-            "--device",
-            "cpu",
         ],
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
@@ -540,31 +520,7 @@ def test_train_graph_retriever_cli_overrides_training_config_without_clobbering_
 
 
 def test_training_registry_builds_trainer_from_settings_type() -> None:
-    config = CONFIG_LOADER.load(
-        Registry.configs.TRAIN,
-        [
-            "--method",
-            "dense_rgcn_graph_retriever",
-            "--train_tasks",
-            "train.input.json",
-            "--train_labels",
-            "train.labels.json",
-            "--train_graphs",
-            "train.graphs.json",
-            "--train_pairs",
-            "train.pairs.json",
-            "--dev_tasks",
-            "dev.input.json",
-            "--dev_labels",
-            "dev.labels.json",
-            "--dev_graphs",
-            "dev.graphs.json",
-            "--output_dir",
-            "rgcn_run",
-            "--encoder_model",
-            "fake-encoder",
-        ],
-    )
+    config = make_rgcn_train_stage_config()
 
     trainer = Registry.training.build(config.job)
 
@@ -572,31 +528,7 @@ def test_training_registry_builds_trainer_from_settings_type() -> None:
 
 
 def test_train_stage_uses_train_labels_for_pair_validation() -> None:
-    config = CONFIG_LOADER.load(
-        Registry.configs.TRAIN,
-        [
-            "--method",
-            "dense_rgcn_graph_retriever",
-            "--train_tasks",
-            "train.input.json",
-            "--train_labels",
-            "train.labels.json",
-            "--train_graphs",
-            "train.graphs.json",
-            "--train_pairs",
-            "train.pairs.json",
-            "--dev_tasks",
-            "dev.input.json",
-            "--dev_labels",
-            "dev.labels.json",
-            "--dev_graphs",
-            "dev.graphs.json",
-            "--output_dir",
-            "rgcn_run",
-            "--encoder_model",
-            "fake-encoder",
-        ],
-    )
+    config = make_rgcn_train_stage_config()
     mismatched_labels: list[MemoryTaskLabels] = [
         {
             "task_id": "hotpot_rgcn_train",
@@ -631,7 +563,7 @@ def test_train_stage_runner_and_script_use_registry_boundary() -> None:
 
     assert "Registry.training.build(" in stage_source
     assert "train_graph_retriever" not in stage_source
-    assert "Rgcn" not in stage_source
+    assert "assert_never(config)" in stage_source
     assert "dense_rgcn_graph_retriever" not in stage_source
     assert "CONFIG_LOADER.load(Registry.configs.TRAIN" in script_source
     assert "run_train_stage(config, payload=payload)" in script_source

@@ -2,26 +2,34 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+import shutil
 from typing import Any
 
+from graph_memory.config import CONFIG_LOADER
+from graph_memory.config.converter import ConfigConverter
+from graph_memory.config.patches import deep_merge_patch
 from graph_memory.io import merge_config, read_json, write_json
 from graph_memory.observability import now_iso
-from graph_memory.retrieval_registry import get_method_spec, get_supported_methods
-from graph_memory.registry.training import training_config_required_sections
-from graph_memory.training_config import load_trainable_training_config
+from graph_memory.registry import Registry
+from graph_memory.registry.method_configs import TrainableMethodConfig
 from scripts.workflow.artifacts import build_main_method_artifacts, build_variant_artifact_namespace
+from scripts.workflow.contracts import validate_current_manifest
 from scripts.workflow.registry import (
     ABLATION_SUITE_REGISTRY,
     get_ablation_suite,
     get_variant_spec,
 )
-from scripts.workflow.stage_configs import attach_stage_config_projections
+from scripts.workflow.stage_configs import (
+    load_trainable_method_configs,
+    write_main_stage_configs,
+    write_variant_stage_configs,
+)
 from scripts.workflow.types import ArtifactRole, ConfigEntry, StageId, VariantArtifactNamespace, VariantSpec
 
 CONFIG_ROOT = Path("configs")
 EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
 SEARCH_SPACE_CONFIG_DIR = CONFIG_ROOT / "search_spaces"
-TRAINING_CONFIG_DIR = CONFIG_ROOT / "training"
+METHOD_CONFIG_DIR = CONFIG_ROOT / "methods"
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
 DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
 STAGE_DESCRIPTIONS = {
@@ -41,6 +49,7 @@ def load_experiment_config(path: str | Path | None = None) -> dict[str, Any]:
     config = read_json(config_path)
     if not isinstance(config, dict):
         raise ValueError(f"Experiment config must be a JSON object: {config_path}")
+    _reject_retired_experiment_config_fields(config)
     return config
 
 
@@ -55,23 +64,11 @@ def resolve_experiment_config_path(path: str | Path | None = None) -> Path:
     return EXPERIMENT_CONFIG_DIR / f"{config_name}.json"
 
 
-def resolve_training_config_path(method: str, path: str | Path) -> Path:
-    value = str(path)
-    candidate = Path(value)
-    if candidate.exists():
-        return candidate
-    normalized = value.replace("\\", "/")
-    parts = [part for part in normalized.split("/") if part]
-    if len(parts) == 1 and candidate.suffix == ".json":
-        return TRAINING_CONFIG_DIR / method / candidate.name
-    if len(parts) == 2 and parts[0] in get_supported_methods():
-        method_name, config_name = parts
-        name = Path(config_name).stem if Path(config_name).suffix == ".json" else config_name
-        return TRAINING_CONFIG_DIR / method_name / f"{name}.json"
-    if _looks_like_explicit_training_path(value):
-        return candidate
-    config_name = candidate.stem if candidate.suffix == ".json" else value
-    return TRAINING_CONFIG_DIR / method / f"{config_name}.json"
+def resolve_method_config_path(path: str | Path) -> Path:
+    config_path = Path(path)
+    if not config_path.is_file():
+        raise ValueError(f"Method config does not exist: {config_path}")
+    return config_path
 
 
 def initialize_experiment(
@@ -85,30 +82,35 @@ def initialize_experiment(
     cli_overrides: dict[str, Any] | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Initialize a schema-v2 workflow manifest with optional ablation units."""
+    """Initialize the current workflow manifest with optional ablation units."""
 
     from scripts.workflow.planner import _select_stages, _validate_methods
 
     run_dir = Path(run_root) / experiment_name
     manifest_path = run_dir / "manifest.json"
+    _reject_retired_experiment_config_fields(config)
     enabled = _ablation_enabled(config)
     if manifest_path.exists() and not force:
         existing = read_json(manifest_path)
         if not isinstance(existing, dict):
             raise ValueError(f"Existing manifest must be a JSON object: {manifest_path}")
-        if existing.get("schema_version", 1) == 1 and enabled:
-            raise ValueError("Schema-version-1 manifest cannot enable ablation in place; reinitialize with force=True.")
+        validate_current_manifest(existing)
         _reject_config_change(existing, config=config, profile=profile, methods=methods, cli_overrides=cli_overrides)
         return existing
+    if force and run_dir.exists():
+        shutil.rmtree(run_dir)
 
     effective_config = build_effective_config(config, profile=profile, cli_overrides=cli_overrides)
     selected_methods = list(methods) if methods is not None else list(effective_config["methods"])
     _validate_methods(selected_methods)
     selected_variants = _selected_suite_variants(config, selected_methods) if enabled else {}
-    _attach_resolved_training_configs(effective_config, selected_methods)
+    method_configs = load_trainable_method_configs(effective_config, selected_methods)
+    effective_config["resolved_method_configs"] = {
+        method: CONFIG_LOADER.to_json(method_config)
+        for method, method_config in method_configs.items()
+    }
     selected_stages = _select_stages(stages, from_stage=None, to_stage=None, methods=selected_methods)
     manifest: dict[str, Any] = {
-        "schema_version": 2,
         "experiment_name": experiment_name,
         "recipe": effective_config["recipe"],
         "profile": profile or effective_config.get("profile"),
@@ -126,13 +128,14 @@ def initialize_experiment(
         "run_units": [{"method": method, "variant": None} for method in selected_methods],
         "stage_status": {},
     }
-    _write_resolved_training_configs(manifest)
-    attach_stage_config_projections(manifest)
+    _write_resolved_method_configs(manifest)
+    write_main_stage_configs(manifest, method_configs)
     if enabled:
-        _attach_ablation_artifacts(manifest, selected_variants)
+        _attach_ablation_artifacts(manifest, selected_variants, method_configs)
     else:
         manifest["artifacts"]["ablations"] = {}
     write_json(manifest["paths"]["effective_config"], manifest["effective_config"])
+    validate_current_manifest(manifest)
     write_json(manifest_path, manifest)
     return manifest
 
@@ -142,6 +145,7 @@ def load_manifest(experiment_name: str, *, run_root: str | Path = "runs") -> dic
     manifest = read_json(manifest_path)
     if not isinstance(manifest, dict):
         raise ValueError(f"Manifest must be a JSON object: {manifest_path}")
+    validate_current_manifest(manifest)
     return manifest
 
 
@@ -151,6 +155,7 @@ def build_effective_config(
     profile: str | None,
     cli_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _reject_retired_experiment_config_fields(config)
     profile_name = profile or str(config.get("default_profile", "quick"))
     profiles = config.get("profiles", {})
     if profile_name not in profiles:
@@ -169,9 +174,9 @@ def build_effective_config(
         "ablation_variants": config.get("ablation_variants", {}),
         "raw": config["raw"],
         "graph": config.get("graph", {}),
-        "methods": config.get("methods", list(get_supported_methods())),
+        "methods": config.get("methods", [method.value for method in Registry.methods.list_ids()]),
         "search_spaces": config.get("search_spaces", {"graph_rerank": str(DEFAULT_SEARCH_SPACE_CONFIG)}),
-        "training_configs": config.get("training_configs", {}),
+        "method_configs": config.get("method_configs", {}),
         **defaults,
         "splits": {
             "train": {
@@ -197,6 +202,11 @@ def build_effective_config(
     return merge_config(base_config, None, cli_overrides)
 
 
+def _reject_retired_experiment_config_fields(config: dict[str, Any]) -> None:
+    if "training_configs" in config:
+        raise ValueError("Experiment config contains retired field: training_configs")
+
+
 def list_stage_specs(methods: Sequence[str] | None = None) -> list[dict[str, str]]:
     from scripts.workflow.planner import required_stages_for_methods
 
@@ -215,17 +225,19 @@ def list_method_specs() -> list[dict[str, str]]:
     from scripts.workflow.planner import required_stages_for_methods
 
     rows: list[dict[str, str]] = []
-    for method in get_supported_methods():
-        spec = get_method_spec(method)
+    for method_id in Registry.methods.list_ids():
+        method = method_id.value
+        definition = Registry.methods.get(method_id)
         rows.append(
             {
                 "name": method,
                 "workflow": ", ".join(required_stages_for_methods([method])),
-                "requires_graphs": str(spec.requires_graphs).lower(),
-                "requires_graph_config": str(spec.requires_graph_config).lower(),
-                "requires_checkpoint": str(spec.requires_checkpoint).lower(),
-                "requires_dense_encoder": str(spec.requires_dense_encoder).lower(),
-                "seed_method": spec.seed_method or "",
+                "lifecycle": definition.lifecycle.value,
+                "graph_source": definition.dependencies.graphs.value,
+                "graph_config_source": definition.dependencies.graph_config.value,
+                "model_source": definition.dependencies.model.value,
+                "encoder_source": definition.dependencies.encoder.value,
+                "seed_method": definition.seed_method.value if definition.seed_method is not None else "",
             }
         )
     return rows
@@ -238,9 +250,8 @@ def list_config_entries(kind: str = "all") -> list[ConfigEntry]:
         entries.extend(_config_entries(EXPERIMENT_CONFIG_DIR, kind="experiment"))
     if "search-spaces" in selected_kinds:
         entries.extend(_config_entries(SEARCH_SPACE_CONFIG_DIR, kind="search-space"))
-    if "training" in selected_kinds and TRAINING_CONFIG_DIR.exists():
-        for path in sorted(TRAINING_CONFIG_DIR.glob("*/*.json")):
-            entries.append(ConfigEntry(kind="training", name=f"{path.parent.name}/{path.stem}", path=_path_str(path)))
+    if "methods" in selected_kinds:
+        entries.extend(_config_entries(METHOD_CONFIG_DIR, kind="method"))
     return entries
 
 
@@ -291,37 +302,12 @@ def list_recipe_specs() -> list[dict[str, str]]:
     return rows
 
 
-def _attach_resolved_training_configs(effective_config: dict[str, Any], selected_methods: Sequence[str]) -> None:
-    from scripts.workflow.planner import _method_has_stage
-
-    training_config_paths = effective_config.get("training_configs", {})
-    if not isinstance(training_config_paths, dict):
-        raise ValueError("Experiment config training_configs must be an object.")
-    resolved_by_method: dict[str, Any] = {}
-    for method in selected_methods:
-        if not _method_has_stage(method, StageId.TRAIN):
-            continue
-        config_path = training_config_paths.get(method)
-        if not isinstance(config_path, str) or not config_path:
-            raise ValueError(f"Trainable method={method} requires a training config path.")
-        resolved = load_trainable_training_config(
-            resolve_training_config_path(method, config_path),
-            profile=str(effective_config["profile"]),
-            required_sections=training_config_required_sections(method),
-        )
-        if resolved["method"] != method:
-            raise ValueError(f"Training config method={resolved['method']} does not match selected method={method}.")
-        resolved_by_method[method] = resolved
-    if resolved_by_method:
-        effective_config["training"] = resolved_by_method
-
-
-def _write_resolved_training_configs(manifest: dict[str, Any]) -> None:
-    training_configs = manifest["effective_config"].get("training", {})
-    if not isinstance(training_configs, dict):
+def _write_resolved_method_configs(manifest: dict[str, Any]) -> None:
+    method_configs = manifest["effective_config"].get("resolved_method_configs", {})
+    if not isinstance(method_configs, dict):
         return
-    for method, training_config in training_configs.items():
-        write_json(manifest["artifacts"]["learned"][method]["effective_training_config"], training_config)
+    for method, method_config in method_configs.items():
+        write_json(manifest["artifacts"]["learned"][method]["effective_method_config"], method_config)
 
 
 def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, Any]:
@@ -344,7 +330,7 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
             "train_pairs": main[ArtifactRole.TRAIN_PAIRS],
             "train_pair_summary": main[ArtifactRole.TRAIN_PAIR_SUMMARY],
             "train_pair_run_summary": main[ArtifactRole.TRAIN_PAIR_RUN_SUMMARY],
-            "effective_training_config": main[ArtifactRole.EFFECTIVE_TRAINING_CONFIG],
+            "effective_method_config": main[ArtifactRole.EFFECTIVE_METHOD_CONFIG],
             "training_output_dir": _path_str(run_dir / "learned" / method),
             "train_metrics": main[ArtifactRole.TRAIN_METRICS],
             "train_run_summary": main[ArtifactRole.TRAIN_RUN_SUMMARY],
@@ -417,6 +403,7 @@ def _baseline_variant(variants: Sequence[VariantSpec], *, method: str) -> Varian
 def _attach_ablation_artifacts(
     manifest: dict[str, Any],
     selected_variants: dict[str, tuple[VariantSpec, ...]],
+    method_configs: dict[str, TrainableMethodConfig],
 ) -> None:
     run_dir = Path(manifest["paths"]["run_dir"])
     index_path = run_dir / "config" / "ablation_metrics_index.json"
@@ -427,12 +414,16 @@ def _attach_ablation_artifacts(
 
     for method, variants in selected_variants.items():
         main_artifacts = build_main_method_artifacts(run_dir, method)
-        main_training_config = manifest["effective_config"]["training"][method]
+        main_method_config = method_configs[method]
+        main_method_config_record = CONFIG_LOADER.to_json(main_method_config)
+        if not isinstance(main_method_config_record, dict):
+            raise ValueError(f"Method config must serialize to an object: {method}")
         method_artifacts: dict[str, Any] = {}
         suite_metadata[method] = [variant.identifier.value for variant in variants]
         for variant in variants:
             namespace = build_variant_artifact_namespace(run_dir, method, variant, main_artifacts)
-            method_artifacts[variant.identifier.value] = _namespace_record(namespace)
+            record = _namespace_record(namespace)
+            method_artifacts[variant.identifier.value] = record
             manifest["run_units"].append({"method": method, "variant": variant.identifier.value})
             metric_entries.append(
                 {
@@ -441,15 +432,29 @@ def _attach_ablation_artifacts(
                     "metrics_path": namespace.path(ArtifactRole.METRICS),
                 }
             )
-            if not variant.baseline_alias:
-                effective = merge_config(dict(main_training_config), None, dict(variant.training_config_override))
-                write_json(namespace.local_paths[ArtifactRole.EFFECTIVE_TRAINING_CONFIG], effective)
+            if variant.baseline_alias:
+                record["stage_configs"] = {
+                    stage: paths[method]
+                    for stage, paths in manifest["stage_configs"].items()
+                    if method in paths
+                }
+                continue
+            effective = deep_merge_patch(main_method_config_record, dict(variant.training_config_override))
+            typed_effective = ConfigConverter().structure(effective, TrainableMethodConfig)
+            write_json(namespace.local_paths[ArtifactRole.EFFECTIVE_METHOD_CONFIG], effective)
+            record["stage_configs"] = write_variant_stage_configs(
+                manifest,
+                method=method,
+                variant=variant.identifier.value,
+                method_config=typed_effective,
+                record=record,
+            )
         manifest["artifacts"]["ablations"][method] = method_artifacts
 
     manifest["ablation_suites"] = suite_metadata
     manifest["paths"]["ablation_metrics_index"] = _path_str(index_path)
     manifest["artifacts"]["tables"]["ablation"] = _path_str(table_path)
-    write_json(index_path, {"schema_version": 1, "metrics": metric_entries})
+    write_json(index_path, {"metrics": metric_entries})
 
 
 def _namespace_record(namespace: VariantArtifactNamespace) -> dict[str, Any]:
@@ -472,18 +477,19 @@ def _reject_config_change(
 ) -> None:
     requested_config = build_effective_config(config, profile=profile, cli_overrides=cli_overrides)
     requested_methods = list(methods) if methods is not None else list(requested_config["methods"])
-    _attach_resolved_training_configs(requested_config, requested_methods)
-    if existing.get("schema_version", 1) == 1:
-        requested_config.pop("enable_ablation", None)
-        requested_config.pop("ablation_variants", None)
+    method_configs = load_trainable_method_configs(requested_config, requested_methods)
+    requested_config["resolved_method_configs"] = {
+        method: CONFIG_LOADER.to_json(method_config)
+        for method, method_config in method_configs.items()
+    }
     if requested_config != existing.get("effective_config") or requested_methods != existing.get("selected_methods"):
         raise ValueError("Existing experiment manifest uses a different config; pass force=True to reinitialize.")
 
 
 def _selected_config_kinds(kind: str) -> set[str]:
     if kind == "all":
-        return {"experiments", "search-spaces", "training"}
-    if kind in {"experiments", "search-spaces", "training"}:
+        return {"experiments", "search-spaces", "methods"}
+    if kind in {"experiments", "search-spaces", "methods"}:
         return {kind}
     raise ValueError(f"Unsupported config kind: {kind}")
 
@@ -497,12 +503,6 @@ def _config_entries(directory: Path, *, kind: str) -> list[ConfigEntry]:
 def _looks_like_explicit_path(value: str) -> bool:
     candidate = Path(value)
     return candidate.is_absolute() or "/" in value or "\\" in value
-
-
-def _looks_like_explicit_training_path(value: str) -> bool:
-    normalized = value.replace("\\", "/")
-    candidate = Path(value)
-    return candidate.is_absolute() or normalized.startswith("configs/") or normalized.endswith(".json")
 
 
 def _path_str(path: str | Path) -> str:

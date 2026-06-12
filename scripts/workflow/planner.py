@@ -6,8 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from graph_memory.io import read_json
-from graph_memory.retrieval_registry import get_supported_methods
+from graph_memory.registry import Registry
 from scripts.workflow.registry import get_workflow, validate_workflow_registry
 from scripts.workflow.types import StageCommand, StageId, VariantSpec, WorkflowSpec
 from scripts.workflow.workflows import (
@@ -261,7 +260,7 @@ def _materialize_variant_manifest(manifest: dict[str, Any], method: str, record:
             "train_pairs": artifacts["train_pairs"],
             "train_pair_summary": artifacts["train_pair_summary"],
             "train_pair_run_summary": artifacts["train_pair_run_summary"],
-            "effective_training_config": artifacts["effective_training_config"],
+            "effective_method_config": artifacts["effective_method_config"],
             "training_output_dir": str(Path(artifacts["checkpoint"]).parents[1]),
             "train_metrics": artifacts["train_metrics"],
             "train_run_summary": artifacts["train_run_summary"],
@@ -271,12 +270,11 @@ def _materialize_variant_manifest(manifest: dict[str, Any], method: str, record:
     resolved["artifacts"]["predictions"][method] = artifacts["predictions"]
     resolved["artifacts"]["metrics"][method] = artifacts["metrics"]
     resolved["artifacts"]["failure_cases"][method] = artifacts["failure_cases"]
-    config_path = Path(artifacts["effective_training_config"])
-    if config_path.exists():
-        resolved["effective_config"]["training"][method] = read_json(config_path)
-    from scripts.workflow.stage_configs import attach_stage_config_projections
-
-    attach_stage_config_projections(resolved)
+    stage_configs = record.get("stage_configs")
+    if not isinstance(stage_configs, dict):
+        raise ValueError(f"Variant requires stage_configs: method={method} variant={record['variant']}")
+    for stage, config_path in stage_configs.items():
+        resolved["stage_configs"].setdefault(stage, {})[method] = config_path
     return resolved
 
 
@@ -333,7 +331,7 @@ def _workflow_stage_index(workflow: Sequence[str], stage: str) -> int:
 
 
 def _validate_methods(methods: Iterable[str]) -> None:
-    supported_methods = set(get_supported_methods())
+    supported_methods = {method.value for method in Registry.methods.list_ids()}
     unsupported = [method for method in methods if method not in supported_methods]
     if unsupported:
         raise ValueError(f"Unsupported method: {', '.join(unsupported)}")

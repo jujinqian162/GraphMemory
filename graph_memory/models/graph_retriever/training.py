@@ -18,7 +18,7 @@ from graph_memory.models.graph_retriever.batching import (
     build_training_batches,
     move_training_batch,
 )
-from graph_memory.models.graph_retriever.config.records import TrainableModelConfig, TrainableTrainingConfig
+from graph_memory.models.graph_retriever.config.records import RgcnModelConfig, RgcnTrainingConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.dev_evaluation import best_metric as select_best_metric
 from graph_memory.models.graph_retriever.dev_evaluation import predict_dev_from_batches
@@ -29,17 +29,17 @@ from graph_memory.validation import (
     validate_memory_task_inputs,
     validate_memory_task_labels,
     validate_train_pairs,
-    validate_trainable_model_config,
-    validate_trainable_training_config,
+    validate_rgcn_model_config,
+    validate_rgcn_training_config,
 )
 
 
 MetricRecord: TypeAlias = dict[str, object]
-CheckpointCallback: TypeAlias = Callable[["TrainableTrainingResult"], None]
+CheckpointCallback: TypeAlias = Callable[["RgcnTrainingResult"], None]
 
 
 @dataclass(frozen=True)
-class TrainableTrainingResult:
+class RgcnTrainingResult:
     """
     In-memory result of one trainable retriever training run.
     一次可训练检索器训练运行的内存结果。
@@ -65,8 +65,8 @@ class TrainableTrainingResult:
       best_dev_metric：最佳 checkpoint 选择指标。
     """
 
-    model_config: TrainableModelConfig
-    training_config: TrainableTrainingConfig
+    model_config: RgcnModelConfig
+    training_config: RgcnTrainingConfig
     metric_records: list[MetricRecord]
     best_model_state_dict: dict[str, Tensor]
     optimizer_state_dict: dict[str, object]
@@ -84,21 +84,21 @@ def train_graph_retriever(
     dev_task_inputs: list[MemoryTaskInput],
     dev_labels: list[MemoryTaskLabels],
     dev_graphs: list[MemoryGraph],
-    model_config: TrainableModelConfig,
-    training_config: TrainableTrainingConfig,
+    model_config: RgcnModelConfig,
+    training_config: RgcnTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     train_labels: list[MemoryTaskLabels] | None = None,
     checkpoint_callback: CheckpointCallback | None = None,
     device: str | torch.device = "cpu",
-) -> TrainableTrainingResult:
+) -> RgcnTrainingResult:
     """
     Train a frozen-encoder R-GCN binary node scorer.
     训练一个 frozen-encoder R-GCN 二分类节点 scorer。
     """
 
-    validate_trainable_model_config(model_config)
-    validate_trainable_training_config(training_config)
+    validate_rgcn_model_config(model_config)
+    validate_rgcn_training_config(training_config)
     validate_memory_task_inputs(train_task_inputs)
     validate_memory_task_inputs(dev_task_inputs)
     train_inputs_by_task_id = {task_input["task_id"]: task_input for task_input in train_task_inputs}
@@ -206,7 +206,7 @@ def train_graph_retriever(
             }
         )
 
-    result = TrainableTrainingResult(
+    result = RgcnTrainingResult(
         model_config=model_config,
         training_config=training_config,
         metric_records=metric_records,

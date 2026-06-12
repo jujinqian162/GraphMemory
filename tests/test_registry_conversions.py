@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from graph_memory.models.graph_retriever.config.records import TrainableTrainingConfig
+from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.registry.conversions import (
     dense_config_from_encoder_settings,
-    trainable_training_config_from_trainer_settings,
+    rgcn_training_config_from_trainer_settings,
 )
 from graph_memory.registry.retrieval import DenseEncoderSettings
-from graph_memory.registry.training import RgcnTrainerSettings
+from graph_memory.registry.method_configs import RgcnTrainerSettings
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 
 
@@ -26,7 +26,7 @@ def test_dense_config_from_encoder_settings_maps_all_runtime_fields() -> None:
     )
 
 
-def test_trainable_training_config_from_trainer_settings_excludes_device() -> None:
+def test_rgcn_training_config_from_trainer_settings_excludes_device() -> None:
     settings = RgcnTrainerSettings(
         optimizer_name="AdamW",
         learning_rate=0.02,
@@ -38,7 +38,7 @@ def test_trainable_training_config_from_trainer_settings_excludes_device() -> No
         device="cuda:0",
     )
 
-    assert trainable_training_config_from_trainer_settings(settings) == TrainableTrainingConfig(
+    assert rgcn_training_config_from_trainer_settings(settings) == RgcnTrainingConfig(
         optimizer_name="AdamW",
         learning_rate=0.02,
         batch_size=3,
