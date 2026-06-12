@@ -50,6 +50,24 @@ Create `graph_memory.models.dense_finetune` with contracts, data builders, and t
 
 Alternative considered: implement dense-ft inside scripts. Rejected because scripts should adapt artifacts and delegate method behavior to registry/trainer code.
 
+### Decision: Dense-ft uses only the SentenceTransformers 2.7.0 training API
+
+The implementation pins `sentence-transformers==2.7.0` and uses one training path:
+`InputExample` rows are loaded by a PyTorch `DataLoader`, paired with
+`MultipleNegativesRankingLoss`, evaluated by `InformationRetrievalEvaluator`,
+and trained through `SentenceTransformer.fit()`.
+
+The project does not import `SentenceTransformerTrainer`,
+`SentenceTransformerTrainingArguments`, `datasets`, or `accelerate` for
+dense-ft training. It also does not keep a version detector or fallback path.
+Trainer-only configuration fields are removed; the dense-ft config exposes the
+parameters consumed by the 2.7.0 path.
+
+Alternative considered: support both 2.7.0 and newer Trainer APIs. Rejected
+because the deployment environment is fixed to a vendor-adapted Python 3.10
+stack, and two backends would add unnecessary runtime branching and divergent
+semantics.
+
 ### Decision: TRAIN stage uses root-level method-specific config variants
 
 `TrainStageConfig` becomes a discriminated union of `RgcnTrainStageConfig` and `DenseFinetuneTrainStageConfig`. Each root carries the method id, precise IO shape, and method settings. The config loader remains the single public train config entry.
@@ -71,8 +89,8 @@ Alternative considered: expand every profile to complete effective config. Rejec
 ## Risks / Trade-offs
 
 - [TRAIN refactor touches R-GCN regression paths] -> Keep the union change localized to TRAIN configs, registry dispatch, stage runner, and train script; run R-GCN training tests after each stage.
-- [SentenceTransformers metric keys differ by version] -> Define selection metric mapping inside dense-ft training and cover it with fake trainer tests plus a smoke path.
-- [Local dependency drift] -> Add `datasets` and `accelerate` explicitly and update `uv.lock`.
+- [SentenceTransformers evaluator returns its main score directly] -> Use the 2.7.0 `cos_sim` score function and record its returned MAP@100 value as `eval_dev_cos_sim_map@100`.
+- [Local dependency drift] -> Pin `sentence-transformers==2.7.0` and update `uv.lock`.
 - [Checkpoint role name still says checkpoint while dense-ft uses a directory] -> Keep the artifact role for workflow compatibility, but document and validate that dense-ft checkpoint is a SentenceTransformer model directory.
 - [Full train pairs can be large] -> Limit negatives per positive in config, defaulting to one hard negative per positive.
 

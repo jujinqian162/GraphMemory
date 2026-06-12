@@ -6,7 +6,12 @@ from typing import cast
 import numpy as np
 
 from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingRequest, SentenceEncoder
+from graph_memory.embeddings import (
+    DenseEncodingService,
+    DenseTaskEncodingRequest,
+    SentenceEncoder,
+    load_sentence_transformer,
+)
 from graph_memory.retrieval.contracts import RankedNode
 
 
@@ -77,9 +82,8 @@ class DenseTaskRetriever:
     @staticmethod
     def _load_encoder(model_name: str) -> SentenceEncoder:
         try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as error:
+            return cast(SentenceEncoder, cast(object, load_sentence_transformer(model_name)))
+        except RuntimeError as error:
             raise RuntimeError(
                 "sentence-transformers is required for dense retrieval unless a test encoder is provided."
             ) from error
-        return cast(SentenceEncoder, cast(object, SentenceTransformer(model_name)))

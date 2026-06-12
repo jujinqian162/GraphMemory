@@ -6,13 +6,13 @@
 
 **Architecture:** `dense_ft` 训练侧新增独立 `graph_memory.models.dense_finetune` 包，负责把项目 artifact 转成 SentenceTransformers 训练/评估输入并保存可复用模型目录；推理侧不复制 dense 打分逻辑，继续复用 `DenseTaskRetriever -> DenseEncodingService`。训练 stage 需要从当前 R-GCN 专用形状改为 method-specific train config/payload，避免 dense-ft 被迫携带 graph feature provider、seed signal provider 等无意义依赖。
 
-**Tech Stack:** Python dataclass、现有 `ConfigLoader`/`Registry`/workflow manifest、SentenceTransformers `SentenceTransformerTrainer`、`MultipleNegativesRankingLoss`、`InformationRetrievalEvaluator`、Hugging Face `datasets.Dataset`、pytest、basedpyright。
+**Tech Stack:** Python dataclass、现有 `ConfigLoader`/`Registry`/workflow manifest、SentenceTransformers 2.7.0 `InputExample` / `SentenceTransformer.fit()`、PyTorch `DataLoader`、`MultipleNegativesRankingLoss`、`InformationRetrievalEvaluator`、pytest、basedpyright。
 
 ---
 
 日期：2026-06-11
 
-状态：计划审查中。本文只定义实现范围、边界和验收方式，不代表代码已经实现。
+状态：OpenSpec 实施中。Dense-FT 训练后端统一以 SentenceTransformers 2.7.0 API 为准。
 
 ## 1. 审查结论
 
@@ -235,7 +235,7 @@ relevant_docs: dict[str, set[str]]
   "passage_prefix": "passage: ",
   "batch_size": 64,
   "selection": {
-    "selected_metric": "eval_dev_cosine_ndcg@10",
+    "selected_metric": "eval_dev_cos_sim_map@100",
     "higher_is_better": true
   }
 }
@@ -259,14 +259,11 @@ class DenseFinetuneTrainerSettings:
     train_batch_size: int = 16
     eval_batch_size: int = 64
     epochs: int = 1
-    warmup_ratio: float = 0.1
+    warmup_steps: int = 0
     max_grad_norm: float = 1.0
     random_seed: int = 13
     device: str = "cuda"
-    fp16: bool = False
-    bf16: bool = False
-    logging_steps: int = 50
-    save_total_limit: int = 2
+    use_amp: bool = False
 
 
 @dataclass(frozen=True)
@@ -307,17 +304,14 @@ configs/training/dense_ft/base.json
       "train_batch_size": 16,
       "eval_batch_size": 64,
       "epochs": 1,
-      "warmup_ratio": 0.1,
+      "warmup_steps": 0,
       "max_grad_norm": 1.0,
       "random_seed": 13,
       "device": "cuda",
-      "fp16": false,
-      "bf16": false,
-      "logging_steps": 50,
-      "save_total_limit": 2
+      "use_amp": false
     },
     "selection": {
-      "best_metric": "eval_dev_cosine_ndcg@10",
+      "best_metric": "eval_dev_cos_sim_map@100",
       "higher_is_better": true
     }
   },
@@ -327,8 +321,7 @@ configs/training/dense_ft/base.json
         "train_batch_size": 1,
         "eval_batch_size": 4,
         "epochs": 1,
-        "device": "cpu",
-        "logging_steps": 1
+        "device": "cpu"
       }
     },
     "quick": {},
@@ -455,7 +448,7 @@ TrainStageConfig = RgcnTrainStageConfig | DenseFinetuneTrainStageConfig
 - Create: `graph_memory/models/dense_finetune/training.py`
 - Test: `tests/test_dense_finetune_training.py`
 
-- [ ] Step 3.1 在 `pyproject.toml` 显式增加 `datasets` 和 `accelerate`。
+- [ ] Step 3.1 在 `pyproject.toml` 固定 `sentence-transformers==2.7.0`，不引入 `datasets` 和 `accelerate`。
 - [ ] Step 3.2 运行 `uv lock` 更新 `uv.lock`。
 - [ ] Step 3.3 写 fake-model/fake-trainer 测试，先验证 dense-ft training result、metadata 写出路径和 run metrics 记录格式。
 - [ ] Step 3.4 实现训练包骨架，不加载真实模型。
@@ -463,7 +456,7 @@ TrainStageConfig = RgcnTrainStageConfig | DenseFinetuneTrainStageConfig
 
 验收：
 
-- `uv run python -c "import datasets, accelerate"` 成功。
+- `uv run python -c "import sentence_transformers; assert sentence_transformers.__version__ == '2.7.0'"` 成功。
 - dense-ft training result 不依赖 R-GCN model config。
 
 ### Task 4: 改造 training registry 与 TRAIN stage config
@@ -503,12 +496,12 @@ Expected:
 - Modify: `graph_memory/models/dense_finetune/training.py`
 - Test: `tests/test_dense_finetune_training.py`
 
-- [ ] Step 5.1 用 `datasets.Dataset.from_list()` 构造 train dataset。
-- [ ] Step 5.2 用 `SentenceTransformer(config.encoder.model_name)` 加载 base model。
-- [ ] Step 5.3 根据 `trainer.device` 设置 CPU/GPU 行为；`device == "cpu"` 时训练参数使用 `use_cpu=True`。
+- [ ] Step 5.1 用 `InputExample` 和 PyTorch `DataLoader` 构造训练输入。
+- [ ] Step 5.2 用 `SentenceTransformer(config.encoder.model_name, device=trainer.device)` 加载 base model。
+- [ ] Step 5.3 设备行为由 `SentenceTransformer(..., device=...)` 直接控制。
 - [ ] Step 5.4 使用 `MultipleNegativesRankingLoss(model)`。
-- [ ] Step 5.5 使用 `InformationRetrievalEvaluator(name="dev", main_score_function="cosine", ndcg_at_k=[10], accuracy_at_k=[1,3,5,10], precision_recall_at_k=[1,3,5,10])`。
-- [ ] Step 5.6 `SentenceTransformerTrainingArguments` 写入 output_dir、batch size、epochs、learning rate、warmup_ratio、max_grad_norm、logging_steps、save_total_limit、fp16/bf16。
+- [ ] Step 5.5 使用 `InformationRetrievalEvaluator(name="dev", main_score_function="cos_sim", ndcg_at_k=[10], accuracy_at_k=[1,3,5,10], precision_recall_at_k=[1,3,5,10])`；2.7.0 返回该 score function 的 MAP@100。
+- [ ] Step 5.6 调用 `SentenceTransformer.fit()`，传入 train objectives、evaluator、epochs、learning rate、warmup steps、max grad norm 和 AMP。
 - [ ] Step 5.7 训练完成后保存 selected model directory，并写 `dense_ft_model_config.json`。
 - [ ] Step 5.8 运行 `uv run pytest tests/test_dense_finetune_training.py -q`。
 
@@ -655,15 +648,15 @@ uv run python scripts/experiment.py run dense_ft_smoke --profile smoke --methods
 
 ### 风险 2: SentenceTransformers evaluator metric name 与预期不一致
 
-原因：`InformationRetrievalEvaluator` 的输出 key 受 name、score function 和版本影响。
+原因：SentenceTransformers 2.7.0 `InformationRetrievalEvaluator` 返回主指标标量。
 
-处理：训练实现中集中定义 `DENSE_FT_SELECTION_METRIC = "eval_dev_cosine_ndcg@10"`，测试用一次 smoke 验证真实 key；如果版本输出 key 不同，只改 dense-ft training 包内的 metric mapping，不外溢到 workflow。
+处理：训练实现把 evaluator 返回的标量记录到配置指定的 `selection.best_metric`，不引入版本分支。
 
 ### 风险 3: 本地依赖缺失
 
-原因：当前项目显式依赖没有 `datasets` 和 `accelerate`。
+原因：部署环境固定使用国产卡适配的 SentenceTransformers 2.7.0。
 
-处理：本轮把它们写入 `pyproject.toml` 并更新 `uv.lock`，不依赖 transitive dependency。
+处理：项目固定 `sentence-transformers==2.7.0`，训练只使用该版本已有的 `InputExample`、`DataLoader` 和 `fit()` API。
 
 ### 风险 4: dense-ft checkpoint 是目录，现有 checkpoint 文案偏 `.pt`
 

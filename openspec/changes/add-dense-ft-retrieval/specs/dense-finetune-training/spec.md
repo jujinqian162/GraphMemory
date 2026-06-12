@@ -44,13 +44,24 @@ The system SHALL write `dense_ft_model_config.json` beside the saved SentenceTra
 - **WHEN** dense-ft training succeeds
 - **THEN** the output model directory contains the SentenceTransformer artifacts and dense-ft metadata required by the retrieval builder
 
-### Requirement: Dense fine-tuning integrates SentenceTransformers trainer settings
-The system SHALL construct SentenceTransformers training arguments from dense-ft method settings.
+### Requirement: Dense fine-tuning uses the SentenceTransformers 2.7.0 fit API
+The system SHALL train dense-ft through `InputExample`, a PyTorch `DataLoader`,
+`MultipleNegativesRankingLoss`, `InformationRetrievalEvaluator`, and
+`SentenceTransformer.fit()`.
 
 #### Scenario: CPU smoke training is explicit
 - **WHEN** dense-ft trainer settings use `device` equal to `cpu`
-- **THEN** the SentenceTransformers training arguments use CPU execution rather than assuming CUDA
+- **THEN** the base `SentenceTransformer` is loaded on CPU rather than assuming CUDA
 
-#### Scenario: Trainer hyperparameters come from config
+#### Scenario: Fit hyperparameters come from config
 - **WHEN** dense-ft training starts
-- **THEN** batch sizes, epochs, learning rate, warmup ratio, max grad norm, logging steps, checkpoint retention, fp16, and bf16 are read from the resolved method config
+- **THEN** train batch size, evaluator batch size, epochs, learning rate, warmup steps, max grad norm, and AMP mode are read from the resolved method config
+
+#### Scenario: No newer Trainer API is required
+- **WHEN** dense-ft training runs with `sentence-transformers==2.7.0`
+- **THEN** the implementation does not import `SentenceTransformerTrainer`,
+  `SentenceTransformerTrainingArguments`, `datasets`, or `accelerate`
+
+#### Scenario: The selected evaluator metric follows 2.7.0 semantics
+- **WHEN** the IR evaluator uses `main_score_function="cos_sim"`
+- **THEN** its returned MAP@100 score is recorded as `eval_dev_cos_sim_map@100`

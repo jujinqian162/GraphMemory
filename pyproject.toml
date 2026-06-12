@@ -5,11 +5,9 @@ description = "Execution-Provenance Graph Memory evidence-tracing retrieval with
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "accelerate>=1.0",
-    "datasets>=3.0",
     "numpy>=1.26",
     "rank-bm25>=0.2.2",
-    "sentence-transformers>=3.0",
+    "sentence-transformers==2.7.0",
     "torch>=2.11,<2.12",
     "torchvision>=0.26,<0.27",
     "tqdm>=4.66",

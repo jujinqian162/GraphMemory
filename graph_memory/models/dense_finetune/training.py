@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any, Protocol, cast
 
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.embeddings import load_sentence_transformer
 from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings, DenseFinetuneIREvaluatorPayload
 from graph_memory.models.dense_finetune.data import build_dense_finetune_examples, build_ir_evaluator_payload
 
@@ -20,19 +22,16 @@ class DenseFinetuneTrainerSettings:
     train_batch_size: int = 16
     eval_batch_size: int = 64
     epochs: int = 1
-    warmup_ratio: float = 0.1
+    warmup_steps: int = 0
     max_grad_norm: float = 1.0
     random_seed: int = 13
     device: str = "cuda"
-    fp16: bool = False
-    bf16: bool = False
-    logging_steps: int = 50
-    save_total_limit: int = 2
+    use_amp: bool = False
 
 
 @dataclass(frozen=True)
 class DenseFinetuneSelectionSettings:
-    best_metric: str = "eval_dev_cosine_ndcg@10"
+    best_metric: str = "eval_dev_cos_sim_map@100"
     higher_is_better: bool = True
 
 
@@ -48,7 +47,10 @@ class DenseFinetuneRunConfig:
 
 
 class DenseFinetuneModel(Protocol):
-    def save(self, output_path: str | Path) -> None:
+    def fit(self, **kwargs: object) -> None:
+        ...
+
+    def save(self, output_path: str) -> None:
         ...
 
 
@@ -79,17 +81,41 @@ class DenseFinetuneTrainingResult:
     selected_metric_value: float | None
 
 
-DenseFinetuneModelFactory = Callable[[str], DenseFinetuneModel]
+DenseFinetuneModelFactory = Callable[[str, str], DenseFinetuneModel]
 DenseFinetuneTrainerFactory = Callable[[DenseFinetuneTrainerRequest], DenseFinetuneTrainer]
 
 
 @dataclass(frozen=True)
 class DenseFinetuneTrainingComponents:
-    Dataset: Any
-    SentenceTransformerTrainer: Any
-    SentenceTransformerTrainingArguments: Any
+    InputExample: Any
+    DataLoader: Any
     InformationRetrievalEvaluator: Any
     MultipleNegativesRankingLoss: Any
+
+
+@dataclass
+class _SentenceTransformers27FitRunner:
+    model: DenseFinetuneModel
+    train_loader: Any
+    loss: Any
+    evaluator: Any
+    config: DenseFinetuneRunConfig
+    output_dir: Path
+
+    def train(self) -> None:
+        self.model.fit(
+            train_objectives=[(self.train_loader, self.loss)],
+            evaluator=self.evaluator,
+            epochs=self.config.trainer.epochs,
+            warmup_steps=self.config.trainer.warmup_steps,
+            optimizer_params={"lr": self.config.trainer.learning_rate},
+            max_grad_norm=self.config.trainer.max_grad_norm,
+            use_amp=self.config.trainer.use_amp,
+        )
+
+    def evaluate(self) -> Mapping[str, float]:
+        score = self.evaluator(self.model, output_path=str(self.output_dir))
+        return {self.config.selection.best_metric: float(score)}
 
 
 def train_dense_finetune(
@@ -119,8 +145,8 @@ def train_dense_finetune(
         query_prefix=config.query_prefix,
         passage_prefix=config.passage_prefix,
     )
-    model = (model_factory or _load_sentence_transformer)(config.base_model)
-    trainer = (trainer_factory or _build_sentence_transformers_trainer)(
+    model = (model_factory or _load_sentence_transformer)(config.base_model, config.trainer.device)
+    trainer = (trainer_factory or _build_sentence_transformers_fit_runner)(
         DenseFinetuneTrainerRequest(
             model=model,
             train_rows=examples.rows,
@@ -132,7 +158,7 @@ def train_dense_finetune(
     )
     trainer.train()
     metrics = dict(trainer.evaluate())
-    model.save(model_dir)
+    model.save(str(model_dir))
     metadata_path = write_dense_ft_model_metadata(config=config, model_dir=model_dir)
     selected_value = metrics.get(config.selection.best_metric)
     return DenseFinetuneTrainingResult(
@@ -170,55 +196,50 @@ def write_dense_ft_model_metadata(*, config: DenseFinetuneRunConfig, model_dir: 
     return metadata_path
 
 
-def _load_sentence_transformer(model_name: str) -> DenseFinetuneModel:
+def _load_sentence_transformer(model_name: str, device: str) -> DenseFinetuneModel:
     try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError as error:
+        return cast(DenseFinetuneModel, cast(object, load_sentence_transformer(model_name, device=device)))
+    except RuntimeError as error:
         raise RuntimeError("sentence-transformers is required for dense-ft training.") from error
-    return cast(DenseFinetuneModel, cast(object, SentenceTransformer(model_name)))
 
 
-def _build_sentence_transformers_trainer(request: DenseFinetuneTrainerRequest) -> DenseFinetuneTrainer:
+def _build_sentence_transformers_fit_runner(request: DenseFinetuneTrainerRequest) -> DenseFinetuneTrainer:
     components = _load_sentence_transformers_training_components()
-    train_dataset = components.Dataset.from_list(list(request.train_rows))
+    random.seed(request.config.trainer.random_seed)
+    try:
+        import torch
+    except ImportError as error:
+        raise RuntimeError("torch is required for dense-ft training.") from error
+    torch.manual_seed(request.config.trainer.random_seed)
+    train_examples = [
+        components.InputExample(texts=[row[key] for key in ("anchor", "positive", "negative") if key in row])
+        for row in request.train_rows
+    ]
+    train_loader = components.DataLoader(
+        train_examples,
+        shuffle=True,
+        batch_size=request.config.trainer.train_batch_size,
+    )
     evaluator = components.InformationRetrievalEvaluator(
         queries=request.evaluator_payload.queries,
         corpus=request.evaluator_payload.corpus,
         relevant_docs=request.evaluator_payload.relevant_docs,
         name="dev",
-        main_score_function="cosine",
+        main_score_function="cos_sim",
         ndcg_at_k=[10],
         accuracy_at_k=[1, 3, 5, 10],
         precision_recall_at_k=[1, 3, 5, 10],
         batch_size=request.config.trainer.eval_batch_size,
         write_csv=False,
     )
-    training_args = components.SentenceTransformerTrainingArguments(
-        output_dir=str(request.output_dir),
-        per_device_train_batch_size=request.config.trainer.train_batch_size,
-        per_device_eval_batch_size=request.config.trainer.eval_batch_size,
-        num_train_epochs=request.config.trainer.epochs,
-        learning_rate=request.config.trainer.learning_rate,
-        warmup_ratio=request.config.trainer.warmup_ratio,
-        max_grad_norm=request.config.trainer.max_grad_norm,
-        logging_steps=request.config.trainer.logging_steps,
-        save_total_limit=request.config.trainer.save_total_limit,
-        fp16=request.config.trainer.fp16,
-        bf16=request.config.trainer.bf16,
-        use_cpu=request.config.trainer.device == "cpu",
-        seed=request.config.trainer.random_seed,
-        report_to="none",
-    )
     loss = components.MultipleNegativesRankingLoss(request.model)
-    return cast(
-        DenseFinetuneTrainer,
-        components.SentenceTransformerTrainer(
-            model=request.model,
-            args=training_args,
-            train_dataset=train_dataset,
-            loss=loss,
-            evaluator=evaluator,
-        ),
+    return _SentenceTransformers27FitRunner(
+        model=request.model,
+        train_loader=train_loader,
+        loss=loss,
+        evaluator=evaluator,
+        config=request.config,
+        output_dir=request.output_dir,
     )
 
 
@@ -226,8 +247,8 @@ def _load_sentence_transformers_training_components() -> DenseFinetuneTrainingCo
     try:
         from importlib import import_module
 
-        from datasets import Dataset
-        from sentence_transformers import SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+        from sentence_transformers import InputExample
+        from torch.utils.data import DataLoader
         InformationRetrievalEvaluator = import_module(
             "sentence_transformers.evaluation"
         ).InformationRetrievalEvaluator
@@ -235,13 +256,10 @@ def _load_sentence_transformers_training_components() -> DenseFinetuneTrainingCo
             "sentence_transformers.losses"
         ).MultipleNegativesRankingLoss
     except ImportError as error:
-        raise RuntimeError(
-            "datasets, accelerate, and sentence-transformers are required for dense-ft training."
-        ) from error
+        raise RuntimeError("sentence-transformers==2.7.0 and torch are required for dense-ft training.") from error
     return DenseFinetuneTrainingComponents(
-        Dataset=Dataset,
-        SentenceTransformerTrainer=SentenceTransformerTrainer,
-        SentenceTransformerTrainingArguments=SentenceTransformerTrainingArguments,
+        InputExample=InputExample,
+        DataLoader=DataLoader,
         InformationRetrievalEvaluator=InformationRetrievalEvaluator,
         MultipleNegativesRankingLoss=MultipleNegativesRankingLoss,
     )

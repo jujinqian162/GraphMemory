@@ -13,8 +13,8 @@
 - `encoder.batch_size`：检索编码批大小，并写入模型目录中的 `dense_ft_model_config.json`。
 - `pair_sampling`：生成 `train_pairs.json` 时使用的负样本配置；当前默认关闭 hard-dense，避免 pair 阶段额外加载 dense encoder。
 - `data.hard_negatives_per_positive`：每个正例最多选取的负例数，优先级固定为 hard-dense、hard-bm25、graph-neighbor、easy-random。
-- `trainer.*`：SentenceTransformers 训练参数，包括 batch size、epoch、学习率、warmup、梯度裁剪、精度模式和 checkpoint 保留数。
-- `selection.best_metric`：最终记录和模型选择使用的 dev 指标。
+- `trainer.*`：SentenceTransformers 2.7.0 `fit()` 参数，包括 batch size、epoch、学习率、warmup steps、梯度裁剪和 AMP 开关。
+- `selection.best_metric`：SentenceTransformers 2.7.0 evaluator 返回的主指标，固定语义为 cosine similarity 的 MAP@100。
 
 ## 产物
 

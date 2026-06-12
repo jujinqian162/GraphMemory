@@ -43,17 +43,14 @@ def _write_dense_ft_training_config(path: Path) -> None:
                         "train_batch_size": 16,
                         "eval_batch_size": 64,
                         "epochs": 1,
-                        "warmup_ratio": 0.1,
+                        "warmup_steps": 0,
                         "max_grad_norm": 1.0,
                         "random_seed": 13,
                         "device": "cuda",
-                        "fp16": False,
-                        "bf16": False,
-                        "logging_steps": 50,
-                        "save_total_limit": 2,
+                        "use_amp": False,
                     },
                     "selection": {
-                        "best_metric": "eval_dev_cosine_ndcg@10",
+                        "best_metric": "eval_dev_cos_sim_map@100",
                         "higher_is_better": True,
                     },
                 },
@@ -63,7 +60,6 @@ def _write_dense_ft_training_config(path: Path) -> None:
                             "train_batch_size": 1,
                             "eval_batch_size": 4,
                             "device": "cpu",
-                            "logging_steps": 1,
                         }
                     }
                 },

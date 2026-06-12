@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import scripts.train_method as train_method_script
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
@@ -14,7 +14,7 @@ from graph_memory.models.dense_finetune.training import (
     DenseFinetuneTrainingComponents,
     DenseFinetuneTrainerRequest,
     DenseFinetuneTrainerSettings,
-    _build_sentence_transformers_trainer,
+    _build_sentence_transformers_fit_runner,
     train_dense_finetune,
 )
 import graph_memory.models.dense_finetune.training as dense_ft_training
@@ -67,8 +67,14 @@ class FakeSentenceTransformer:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
         self.saved_to: Path | None = None
+        self.fit_kwargs: dict[str, object] | None = None
 
-    def save(self, output_path: str | Path) -> None:
+    def fit(self, **kwargs: object) -> None:
+        self.fit_kwargs = kwargs
+
+    def save(self, output_path: str) -> None:
+        if not isinstance(output_path, str):
+            raise TypeError("SentenceTransformers 2.7.0 save() requires a string path")
         self.saved_to = Path(output_path)
         self.saved_to.mkdir(parents=True, exist_ok=True)
         (self.saved_to / "modules.json").write_text("[]", encoding="utf-8")
@@ -83,13 +89,14 @@ class FakeTrainer:
         self.train_called = True
 
     def evaluate(self) -> dict[str, float]:
-        return {"eval_dev_cosine_ndcg@10": 0.75}
+        return {"eval_dev_cos_sim_map@100": 0.75}
 
 
 def test_train_dense_finetune_uses_fake_trainer_and_writes_metadata(tmp_path: Path) -> None:
     captured: dict[str, Any] = {}
 
-    def model_factory(model_name: str) -> FakeSentenceTransformer:
+    def model_factory(model_name: str, device: str) -> FakeSentenceTransformer:
+        captured["device"] = device
         model = FakeSentenceTransformer(model_name)
         captured["model"] = model
         return model
@@ -112,9 +119,8 @@ def test_train_dense_finetune_uses_fake_trainer_and_writes_metadata(tmp_path: Pa
             eval_batch_size=4,
             epochs=1,
             device="cpu",
-            logging_steps=1,
         ),
-        selection=DenseFinetuneSelectionSettings(best_metric="eval_dev_cosine_ndcg@10"),
+        selection=DenseFinetuneSelectionSettings(best_metric="eval_dev_cos_sim_map@100"),
     )
     train_task = _task("train", query="train query")
     dev_task = _task("dev", query="dev query")
@@ -142,6 +148,7 @@ def test_train_dense_finetune_uses_fake_trainer_and_writes_metadata(tmp_path: Pa
     assert request.evaluator_payload.queries == {"dev": "Q: dev query"}
     assert request.evaluator_payload.relevant_docs == {"dev": {"dev::m0"}}
     assert captured["trainer"].train_called is True
+    assert captured["device"] == "cpu"
     assert captured["model"].saved_to == tmp_path / "model"
 
     metadata = json.loads((tmp_path / "model" / "dense_ft_model_config.json").read_text(encoding="utf-8"))
@@ -153,36 +160,37 @@ def test_train_dense_finetune_uses_fake_trainer_and_writes_metadata(tmp_path: Pa
         "passage_prefix": "P: ",
         "batch_size": 32,
         "selection": {
-            "selected_metric": "eval_dev_cosine_ndcg@10",
+            "selected_metric": "eval_dev_cos_sim_map@100",
             "higher_is_better": True,
         },
     }
     assert result.model_dir == tmp_path / "model"
     assert result.metadata_path == tmp_path / "model" / "dense_ft_model_config.json"
-    assert result.selected_metric_name == "eval_dev_cosine_ndcg@10"
+    assert result.selected_metric_name == "eval_dev_cos_sim_map@100"
     assert result.selected_metric_value == 0.75
     assert result.metric_records == (
         {
             "phase": "final",
             "train_example_count": 1,
             "dev_query_count": 1,
-            "eval_dev_cosine_ndcg@10": 0.75,
+            "eval_dev_cos_sim_map@100": 0.75,
         },
     )
 
 
-def test_sentence_transformers_trainer_factory_builds_expected_components(monkeypatch, tmp_path: Path) -> None:
+def test_sentence_transformers_27_trainer_builds_input_examples_and_calls_fit(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, Any] = {}
 
-    class FakeDataset:
-        @staticmethod
-        def from_list(rows: list[dict[str, str]]) -> object:
-            captured["dataset_rows"] = rows
-            return {"dataset": rows}
+    class FakeInputExample:
+        def __init__(self, *, texts: list[str]) -> None:
+            self.texts = texts
 
-    class FakeTrainingArguments:
-        def __init__(self, **kwargs: object) -> None:
-            captured["training_args"] = kwargs
+    class FakeDataLoader:
+        def __init__(self, dataset: list[FakeInputExample], *, shuffle: bool, batch_size: int) -> None:
+            self.dataset = dataset
+            self.shuffle = shuffle
+            self.batch_size = batch_size
+            captured["data_loader"] = self
 
     class FakeLoss:
         def __init__(self, model: object) -> None:
@@ -192,23 +200,16 @@ def test_sentence_transformers_trainer_factory_builds_expected_components(monkey
         def __init__(self, **kwargs: object) -> None:
             captured["evaluator"] = kwargs
 
-    class FakeTrainer:
-        def __init__(self, **kwargs: object) -> None:
-            captured["trainer"] = kwargs
-
-        def train(self) -> None:
-            pass
-
-        def evaluate(self) -> dict[str, float]:
-            return {}
+        def __call__(self, model: object, **kwargs: object) -> float:
+            captured["evaluation_call"] = {"model": model, **kwargs}
+            return 0.75
 
     monkeypatch.setattr(
         dense_ft_training,
         "_load_sentence_transformers_training_components",
         lambda: DenseFinetuneTrainingComponents(
-            Dataset=FakeDataset,
-            SentenceTransformerTrainer=FakeTrainer,
-            SentenceTransformerTrainingArguments=FakeTrainingArguments,
+            InputExample=FakeInputExample,
+            DataLoader=FakeDataLoader,
             InformationRetrievalEvaluator=FakeEvaluator,
             MultipleNegativesRankingLoss=FakeLoss,
         ),
@@ -225,19 +226,16 @@ def test_sentence_transformers_trainer_factory_builds_expected_components(monkey
             train_batch_size=3,
             eval_batch_size=5,
             epochs=7,
-            warmup_ratio=0.2,
+            warmup_steps=12,
             max_grad_norm=0.9,
             random_seed=99,
             device="cpu",
-            fp16=True,
-            bf16=False,
-            logging_steps=11,
-            save_total_limit=4,
+            use_amp=True,
         ),
-        selection=DenseFinetuneSelectionSettings(best_metric="eval_dev_cosine_ndcg@10"),
+        selection=DenseFinetuneSelectionSettings(best_metric="eval_dev_cos_sim_map@100"),
     )
 
-    trainer = _build_sentence_transformers_trainer(
+    trainer = _build_sentence_transformers_fit_runner(
         DenseFinetuneTrainerRequest(
             model=model,
             train_rows=(
@@ -254,42 +252,45 @@ def test_sentence_transformers_trainer_factory_builds_expected_components(monkey
         )
     )
 
-    assert isinstance(trainer, FakeTrainer)
-    assert captured["dataset_rows"] == [{"anchor": "Q: train", "positive": "P: positive", "negative": "P: negative"}]
+    trainer.train()
+    metrics = trainer.evaluate()
+
+    data_loader = captured["data_loader"]
+    assert [example.texts for example in data_loader.dataset] == [
+        ["Q: train", "P: positive", "P: negative"]
+    ]
+    assert data_loader.shuffle is True
+    assert data_loader.batch_size == 3
     assert captured["loss_model"] is model
     assert captured["evaluator"] == {
         "queries": {"dev": "Q: dev"},
         "corpus": {"dev::m0": "P: positive"},
         "relevant_docs": {"dev": {"dev::m0"}},
         "name": "dev",
-        "main_score_function": "cosine",
+        "main_score_function": "cos_sim",
         "ndcg_at_k": [10],
         "accuracy_at_k": [1, 3, 5, 10],
         "precision_recall_at_k": [1, 3, 5, 10],
         "batch_size": 5,
         "write_csv": False,
     }
-    assert captured["training_args"] == {
-        "output_dir": str(tmp_path / "output"),
-        "per_device_train_batch_size": 3,
-        "per_device_eval_batch_size": 5,
-        "num_train_epochs": 7,
-        "learning_rate": 0.123,
-        "warmup_ratio": 0.2,
+    assert model.fit_kwargs is not None
+    fit_kwargs = model.fit_kwargs
+    train_objectives = cast(list[tuple[object, object]], fit_kwargs["train_objectives"])
+    assert fit_kwargs == {
+        "train_objectives": [(data_loader, train_objectives[0][1])],
+        "evaluator": fit_kwargs["evaluator"],
+        "epochs": 7,
+        "warmup_steps": 12,
+        "optimizer_params": {"lr": 0.123},
         "max_grad_norm": 0.9,
-        "logging_steps": 11,
-        "save_total_limit": 4,
-        "fp16": True,
-        "bf16": False,
-        "use_cpu": True,
-        "seed": 99,
-        "report_to": "none",
+        "use_amp": True,
     }
-    assert captured["trainer"]["model"] is model
-    assert captured["trainer"]["train_dataset"] == {"dataset": captured["dataset_rows"]}
-    assert isinstance(captured["trainer"]["args"], FakeTrainingArguments)
-    assert isinstance(captured["trainer"]["loss"], FakeLoss)
-    assert isinstance(captured["trainer"]["evaluator"], FakeEvaluator)
+    assert captured["evaluation_call"] == {
+        "model": model,
+        "output_path": str(tmp_path / "output"),
+    }
+    assert metrics == {"eval_dev_cos_sim_map@100": 0.75}
 
 
 def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch, tmp_path: Path) -> None:
@@ -308,11 +309,11 @@ def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch,
     monkeypatch.setattr(
         dense_ft_training,
         "_load_sentence_transformer",
-        lambda model_name: FakeSentenceTransformer(model_name),
+        lambda model_name, device: FakeSentenceTransformer(model_name),
     )
     monkeypatch.setattr(
         dense_ft_training,
-        "_build_sentence_transformers_trainer",
+        "_build_sentence_transformers_fit_runner",
         lambda request: FakeTrainer(request),
     )
 

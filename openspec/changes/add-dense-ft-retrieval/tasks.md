@@ -15,7 +15,7 @@
 
 ## 3. Dense Fine-Tune Training Package
 
-- [x] 3.1 Add explicit `datasets` and `accelerate` dependencies to `pyproject.toml`.
+- [x] 3.1 Declare the SentenceTransformers runtime dependency in `pyproject.toml`.
 - [x] 3.2 Run `uv lock` to update `uv.lock`.
 - [x] 3.3 Add fake-model/fake-trainer tests for dense-ft training results, metadata, and metrics.
 - [x] 3.4 Implement dense-ft training package skeleton without loading a real model in tests.
@@ -33,12 +33,12 @@
 
 ## 5. Real SentenceTransformers Training
 
-- [x] 5.1 Build the train dataset through `datasets.Dataset.from_list()`.
+- [x] 5.1 Build SentenceTransformers 2.7.0 `InputExample` rows and a PyTorch `DataLoader`.
 - [x] 5.2 Load the base encoder with `SentenceTransformer(config.encoder.model_name)`.
 - [x] 5.3 Map dense-ft trainer `device` settings to SentenceTransformers CPU/GPU behavior.
 - [x] 5.4 Use `MultipleNegativesRankingLoss(model)`.
 - [x] 5.5 Use `InformationRetrievalEvaluator` for dev ranking metrics.
-- [x] 5.6 Populate `SentenceTransformerTrainingArguments` from dense-ft trainer settings.
+- [x] 5.6 Pass dense-ft trainer settings directly to `SentenceTransformer.fit()`.
 - [x] 5.7 Save the selected model directory and `dense_ft_model_config.json`.
 - [x] 5.8 Run `uv run pytest tests/test_dense_finetune_training.py -q`.
 
@@ -90,3 +90,13 @@
 - [x] 10.5 Run `uv run python scripts/experiment.py plan dense_ft_smoke --profile smoke --methods dense_ft --force`.
 - [x] 10.6 Run strict OpenSpec validation for `add-dense-ft-retrieval`.
 - [x] 10.7 Add a stage-level dense-ft retrieval regression test and route `DenseFinetunedRetrievalSettings` through `FlatRetrievalBuildPayload`.
+
+## 11. SentenceTransformers 2.7.0 Unified Backend
+
+- [x] 11.1 Replace Trainer-based tests with failing tests for `InputExample`, `DataLoader`, evaluator, and `SentenceTransformer.fit()`.
+- [x] 11.2 Replace dense-ft Trainer integration with a single SentenceTransformers 2.7.0 `fit()` implementation.
+- [x] 11.3 Remove Trainer-only dense-ft settings and expose only 2.7.0 fit settings.
+- [x] 11.4 Pin `sentence-transformers==2.7.0`, remove direct `datasets` and `accelerate` dependencies, and update `uv.lock`.
+- [x] 11.5 Update dense-ft config, CLI contracts, implementation plan, and configuration docs.
+- [x] 11.6 Run focused dense-ft tests and Python 3.10 compatibility checks.
+- [x] 11.7 Run the full test suite, BasedPyright, experiment planning smoke, and strict OpenSpec validation.

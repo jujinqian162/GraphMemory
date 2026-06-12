@@ -7,7 +7,7 @@ from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.embeddings import SentenceEncoder
+from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
@@ -153,13 +153,12 @@ def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) 
     encoder = build_payload.dense_encoder
     if encoder is None:
         try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as error:
+            encoder = cast(
+                SentenceEncoder,
+                cast(object, load_sentence_transformer(settings.checkpoint, device=settings.device)),
+            )
+        except RuntimeError as error:
             raise RuntimeError("sentence-transformers is required for dense-ft retrieval.") from error
-        encoder = cast(
-            SentenceEncoder,
-            cast(object, SentenceTransformer(str(settings.checkpoint), device=settings.device)),
-        )
     return ScorePipelineMethod(
         name=settings.method.value,
         retriever=DenseTaskRetriever(

@@ -695,17 +695,14 @@ def test_train_stage_config_loads_dense_ft_legacy_defaults_profile(tmp_path: Pat
               "train_batch_size": 16,
               "eval_batch_size": 64,
               "epochs": 2,
-              "warmup_ratio": 0.1,
+              "warmup_steps": 0,
               "max_grad_norm": 1.0,
               "random_seed": 13,
               "device": "cuda",
-              "fp16": false,
-              "bf16": false,
-              "logging_steps": 50,
-              "save_total_limit": 2
+              "use_amp": false
             },
             "selection": {
-              "best_metric": "eval_dev_cosine_ndcg@10",
+              "best_metric": "eval_dev_cos_sim_map@100",
               "higher_is_better": true
             }
           },
@@ -715,8 +712,7 @@ def test_train_stage_config_loads_dense_ft_legacy_defaults_profile(tmp_path: Pat
                 "train_batch_size": 1,
                 "eval_batch_size": 4,
                 "epochs": 1,
-                "device": "cpu",
-                "logging_steps": 1
+                "device": "cpu"
               }
             }
           }

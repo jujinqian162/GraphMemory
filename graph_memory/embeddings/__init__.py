@@ -6,6 +6,10 @@ from graph_memory.embeddings.dense import (
     format_dense_passage,
     format_dense_query,
 )
+from graph_memory.embeddings.sentence_transformers import (
+    load_sentence_transformer,
+    resolve_sentence_transformer_model_path,
+)
 
 __all__ = [
     "DenseEncodingService",
@@ -14,4 +18,6 @@ __all__ = [
     "SentenceEncoder",
     "format_dense_passage",
     "format_dense_query",
+    "load_sentence_transformer",
+    "resolve_sentence_transformer_model_path",
 ]

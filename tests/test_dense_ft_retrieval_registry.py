@@ -28,7 +28,7 @@ def _write_dense_ft_metadata(model_dir: Path) -> None:
                 "passage_prefix": "P: ",
                 "batch_size": 7,
                 "selection": {
-                    "selected_metric": "eval_dev_cosine_ndcg@10",
+                    "selected_metric": "eval_dev_cos_sim_map@100",
                     "higher_is_better": True,
                 },
             }

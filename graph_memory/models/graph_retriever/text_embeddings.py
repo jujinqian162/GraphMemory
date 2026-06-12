@@ -13,6 +13,7 @@ from graph_memory.embeddings import (
     DenseTaskEncodingRequest,
     DenseTaskEncodingResult,
     SentenceEncoder,
+    load_sentence_transformer,
 )
 from graph_memory.models.graph_retriever.contracts import TaskGraphFeatures
 from graph_memory.retrieval.contracts import RankedNode
@@ -120,12 +121,11 @@ class DenseGraphFeatureProvider:
     @staticmethod
     def _load_encoder(model_name: str) -> SentenceEncoder:
         try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as error:
+            return cast(SentenceEncoder, cast(object, load_sentence_transformer(model_name)))
+        except RuntimeError as error:
             raise RuntimeError(
                 "sentence-transformers is required for trainable retrieval unless an embedding provider is injected."
             ) from error
-        return cast(SentenceEncoder, cast(object, SentenceTransformer(model_name)))
 
 
 __all__ = ["DenseGraphFeatureProvider"]

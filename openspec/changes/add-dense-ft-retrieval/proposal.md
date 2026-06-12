@@ -30,5 +30,5 @@ None.
 - Affected code: dense embedding helpers, dense-ft model package, retrieval method registry/builders, training registry, TRAIN stage config conversion, train stage runner, workflow artifacts/manifests/stage projections, experiment config, and operations docs.
 - Affected CLI: train commands now use `scripts/train_method.py --method <method>` for both R-GCN and dense-ft.
 - Affected artifacts: dense-ft checkpoint is a SentenceTransformer model directory under the learned checkpoint role, not a `.pt` file.
-- Dependencies: add explicit `datasets` and `accelerate` runtime dependencies for SentenceTransformers trainer integration.
+- Dependencies: pin `sentence-transformers==2.7.0` and use its native `InputExample`, `DataLoader`, and `SentenceTransformer.fit()` training API.
 - Verification: focused dense-ft data/training/retrieval/workflow tests, R-GCN regression tests, experiment runner tests, basedpyright, and OpenSpec validation.

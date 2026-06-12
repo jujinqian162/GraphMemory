@@ -520,15 +520,12 @@ def _train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train_batch_size", type=int, default=16)
     parser.add_argument("--eval_batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--warmup_ratio", type=float, default=0.1)
+    parser.add_argument("--warmup_steps", type=int, default=0)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=13)
     parser.add_argument("--pos_weight", action="store_true")
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--fp16", action="store_true")
-    parser.add_argument("--bf16", action="store_true")
-    parser.add_argument("--logging_steps", type=int, default=50)
-    parser.add_argument("--save_total_limit", type=int, default=2)
+    parser.add_argument("--use_amp", action="store_true")
     parser.add_argument("--config", default=None)
     return parser
 
@@ -640,28 +637,22 @@ def _dense_ft_train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, ob
             "train_batch_size": trainer_defaults.train_batch_size,
             "eval_batch_size": trainer_defaults.eval_batch_size,
             "epochs": trainer_defaults.epochs,
-            "warmup_ratio": trainer_defaults.warmup_ratio,
+            "warmup_steps": trainer_defaults.warmup_steps,
             "max_grad_norm": trainer_defaults.max_grad_norm,
             "random_seed": trainer_defaults.random_seed,
             "device": trainer_defaults.device,
-            "fp16": trainer_defaults.fp16,
-            "bf16": trainer_defaults.bf16,
-            "logging_steps": trainer_defaults.logging_steps,
-            "save_total_limit": trainer_defaults.save_total_limit,
+            "use_amp": trainer_defaults.use_amp,
         }
         for source, target in {
             "learning_rate": "learning_rate",
             "train_batch_size": "train_batch_size",
             "eval_batch_size": "eval_batch_size",
             "epochs": "epochs",
-            "warmup_ratio": "warmup_ratio",
+            "warmup_steps": "warmup_steps",
             "max_grad_norm": "max_grad_norm",
             "random_seed": "random_seed",
             "device": "device",
-            "fp16": "fp16",
-            "bf16": "bf16",
-            "logging_steps": "logging_steps",
-            "save_total_limit": "save_total_limit",
+            "use_amp": "use_amp",
         }.items():
             if _cli_option_was_provided(namespace, source):
                 trainer[target] = getattr(namespace, source)
@@ -673,14 +664,11 @@ def _dense_ft_train_job_cli_patch(namespace: argparse.Namespace) -> dict[str, ob
                 "train_batch_size": "train_batch_size",
                 "eval_batch_size": "eval_batch_size",
                 "epochs": "epochs",
-                "warmup_ratio": "warmup_ratio",
+                "warmup_steps": "warmup_steps",
                 "max_grad_norm": "max_grad_norm",
                 "random_seed": "random_seed",
                 "device": "device",
-                "fp16": "fp16",
-                "bf16": "bf16",
-                "logging_steps": "logging_steps",
-                "save_total_limit": "save_total_limit",
+                "use_amp": "use_amp",
             },
         )
     if trainer:
@@ -802,14 +790,11 @@ def _dense_ft_trainer_from_config(config: Mapping[str, JsonValue]) -> dict[str, 
         "train_batch_size": _json_int(config, "train_batch_size"),
         "eval_batch_size": _json_int(config, "eval_batch_size"),
         "epochs": _json_int(config, "epochs"),
-        "warmup_ratio": _json_float(config, "warmup_ratio"),
+        "warmup_steps": _json_int(config, "warmup_steps"),
         "max_grad_norm": _json_float(config, "max_grad_norm"),
         "random_seed": _json_int(config, "random_seed"),
         "device": _string_config_value(config, "device"),
-        "fp16": _json_bool(config, "fp16"),
-        "bf16": _json_bool(config, "bf16"),
-        "logging_steps": _json_int(config, "logging_steps"),
-        "save_total_limit": _json_int(config, "save_total_limit"),
+        "use_amp": _json_bool(config, "use_amp"),
     }
     return trainer
 
