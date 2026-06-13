@@ -112,6 +112,23 @@ def test_importance_stage_config_registry_round_trips(tmp_path: Path) -> None:
     assert CONFIG_LOADER.load(Registry.configs.IMPORTANCE, ["--config", str(path)]) == expected
 
 
+def test_repository_eval_1000_importance_config_is_loadable() -> None:
+    config_path = Path("configs/stages/memory_stream_importance_eval_1000.json")
+
+    config = CONFIG_LOADER.load(Registry.configs.IMPORTANCE, ["--config", str(config_path)])
+
+    assert config.io.tasks == Path("data/hotpotqa/processed/phase2_baselines/eval_1000.input.json")
+    assert config.io.output == Path(
+        "runs/memory_stream_importance_eval1000/importance/test.memory_stream.importance.json"
+    )
+    assert config.io.summary == Path(
+        "runs/memory_stream_importance_eval1000/importance/test.memory_stream.importance.run_summary.json"
+    )
+    assert config.io.cache_dir == Path("data/cache/memory_stream_importance")
+    assert config.job.model_id == "Qwen/Qwen2.5-7B-Instruct"
+    assert config.job.model_path == Path("models/Qwen2.5-7B-Instruct")
+
+
 def test_annotate_importance_cli_writes_final_artifact_and_run_summary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
