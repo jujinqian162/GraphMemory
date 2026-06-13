@@ -178,26 +178,37 @@ def test_cache_digest_tracks_semantic_inputs_but_not_runtime_placement() -> None
 def test_response_parser_accepts_plain_and_fenced_json() -> None:
     task = _task()
 
-    assert parse_importance_response('{"scores":{"m0":8,"m1":3}}', task) == {"m0": 8, "m1": 3}
-    assert parse_importance_response('```json\n{"scores":{"m0":8,"m1":3}}\n```', task) == {"m0": 8, "m1": 3}
+    assert parse_importance_response('{"scores":[8,3]}', task) == {"m0": 8, "m1": 3}
+    assert parse_importance_response('```json\n{"scores":[8,3]}\n```', task) == {"m0": 8, "m1": 3}
 
 
 @pytest.mark.parametrize(
     ("payload", "match"),
     [
-        ('{"scores":{"m0":8}}', "missing.*m1"),
-        ('{"scores":{"m0":8,"m1":3,"m2":1}}', "extra.*m2"),
-        ('{"scores":{"m0":true,"m1":3}}', "m0.*integer"),
-        ('{"scores":{"m0":4.5,"m1":3}}', "m0.*integer"),
-        ('{"scores":{"m0":0,"m1":3}}', "m0.*1-10"),
-        ('{"scores":{"m0":11,"m1":3}}', "m0.*1-10"),
-        ('{"scores":{"m0":8,"m0":7,"m1":3}}', "duplicate.*m0"),
-        ('{"scores":{"m0":8,"m1":3},"fallback":4}', "unknown"),
+        ('{"scores":[8]}', "expected=2.*observed=1"),
+        ('{"scores":[8,3,1]}', "expected=2.*observed=3"),
+        ('{"scores":[true,3]}', "m0.*integer"),
+        ('{"scores":[4.5,3]}', "m0.*integer"),
+        ('{"scores":[0,3]}', "m0.*1-10"),
+        ('{"scores":[11,3]}', "m0.*1-10"),
+        ('{"scores":{"m0":8,"m1":3}}', "scores must be an array"),
+        ('{"scores":[8,3],"fallback":4}', "unknown"),
     ],
 )
 def test_response_parser_rejects_non_exact_integer_coverage(payload: str, match: str) -> None:
     with pytest.raises(ContractValidationError, match=match):
         parse_importance_response(payload, _task())
+
+
+def test_prompt_requests_scores_in_memory_item_order_without_node_id_copying() -> None:
+    messages = build_importance_messages(_task(), IMPORTANCE_PROMPT_VERSION)
+    system_prompt = messages[0]["content"]
+    user_payload = json.loads(messages[1]["content"])
+
+    assert user_payload["output_format"] == {
+        "scores": ["<integer 1-10>", "<integer 1-10>", "..."]
+    }
+    assert "Do not return node ids." in system_prompt
 
 
 def test_importance_artifact_validation_requires_task_order_node_coverage_and_digest() -> None:
@@ -359,8 +370,8 @@ def test_annotation_loads_one_runtime_for_all_misses_and_preserves_input_order(t
     tasks = [_task(), _second_task()]
     runtime = FakeRuntime(
         [
-            '{"scores":{"m0":8,"m1":4}}',
-            '{"scores":{"m0":6}}',
+            '{"scores":[8,4]}',
+            '{"scores":[6]}',
         ]
     )
     created: list[FakeRuntime] = []
@@ -386,8 +397,8 @@ def test_annotation_keeps_successful_cache_after_later_invalid_output(tmp_path: 
     tasks = [_task(), _second_task()]
     runtime = FakeRuntime(
         [
-            '{"scores":{"m0":8,"m1":4}}',
-            '{"scores":{"m0":true}}',
+            '{"scores":[8,4]}',
+            '{"scores":[true]}',
         ]
     )
     created: list[FakeRuntime] = []

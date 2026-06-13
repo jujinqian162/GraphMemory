@@ -11,16 +11,16 @@ The system SHALL construct Memory Stream importance prompts only from ordered me
 - **WHEN** an importance prompt is constructed for a task
 - **THEN** each memory item is represented by its node id, source, text, and position
 
-### Requirement: Local LLM responses provide exact integer importance coverage
-The system SHALL accept an annotation response only when it contains exactly one integer score in the inclusive range 1-10 for every memory item node id.
+### Requirement: Local LLM responses provide exact ordered integer importance coverage
+The system SHALL accept an annotation response only when it contains an ordered array with exactly one integer score in the inclusive range 1-10 for every input memory item.
 
 #### Scenario: Valid response is accepted
-- **WHEN** the local LLM returns a JSON score mapping whose keys exactly match the task node ids and whose values are integers from 1 through 10
-- **THEN** the task annotation is validated and may be cached
+- **WHEN** the local LLM returns a JSON score array whose length matches the ordered input items and whose values are integers from 1 through 10
+- **THEN** each score is mapped to the corresponding input node id and the task annotation may be cached
 
-#### Scenario: Missing or extra nodes are rejected
-- **WHEN** a response omits a task node id or contains an unknown node id
-- **THEN** validation fails with the task id and the missing or extra node ids
+#### Scenario: Missing or extra scores are rejected
+- **WHEN** a response contains fewer or more scores than input memory items
+- **THEN** validation fails with the task id and expected and observed counts
 
 #### Scenario: Invalid score types or ranges are rejected
 - **WHEN** a response contains a boolean, non-integer, value below 1, or value above 10

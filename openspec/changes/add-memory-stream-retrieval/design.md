@@ -44,7 +44,7 @@ settings, and per-task node-score mappings. `MemoryItem` is not modified.
 {
   "method": "memory_stream",
   "model": "Qwen/Qwen2.5-7B-Instruct",
-  "prompt_version": "memory-stream-importance-v1",
+  "prompt_version": "memory-stream-importance-v2",
   "generation": {
     "do_sample": false,
     "use_cache": true,
@@ -87,9 +87,11 @@ manifest artifact allocation, or run-local annotation config.
 ### One task is one semantic annotation unit
 
 Each generation call contains ordered `{node_id, source, text, position}`
-records for one task. The response must contain exactly one integer score in
-`[1, 10]` for every node. Missing keys, extra keys, duplicate ids, booleans,
-floats, strings, and out-of-range values fail the run.
+records for one task. The response contains an ordered score array with exactly
+one integer in `[1, 10]` for each input item. The parser maps each score back to
+the corresponding node id. Wrong-length arrays, booleans, floats, strings, and
+out-of-range values fail the run. This avoids requiring the model to reproduce
+dozens of node-id strings exactly.
 
 ### Cache and runtime lifecycle
 

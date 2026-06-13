@@ -13,13 +13,14 @@ from graph_memory.retrieval.methods.memory_stream.contracts import (
     ImportanceMessage,
     ImportanceSettings,
 )
-IMPORTANCE_PROMPT_VERSION = "memory-stream-importance-v1"
+IMPORTANCE_PROMPT_VERSION = "memory-stream-importance-v2"
 
 _SYSTEM_PROMPT = """You rate the long-term importance or poignancy of memory sentences.
 Use an absolute 1-10 scale: 1 is routine or low-information, 10 is critical,
 salient, or likely worth retaining for future reasoning. Rate each item
-independently. Return only JSON with this shape:
-{"scores":{"<node_id>":<integer 1-10>}}"""
+independently. Return exactly one score for each input item, in the same order.
+Do not return node ids. Return only JSON with this shape:
+{"scores":[<integer 1-10>,<integer 1-10>,...]}"""
 
 
 def build_importance_messages(
@@ -39,7 +40,7 @@ def build_importance_messages(
     ]
     payload = {
         "items": items,
-        "output_format": {"scores": {"<node_id>": "<integer 1-10>"}},
+        "output_format": {"scores": ["<integer 1-10>", "<integer 1-10>", "..."]},
     }
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -79,8 +80,8 @@ def parse_importance_response(response_text: str, task_input: MemoryTaskInput) -
     if unknown:
         raise ContractValidationError(f"Invalid importance response: task_id={task_id} unknown fields={unknown}.")
     scores = payload.get("scores")
-    if not isinstance(scores, dict):
-        raise ContractValidationError(f"Invalid importance response: task_id={task_id} scores must be an object.")
+    if not isinstance(scores, list):
+        raise ContractValidationError(f"Invalid importance response: task_id={task_id} scores must be an array.")
     return _validate_scores(scores, task_input)
 
 
@@ -88,21 +89,16 @@ def task_node_ids(task_input: MemoryTaskInput) -> list[NodeId]:
     return [item["id"] for item in _ordered_memory_items(task_input)]
 
 
-def _validate_scores(scores: Mapping[str, object], task_input: MemoryTaskInput) -> dict[NodeId, int]:
+def _validate_scores(scores: Sequence[object], task_input: MemoryTaskInput) -> dict[NodeId, int]:
     task_id = task_input["task_id"]
     expected_ids = task_node_ids(task_input)
-    observed_ids = list(scores)
-    expected_set = set(expected_ids)
-    observed_set = set(observed_ids)
-    if expected_set != observed_set:
-        missing = sorted(expected_set - observed_set)
-        extra = sorted(observed_set - expected_set)
+    if len(scores) != len(expected_ids):
         raise ContractValidationError(
-            f"Invalid importance response: task_id={task_id} missing={missing} extra={extra}."
+            "Invalid importance response: "
+            f"task_id={task_id} score count mismatch expected={len(expected_ids)} observed={len(scores)}."
         )
     validated: dict[NodeId, int] = {}
-    for node_id in expected_ids:
-        value = scores[node_id]
+    for node_id, value in zip(expected_ids, scores, strict=True):
         if not isinstance(value, int) or isinstance(value, bool):
             raise ContractValidationError(
                 f"Invalid importance response: task_id={task_id} node_id={node_id} score must be an integer."

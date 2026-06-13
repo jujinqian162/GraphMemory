@@ -9,9 +9,9 @@
 ## 2. Leakage-Safe Prompt and Response Parsing
 
 - [x] 2.1 Prove query, answer, gold-node, and graph sentinels never enter prompt text or semantic cache keys.
-- [x] 2.2 Implement `memory-stream-importance-v1` from ordered `{node_id, source, text, position}` records.
+- [x] 2.2 Implement `memory-stream-importance-v2` from ordered `{node_id, source, text, position}` records with ordered score-array output.
 - [x] 2.3 Parse plain JSON and one optional Markdown JSON fence.
-- [x] 2.4 Reject missing/extra keys, duplicates, booleans, floats, strings, and out-of-range values without fallback scores.
+- [x] 2.4 Reject wrong-length arrays, booleans, floats, strings, and out-of-range values without fallback scores.
 - [x] 2.5 Run the focused importance tests.
 
 ## 3. Persistent Local Transformers Runtime

@@ -47,7 +47,7 @@ def _tasks() -> list[MemoryTaskInput]:
 
 class FakeLocalTransformersImportanceRuntime:
     instances: list["FakeLocalTransformersImportanceRuntime"] = []
-    response = '{"scores":{"m0":8,"m1":4}}'
+    response = '{"scores":[8,4]}'
 
     def __init__(self, settings: ImportanceSettings) -> None:
         self.settings = settings
@@ -82,7 +82,7 @@ def test_annotate_importance_zero_argument_defaults() -> None:
     assert args.cache_dir == Path("data/cache/memory_stream_importance")
     assert args.model_id == "Qwen/Qwen2.5-7B-Instruct"
     assert args.model_path == Path("models/Qwen2.5-7B-Instruct")
-    assert args.prompt_version == "memory-stream-importance-v1"
+    assert args.prompt_version == "memory-stream-importance-v2"
     assert args.device == "auto"
     assert args.max_new_tokens == 2048
 
@@ -125,7 +125,7 @@ def test_annotate_importance_zero_argument_smoke(
     monkeypatch.chdir(tmp_path)
     write_json(Path("data/hotpotqa/processed/dev_memory_tasks.input.json"), _tasks())
     FakeLocalTransformersImportanceRuntime.instances = []
-    FakeLocalTransformersImportanceRuntime.response = '{"scores":{"m0":8,"m1":4}}'
+    FakeLocalTransformersImportanceRuntime.response = '{"scores":[8,4]}'
 
     exit_code = annotate_script.main(
         [],
@@ -152,7 +152,7 @@ def test_annotate_importance_zero_argument_rerun_uses_cache_without_model_load(
     monkeypatch.chdir(tmp_path)
     write_json(Path("data/hotpotqa/processed/dev_memory_tasks.input.json"), _tasks())
     FakeLocalTransformersImportanceRuntime.instances = []
-    FakeLocalTransformersImportanceRuntime.response = '{"scores":{"m0":8,"m1":4}}'
+    FakeLocalTransformersImportanceRuntime.response = '{"scores":[8,4]}'
 
     def runtime_factory(settings: ImportanceSettings) -> FakeLocalTransformersImportanceRuntime:
         return FakeLocalTransformersImportanceRuntime(settings)
@@ -176,7 +176,7 @@ def test_annotate_importance_failed_rerun_preserves_successful_global_artifact(
     monkeypatch.chdir(tmp_path)
     write_json(Path("data/hotpotqa/processed/dev_memory_tasks.input.json"), _tasks())
     FakeLocalTransformersImportanceRuntime.instances = []
-    FakeLocalTransformersImportanceRuntime.response = '{"scores":{"m0":8,"m1":4}}'
+    FakeLocalTransformersImportanceRuntime.response = '{"scores":[8,4]}'
 
     def runtime_factory(settings: ImportanceSettings) -> FakeLocalTransformersImportanceRuntime:
         return FakeLocalTransformersImportanceRuntime(settings)
@@ -186,9 +186,9 @@ def test_annotate_importance_failed_rerun_preserves_successful_global_artifact(
 
     for cache_file in Path("data/cache/memory_stream_importance").rglob("*.json"):
         cache_file.unlink()
-    FakeLocalTransformersImportanceRuntime.response = '{"scores":{"m0":8}}'
+    FakeLocalTransformersImportanceRuntime.response = '{"scores":[8]}'
 
-    with pytest.raises(ContractValidationError, match="missing.*m1"):
+    with pytest.raises(ContractValidationError, match="expected=2.*observed=1"):
         annotate_script.main([], runtime_factory=runtime_factory)
 
     assert artifact_path.read_text(encoding="utf-8") == original_artifact
@@ -196,7 +196,7 @@ def test_annotate_importance_failed_rerun_preserves_successful_global_artifact(
         Path("data/hotpotqa/processed/memory_stream/dev.importance.run_summary.json")
     )
     assert summary["status"] == "failed"
-    assert "m1" in summary["error"]
+    assert "expected=2 observed=1" in summary["error"]
 
 
 def test_annotate_importance_environment_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
