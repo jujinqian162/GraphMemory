@@ -71,5 +71,27 @@
   "method_configs": {
     "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
     "dense_ft": "configs/methods/dense_ft.json"
+  },
+  "memory_stream": {
+    "annotation": {
+      "model_id": "Qwen/Qwen2.5-7B-Instruct",
+      "model_path": "models/Qwen2.5-7B-Instruct",
+      "prompt_version": "memory-stream-importance-v1",
+      "device": "auto",
+      "trust_remote_code": true,
+      "torch_dtype": "auto",
+      "low_cpu_mem_usage": true,
+      "tp_plan": null,
+      "do_sample": false,
+      "use_cache": true,
+      "max_new_tokens": 2048,
+      "cache_dir": "data/cache/memory_stream_importance"
+    },
+    "retrieval": {
+      "relevance_weight": 1.0,
+      "recency_weight": 1.0,
+      "importance_weight": 1.0,
+      "recency_decay": 0.99
+    }
   }
 }

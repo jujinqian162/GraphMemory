@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -11,7 +12,13 @@ from graph_memory.infrastructure.io import write_json_atomic
 from graph_memory.registry.stage_configs import ImportanceAnnotationSettings
 from graph_memory.retrieval.methods.memory_stream.annotation import annotate_importance_tasks
 from graph_memory.retrieval.methods.memory_stream.cache import ImportanceCache
-from graph_memory.retrieval.methods.memory_stream.contracts import GenerationResult
+from graph_memory.retrieval.methods.memory_stream.contracts import (
+    GenerationResult,
+    ImportanceArtifact,
+    ImportanceMessage,
+    ImportanceSettings,
+    TaskImportanceRecord,
+)
 from graph_memory.retrieval.methods.memory_stream.prompt import (
     IMPORTANCE_PROMPT_VERSION,
     build_importance_messages,
@@ -79,7 +86,7 @@ def _settings(
     model_id: str = "Qwen/Qwen2.5-7B-Instruct",
     model_path: Path | None = None,
     max_new_tokens: int = 256,
-    device: str = "auto",
+    device: Literal["auto", "cuda", "cpu"] = "auto",
 ) -> ImportanceAnnotationSettings:
     return ImportanceAnnotationSettings(
         model_id=model_id,
@@ -100,7 +107,7 @@ class FakeRuntime:
     def __init__(self, responses: list[str]) -> None:
         self.responses = responses
         self.load_calls = 0
-        self.generated_messages: list[list[dict[str, str]]] = []
+        self.generated_messages: list[list[ImportanceMessage]] = []
 
     def load(self) -> dict[str, object]:
         self.load_calls += 1
@@ -108,8 +115,8 @@ class FakeRuntime:
 
     def generate(
         self,
-        messages: list[dict[str, str]],
-        settings: ImportanceAnnotationSettings,
+        messages: list[ImportanceMessage],
+        settings: ImportanceSettings,
     ) -> GenerationResult:
         _ = settings
         self.generated_messages.append(messages)
@@ -191,7 +198,7 @@ def test_response_parser_rejects_non_exact_integer_coverage(payload: str, match:
 
 def test_importance_artifact_validation_requires_task_order_node_coverage_and_digest() -> None:
     tasks = [_task(), _second_task()]
-    artifact = {
+    artifact: ImportanceArtifact = {
         "method": "memory_stream",
         "model": "Qwen/Qwen2.5-7B-Instruct",
         "prompt_version": IMPORTANCE_PROMPT_VERSION,
@@ -246,7 +253,7 @@ def test_importance_cache_reuses_valid_records_and_treats_corruption_as_miss(tmp
     task = _task()
     settings = _settings()
     cache = ImportanceCache(tmp_path)
-    record = {
+    record: TaskImportanceRecord = {
         "task_id": task["task_id"],
         "content_digest": importance_content_digest(task),
         "scores": {"m0": 8, "m1": 4},
@@ -276,7 +283,7 @@ def test_annotation_uses_no_runtime_when_every_task_is_cached(tmp_path: Path) ->
         },
     )
 
-    def fail_factory(_settings: ImportanceAnnotationSettings) -> FakeRuntime:
+    def fail_factory(_settings: ImportanceSettings) -> FakeRuntime:
         raise AssertionError("runtime must not be created on all-cache-hit runs")
 
     result = annotate_importance_tasks([task], settings, cache_dir=tmp_path, runtime_factory=fail_factory)
@@ -297,7 +304,7 @@ def test_annotation_loads_one_runtime_for_all_misses_and_preserves_input_order(t
     )
     created: list[FakeRuntime] = []
 
-    def factory(_settings: ImportanceAnnotationSettings) -> FakeRuntime:
+    def factory(_settings: ImportanceSettings) -> FakeRuntime:
         created.append(runtime)
         return runtime
 

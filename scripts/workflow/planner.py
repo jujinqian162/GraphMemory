@@ -13,6 +13,7 @@ from scripts.workflow.workflows import (
     build_aggregate_command,
     build_evaluate_commands,
     build_graph_commands,
+    build_importance_commands,
     build_pair_commands,
     build_prepare_commands,
     build_retrieve_commands,
@@ -129,6 +130,8 @@ def _ordinary_stage_plan(
         commands.extend(build_prepare_commands(manifest))
     if StageId.GRAPHS.value in selected_stages:
         commands.extend(build_graph_commands(manifest))
+    if StageId.IMPORTANCE.value in selected_stages:
+        commands.extend(build_importance_commands(manifest, _methods_with_stage(methods, StageId.IMPORTANCE)))
     if StageId.PAIRS.value in selected_stages:
         commands.extend(build_pair_commands(manifest, _methods_with_stage(methods, StageId.PAIRS)))
     if StageId.TUNE.value in selected_stages:

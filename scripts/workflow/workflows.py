@@ -20,6 +20,12 @@ _GRAPHS = WorkflowStepSpec(
     outputs=(ArtifactRole.GRAPHS,),
     command_adapter="scripts/build_graphs.py",
 )
+_IMPORTANCE = WorkflowStepSpec(
+    stage=StageId.IMPORTANCE,
+    inputs=(ArtifactRole.INPUTS,),
+    outputs=(ArtifactRole.IMPORTANCE_SCORES,),
+    command_adapter="scripts/annotate_importance.py",
+)
 _RETRIEVE = WorkflowStepSpec(
     stage=StageId.RETRIEVE,
     inputs=(ArtifactRole.INPUTS,),
@@ -136,6 +142,24 @@ DENSE_FT_WORKFLOW = WorkflowSpec(
 )
 
 
+MEMORY_STREAM_WORKFLOW = WorkflowSpec(
+    identifier=WorkflowId.MEMORY_STREAM_RETRIEVAL,
+    steps=(
+        _PREPARE,
+        _GRAPHS,
+        _IMPORTANCE,
+        WorkflowStepSpec(
+            stage=StageId.RETRIEVE,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.IMPORTANCE_SCORES),
+            outputs=(ArtifactRole.PREDICTIONS,),
+            command_adapter="scripts/run_retrieval.py",
+        ),
+        _EVALUATE,
+        _AGGREGATE,
+    ),
+)
+
+
 def build_prepare_commands(manifest: dict[str, Any]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     config = manifest["effective_config"]
@@ -242,6 +266,18 @@ def build_tune_commands(manifest: dict[str, Any], methods: Sequence[str]) -> lis
         _append_dense_args(argv, manifest)
         commands.append(StageCommand(stage=StageId.TUNE, method=method, argv=argv))
     return commands
+
+
+def build_importance_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
+    return [
+        _stage_config_command(
+            manifest,
+            stage=StageId.IMPORTANCE,
+            method=method,
+            script="scripts/annotate_importance.py",
+        )
+        for method in methods
+    ]
 
 
 def build_retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:

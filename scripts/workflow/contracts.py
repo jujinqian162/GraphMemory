@@ -5,6 +5,7 @@ from typing import Any
 
 from graph_memory.config.converter import ConfigConverter
 from graph_memory.registry import Registry
+from graph_memory.registry.methods import ImportanceSource
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ class CurrentWorkflowManifest:
 
 def validate_current_manifest(value: object) -> None:
     manifest = ConfigConverter().structure(value, CurrentWorkflowManifest)
-    required_stage_mappings = {"pairs", "train", "retrieve", "evaluate"}
+    required_stage_mappings = {"importance", "pairs", "train", "retrieve", "evaluate"}
     actual_stage_mappings = set(manifest.stage_configs)
     if actual_stage_mappings != required_stage_mappings:
         missing = sorted(required_stage_mappings - actual_stage_mappings)
@@ -39,7 +40,13 @@ def validate_current_manifest(value: object) -> None:
         for method in selected_methods
         if Registry.methods.get(method).train_artifact is not None
     }
+    importance_methods = {
+        method
+        for method in selected_methods
+        if Registry.methods.get(method).dependencies.importance is ImportanceSource.SIDECAR_ARTIFACT
+    }
     expected_methods_by_stage = {
+        "importance": importance_methods,
         "pairs": trainable_methods,
         "train": trainable_methods,
         "retrieve": selected_methods,

@@ -16,6 +16,7 @@ from scripts.workflow.types import (
 from scripts.workflow.workflows import (
     DENSE_FT_WORKFLOW,
     GRAPH_RERANK_WORKFLOW,
+    MEMORY_STREAM_WORKFLOW,
     RGCN_WORKFLOW,
     STATELESS_RETRIEVAL_WORKFLOW,
 )
@@ -26,6 +27,7 @@ WORKFLOW_BY_LIFECYCLE: dict[RetrievalLifecycle, WorkflowSpec] = {
     RetrievalLifecycle.GRAPH_RERANK: GRAPH_RERANK_WORKFLOW,
     RetrievalLifecycle.RGCN_TRAINABLE: RGCN_WORKFLOW,
     RetrievalLifecycle.DENSE_FINETUNE: DENSE_FT_WORKFLOW,
+    RetrievalLifecycle.MEMORY_STREAM: MEMORY_STREAM_WORKFLOW,
 }
 
 

@@ -41,6 +41,7 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
     assert [stage.value for stage in StageId] == [
         "prepare",
         "graphs",
+        "importance",
         "pairs",
         "tune",
         "train",
@@ -53,7 +54,9 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
         "graph_rerank",
         "rgcn_trainable_retrieval",
         "dense_finetune_retrieval",
+        "memory_stream_retrieval",
     }
+    assert ArtifactRole.IMPORTANCE_SCORES.value == "importance_scores"
     assert ArtifactRole.EFFECTIVE_METHOD_CONFIG.value == "effective_method_config"
     assert {dimension.value for dimension in ChangeDimension} == {
         "pair_sampling",

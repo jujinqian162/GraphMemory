@@ -25,6 +25,7 @@ class RetrievalMethodId(StrEnum):
     BM25_GRAPH_RERANK = "bm25_graph_rerank"
     DENSE_GRAPH_RERANK = "dense_graph_rerank"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
+    MEMORY_STREAM = "memory_stream"
 
 
 @dataclass(frozen=True)
@@ -96,12 +97,33 @@ class DenseFinetunedRetrievalSettings:
     method: Literal[RetrievalMethodId.DENSE_FT] = RetrievalMethodId.DENSE_FT
 
 
+@dataclass(frozen=True)
+class MemoryStreamRetrievalSettings:
+    top_k: int
+    encoder: DenseEncoderSettings
+    relevance_weight: float = 1.0
+    recency_weight: float = 1.0
+    importance_weight: float = 1.0
+    recency_decay: float = 0.99
+    method: Literal[RetrievalMethodId.MEMORY_STREAM] = RetrievalMethodId.MEMORY_STREAM
+
+    def __post_init__(self) -> None:
+        weights = (self.relevance_weight, self.recency_weight, self.importance_weight)
+        if any(weight < 0.0 for weight in weights):
+            raise ValueError("Memory Stream score weights must be non-negative.")
+        if not any(weight > 0.0 for weight in weights):
+            raise ValueError("At least one Memory Stream score weight must be positive.")
+        if not 0.0 < self.recency_decay <= 1.0:
+            raise ValueError("Memory Stream recency_decay must be in (0, 1].")
+
+
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
     | GraphRerankRetrievalSettings
     | CheckpointGraphRetrievalSettings
     | DenseFinetunedRetrievalSettings
+    | MemoryStreamRetrievalSettings
 )
 
 
@@ -186,6 +208,7 @@ __all__ = [
     "GraphRerankBuildPayload",
     "GraphRerankRetrievalSettings",
     "GraphRerankSettings",
+    "MemoryStreamRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

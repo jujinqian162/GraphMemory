@@ -64,14 +64,14 @@
 
 ## 8. Workflow Types, Artifacts, and Stage Config Compilation
 
-- [ ] 8.1 Add workflow `StageId.IMPORTANCE`, `WorkflowId.MEMORY_STREAM_RETRIEVAL`, and `ArtifactRole.IMPORTANCE_SCORES` in `scripts/workflow/types.py`, keeping it aligned with `graph_memory.registry.ids.StageId.IMPORTANCE`.
-- [ ] 8.2 Add `MEMORY_STREAM_WORKFLOW` with prepare, graphs, importance, retrieve, evaluate, and aggregate steps.
-- [ ] 8.3 Map the Memory Stream lifecycle to its workflow in `scripts/workflow/registry.py`.
-- [ ] 8.4 Allocate `runs/<name>/importance/test.memory_stream.importance.json` and its run summary in manifest artifacts.
-- [ ] 8.5 Extend `scripts/workflow/stage_configs.py` to compile importance and retrieve stage-root configs from the fixed experiment `memory_stream` section.
-- [ ] 8.6 Extend `CurrentWorkflowManifest` validation so `stage_configs.importance` exists and contains exactly methods whose workflows include the importance stage.
-- [ ] 8.7 Add `build_importance_commands()` and planner dispatch so workflow commands remain `script --config <stage-config>`.
-- [ ] 8.8 Run `uv run pytest tests/test_memory_stream_workflow.py tests/test_experiment_runner.py tests/test_workflow_orchestration.py -q`.
+- [x] 8.1 Add workflow `StageId.IMPORTANCE`, `WorkflowId.MEMORY_STREAM_RETRIEVAL`, and `ArtifactRole.IMPORTANCE_SCORES` in `scripts/workflow/types.py`, keeping it aligned with `graph_memory.registry.ids.StageId.IMPORTANCE`.
+- [x] 8.2 Add `MEMORY_STREAM_WORKFLOW` with prepare, graphs, importance, retrieve, evaluate, and aggregate steps.
+- [x] 8.3 Map the Memory Stream lifecycle to its workflow in `scripts/workflow/registry.py`.
+- [x] 8.4 Allocate `runs/<name>/importance/test.memory_stream.importance.json` and its run summary in manifest artifacts.
+- [x] 8.5 Extend `scripts/workflow/stage_configs.py` to compile importance and retrieve stage-root configs from the fixed experiment `memory_stream` section.
+- [x] 8.6 Extend `CurrentWorkflowManifest` validation so `stage_configs.importance` exists and contains exactly methods whose workflows include the importance stage.
+- [x] 8.7 Add `build_importance_commands()` and planner dispatch so workflow commands remain `script --config <stage-config>`.
+- [x] 8.8 Run `uv run pytest tests/test_memory_stream_workflow.py tests/test_experiment_runner.py tests/test_workflow_orchestration.py -q`.
 
 ## 9. Planner Dependencies, Status, Resume, and Delivery
 

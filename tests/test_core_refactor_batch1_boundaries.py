@@ -146,6 +146,7 @@ def test_io_and_observability_root_ports_are_narrow_infrastructure_reexports():
     io_names = {
         "read_json",
         "write_json",
+        "write_json_atomic",
         "read_csv",
         "write_csv",
         "write_jsonl",

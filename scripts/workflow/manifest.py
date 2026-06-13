@@ -35,6 +35,7 @@ DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
 STAGE_DESCRIPTIONS = {
     StageId.PREPARE.value: "Build split-specific task, label, and combined input artifacts.",
     StageId.GRAPHS.value: "Build evidence graph artifacts for train, dev, and test splits.",
+    StageId.IMPORTANCE.value: "Annotate query-independent Memory Stream importance scores.",
     StageId.PAIRS.value: "Build supervised training pairs for checkpoint-backed methods.",
     StageId.TUNE.value: "Select graph-rerank parameters from the search-space config.",
     StageId.TRAIN.value: "Train checkpoint-backed retrieval methods.",
@@ -177,6 +178,7 @@ def build_effective_config(
         "methods": config.get("methods", [method.value for method in Registry.methods.list_ids()]),
         "search_spaces": config.get("search_spaces", {"graph_rerank": str(DEFAULT_SEARCH_SPACE_CONFIG)}),
         "method_configs": config.get("method_configs", {}),
+        "memory_stream": config.get("memory_stream", {}),
         **defaults,
         "splits": {
             "train": {
@@ -336,9 +338,18 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
             "train_run_summary": main[ArtifactRole.TRAIN_RUN_SUMMARY],
             "best_checkpoint": main[ArtifactRole.CHECKPOINT],
         }
+    importance = {
+        method: {
+            "scores": _path_str(run_dir / "importance" / f"test.{method}.importance.json"),
+            "run_summary": _path_str(run_dir / "importance" / f"test.{method}.importance.run_summary.json"),
+        }
+        for method in methods
+        if _method_has_stage(method, StageId.IMPORTANCE)
+    }
     return {
         "inputs": inputs,
         "graphs": {split: _path_str(run_dir / "graphs" / f"{split}.graphs.json") for split in ("train", "dev", "test")},
+        "importance": importance,
         "tuned": {
             method: _path_str(run_dir / "tuned" / f"{method}.dev_selected.json")
             for method in methods
