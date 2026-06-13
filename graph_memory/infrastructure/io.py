@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, TypeAlias
@@ -20,6 +22,31 @@ def write_json(path: str | Path, data: Any) -> None:
     with output_path.open("w", encoding="utf-8", newline="\n") as file:
         json.dump(data, file, ensure_ascii=False, indent=2, sort_keys=True)
         file.write("\n")
+
+
+def write_json_atomic(path: str | Path, data: Any) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=output_path.parent,
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as file:
+            temp_path = Path(file.name)
+            json.dump(data, file, ensure_ascii=False, indent=2, sort_keys=True)
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        temp_path.replace(output_path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
 
 
 def read_csv(path: str | Path) -> list[dict[str, str]]:
@@ -75,5 +102,6 @@ __all__ = [
     "read_json",
     "write_csv",
     "write_json",
+    "write_json_atomic",
     "write_jsonl",
 ]

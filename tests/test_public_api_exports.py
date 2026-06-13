@@ -18,13 +18,16 @@ import pytest
         ),
         (
             "graph_memory.io",
-            {"merge_config", "read_csv", "read_json", "write_csv", "write_json", "write_jsonl"},
+            {"merge_config", "read_csv", "read_json", "write_csv", "write_json", "write_json_atomic", "write_jsonl"},
         ),
         (
             "graph_memory.registry.stage_configs",
             {
                 "DenseFinetuneTrainStageConfig",
                 "EvaluateStageConfig",
+                "ImportanceAnnotationSettings",
+                "ImportanceIO",
+                "ImportanceStageConfig",
                 "PairBuildStageConfig",
                 "RetrieveStageConfig",
                 "RgcnTrainStageConfig",

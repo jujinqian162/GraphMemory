@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import cast
+
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.retrieval.methods.memory_stream.prompt import importance_content_digest, task_node_ids
+from graph_memory.validation.common import ContractValidationError
+
+ARTIFACT_FIELDS = {"method", "model", "prompt_version", "generation", "tasks"}
+GENERATION_FIELDS = {"do_sample", "use_cache", "max_new_tokens"}
+TASK_RECORD_FIELDS = {"task_id", "content_digest", "scores"}
+
+
+def validate_importance_artifact(artifact: object, task_inputs: Sequence[MemoryTaskInput]) -> None:
+    record = _require_mapping(artifact, "importance artifact")
+    _reject_unknown(record, ARTIFACT_FIELDS, "importance artifact")
+    if record.get("method") != "memory_stream":
+        raise ContractValidationError("Invalid importance artifact: method must be memory_stream.")
+    if not isinstance(record.get("model"), str) or not record["model"]:
+        raise ContractValidationError("Invalid importance artifact: model must be a non-empty string.")
+    if not isinstance(record.get("prompt_version"), str) or not record["prompt_version"]:
+        raise ContractValidationError("Invalid importance artifact: prompt_version must be a non-empty string.")
+    _validate_generation(record.get("generation"), artifact_name="importance artifact")
+    tasks = record.get("tasks")
+    if not isinstance(tasks, list):
+        raise ContractValidationError("Invalid importance artifact: tasks must be a list.")
+    if len(tasks) != len(task_inputs):
+        raise ContractValidationError(
+            f"Invalid importance artifact: task count mismatch expected={len(task_inputs)} observed={len(tasks)}."
+        )
+    for index, (task_record, task_input) in enumerate(zip(tasks, task_inputs, strict=True)):
+        if not isinstance(task_record, Mapping):
+            raise ContractValidationError(f"Invalid importance artifact: task record index={index} is not an object.")
+        if task_record.get("task_id") != task_input["task_id"]:
+            raise ContractValidationError(
+                "Invalid importance artifact: task order mismatch "
+                f"index={index} expected={task_input['task_id']} observed={task_record.get('task_id')}."
+            )
+        validate_task_importance_record(task_record, task_input)
+
+
+def validate_task_importance_record(record: object, task_input: MemoryTaskInput) -> None:
+    task_record = _require_mapping(record, "task importance record")
+    task_id = task_input["task_id"]
+    _reject_unknown(task_record, TASK_RECORD_FIELDS, "task importance record", task_id=task_id)
+    if task_record.get("task_id") != task_id:
+        raise ContractValidationError(
+            f"Invalid task importance record: task_id={task_id} observed task_id={task_record.get('task_id')}."
+        )
+    expected_digest = importance_content_digest(task_input)
+    if task_record.get("content_digest") != expected_digest:
+        raise ContractValidationError(
+            f"Invalid task importance record: task_id={task_id} content_digest mismatch."
+        )
+    scores = task_record.get("scores")
+    if not isinstance(scores, Mapping):
+        raise ContractValidationError(f"Invalid task importance record: task_id={task_id} scores must be an object.")
+    _validate_score_mapping(cast(Mapping[str, object], scores), task_input, artifact_name="task importance record")
+
+
+def validate_importance_cache_record(
+    record: object,
+    task_input: MemoryTaskInput,
+    *,
+    model_id: str,
+    prompt_version: str,
+    generation: Mapping[str, object],
+    cache_digest: str,
+) -> None:
+    cache_record = _require_mapping(record, "importance cache record")
+    _reject_unknown(
+        cache_record,
+        {"method", "model", "prompt_version", "generation", "cache_digest", "task"},
+        "importance cache record",
+    )
+    task_id = task_input["task_id"]
+    if cache_record.get("method") != "memory_stream":
+        raise ContractValidationError(f"Invalid importance cache record: task_id={task_id} method mismatch.")
+    if cache_record.get("model") != model_id:
+        raise ContractValidationError(f"Invalid importance cache record: task_id={task_id} model mismatch.")
+    if cache_record.get("prompt_version") != prompt_version:
+        raise ContractValidationError(f"Invalid importance cache record: task_id={task_id} prompt_version mismatch.")
+    if cache_record.get("generation") != dict(generation):
+        raise ContractValidationError(f"Invalid importance cache record: task_id={task_id} generation mismatch.")
+    if cache_record.get("cache_digest") != cache_digest:
+        raise ContractValidationError(f"Invalid importance cache record: task_id={task_id} cache_digest mismatch.")
+    validate_task_importance_record(cache_record.get("task"), task_input)
+
+
+def _validate_generation(value: object, *, artifact_name: str) -> None:
+    generation = _require_mapping(value, f"{artifact_name} generation")
+    _reject_unknown(generation, GENERATION_FIELDS, f"{artifact_name} generation")
+    if generation.get("do_sample") is not False:
+        raise ContractValidationError(f"Invalid {artifact_name}: generation.do_sample must be false.")
+    if generation.get("use_cache") is not True:
+        raise ContractValidationError(f"Invalid {artifact_name}: generation.use_cache must be true.")
+    max_new_tokens = generation.get("max_new_tokens")
+    if not isinstance(max_new_tokens, int) or isinstance(max_new_tokens, bool) or max_new_tokens <= 0:
+        raise ContractValidationError(f"Invalid {artifact_name}: generation.max_new_tokens must be a positive integer.")
+
+
+def _validate_score_mapping(
+    scores: Mapping[str, object],
+    task_input: MemoryTaskInput,
+    *,
+    artifact_name: str,
+) -> None:
+    task_id = task_input["task_id"]
+    expected_ids = set(task_node_ids(task_input))
+    observed_ids = set(scores)
+    if expected_ids != observed_ids:
+        missing = sorted(expected_ids - observed_ids)
+        extra = sorted(observed_ids - expected_ids)
+        raise ContractValidationError(f"Invalid {artifact_name}: task_id={task_id} missing={missing} extra={extra}.")
+    for node_id in task_node_ids(task_input):
+        value = scores[node_id]
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ContractValidationError(
+                f"Invalid {artifact_name}: task_id={task_id} node_id={node_id} score must be an integer."
+            )
+        if value < 1 or value > 10:
+            raise ContractValidationError(
+                f"Invalid {artifact_name}: task_id={task_id} node_id={node_id} score must be 1-10."
+            )
+
+
+def _require_mapping(value: object, artifact_name: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ContractValidationError(f"Invalid {artifact_name}: artifact must be an object.")
+    return cast(Mapping[str, object], value)
+
+
+def _reject_unknown(
+    record: Mapping[str, object],
+    allowed: set[str],
+    artifact_name: str,
+    *,
+    task_id: str | None = None,
+) -> None:
+    unknown = sorted(set(record) - allowed)
+    if unknown:
+        location = f" task_id={task_id}" if task_id is not None else ""
+        raise ContractValidationError(f"Invalid {artifact_name}:{location} unknown fields={unknown}.")
+
+
+__all__ = [
+    "validate_importance_artifact",
+    "validate_importance_cache_record",
+    "validate_task_importance_record",
+]

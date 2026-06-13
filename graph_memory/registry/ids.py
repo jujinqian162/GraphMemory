@@ -13,6 +13,7 @@ class StrEnum(str, Enum):
 class StageId(StrEnum):
     PREPARE = "prepare"
     GRAPHS = "graphs"
+    IMPORTANCE = "importance"
     PAIRS = "pairs"
     TUNE = "tune"
     TRAIN = "train"

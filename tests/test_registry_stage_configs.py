@@ -23,6 +23,9 @@ from graph_memory.registry.stage_configs import (
     DenseFinetuneTrainStageConfig,
     EvaluateIO,
     EvaluateStageConfig,
+    ImportanceAnnotationSettings,
+    ImportanceIO,
+    ImportanceStageConfig,
     PairBuildIO,
     PairBuildJobSettings,
     PairBuildStageConfig,
@@ -52,6 +55,7 @@ def test_registry_exposes_stage_root_config_specs() -> None:
         "TRAINABLE_METHOD": StageId.EXPERIMENT_INIT,
         "PREPARE": StageId.PREPARE,
         "GRAPHS": StageId.GRAPHS,
+        "IMPORTANCE": StageId.IMPORTANCE,
         "PAIRS": StageId.PAIRS,
         "TUNE": StageId.TUNE,
         "TRAIN": StageId.TRAIN,
@@ -65,7 +69,7 @@ def test_registry_exposes_stage_root_config_specs() -> None:
 
 
 def test_runtime_stage_parsers_accept_only_complete_config_files() -> None:
-    for name in ("PAIRS", "TRAIN", "RETRIEVE", "EVALUATE"):
+    for name in ("PAIRS", "IMPORTANCE", "TRAIN", "RETRIEVE", "EVALUATE"):
         parser = getattr(Registry.configs, name).parser_factory()
         options = {
             option
@@ -112,6 +116,31 @@ def test_pair_retrieve_and_evaluate_configs_round_trip(tmp_path: Path) -> None:
                 summary=tmp_path / "predictions.run_summary.json",
             ),
             job=Bm25RetrievalSettings(top_k=7),
+        ),
+    )
+    _assert_config_round_trip(
+        tmp_path / "importance.json",
+        Registry.configs.IMPORTANCE,
+        ImportanceStageConfig(
+            io=ImportanceIO(
+                tasks=tmp_path / "tasks.json",
+                output=tmp_path / "importance.json",
+                summary=tmp_path / "importance.run_summary.json",
+                cache_dir=tmp_path / "cache",
+            ),
+            job=ImportanceAnnotationSettings(
+                model_id="Qwen/Qwen2.5-7B-Instruct",
+                model_path=tmp_path / "models" / "Qwen2.5-7B-Instruct",
+                prompt_version="memory-stream-importance-v1",
+                device="auto",
+                trust_remote_code=True,
+                torch_dtype="auto",
+                low_cpu_mem_usage=True,
+                tp_plan=None,
+                do_sample=False,
+                use_cache=True,
+                max_new_tokens=256,
+            ),
         ),
     )
     _assert_config_round_trip(

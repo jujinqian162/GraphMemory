@@ -91,6 +91,55 @@ class RetrieveStageConfig:
 
 
 @dataclass(frozen=True)
+class ImportanceIO:
+    tasks: Path
+    output: Path
+    summary: Path
+    cache_dir: Path
+
+
+@dataclass(frozen=True)
+class ImportanceAnnotationSettings:
+    model_id: str
+    model_path: Path
+    prompt_version: str
+    device: Literal["auto", "cuda", "cpu"]
+    trust_remote_code: bool
+    torch_dtype: str
+    low_cpu_mem_usage: bool
+    tp_plan: None
+    do_sample: Literal[False]
+    use_cache: Literal[True]
+    max_new_tokens: int
+
+    def __post_init__(self) -> None:
+        if not self.model_id:
+            raise ValueError("Importance annotation config model_id must be non-empty.")
+        if str(self.model_path) == "":
+            raise ValueError("Importance annotation config model_path must be non-empty.")
+        if not self.prompt_version:
+            raise ValueError("Importance annotation config prompt_version must be non-empty.")
+        if self.torch_dtype != "auto":
+            raise ValueError("Importance annotation config torch_dtype must be auto.")
+        if self.tp_plan is not None:
+            raise ValueError("Importance annotation config tp_plan must be null.")
+        if self.do_sample is not False:
+            raise ValueError("Importance annotation config do_sample must be false.")
+        if self.use_cache is not True:
+            raise ValueError("Importance annotation config use_cache must be true.")
+        if self.max_new_tokens <= 0:
+            raise ValueError("Importance annotation config max_new_tokens must be positive.")
+
+
+@dataclass(frozen=True)
+class ImportanceStageConfig:
+    io: ImportanceIO
+    job: ImportanceAnnotationSettings
+
+    io_type: ClassVar[type[ImportanceIO]] = ImportanceIO
+
+
+@dataclass(frozen=True)
 class RgcnTrainIO:
     train_tasks: Path
     train_labels: Path | None
@@ -163,6 +212,7 @@ class StageConfigRegistry:
     GRAPHS: StageConfigSpec[GenericStageConfig]
     PAIRS: StageConfigSpec[PairBuildStageConfig]
     TUNE: StageConfigSpec[GenericStageConfig]
+    IMPORTANCE: StageConfigSpec[ImportanceStageConfig]
     TRAIN: StageConfigSpec[TrainStageConfig]
     RETRIEVE: StageConfigSpec[RetrieveStageConfig]
     EVALUATE: StageConfigSpec[EvaluateStageConfig]
@@ -185,6 +235,7 @@ def build_stage_config_registry() -> StageConfigRegistry:
         GRAPHS=_generic_spec(StageId.GRAPHS, _graphs_parser),
         PAIRS=_stage_file_spec(StageId.PAIRS, PairBuildStageConfig, "Build train pair artifacts."),
         TUNE=_generic_spec(StageId.TUNE, _tune_parser),
+        IMPORTANCE=_stage_file_spec(StageId.IMPORTANCE, ImportanceStageConfig, "Annotate Memory Stream importance."),
         TRAIN=_stage_file_spec(StageId.TRAIN, TrainStageConfig, "Train a retrieval method."),
         RETRIEVE=_stage_file_spec(StageId.RETRIEVE, RetrieveStageConfig, "Run a retrieval method."),
         EVALUATE=_stage_file_spec(StageId.EVALUATE, EvaluateStageConfig, "Evaluate retrieval predictions."),
@@ -376,6 +427,9 @@ def _empty_registry_patch(
 __all__ = [
     "DenseFinetuneTrainStageConfig",
     "EvaluateStageConfig",
+    "ImportanceAnnotationSettings",
+    "ImportanceIO",
+    "ImportanceStageConfig",
     "PairBuildStageConfig",
     "RetrieveStageConfig",
     "RgcnTrainStageConfig",

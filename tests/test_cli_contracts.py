@@ -7,6 +7,9 @@ from graph_memory.registry import Registry
 
 
 def test_core_script_parser_contracts_are_frozen() -> None:
+    assert _parser_contract(Registry.configs.IMPORTANCE.parser_factory()) == {
+        "config": _store("--config", required=True),
+    }
     assert _parser_contract(Registry.configs.RETRIEVE.parser_factory()) == {
         "config": _store("--config", required=True),
     }

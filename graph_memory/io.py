@@ -6,6 +6,7 @@ from graph_memory.infrastructure.io import (
     read_json,
     write_csv,
     write_json,
+    write_json_atomic,
     write_jsonl,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "read_json",
     "write_csv",
     "write_json",
+    "write_json_atomic",
     "write_jsonl",
 ]
