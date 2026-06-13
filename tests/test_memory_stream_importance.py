@@ -9,7 +9,6 @@ import pytest
 
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.infrastructure.io import write_json_atomic
-from graph_memory.registry.stage_configs import ImportanceAnnotationSettings
 from graph_memory.retrieval.methods.memory_stream.annotation import annotate_importance_tasks
 from graph_memory.retrieval.methods.memory_stream.cache import ImportanceCache
 from graph_memory.retrieval.methods.memory_stream.contracts import (
@@ -27,7 +26,12 @@ from graph_memory.retrieval.methods.memory_stream.prompt import (
     parse_importance_response,
 )
 from graph_memory.retrieval.methods.memory_stream.runtime import LocalTransformersImportanceRuntime
-from graph_memory.validation import ContractValidationError, validate_importance_artifact
+from graph_memory.retrieval.methods.memory_stream.settings import ImportanceAnnotationSettings
+from graph_memory.validation import (
+    ContractValidationError,
+    select_importance_records,
+    validate_importance_artifact,
+)
 
 
 def _task(*, query: str = "QUERY_SENTINEL") -> MemoryTaskInput:
@@ -229,6 +233,63 @@ def test_importance_artifact_validation_requires_task_order_node_coverage_and_di
     }
     with pytest.raises(ContractValidationError, match="content_digest"):
         validate_importance_artifact(bad_digest, tasks)
+
+
+def test_global_importance_artifact_selects_workflow_subset_by_task_id() -> None:
+    tasks = [_task(), _second_task()]
+    artifact: ImportanceArtifact = {
+        "method": "memory_stream",
+        "model": "Qwen/Qwen2.5-7B-Instruct",
+        "prompt_version": IMPORTANCE_PROMPT_VERSION,
+        "generation": {"do_sample": False, "use_cache": True, "max_new_tokens": 256},
+        "tasks": [
+            {
+                "task_id": "hotpot_ms_1",
+                "content_digest": importance_content_digest(tasks[0]),
+                "scores": {"m0": 7, "m1": 5},
+            },
+            {
+                "task_id": "hotpot_ms_2",
+                "content_digest": importance_content_digest(tasks[1]),
+                "scores": {"m0": 9},
+            },
+        ],
+    }
+
+    selected = select_importance_records(artifact, [tasks[1], tasks[0]])
+
+    assert [record["task_id"] for record in selected] == ["hotpot_ms_2", "hotpot_ms_1"]
+
+
+def test_global_importance_artifact_rejects_missing_duplicate_and_stale_subset_records() -> None:
+    tasks = [_task(), _second_task()]
+    first_record: TaskImportanceRecord = {
+        "task_id": "hotpot_ms_1",
+        "content_digest": importance_content_digest(tasks[0]),
+        "scores": {"m0": 7, "m1": 5},
+    }
+    artifact: ImportanceArtifact = {
+        "method": "memory_stream",
+        "model": "Qwen/Qwen2.5-7B-Instruct",
+        "prompt_version": IMPORTANCE_PROMPT_VERSION,
+        "generation": {"do_sample": False, "use_cache": True, "max_new_tokens": 256},
+        "tasks": [first_record],
+    }
+
+    with pytest.raises(ContractValidationError, match="missing task_id=hotpot_ms_2"):
+        select_importance_records(artifact, [tasks[1]])
+
+    duplicate = {**artifact, "tasks": [first_record, first_record]}
+    with pytest.raises(ContractValidationError, match="duplicate task_id=hotpot_ms_1"):
+        select_importance_records(duplicate, [tasks[0]])
+
+    stale_task = _task()
+    stale_task["memory_items"][0] = {
+        **stale_task["memory_items"][0],
+        "text": "Changed content.",
+    }
+    with pytest.raises(ContractValidationError, match="content_digest"):
+        select_importance_records(artifact, [stale_task])
 
 
 def test_duplicate_memory_node_ids_are_rejected_before_prompting() -> None:

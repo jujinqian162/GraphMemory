@@ -25,9 +25,6 @@ import pytest
             {
                 "DenseFinetuneTrainStageConfig",
                 "EvaluateStageConfig",
-                "ImportanceAnnotationSettings",
-                "ImportanceIO",
-                "ImportanceStageConfig",
                 "PairBuildStageConfig",
                 "RetrieveStageConfig",
                 "RgcnTrainStageConfig",

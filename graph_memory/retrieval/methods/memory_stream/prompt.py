@@ -6,14 +6,13 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from graph_memory.contracts.common import NodeId
+from graph_memory.contracts.errors import ContractValidationError
 from graph_memory.contracts.tasks import MemoryItem, MemoryTaskInput
 from graph_memory.retrieval.methods.memory_stream.contracts import (
     ImportanceGenerationRecord,
     ImportanceMessage,
     ImportanceSettings,
 )
-from graph_memory.validation.common import ContractValidationError
-
 IMPORTANCE_PROMPT_VERSION = "memory-stream-importance-v1"
 
 _SYSTEM_PROMPT = """You rate the long-term importance or poignancy of memory sentences.

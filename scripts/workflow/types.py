@@ -16,7 +16,6 @@ class StageId(StrEnum):
 
     PREPARE = "prepare"
     GRAPHS = "graphs"
-    IMPORTANCE = "importance"
     PAIRS = "pairs"
     TUNE = "tune"
     TRAIN = "train"
@@ -32,7 +31,6 @@ class WorkflowId(StrEnum):
     GRAPH_RERANK = "graph_rerank"
     RGCN_TRAINABLE_RETRIEVAL = "rgcn_trainable_retrieval"
     DENSE_FINETUNE_RETRIEVAL = "dense_finetune_retrieval"
-    MEMORY_STREAM_RETRIEVAL = "memory_stream_retrieval"
 
 
 class ArtifactRole(StrEnum):
@@ -41,7 +39,6 @@ class ArtifactRole(StrEnum):
     INPUTS = "inputs"
     LABELS = "labels"
     GRAPHS = "graphs"
-    IMPORTANCE_SCORES = "importance_scores"
     TRAIN_PAIRS = "train_pairs"
     TRAIN_PAIR_SUMMARY = "train_pair_summary"
     TRAIN_PAIR_RUN_SUMMARY = "train_pair_run_summary"

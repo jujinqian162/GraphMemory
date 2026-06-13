@@ -26,8 +26,8 @@ The system SHALL construct the relevance component through the existing dense en
 - **WHEN** a sentence encoder is supplied through the retrieval build payload
 - **THEN** Memory Stream uses it without loading a real SentenceTransformer model
 
-### Requirement: Importance artifacts align exactly with retrieval tasks
-The system SHALL reject Memory Stream retrieval unless the importance artifact matches every retrieval task and every memory node exactly.
+### Requirement: Global importance artifacts cover every retrieval task
+The system SHALL reject Memory Stream retrieval unless the global importance artifact contains a valid record for every retrieval task and every memory node exactly, while permitting additional unselected canonical tasks.
 
 #### Scenario: Missing task fails before ranking
 - **WHEN** a retrieval task id is absent from the importance artifact
@@ -40,6 +40,10 @@ The system SHALL reject Memory Stream retrieval unless the importance artifact m
 #### Scenario: Changed memory content fails digest validation
 - **WHEN** node ids match but source, text, position, or item order differs from the annotated content
 - **THEN** retrieval fails because the task content digest no longer matches
+
+#### Scenario: Artifact superset is accepted
+- **WHEN** the global artifact contains valid records for all retrieval tasks plus additional canonical tasks
+- **THEN** retrieval selects requested records by task id and continues
 
 ### Requirement: Memory Stream ranking and output are deterministic
 The system SHALL sort Memory Stream results by descending final score and ascending node id, emit the shared `RankedResult` shape, and produce no retrieved graph edges.

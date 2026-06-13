@@ -1,102 +1,81 @@
 ## ADDED Requirements
 
 ### Requirement: Memory Stream is a selectable public retrieval method
-The system SHALL register `memory_stream` with a distinct lifecycle, dense encoder dependency, sidecar importance dependency, and no retrieval-time graph, tuned-config, or checkpoint dependency.
+The system SHALL later register `memory_stream` with a dense encoder dependency,
+a read-only global importance dependency, and no retrieval-time graph,
+tuned-config, or checkpoint dependency.
 
 #### Scenario: Method listing includes Memory Stream
-- **WHEN** experiment methods are listed
+- **WHEN** the retrieval milestone is complete and experiment methods are listed
 - **THEN** `memory_stream` appears as a selectable method
 
 #### Scenario: Method definition describes exact dependencies
 - **WHEN** Memory Stream method metadata is inspected
-- **THEN** it declares experiment-config dense encoding and an importance sidecar while declaring no graph input, graph config, model checkpoint, or train artifact
+- **THEN** it declares experiment-config dense encoding and an external global importance artifact
 
-### Requirement: Memory Stream has a dedicated experiment workflow
-The system SHALL plan Memory Stream as prepare, graph construction, importance annotation, retrieval, evaluation, and aggregation.
+### Requirement: Importance preparation is outside workflow execution
+The system SHALL NOT register importance annotation as a workflow stage or
+allocate its output inside a workflow run directory.
 
-#### Scenario: Full plan includes importance before retrieval
+#### Scenario: Full plan contains no annotation command
 - **WHEN** an experiment plan is built for `memory_stream`
-- **THEN** the importance command appears after graph construction and before retrieval
+- **THEN** its stages are prepare, graph construction, retrieval, evaluation, and aggregation
+- **AND** no `scripts/annotate_importance.py` command is present
 
-#### Scenario: Importance command uses a stage-root config
-- **WHEN** workflow commands are rendered
-- **THEN** annotation invokes `scripts/annotate_importance.py --config <path>` without reconstructing method-specific CLI arguments
-
-#### Scenario: Train and pair stages are absent
-- **WHEN** required stages are computed for only `memory_stream`
-- **THEN** pair building and training are not included
-
-### Requirement: Workflow artifacts separate annotation from predictions
-The system SHALL allocate a method-specific importance artifact and run summary independently from Memory Stream prediction and metric artifacts.
-
-#### Scenario: Manifest exposes importance paths
+#### Scenario: Manifest does not own global importance
 - **WHEN** a Memory Stream experiment is initialized
-- **THEN** the manifest contains an importance sidecar path, annotation run-summary path, prediction path, metric path, and corresponding stage-config paths
+- **THEN** the manifest does not allocate a run-local importance artifact, annotation summary, or annotation stage config
 
-#### Scenario: Retrieve stage consumes the compiled importance path
-- **WHEN** the Memory Stream retrieve stage config is written
-- **THEN** its IO references the manifest importance artifact produced by the annotation stage
+### Requirement: Retrieval consumes a global external importance artifact
+The system SHALL require a complete global importance artifact before Memory
+Stream retrieval and SHALL treat it as a read-only external dependency.
 
-### Requirement: Planner dependencies require a complete importance artifact
-The system SHALL prevent a Memory Stream retrieve-only plan when the importance stage is omitted and no complete non-stale importance artifact exists.
+#### Scenario: Missing global artifact blocks retrieval
+- **WHEN** Memory Stream retrieval is planned and the configured global importance artifact is missing
+- **THEN** planning or retrieval fails with the missing path
 
-#### Scenario: Missing importance blocks retrieval
-- **WHEN** retrieval is selected without the importance stage and the sidecar is missing
-- **THEN** planning fails with the missing importance path
+#### Scenario: Workflow subset is selected from the global artifact
+- **WHEN** workflow tasks are a subset of the canonical annotated corpus
+- **THEN** records are joined by task id and validated by content digest and exact node coverage
 
-#### Scenario: Completed importance permits retrieval-only execution
-- **WHEN** the sidecar and matching successful run summary exist
-- **THEN** retrieval may be planned without rerunning annotation
+#### Scenario: Extra global tasks are accepted
+- **WHEN** the global artifact contains canonical tasks not selected by the workflow profile
+- **THEN** retrieval accepts the artifact and ignores unselected tasks
 
-#### Scenario: Changed annotation settings mark importance stale
-- **WHEN** model id, prompt version, generation settings, task input path, or cache semantics differ from the successful run summary
-- **THEN** status marks the importance stage stale and cache-aware planning does not treat it as complete
+### Requirement: Workflow configuration excludes annotation runtime settings
+The system SHALL keep annotation model, cache, generation, and IO settings out of
+experiment workflow configuration.
 
-#### Scenario: Changed memory content marks importance stale
-- **WHEN** the task path is unchanged but memory item id, source, text, position, or order differs from the annotated artifact
-- **THEN** status marks the importance stage stale and requires annotation before retrieval
+#### Scenario: Retrieval scoring settings are valid
+- **WHEN** Memory Stream weights, recency decay, dense encoder, and external importance path are valid
+- **THEN** workflow initialization may write a retrieve stage config
 
-### Requirement: Experiment configuration validates Memory Stream settings
-The system SHALL require a complete fixed Memory Stream configuration when the method is selected.
+#### Scenario: Annotation settings are not compiled
+- **WHEN** workflow initialization selects Memory Stream
+- **THEN** it does not validate or compile model path, prompt, cache directory, device, or generation settings
 
-#### Scenario: Valid configuration compiles both stages
-- **WHEN** model id, model path, prompt version, cache directory, device/loading settings, generation settings, dense encoder, weights, and recency decay are valid
-- **THEN** workflow initialization writes typed importance and retrieve stage configs
+### Requirement: Status and delivery record but do not own global importance
+The system SHALL report the external dependency used by retrieval without
+treating annotation as a resumable workflow stage.
 
-#### Scenario: Invalid scoring settings fail during initialization
-- **WHEN** a weight is negative, all weights are zero, or recency decay is outside `(0, 1]`
-- **THEN** experiment initialization fails before writing an executable manifest
+#### Scenario: Status has no importance stage row
+- **WHEN** Memory Stream experiment status is displayed
+- **THEN** no importance stage status is reported
 
-#### Scenario: Invalid annotation settings fail during initialization
-- **WHEN** model id, model path, or prompt version is empty, device is unsupported, max new tokens is non-positive, or deterministic generation settings are violated
-- **THEN** experiment initialization fails before writing an executable manifest
+#### Scenario: Delivery records reproducibility evidence
+- **WHEN** a Memory Stream run is collected
+- **THEN** retrieval provenance identifies the global importance path and semantic metadata
+- **AND** the global cache is not copied into the run delivery
 
-### Requirement: Status, resume, and delivery include the importance stage
-The system SHALL inspect, cache-prune, resume, and collect Memory Stream annotation artifacts using the same current-only workflow semantics as other stages.
+### Requirement: Operations documentation covers one-time MetaX preprocessing
+The system SHALL document the zero-argument global command, model acquisition,
+direct Transformers loading, environment preparation, restart behavior, and
+later retrieval consumption.
 
-#### Scenario: Successful annotation is complete
-- **WHEN** the sidecar exists and its run summary matches expected tasks, outputs, model, prompt, and generation settings
-- **THEN** experiment status reports `importance memory_stream complete`
-
-#### Scenario: Missing summary is stale
-- **WHEN** the sidecar exists without a matching successful run summary
-- **THEN** experiment status reports the importance stage as stale
-
-#### Scenario: Delivery collector includes reproducibility evidence
-- **WHEN** a Memory Stream run is collected for reporting
-- **THEN** the importance sidecar, annotation run summary, prediction summary, metrics, effective config, and stage configs are included
-
-### Requirement: Operations documentation covers MetaX offline execution
-The system SHALL document model acquisition, direct Transformers loading, process environment preparation, persistent model lifecycle, annotation execution, restart behavior, and retrieval execution for the MetaX C500 environment.
-
-#### Scenario: Documentation uses the proven direct invocation path
-- **WHEN** an operator follows the Memory Stream instructions
-- **THEN** the annotation process imports `AutoTokenizer` and `AutoModelForCausalLM` in the proven vendor-compatible environment without starting an HTTP server
+#### Scenario: Operator runs the default command
+- **WHEN** canonical dev input and the default local model path exist
+- **THEN** `python scripts/annotate_importance.py` starts global annotation without a config file
 
 #### Scenario: Documentation preserves one long-lived model instance
 - **WHEN** annotation contains many cache misses
-- **THEN** the instructions explain that one process selects one GPU, loads the model once, processes all misses, and exits only after the stage completes
-
-#### Scenario: Documentation explains restart cost
-- **WHEN** the annotation process fails and is restarted
-- **THEN** the instructions explain that the model is loaded once again but successful per-task cache entries prevent completed generations from repeating
+- **THEN** one process selects one GPU, loads the model once, processes all misses, and exits after the global artifact is complete

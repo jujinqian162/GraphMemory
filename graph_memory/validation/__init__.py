@@ -3,6 +3,7 @@ from __future__ import annotations
 from graph_memory.validation.common import ContractValidationError, validate_task_id_alignment
 from graph_memory.validation.graphs import validate_graphs
 from graph_memory.validation.importance import (
+    select_importance_records,
     validate_importance_artifact,
     validate_importance_cache_record,
     validate_task_importance_record,
@@ -26,6 +27,7 @@ from graph_memory.validation.training_pairs import (
 
 __all__ = [
     "ContractValidationError",
+    "select_importance_records",
     "validate_graph_batch",
     "validate_graph_rerank_config",
     "validate_graphs",

@@ -4,9 +4,7 @@ import math
 from dataclasses import asdict, is_dataclass
 from typing import Any, TypeAlias, cast
 
-
-class ContractValidationError(ValueError):
-    """Raised when an artifact violates a documented project contract."""
+from graph_memory.contracts.errors import ContractValidationError
 
 
 ValidationRecord: TypeAlias = dict[str, Any]

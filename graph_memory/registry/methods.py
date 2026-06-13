@@ -11,7 +11,6 @@ from graph_memory.registry.retrieval import (
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
     GraphRerankRetrievalSettings,
-    MemoryStreamRetrievalSettings,
     RetrievalMethodId,
 )
 
@@ -21,7 +20,6 @@ class RetrievalLifecycle(StrEnum):
     GRAPH_RERANK = "graph_rerank"
     RGCN_TRAINABLE = "rgcn_trainable"
     DENSE_FINETUNE = "dense_finetune"
-    MEMORY_STREAM = "memory_stream"
 
 
 class GraphInputSource(StrEnum):
@@ -46,11 +44,6 @@ class EncoderSource(StrEnum):
     CHECKPOINT_METADATA = "checkpoint_metadata"
 
 
-class ImportanceSource(StrEnum):
-    NONE = "none"
-    SIDECAR_ARTIFACT = "sidecar_artifact"
-
-
 class ArtifactKind(StrEnum):
     FILE = "file"
     DIRECTORY = "directory"
@@ -68,7 +61,6 @@ class RetrievalDependencySpec:
     graph_config: GraphConfigSource
     model: ModelSource
     encoder: EncoderSource
-    importance: ImportanceSource
 
 
 @dataclass(frozen=True)
@@ -110,7 +102,6 @@ def build_method_registry() -> MethodRegistry:
         graph_config=GraphConfigSource.NONE,
         model=ModelSource.NONE,
         encoder=EncoderSource.NONE,
-        importance=ImportanceSource.NONE,
     )
     definitions = (
         MethodDefinition(
@@ -130,7 +121,6 @@ def build_method_registry() -> MethodRegistry:
                 graph_config=GraphConfigSource.NONE,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
-                importance=ImportanceSource.NONE,
             ),
             method_config_type=None,
             train_artifact=None,
@@ -144,7 +134,6 @@ def build_method_registry() -> MethodRegistry:
                 graph_config=GraphConfigSource.TUNED_ARTIFACT,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.NONE,
-                importance=ImportanceSource.NONE,
             ),
             method_config_type=None,
             train_artifact=None,
@@ -159,7 +148,6 @@ def build_method_registry() -> MethodRegistry:
                 graph_config=GraphConfigSource.TUNED_ARTIFACT,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
-                importance=ImportanceSource.NONE,
             ),
             method_config_type=None,
             train_artifact=None,
@@ -174,7 +162,6 @@ def build_method_registry() -> MethodRegistry:
                 graph_config=GraphConfigSource.NONE,
                 model=ModelSource.CHECKPOINT_FILE,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
-                importance=ImportanceSource.NONE,
             ),
             method_config_type=RgcnMethodConfig,
             train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
@@ -189,25 +176,9 @@ def build_method_registry() -> MethodRegistry:
                 graph_config=GraphConfigSource.NONE,
                 model=ModelSource.MODEL_DIRECTORY,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
-                importance=ImportanceSource.NONE,
             ),
             method_config_type=DenseFinetuneMethodConfig,
             train_artifact=TrainArtifactSpec("best_model", ArtifactKind.DIRECTORY),
-            seed_method=RetrievalMethodId.DENSE,
-        ),
-        MethodDefinition(
-            identifier=RetrievalMethodId.MEMORY_STREAM,
-            lifecycle=RetrievalLifecycle.MEMORY_STREAM,
-            retrieval_settings_type=MemoryStreamRetrievalSettings,
-            dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.NONE,
-                graph_config=GraphConfigSource.NONE,
-                model=ModelSource.NONE,
-                encoder=EncoderSource.EXPERIMENT_CONFIG,
-                importance=ImportanceSource.SIDECAR_ARTIFACT,
-            ),
-            method_config_type=None,
-            train_artifact=None,
             seed_method=RetrievalMethodId.DENSE,
         ),
     )
@@ -219,7 +190,6 @@ __all__ = [
     "EncoderSource",
     "GraphConfigSource",
     "GraphInputSource",
-    "ImportanceSource",
     "MethodDefinition",
     "MethodRegistry",
     "ModelSource",

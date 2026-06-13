@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 from typing_extensions import assert_never
 
@@ -19,7 +19,6 @@ from graph_memory.registry.method_configs import (
 from graph_memory.registry.methods import (
     GraphConfigSource,
     GraphInputSource,
-    ImportanceSource,
     ModelSource,
 )
 from graph_memory.registry.retrieval import (
@@ -30,7 +29,6 @@ from graph_memory.registry.retrieval import (
     DenseRetrievalSettings,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
-    MemoryStreamRetrievalSettings,
     RetrievalJobSettings,
     RetrievalMethodId,
     SeedRetrievalSettings,
@@ -40,9 +38,6 @@ from graph_memory.registry.stage_configs import (
     DenseFinetuneTrainStageConfig,
     EvaluateIO,
     EvaluateStageConfig,
-    ImportanceAnnotationSettings,
-    ImportanceIO,
-    ImportanceStageConfig,
     PairBuildIO,
     PairBuildJobSettings,
     PairBuildStageConfig,
@@ -93,7 +88,6 @@ def write_main_stage_configs(
     method_configs: Mapping[str, TrainableMethodConfig],
 ) -> None:
     stage_paths: dict[str, dict[str, str]] = {
-        "importance": {},
         "pairs": {},
         "train": {},
         "retrieve": {},
@@ -144,60 +138,10 @@ def _build_method_stage_configs(
         "retrieve": _retrieve_stage_config(manifest, method, method_config),
         "evaluate": _evaluate_stage_config(manifest, method),
     }
-    definition = Registry.methods.get(method)
-    if definition.dependencies.importance is ImportanceSource.SIDECAR_ARTIFACT:
-        configs["importance"] = _importance_stage_config(manifest, method)
     if method_config is not None:
         configs["pairs"] = _pair_stage_config(manifest, method, method_config)
         configs["train"] = _train_stage_config(manifest, method, method_config)
     return configs
-
-
-def _importance_stage_config(
-    manifest: dict[str, Any],
-    method: str,
-) -> ImportanceStageConfig:
-    if method != RetrievalMethodId.MEMORY_STREAM.value:
-        raise ValueError(f"Unsupported importance workflow method: {method}")
-    annotation = _memory_stream_section(manifest, "annotation")
-    artifacts = manifest["artifacts"]["importance"][method]
-    device = _required_string(annotation, "device")
-    if device not in {"auto", "cuda", "cpu"}:
-        raise ValueError("Memory Stream annotation device must be one of: auto, cuda, cpu.")
-    torch_dtype = _required_string(annotation, "torch_dtype")
-    if torch_dtype != "auto":
-        raise ValueError("Memory Stream annotation torch_dtype must be auto.")
-    if annotation.get("tp_plan") is not None:
-        raise ValueError("Memory Stream annotation tp_plan must be null.")
-    do_sample = _required_bool(annotation, "do_sample")
-    if do_sample:
-        raise ValueError("Memory Stream annotation do_sample must be false.")
-    use_cache = _required_bool(annotation, "use_cache")
-    if not use_cache:
-        raise ValueError("Memory Stream annotation use_cache must be true.")
-    max_new_tokens = _required_int(annotation, "max_new_tokens")
-
-    return ImportanceStageConfig(
-        io=ImportanceIO(
-            tasks=Path(manifest["artifacts"]["inputs"]["test"]["input"]),
-            output=Path(artifacts["scores"]),
-            summary=Path(artifacts["run_summary"]),
-            cache_dir=Path(_required_string(annotation, "cache_dir")),
-        ),
-        job=ImportanceAnnotationSettings(
-            model_id=_required_string(annotation, "model_id"),
-            model_path=Path(_required_string(annotation, "model_path")),
-            prompt_version=_required_string(annotation, "prompt_version"),
-            device=cast(Literal["auto", "cuda", "cpu"], device),
-            trust_remote_code=_required_bool(annotation, "trust_remote_code"),
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=_required_bool(annotation, "low_cpu_mem_usage"),
-            tp_plan=None,
-            do_sample=False,
-            use_cache=True,
-            max_new_tokens=max_new_tokens,
-        ),
-    )
 
 
 def _pair_stage_config(
@@ -301,17 +245,11 @@ def _retrieve_stage_config(
         if definition.dependencies.graph_config is GraphConfigSource.TUNED_ARTIFACT
         else None
     )
-    importance = (
-        Path(manifest["artifacts"]["importance"][method]["scores"])
-        if definition.dependencies.importance is ImportanceSource.SIDECAR_ARTIFACT
-        else None
-    )
     return RetrieveStageConfig(
         io=RetrieveIO(
             tasks=Path(manifest["artifacts"]["inputs"]["test"]["input"]),
             graphs=graph_path,
             graph_config=graph_config,
-            importance=importance,
             output=Path(manifest["artifacts"]["predictions"][method]),
             summary=Path(manifest["artifacts"]["predictions"][method]).with_name(
                 f"{Path(manifest['artifacts']['predictions'][method]).stem}.run_summary.json"
@@ -333,16 +271,6 @@ def _retrieval_job(
         return Bm25RetrievalSettings(top_k=top_k)
     if method_id is RetrievalMethodId.DENSE:
         return DenseRetrievalSettings(top_k=top_k, encoder=_experiment_encoder(manifest))
-    if method_id is RetrievalMethodId.MEMORY_STREAM:
-        retrieval = _memory_stream_section(manifest, "retrieval")
-        return MemoryStreamRetrievalSettings(
-            top_k=top_k,
-            encoder=_experiment_encoder(manifest),
-            relevance_weight=_required_number(retrieval, "relevance_weight"),
-            recency_weight=_required_number(retrieval, "recency_weight"),
-            importance_weight=_required_number(retrieval, "importance_weight"),
-            recency_decay=_required_number(retrieval, "recency_decay"),
-        )
     if method_id is RetrievalMethodId.BM25_GRAPH_RERANK:
         seed_method = definition.seed_method
         if seed_method is not RetrievalMethodId.BM25:
@@ -413,44 +341,6 @@ def _experiment_encoder(manifest: Mapping[str, Any]) -> DenseEncoderSettings:
         query_prefix=str(config["query_prefix"]),
         passage_prefix=str(config["passage_prefix"]),
     )
-
-
-def _memory_stream_section(manifest: Mapping[str, Any], section: str) -> Mapping[str, Any]:
-    config = manifest["effective_config"].get("memory_stream")
-    if not isinstance(config, Mapping):
-        raise ValueError("Selected method=memory_stream requires experiment config memory_stream.")
-    value = config.get(section)
-    if not isinstance(value, Mapping):
-        raise ValueError(f"Experiment config memory_stream.{section} must be an object.")
-    return value
-
-
-def _required_string(config: Mapping[str, Any], field: str) -> str:
-    value = config.get(field)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"Memory Stream config field={field} must be a non-empty string.")
-    return value
-
-
-def _required_bool(config: Mapping[str, Any], field: str) -> bool:
-    value = config.get(field)
-    if not isinstance(value, bool):
-        raise ValueError(f"Memory Stream config field={field} must be a boolean.")
-    return value
-
-
-def _required_int(config: Mapping[str, Any], field: str) -> int:
-    value = config.get(field)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"Memory Stream config field={field} must be an integer.")
-    return value
-
-
-def _required_number(config: Mapping[str, Any], field: str) -> float:
-    value = config.get(field)
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(f"Memory Stream config field={field} must be a number.")
-    return float(value)
 
 
 def _write_stage_config(path: Path, config: object) -> None:

@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import cast
 
 from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
 from graph_memory.retrieval.methods.memory_stream.prompt import importance_content_digest, task_node_ids
 from graph_memory.validation.common import ContractValidationError
 
@@ -13,18 +14,7 @@ TASK_RECORD_FIELDS = {"task_id", "content_digest", "scores"}
 
 
 def validate_importance_artifact(artifact: object, task_inputs: Sequence[MemoryTaskInput]) -> None:
-    record = _require_mapping(artifact, "importance artifact")
-    _reject_unknown(record, ARTIFACT_FIELDS, "importance artifact")
-    if record.get("method") != "memory_stream":
-        raise ContractValidationError("Invalid importance artifact: method must be memory_stream.")
-    if not isinstance(record.get("model"), str) or not record["model"]:
-        raise ContractValidationError("Invalid importance artifact: model must be a non-empty string.")
-    if not isinstance(record.get("prompt_version"), str) or not record["prompt_version"]:
-        raise ContractValidationError("Invalid importance artifact: prompt_version must be a non-empty string.")
-    _validate_generation(record.get("generation"), artifact_name="importance artifact")
-    tasks = record.get("tasks")
-    if not isinstance(tasks, list):
-        raise ContractValidationError("Invalid importance artifact: tasks must be a list.")
+    tasks = _validate_artifact_envelope(artifact)
     if len(tasks) != len(task_inputs):
         raise ContractValidationError(
             f"Invalid importance artifact: task count mismatch expected={len(task_inputs)} observed={len(tasks)}."
@@ -38,6 +28,42 @@ def validate_importance_artifact(artifact: object, task_inputs: Sequence[MemoryT
                 f"index={index} expected={task_input['task_id']} observed={task_record.get('task_id')}."
             )
         validate_task_importance_record(task_record, task_input)
+
+
+def select_importance_records(
+    artifact: object,
+    task_inputs: Sequence[MemoryTaskInput],
+) -> list[TaskImportanceRecord]:
+    task_records = _validate_artifact_envelope(artifact)
+    records_by_task_id: dict[str, Mapping[str, object]] = {}
+    for index, task_record in enumerate(task_records):
+        if not isinstance(task_record, Mapping):
+            raise ContractValidationError(
+                f"Invalid importance artifact: task record index={index} is not an object."
+            )
+        _reject_unknown(task_record, TASK_RECORD_FIELDS, "task importance record")
+        task_id = task_record.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            raise ContractValidationError(
+                f"Invalid importance artifact: task record index={index} task_id must be a non-empty string."
+            )
+        if task_id in records_by_task_id:
+            raise ContractValidationError(
+                f"Invalid importance artifact: duplicate task_id={task_id}."
+            )
+        records_by_task_id[task_id] = task_record
+
+    selected: list[TaskImportanceRecord] = []
+    for task_input in task_inputs:
+        task_id = task_input["task_id"]
+        task_record = records_by_task_id.get(task_id)
+        if task_record is None:
+            raise ContractValidationError(
+                f"Invalid importance artifact: missing task_id={task_id}."
+            )
+        validate_task_importance_record(task_record, task_input)
+        selected.append(cast(TaskImportanceRecord, task_record))
+    return selected
 
 
 def validate_task_importance_record(record: object, task_input: MemoryTaskInput) -> None:
@@ -100,6 +126,22 @@ def _validate_generation(value: object, *, artifact_name: str) -> None:
         raise ContractValidationError(f"Invalid {artifact_name}: generation.max_new_tokens must be a positive integer.")
 
 
+def _validate_artifact_envelope(artifact: object) -> list[object]:
+    record = _require_mapping(artifact, "importance artifact")
+    _reject_unknown(record, ARTIFACT_FIELDS, "importance artifact")
+    if record.get("method") != "memory_stream":
+        raise ContractValidationError("Invalid importance artifact: method must be memory_stream.")
+    if not isinstance(record.get("model"), str) or not record["model"]:
+        raise ContractValidationError("Invalid importance artifact: model must be a non-empty string.")
+    if not isinstance(record.get("prompt_version"), str) or not record["prompt_version"]:
+        raise ContractValidationError("Invalid importance artifact: prompt_version must be a non-empty string.")
+    _validate_generation(record.get("generation"), artifact_name="importance artifact")
+    tasks = record.get("tasks")
+    if not isinstance(tasks, list):
+        raise ContractValidationError("Invalid importance artifact: tasks must be a list.")
+    return cast(list[object], tasks)
+
+
 def _validate_score_mapping(
     scores: Mapping[str, object],
     task_input: MemoryTaskInput,
@@ -145,6 +187,7 @@ def _reject_unknown(
 
 
 __all__ = [
+    "select_importance_records",
     "validate_importance_artifact",
     "validate_importance_cache_record",
     "validate_task_importance_record",

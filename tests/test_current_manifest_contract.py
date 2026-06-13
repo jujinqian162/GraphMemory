@@ -30,9 +30,9 @@ def test_initialize_writes_current_manifest_and_complete_stage_configs(tmp_path:
     )
 
     assert "schema_version" not in manifest
-    assert set(manifest["stage_configs"]) == {"importance", "pairs", "train", "retrieve", "evaluate"}
+    assert set(manifest["stage_configs"]) == {"pairs", "train", "retrieve", "evaluate"}
     for stage, methods in manifest["stage_configs"].items():
-        expected_methods = set() if stage == "importance" else {RGCN, DENSE_FT}
+        expected_methods = {RGCN, DENSE_FT}
         assert set(methods) == expected_methods
         for method, path in methods.items():
             payload = json.loads(Path(path).read_text(encoding="utf-8"))

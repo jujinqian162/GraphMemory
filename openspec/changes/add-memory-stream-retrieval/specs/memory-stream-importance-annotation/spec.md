@@ -26,8 +26,8 @@ The system SHALL accept an annotation response only when it contains exactly one
 - **WHEN** a response contains a boolean, non-integer, value below 1, or value above 10
 - **THEN** validation fails with the task id and offending node id
 
-### Requirement: Annotation owns one persistent local model lifecycle
-The system SHALL load the tokenizer and causal language model at most once in an annotation process and SHALL reuse the same model instance for every cache miss.
+### Requirement: Global annotation owns one persistent local model lifecycle
+The system SHALL load the tokenizer and causal language model at most once in the standalone annotation process and SHALL reuse the same model instance for every cache miss.
 
 #### Scenario: All cache hits avoid model loading
 - **WHEN** every task has a valid matching cache entry
@@ -79,8 +79,8 @@ The system SHALL cache each validated task annotation under a SHA-256 key derive
 - **WHEN** earlier tasks have been cached and a later task fails generation or response validation
 - **THEN** a subsequent run reuses the earlier valid cache entries
 
-### Requirement: Final importance artifacts are complete and auditable
-The system SHALL write the final importance artifact only after all selected tasks have validated scores and SHALL write a run summary describing annotation inputs, outputs, settings, counts, timings, cache behavior, and failures.
+### Requirement: Final global importance artifacts are complete and auditable
+The system SHALL write the final global importance artifact only after all canonical tasks have validated scores and SHALL write a run summary describing annotation inputs, outputs, settings, counts, timings, cache behavior, and failures.
 
 #### Scenario: Complete artifact aligns with task input
 - **WHEN** annotation succeeds for every task
@@ -93,3 +93,28 @@ The system SHALL write the final importance artifact only after all selected tas
 #### Scenario: Run summary distinguishes cache and model work
 - **WHEN** annotation completes with both cache hits and new generations
 - **THEN** the run summary reports task count, memory-item count, cache-hit count, model-load count, model-load seconds, generation-call count, generated-token count, generation seconds, and total annotation time
+
+### Requirement: Standalone annotation has executable defaults
+The system SHALL allow the global annotation command to run without a config file or required CLI arguments from the repository root.
+
+#### Scenario: Zero-argument command uses canonical paths
+- **WHEN** the operator runs `python scripts/annotate_importance.py`
+- **THEN** the command reads `data/hotpotqa/processed/dev_memory_tasks.input.json`
+- **AND** writes `data/hotpotqa/processed/memory_stream/dev.importance.json`
+- **AND** writes its run summary beside the output
+- **AND** uses `data/cache/memory_stream_importance` and `models/Qwen2.5-7B-Instruct`
+
+#### Scenario: Output override derives summary
+- **WHEN** the operator supplies `--output` without `--summary`
+- **THEN** the run summary path is derived beside the selected output
+
+### Requirement: Global artifacts support validated subset selection
+The system SHALL allow later workflow task subsets to select records from the complete global artifact by task id.
+
+#### Scenario: Extra canonical tasks are allowed
+- **WHEN** the artifact contains more tasks than the requested workflow subset
+- **THEN** selected records are returned in workflow task order
+
+#### Scenario: Missing, duplicate, or stale task records fail
+- **WHEN** a requested task is missing, an artifact task id is duplicated, or selected content/node coverage differs
+- **THEN** validation fails before retrieval
