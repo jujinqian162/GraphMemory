@@ -1,163 +1,65 @@
+# Design: Memory Stream Retrieval
+
 ## Context
 
-The original experiment plan requires a simplified Memory Stream baseline with
-`relevance + recency + importance`. HotpotQA has no true event timestamps or
-memory-access history, so recency must be a position-derived pseudo-recency.
+The baseline uses dense relevance, pseudo-recency from item position, and
+offline importance. Existing importance scores were produced manually in
+multiple batches and exhibit scorer-scale drift. Retrieval needs a stable
+consumer artifact without obsolete model-generation machinery.
 
-The available MetaX environment has a verified direct Transformers path.
-Qwen2.5-7B-Instruct startup takes roughly 80 seconds, making per-task or
-per-workflow loading unacceptable. Importance is query-independent and can be
-shared by every smoke, quick, and full workflow derived from the same canonical
-HotpotQA dev corpus.
+## Data Preparation
 
-## Goals / Non-Goals
+`scripts/data/clean_importance.py` reads canonical dev tasks and the legacy
+importance artifact. It selects the first 1000 canonical tasks by default and
+requires exact task count, order, task ids, content digests, and node coverage.
 
-**Goals:**
-
-- Generate a complete global 1-10 importance artifact once.
-- Make the default operator command `python scripts/annotate_importance.py`.
-- Load the local tokenizer/model at most once per annotation process.
-- Preserve successful per-task cache entries across failures and reruns.
-- Exclude query, answer, labels, gold nodes, and graph data from prompts and
-  semantic cache keys.
-- Let later workflow subsets consume selected records from the global artifact.
-- Keep timed retrieval independent from the local causal LLM runtime.
-
-**Non-Goals:**
-
-- Adding an importance workflow stage or run-local importance artifact.
-- Reproducing the complete Generative Agents simulator.
-- Treating `position` as a real timestamp.
-- Fine-tuning Qwen or using gold evidence to calibrate importance.
-- HTTP/cloud APIs, vLLM, tensor parallelism, multiprocessing, or multi-GPU
-  sharding.
-- Generating train-split importance for this non-trained baseline.
-
-## Decisions
-
-### Importance remains a sidecar artifact
-
-The global artifact contains model identity, prompt version, semantic generation
-settings, and per-task node-score mappings. `MemoryItem` is not modified.
+For each task, sorted unique raw score levels are mapped evenly to integers
+`1..10` using half-up rounding. Equal raw scores remain equal and strict order
+is preserved. A constant task maps to `5`.
 
 ```json
 {
+  "schema_version": 1,
   "method": "memory_stream",
-  "model": "Qwen/Qwen2.5-7B-Instruct",
-  "prompt_version": "memory-stream-importance-v2",
-  "generation": {
-    "do_sample": false,
-    "use_cache": true,
-    "max_new_tokens": 2048
-  },
   "tasks": [
     {
-      "task_id": "example-id",
+      "task_id": "hotpot_x",
       "content_digest": "<sha256>",
-      "scores": {
-        "m0": 7
-      }
+      "scores": {"m0": 10, "m1": 1}
     }
   ]
 }
 ```
 
-### Annotation is global preprocessing, not workflow execution
+The summary records source/output hashes, legacy source metadata, global
+distributions, 40-task source-shard distributions, and anomaly lists. It is
+provenance only and is not consumed by retrieval.
 
-The command runs independently from `scripts/experiment.py`:
+## Retrieval
 
-```text
-python scripts/annotate_importance.py
-```
+For each task:
 
-Default paths are:
+1. Compute dense relevance for every memory item.
+2. Compute `recency_decay ** (max_position - position)`.
+3. Read the validated normalized importance score.
+4. Min-max normalize each signal independently within the task.
+5. Apply non-negative weights and rank by `(-score, node_id)`.
 
-```text
-tasks       data/hotpotqa/processed/dev_memory_tasks.input.json
-output      data/hotpotqa/processed/memory_stream/dev.importance.json
-summary     data/hotpotqa/processed/memory_stream/dev.importance.run_summary.json
-cache       data/cache/memory_stream_importance/
-model path  models/Qwen2.5-7B-Instruct
-```
+The artifact may contain extra tasks. Subset selection joins by `task_id`,
+rejects duplicate or missing records, and validates content digest and exact
+node coverage before ranking.
 
-The CLI owns these IO arguments and permits explicit overrides. There is no
-`Registry.configs.IMPORTANCE`, `StageId.IMPORTANCE`, workflow command builder,
-manifest artifact allocation, or run-local annotation config.
+## Ownership
 
-### One task is one semantic annotation unit
+Importance is an external read-only data dependency. The workflow does not
+create an annotation stage, invoke a model, own a cache, or copy importance
+data into run-local delivery. Retrieval provenance records artifact path/hash.
 
-Each generation call contains ordered `{node_id, source, text, position}`
-records for one task. The response contains an ordered score array with exactly
-one integer in `[1, 10]` for each input item. The parser maps each score back to
-the corresponding node id. Wrong-length arrays, booleans, floats, strings, and
-out-of-range values fail the run. This avoids requiring the model to reproduce
-dozens of node-id strings exactly.
+## Verification
 
-### Cache and runtime lifecycle
-
-The semantic cache key includes model id, prompt version, generation settings,
-and ordered item id/source/text/position. It excludes query, labels, model path,
-physical device, and run directory.
-
-The process scans all cache entries before model construction. All-cache-hit
-runs load no model. Any misses create exactly one local Transformers runtime,
-load once, and process every miss sequentially through the same instance.
-
-Before model-facing imports, the CLI clears distributed rank/master variables
-and sets `ACCELERATE_USE_DEEPSPEED=false`. CUDA uses local device zero after the
-operator selects one physical device with `CUDA_VISIBLE_DEVICES`.
-
-### Global artifact supports workflow subsets
-
-The producer validates exact order and full coverage against the canonical dev
-input. A consumer may request a subset in any order. Consumer validation:
-
-1. validates artifact metadata;
-2. rejects duplicate artifact task ids;
-3. joins requested tasks by `task_id`;
-4. rejects missing tasks;
-5. validates each requested content digest and exact node-score coverage;
-6. returns records in requested workflow task order.
-
-Extra canonical tasks in the global artifact are valid.
-
-### Retrieval remains a later milestone
-
-Later `MemoryStreamMethod` work will reuse the existing dense relevance path,
-derive pseudo-recency from item position, normalize all three signals within a
-task, and consume the global importance sidecar without importing Transformers.
-
-The future workflow remains:
-
-```text
-prepare -> graphs -> retrieve -> evaluate -> aggregate
-```
-
-The retrieve command receives the external global artifact path. No annotation
-command appears in the plan.
-
-## Risks / Trade-offs
-
-- Qwen scores may vary across runtime versions. Record model id, prompt version,
-  generation settings, content digests, and the final artifact.
-- A malformed response can stop a long run. Persist each successful task cache
-  atomically and write the final artifact only after complete success.
-- Canonical dev input changes invalidate selected records through content
-  digests.
-- A workflow may select tasks in a different order from the canonical artifact.
-  Join by task id and revalidate content instead of relying on global order.
-
-## Migration Plan
-
-1. Keep the implemented prompt, cache, runtime, annotation, and atomic IO core.
-2. Move annotation settings out of the workflow stage-config registry.
-3. Replace the config-only annotation adapter with the standalone defaulted CLI.
-4. Remove importance workflow stage, run-local artifacts, planner integration,
-   experiment annotation config, and premature Memory Stream method registration.
-5. Add subset-safe global artifact selection.
-6. Implement retrieval and external-dependency workflow consumption later.
-
-## Open Questions
-
-None. The prepare milestone uses the canonical dev input and global data paths
-shown above.
+- Unit tests cover schema validation, subset selection, rank normalization,
+  ties, constants, idempotence, and mismatch failures.
+- Real-data cleaning must produce 1000 tasks and 41185 scores.
+- Repository search must find no active annotation runtime, prompt, cache, or
+  model configuration.
+- OpenSpec strict validation and repository quality gates must pass.

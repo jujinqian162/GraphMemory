@@ -56,20 +56,23 @@ The system SHALL sort Memory Stream results by descending final score and ascend
 - **WHEN** Memory Stream retrieval completes
 - **THEN** every task produces a complete ranked node list, top-k retrieved node ids, empty retrieved edges, latency, and input-token estimate in the standard schema
 
-### Requirement: Timed retrieval excludes importance generation
-The system SHALL consume a completed importance artifact and SHALL NOT call an LLM during Memory Stream retrieval.
+### Requirement: Timed retrieval consumes cleaned importance
+The system SHALL consume a completed compact importance artifact and SHALL NOT
+call an LLM or import an annotation runtime during Memory Stream retrieval.
 
-#### Scenario: Retrieval runs without the local LLM runtime
-- **WHEN** a valid importance artifact exists and the Transformers model environment or model files are unavailable
-- **THEN** Memory Stream retrieval still completes using only the artifact and dense encoder
+#### Scenario: Retrieval has no annotation runtime dependency
+- **WHEN** a valid compact importance artifact exists
+- **THEN** Memory Stream retrieval completes using only the artifact and dense encoder
 
 #### Scenario: Retrieval latency covers online ranking only
 - **WHEN** Memory Stream predictions are written
 - **THEN** each prediction latency includes dense relevance and score combination but excludes offline annotation time
 
 ### Requirement: Runtime provenance records effective Memory Stream inputs
-The system SHALL record the effective dense encoder settings and importance artifact metadata used to build Memory Stream retrieval.
+The system SHALL record the effective dense encoder settings and compact
+importance artifact metadata used to build Memory Stream retrieval.
 
-#### Scenario: Run summary identifies annotation provenance
+#### Scenario: Run summary identifies artifact provenance
 - **WHEN** Memory Stream retrieval succeeds
-- **THEN** its run summary identifies the importance artifact path, model id, prompt version, content digests, score weights, recency decay, and effective dense encoder settings
+- **THEN** its run summary identifies the importance artifact path and hash,
+  schema version, score weights, recency decay, and effective dense encoder settings

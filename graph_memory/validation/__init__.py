@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from graph_memory.validation.common import ContractValidationError, validate_task_id_alignment
+from graph_memory.contracts.errors import ContractValidationError
+from graph_memory.validation.common import validate_task_id_alignment
 from graph_memory.validation.graphs import validate_graphs
 from graph_memory.validation.importance import (
     select_importance_records,
     validate_importance_artifact,
-    validate_importance_cache_record,
     validate_task_importance_record,
 )
 from graph_memory.validation.metrics import validate_metric_rows
@@ -32,7 +32,6 @@ __all__ = [
     "validate_graph_rerank_config",
     "validate_graphs",
     "validate_importance_artifact",
-    "validate_importance_cache_record",
     "validate_memory_task_inputs",
     "validate_memory_task_labels",
     "validate_metric_rows",
