@@ -31,7 +31,6 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.methods.graph_rerank.config import (
     GraphRerankConfig,
-    TuningCandidateRow,
     ensure_graph_rerank_config,
 )
 from graph_memory.retrieval.tuning.grid import graph_rerank_grid, graph_rerank_grid_from_record
@@ -39,11 +38,11 @@ from graph_memory.retrieval.tuning.initial_scores import (
     InitialScoreCache,
     run_graph_rerank_from_initial_score_cache,
 )
-from graph_memory.retrieval.tuning.service import (
-    select_best_config,
-    tune_graph_rerank as tune_graph_rerank_service,
-    tuning_objective,
+from graph_memory.retrieval.tuning.selection import (
+    retrieval_candidate_key,
+    retrieval_tuning_objective,
 )
+from graph_memory.retrieval.tuning.service import tune_graph_rerank as tune_graph_rerank_service
 from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
 
 
@@ -684,38 +683,50 @@ def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
 def test_tuning_objective_weights_full_support_recall_and_connected_evidence():
     row = cast(MetricRow, cast(object, {"Full Support@5": 0.6, "Recall@5": 0.5, "Connected Evidence Recall@10": 0.25}))
 
-    assert tuning_objective(row) == pytest.approx(0.5)
+    assert retrieval_tuning_objective(row) == pytest.approx(0.5)
 
 
-def test_grid_search_selects_highest_objective_then_latency_tiebreak():
-    rows = cast(
-        list[TuningCandidateRow],
+def test_retrieval_candidate_key_uses_full_support_10_after_objective() -> None:
+    lower = _tuning_metric_row(full_support_10=0.6)
+    higher = _tuning_metric_row(full_support_10=0.7)
+
+    assert retrieval_candidate_key(higher) > retrieval_candidate_key(lower)
+
+
+def test_retrieval_candidate_key_prefers_lower_latency_after_support() -> None:
+    slower = _tuning_metric_row(latency=20.0)
+    faster = _tuning_metric_row(latency=10.0)
+
+    assert retrieval_candidate_key(faster) > retrieval_candidate_key(slower)
+
+
+def test_retrieval_candidate_key_prefers_fewer_edges_after_latency() -> None:
+    more_edges = _tuning_metric_row(avg_edges=6.0)
+    fewer_edges = _tuning_metric_row(avg_edges=5.0)
+
+    assert retrieval_candidate_key(fewer_edges) > retrieval_candidate_key(more_edges)
+
+
+def _tuning_metric_row(
+    *,
+    full_support_10: float = 0.7,
+    latency: float = 10.0,
+    avg_edges: float = 5.0,
+) -> MetricRow:
+    return cast(
+        MetricRow,
         cast(
             object,
-            [
-        {
-            "config": {"lambda_neighbor": 0.1},
-            "Full Support@5": 0.5,
-            "Full Support@10": 0.7,
-            "Recall@5": 0.5,
-            "Connected Evidence Recall@10": 0.5,
-            "Retrieval Latency / Query": 20.0,
-            "Avg Retrieved Edges": 5.0,
-        },
-        {
-            "config": {"lambda_neighbor": 0.2},
-            "Full Support@5": 0.5,
-            "Full Support@10": 0.7,
-            "Recall@5": 0.5,
-            "Connected Evidence Recall@10": 0.5,
-            "Retrieval Latency / Query": 10.0,
-            "Avg Retrieved Edges": 5.0,
-        },
-            ],
+            {
+                "Full Support@5": 0.5,
+                "Full Support@10": full_support_10,
+                "Recall@5": 0.5,
+                "Connected Evidence Recall@10": 0.5,
+                "Retrieval Latency / Query": latency,
+                "Avg Retrieved Edges": avg_edges,
+            },
         ),
     )
-
-    assert select_best_config(rows)["lambda_neighbor"] == 0.2
 
 
 def test_graph_rerank_grid_keeps_lambda_path_zero_for_hotpotqa():
