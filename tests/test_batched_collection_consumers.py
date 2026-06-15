@@ -9,7 +9,8 @@ from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.signals import SeedSignal
-from graph_memory.retrieval.tuning import initial_scores
+from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.retrieval.tuning import seed_scores
 from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.config import NegativeSamplingConfig
 
@@ -53,17 +54,16 @@ class BulkRanker:
         ]
 
 
-def test_initial_score_precompute_uses_bounded_bulk_ranking_and_preserves_maps(monkeypatch) -> None:
+def test_seed_score_precompute_uses_bounded_bulk_ranking_and_preserves_maps(monkeypatch) -> None:
     tasks = [_task(f"t{index:02d}") for index in range(33)]
     ranker = BulkRanker()
     registry = SimpleNamespace(
-        methods=initial_scores.Registry.methods,
         retrieval=SimpleNamespace(build_seed=lambda settings, payload: ranker),
     )
-    monkeypatch.setattr(initial_scores, "Registry", registry)
+    monkeypatch.setattr(seed_scores, "Registry", registry)
 
-    cache = initial_scores.precompute_initial_score_cache(
-        method="dense_graph_rerank",
+    cache = seed_scores.precompute_seed_score_cache(
+        seed_method=RetrievalMethodId.DENSE,
         task_inputs=tasks,
         dense_runtime=DenseRuntime(config=DenseConfig()),
     )

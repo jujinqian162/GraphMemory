@@ -10,7 +10,7 @@ from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import RetrievalLifecycle
-from graph_memory.registry.retrieval import SeedRetrieverBuildPayload
+from graph_memory.registry.retrieval import RetrievalMethodId, SeedRetrieverBuildPayload
 from graph_memory.registry.retrieval_builders import seed_retrieval_settings_for_method
 from graph_memory.retrieval.bulk import BulkSeedRanker, rank_tasks, task_groups
 from graph_memory.retrieval.execution.results import assemble_ranked_result
@@ -26,19 +26,17 @@ from graph_memory.validation import (
 
 
 @dataclass(frozen=True)
-class InitialScoreCache:
+class SeedScoreCache:
     scores_by_task_id: dict[str, dict[str, float]]
     latency_ms_by_task_id: dict[str, float]
 
 
-def precompute_initial_score_cache(
+def precompute_seed_score_cache(
     *,
-    method: str,
+    seed_method: RetrievalMethodId,
     task_inputs: list[MemoryTaskInput],
     dense_runtime: DenseRuntime,
-) -> InitialScoreCache:
-    definition = Registry.methods.get(method)
-    seed_method = definition.seed_method or definition.identifier
+) -> SeedScoreCache:
     seed_retriever = Registry.retrieval.build_seed(
         seed_retrieval_settings_for_method(method=seed_method, dense_config=dense_runtime.config),
         SeedRetrieverBuildPayload(dense_encoder=dense_runtime.encoder),
@@ -57,7 +55,7 @@ def precompute_initial_score_cache(
                 scores_by_task_id[task_id] = {
                     ranked_node.node_id: ranked_node.score for ranked_node in ranked_nodes
                 }
-        return InitialScoreCache(
+        return SeedScoreCache(
             scores_by_task_id=scores_by_task_id,
             latency_ms_by_task_id=latency_ms_by_task_id,
         )
@@ -69,15 +67,15 @@ def precompute_initial_score_cache(
         scores_by_task_id[task_input["task_id"]] = {
             ranked_node.node_id: ranked_node.score for ranked_node in ranked_nodes
         }
-    return InitialScoreCache(scores_by_task_id=scores_by_task_id, latency_ms_by_task_id=latency_ms_by_task_id)
+    return SeedScoreCache(scores_by_task_id=scores_by_task_id, latency_ms_by_task_id=latency_ms_by_task_id)
 
 
-def run_graph_rerank_from_initial_score_cache(
+def run_graph_rerank_from_seed_score_cache(
     *,
     method: str,
     task_inputs: list[MemoryTaskInput],
     graphs: list[MemoryGraph],
-    initial_score_cache: InitialScoreCache,
+    seed_score_cache: SeedScoreCache,
     top_k: int,
     graph_config: GraphRerankConfig | Mapping[str, object],
 ) -> list[RankedResult]:
@@ -104,16 +102,16 @@ def run_graph_rerank_from_initial_score_cache(
     predictions: list[RankedResult] = []
     for task_input in task_inputs:
         task_id = task_input["task_id"]
-        if task_id not in initial_score_cache.scores_by_task_id:
+        if task_id not in seed_score_cache.scores_by_task_id:
             raise ValueError(f"Missing precomputed initial scores for task_id={task_id}.")
         started = time.perf_counter()
         result = retrieval_method.rank_task_from_scores(
             task_input,
-            initial_score_cache.scores_by_task_id[task_id],
+            seed_score_cache.scores_by_task_id[task_id],
             top_k=top_k,
         )
         rerank_latency_ms = (time.perf_counter() - started) * 1000.0
-        latency_ms = initial_score_cache.latency_ms_by_task_id.get(task_id, 0.0) + rerank_latency_ms
+        latency_ms = seed_score_cache.latency_ms_by_task_id.get(task_id, 0.0) + rerank_latency_ms
         predictions.append(
             assemble_ranked_result(
                 task_input=task_input,

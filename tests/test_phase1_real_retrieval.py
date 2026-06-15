@@ -33,16 +33,20 @@ from graph_memory.retrieval.methods.graph_rerank.config import (
     GraphRerankConfig,
     ensure_graph_rerank_config,
 )
-from graph_memory.retrieval.tuning.grid import graph_rerank_grid, graph_rerank_grid_from_record
-from graph_memory.retrieval.tuning.initial_scores import (
-    InitialScoreCache,
-    run_graph_rerank_from_initial_score_cache,
+from graph_memory.retrieval.tuning.graph_rerank import tune_graph_rerank as tune_graph_rerank_service
+from graph_memory.retrieval.tuning.graph_rerank_grid import (
+    graph_rerank_grid,
+    graph_rerank_grid_from_record,
+)
+from graph_memory.retrieval.tuning.seed_scores import (
+    SeedScoreCache,
+    run_graph_rerank_from_seed_score_cache,
 )
 from graph_memory.retrieval.tuning.selection import (
     retrieval_candidate_key,
     retrieval_tuning_objective,
 )
-from graph_memory.retrieval.tuning.service import tune_graph_rerank as tune_graph_rerank_service
+from graph_memory.tuning.grid_search import GridSearchRunner
 from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
 
 
@@ -563,11 +567,11 @@ def test_retrieval_pipeline_normalizes_graph_components_before_combining():
         }
     ]
 
-    result = run_graph_rerank_from_initial_score_cache(
+    result = run_graph_rerank_from_seed_score_cache(
         method="dense_graph_rerank",
         task_inputs=task_inputs,
         graphs=graphs,
-        initial_score_cache=InitialScoreCache(
+        seed_score_cache=SeedScoreCache(
             scores_by_task_id={"hotpot_ex1": {"m0": 1.0, "m1": 0.95}},
             latency_ms_by_task_id={"hotpot_ex1": 0.0},
         ),
@@ -662,11 +666,11 @@ def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
     )
     initial_scores = {"m0": 3.0, "m1": 0.1, "m2": 0.0}
     direct_result = rank_graph_from_initial_scores(initial_scores, retrieval_graphs()[0], config, top_k=2)
-    retrieval_result = run_graph_rerank_from_initial_score_cache(
+    retrieval_result = run_graph_rerank_from_seed_score_cache(
         method="bm25_graph_rerank",
         task_inputs=retrieval_task_inputs(),
         graphs=retrieval_graphs(),
-        initial_score_cache=InitialScoreCache(
+        seed_score_cache=SeedScoreCache(
             scores_by_task_id={"hotpot_ex1": initial_scores},
             latency_ms_by_task_id={"hotpot_ex1": 0.0},
         ),
@@ -809,6 +813,39 @@ def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():
     )
 
     assert encoder.encode_calls == 1
+
+
+def test_graph_rerank_tuning_runs_candidates_through_generic_grid_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    original_run = GridSearchRunner.run
+
+    def tracking_run(self, candidates, evaluate):
+        nonlocal calls
+        calls += 1
+        return original_run(self, candidates, evaluate)
+
+    monkeypatch.setattr(GridSearchRunner, "run", tracking_run)
+
+    tune_graph_rerank(
+        method="bm25_graph_rerank",
+        task_inputs=retrieval_task_inputs(),
+        labels=retrieval_task_labels(),
+        graphs=retrieval_graphs(),
+        grid=[
+            GraphRerankConfig(
+                lambda_query=0.0,
+                lambda_neighbor=0.05,
+                lambda_bridge=0.0,
+                seed_top_s=1,
+                max_hops=1,
+            )
+        ],
+        top_k=2,
+    )
+
+    assert calls == 1
 
 
 def test_tuning_candidate_metrics_match_normal_retrieval_path():

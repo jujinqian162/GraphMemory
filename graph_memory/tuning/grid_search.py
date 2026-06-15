@@ -3,11 +3,17 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import product
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
+
+from typing_extensions import Protocol, Self
+
+
+class SupportsLessThan(Protocol):
+    def __lt__(self, other: Self, /) -> bool: ...
 
 ConfigT = TypeVar("ConfigT")
 EvaluationT = TypeVar("EvaluationT")
-KeyT = TypeVar("KeyT")
+KeyT = TypeVar("KeyT", bound=SupportsLessThan)
 
 
 @dataclass(frozen=True)
@@ -24,7 +30,7 @@ class ParameterGrid:
         parameter_names = list(self.parameters)
         candidate_values: list[Sequence[object]] = []
         for name in parameter_names:
-            values = self.parameters[name]
+            values = cast(object, self.parameters[name])
             if (
                 isinstance(values, (str, bytes))
                 or not isinstance(values, Sequence)
