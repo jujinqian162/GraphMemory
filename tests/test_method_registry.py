@@ -7,10 +7,10 @@ from graph_memory.registry.method_configs import DenseFinetuneMethodConfig, Rgcn
 from graph_memory.registry.methods import (
     ArtifactKind,
     EncoderSource,
-    GraphConfigSource,
     GraphInputSource,
     ModelSource,
     RetrievalLifecycle,
+    SelectedConfigSource,
     TuningKind,
 )
 from graph_memory.registry.retrieval import RetrievalMethodId
@@ -25,7 +25,7 @@ def test_rgcn_method_definition_is_complete() -> None:
 
     assert definition.lifecycle is RetrievalLifecycle.RGCN_TRAINABLE
     assert definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
-    assert definition.dependencies.graph_config is GraphConfigSource.NONE
+    assert definition.dependencies.selected_config is SelectedConfigSource.NONE
     assert definition.dependencies.model is ModelSource.CHECKPOINT_FILE
     assert definition.dependencies.encoder is EncoderSource.CHECKPOINT_METADATA
     assert definition.method_config_type is RgcnMethodConfig
@@ -68,7 +68,7 @@ def test_method_definitions_do_not_expose_capability_booleans_or_builder_ids() -
     retired_attributes = {
         "builder_id",
         "requires_graphs",
-        "requires_graph_config",
+        "requires_selected_config",
         "requires_checkpoint",
         "requires_dense_encoder",
     }

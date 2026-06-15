@@ -283,7 +283,7 @@ def _format_method_specs(rows: Sequence[dict[str, str]]) -> str:
             f"{row['name']}\tworkflow={row['workflow']}\t"
             f"lifecycle={row['lifecycle']}\t"
             f"graphs={row['graph_source']}\t"
-            f"graph_config={row['graph_config_source']}\t"
+            f"selected_config={row['selected_config_source']}\t"
             f"model={row['model_source']}\t"
             f"encoder={row['encoder_source']}"
         )

@@ -132,7 +132,7 @@ def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: objec
             name=settings.method.value,
             dense_seed_ranker=dense_seed_ranker,
             importance_by_task_id=importance_by_task_id,
-            scoring=settings.scoring,
+            scoring=build_payload.scoring_config or settings.scoring,
         ),
         method=settings.method,
         encoder=settings.encoder,

@@ -262,7 +262,7 @@ def list_method_specs() -> list[dict[str, str]]:
                     else ""
                 ),
                 "graph_source": definition.dependencies.graphs.value,
-                "graph_config_source": definition.dependencies.graph_config.value,
+                "selected_config_source": definition.dependencies.selected_config.value,
                 "model_source": definition.dependencies.model.value,
                 "encoder_source": definition.dependencies.encoder.value,
                 "seed_method": definition.seed_method.value if definition.seed_method is not None else "",

@@ -17,11 +17,21 @@ from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
+    GraphRerankRetrievalSettings,
+    MemoryStreamRetrievalSettings,
     RetrievalProvenance,
 )
 from graph_memory.registry.stage_configs import RetrieveStageConfig
 from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
-from graph_memory.registry.retrieval import MemoryStreamRetrievalSettings
+from graph_memory.retrieval.methods.graph_rerank.config import (
+    GraphRerankConfig,
+    ensure_graph_rerank_config,
+)
+from graph_memory.retrieval.methods.memory_stream.config import (
+    MemoryStreamScoringConfig,
+    memory_stream_scoring_config_record,
+    parse_memory_stream_scoring_config,
+)
 from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.validation import (
     validate_memory_task_inputs,
@@ -38,13 +48,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     started_at = now_iso()
     start_time = time.perf_counter()
     summary_path = config.io.summary
-    graph_config = _read_graph_config(config.io.graph_config)
-    effective_config = _effective_config(config, graph_config, provenance=None)
+    selected_config = _read_selected_config(config)
+    effective_config = _effective_config(config, selected_config, provenance=None)
     inputs = {"tasks": str(config.io.tasks)}
     if config.io.graphs is not None:
         inputs["graphs"] = str(config.io.graphs)
     if config.io.importance is not None:
         inputs["importance"] = str(config.io.importance)
+    if config.io.selected_config is not None:
+        inputs["selected_config"] = str(config.io.selected_config)
     outputs = {"predictions": str(config.io.output), "run_summary": str(summary_path)}
 
     try:
@@ -56,12 +68,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             config,
             task_inputs=task_inputs,
             graphs=graphs,
-            graph_config=graph_config,
+            selected_config=selected_config,
             importance_artifact=importance_artifact,
             importance_sha256=importance_sha256,
         )
         predictions = result.predictions
-        effective_config = _effective_config(config, graph_config, provenance=result.provenance)
+        effective_config = _effective_config(config, selected_config, provenance=result.provenance)
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         validate_ranked_results(predictions, inputs_by_task_id)
         write_json(config.io.output, predictions)
@@ -109,13 +121,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise
 
 
-def _read_graph_config(path: Path | None) -> JsonObject | None:
+SelectedConfig = GraphRerankConfig | MemoryStreamScoringConfig
+
+
+def _read_selected_config(config: RetrieveStageConfig) -> SelectedConfig | None:
+    path = config.io.selected_config
     if path is None:
         return None
     value = read_json(path)
     if not isinstance(value, Mapping):
-        raise ValueError(f"Graph rerank config must be a JSON object: {path}")
-    return cast(JsonObject, value)
+        raise ValueError(f"Selected config must be a JSON object: {path}")
+    if isinstance(config.job, GraphRerankRetrievalSettings):
+        return ensure_graph_rerank_config(value)
+    if isinstance(config.job, MemoryStreamRetrievalSettings):
+        return parse_memory_stream_scoring_config(value)
+    raise ValueError(
+        f"Retrieval method={config.job.method.value} does not accept selected_config."
+    )
 
 
 def _load_memory_stream_importance_if_required(
@@ -132,12 +154,12 @@ def _load_memory_stream_importance_if_required(
     artifact = json.loads(raw_bytes.decode("utf-8"))
     if not isinstance(artifact, dict):
         raise ValueError(f"Memory Stream importance artifact must be a JSON object: {importance_path}")
-    return artifact, hashlib.sha256(raw_bytes).hexdigest()
+    return cast(ImportanceArtifact, cast(object, artifact)), hashlib.sha256(raw_bytes).hexdigest()
 
 
 def _effective_config(
     config: RetrieveStageConfig,
-    graph_config: JsonValue,
+    selected_config: SelectedConfig | None,
     *,
     provenance: RetrievalProvenance | None,
 ) -> JsonObject:
@@ -145,11 +167,23 @@ def _effective_config(
         "method": config.job.method.value,
         "top_k": config.job.top_k,
         "job": cast(JsonObject, CONFIG_LOADER.to_json(config.job)),
-        "graph_config_path": str(config.io.graph_config) if config.io.graph_config is not None else None,
+        "selected_config_path": (
+            str(config.io.selected_config)
+            if config.io.selected_config is not None
+            else None
+        ),
         "importance_path": str(config.io.importance) if config.io.importance is not None else None,
-        "graph_config": graph_config,
+        "selected_config": _selected_config_json(selected_config),
         "provenance": None if provenance is None else cast(JsonObject, CONFIG_LOADER.to_json(provenance)),
     }
+
+
+def _selected_config_json(selected_config: SelectedConfig | None) -> JsonValue:
+    if selected_config is None:
+        return None
+    if isinstance(selected_config, MemoryStreamScoringConfig):
+        return cast(JsonObject, memory_stream_scoring_config_record(selected_config))
+    return cast(JsonObject, CONFIG_LOADER.to_json(selected_config))
 
 
 if __name__ == "__main__":

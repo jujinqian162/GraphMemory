@@ -166,6 +166,7 @@ class MemoryStreamBuildPayload:
     importance_artifact: "ImportanceArtifact"
     importance_path: Path
     importance_sha256: str
+    scoring_config: MemoryStreamScoringConfig | None = None
     dense_encoder: "SentenceEncoder | None" = None
 
 

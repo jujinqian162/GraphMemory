@@ -33,7 +33,7 @@ class GraphInputSource(StrEnum):
     GRAPH_ARTIFACT = "graph_artifact"
 
 
-class GraphConfigSource(StrEnum):
+class SelectedConfigSource(StrEnum):
     NONE = "none"
     TUNED_ARTIFACT = "tuned_artifact"
 
@@ -64,7 +64,7 @@ class TrainArtifactSpec:
 @dataclass(frozen=True)
 class RetrievalDependencySpec:
     graphs: GraphInputSource
-    graph_config: GraphConfigSource
+    selected_config: SelectedConfigSource
     model: ModelSource
     encoder: EncoderSource
 
@@ -106,7 +106,7 @@ class MethodRegistry:
 def build_method_registry() -> MethodRegistry:
     no_dependencies = RetrievalDependencySpec(
         graphs=GraphInputSource.NONE,
-        graph_config=GraphConfigSource.NONE,
+        selected_config=SelectedConfigSource.NONE,
         model=ModelSource.NONE,
         encoder=EncoderSource.NONE,
     )
@@ -125,7 +125,7 @@ def build_method_registry() -> MethodRegistry:
             retrieval_settings_type=DenseRetrievalSettings,
             dependencies=RetrievalDependencySpec(
                 graphs=GraphInputSource.NONE,
-                graph_config=GraphConfigSource.NONE,
+                selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
@@ -138,7 +138,7 @@ def build_method_registry() -> MethodRegistry:
             retrieval_settings_type=MemoryStreamRetrievalSettings,
             dependencies=RetrievalDependencySpec(
                 graphs=GraphInputSource.NONE,
-                graph_config=GraphConfigSource.NONE,
+                selected_config=SelectedConfigSource.TUNED_ARTIFACT,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
@@ -153,7 +153,7 @@ def build_method_registry() -> MethodRegistry:
             retrieval_settings_type=GraphRerankRetrievalSettings,
             dependencies=RetrievalDependencySpec(
                 graphs=GraphInputSource.GRAPH_ARTIFACT,
-                graph_config=GraphConfigSource.TUNED_ARTIFACT,
+                selected_config=SelectedConfigSource.TUNED_ARTIFACT,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.NONE,
             ),
@@ -168,7 +168,7 @@ def build_method_registry() -> MethodRegistry:
             retrieval_settings_type=GraphRerankRetrievalSettings,
             dependencies=RetrievalDependencySpec(
                 graphs=GraphInputSource.GRAPH_ARTIFACT,
-                graph_config=GraphConfigSource.TUNED_ARTIFACT,
+                selected_config=SelectedConfigSource.TUNED_ARTIFACT,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
@@ -183,7 +183,7 @@ def build_method_registry() -> MethodRegistry:
             retrieval_settings_type=CheckpointGraphRetrievalSettings,
             dependencies=RetrievalDependencySpec(
                 graphs=GraphInputSource.GRAPH_ARTIFACT,
-                graph_config=GraphConfigSource.NONE,
+                selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.CHECKPOINT_FILE,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
             ),
@@ -197,7 +197,7 @@ def build_method_registry() -> MethodRegistry:
             retrieval_settings_type=DenseFinetunedRetrievalSettings,
             dependencies=RetrievalDependencySpec(
                 graphs=GraphInputSource.NONE,
-                graph_config=GraphConfigSource.NONE,
+                selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.MODEL_DIRECTORY,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
             ),
@@ -212,13 +212,13 @@ def build_method_registry() -> MethodRegistry:
 __all__ = [
     "ArtifactKind",
     "EncoderSource",
-    "GraphConfigSource",
     "GraphInputSource",
     "MethodDefinition",
     "MethodRegistry",
     "ModelSource",
     "RetrievalDependencySpec",
     "RetrievalLifecycle",
+    "SelectedConfigSource",
     "TrainArtifactSpec",
     "TuningKind",
     "build_method_registry",

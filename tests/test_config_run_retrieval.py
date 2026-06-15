@@ -70,6 +70,7 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
     summary_path = tmp_path / "predictions.run_summary.json"
     config_path = tmp_path / "retrieve-memory-stream.json"
     importance_path = tmp_path / "dev.first_1000.importance.json"
+    selected_config_path = tmp_path / "memory_stream.dev_selected.json"
     write_json(tasks_path, tasks)
     write_json(
         importance_path,
@@ -86,10 +87,20 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
             ],
         },
     )
+    write_json(
+        selected_config_path,
+        {
+            "relevance_weight": 0.0,
+            "recency_weight": 0.0,
+            "importance_weight": 1.0,
+            "recency_decay": 0.99,
+        },
+    )
     config = RetrieveStageConfig(
         io=RetrieveIO(
             tasks=tasks_path,
             graphs=None,
+            selected_config=selected_config_path,
             output=output_path,
             summary=summary_path,
             importance=importance_path,
@@ -113,6 +124,7 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
     expected_sha256 = hashlib.sha256(importance_path.read_bytes()).hexdigest()
 
     assert predictions[0]["method"] == "memory_stream"
+    assert predictions[0]["ranked_nodes"][0]["node_id"] == "m2"
     assert summary["effective_config"]["provenance"]["importance"] == {
         "path": str(importance_path),
         "sha256": expected_sha256,
@@ -124,5 +136,14 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
         "recency_weight": 0.0,
         "importance_weight": 0.01,
         "recency_decay": 1.0,
+    }
+    assert summary["effective_config"]["selected_config_path"] == str(
+        selected_config_path
+    )
+    assert summary["effective_config"]["selected_config"] == {
+        "relevance_weight": 0.0,
+        "recency_weight": 0.0,
+        "importance_weight": 1.0,
+        "recency_decay": 0.99,
     }
     assert summary["effective_config"]["job"]["encoder"]["model_name"] == "fake-model"

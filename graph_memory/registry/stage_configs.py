@@ -79,7 +79,7 @@ class RetrieveIO:
     graphs: Path | None
     output: Path
     summary: Path
-    graph_config: Path | None = None
+    selected_config: Path | None = None
     importance: Path | None = None
 
 

@@ -17,9 +17,9 @@ from graph_memory.registry.method_configs import (
     TrainableMethodConfig,
 )
 from graph_memory.registry.methods import (
-    GraphConfigSource,
     GraphInputSource,
     ModelSource,
+    SelectedConfigSource,
 )
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
@@ -242,16 +242,16 @@ def _retrieve_stage_config(
         if definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
         else None
     )
-    graph_config = (
+    selected_config = (
         Path(manifest["artifacts"]["tuned"][method])
-        if definition.dependencies.graph_config is GraphConfigSource.TUNED_ARTIFACT
+        if definition.dependencies.selected_config is SelectedConfigSource.TUNED_ARTIFACT
         else None
     )
     return RetrieveStageConfig(
         io=RetrieveIO(
             tasks=Path(manifest["artifacts"]["inputs"]["test"]["input"]),
             graphs=graph_path,
-            graph_config=graph_config,
+            selected_config=selected_config,
             importance=_memory_stream_importance_path(manifest, method),
             output=Path(manifest["artifacts"]["predictions"][method]),
             summary=Path(manifest["artifacts"]["predictions"][method]).with_name(

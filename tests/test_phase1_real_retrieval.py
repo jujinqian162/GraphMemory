@@ -10,7 +10,7 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.registry import Registry
-from graph_memory.registry.methods import EncoderSource, GraphConfigSource, GraphInputSource, ModelSource, RetrievalLifecycle
+from graph_memory.registry.methods import EncoderSource, GraphInputSource, ModelSource, RetrievalLifecycle, SelectedConfigSource
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     DenseEncoderSettings,
@@ -149,7 +149,11 @@ def run_retrieval(
             graphs=None if graphs is None else Path("graphs.json"),
             output=Path("ranked.json"),
             summary=Path("ranked.run_summary.json"),
-            graph_config=None if graph_config is None else Path("graph_config.json"),
+            selected_config=(
+                None
+                if graph_config is None
+                else Path("selected_config.json")
+            ),
         ),
         job=job,
     )
@@ -157,7 +161,7 @@ def run_retrieval(
         config,
         task_inputs=task_inputs,
         graphs=graphs,
-        graph_config=graph_config,
+        selected_config=graph_config,
         dense_encoder=dense_encoder,
     )
     return result.predictions
@@ -275,7 +279,7 @@ def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
         for method in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
     ) == ("bm25_graph_rerank", "dense_graph_rerank")
     assert Registry.methods.get("bm25").dependencies.graphs is GraphInputSource.NONE
-    assert Registry.methods.get("dense").dependencies.graph_config is GraphConfigSource.NONE
+    assert Registry.methods.get("dense").dependencies.selected_config is SelectedConfigSource.NONE
     assert Registry.methods.get("dense").dependencies.encoder is EncoderSource.EXPERIMENT_CONFIG
     assert Registry.methods.get("bm25_graph_rerank").dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
     assert Registry.methods.get("dense_graph_rerank").seed_method is RetrievalMethodId.DENSE

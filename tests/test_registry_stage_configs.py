@@ -143,6 +143,7 @@ def test_memory_stream_retrieve_config_round_trips_importance_and_cap(tmp_path: 
             io=RetrieveIO(
                 tasks=tmp_path / "tasks.json",
                 graphs=None,
+                selected_config=tmp_path / "memory_stream.dev_selected.json",
                 output=tmp_path / "predictions.json",
                 summary=tmp_path / "predictions.run_summary.json",
                 importance=tmp_path / "dev.first_1000.importance.json",

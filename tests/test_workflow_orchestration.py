@@ -306,6 +306,9 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
     retrieve_path = Path(manifest["stage_configs"]["retrieve"]["memory_stream"])
     retrieve_config = read_json(retrieve_path)
     assert retrieve_config["io"]["importance"] == str(importance_path)
+    assert Path(retrieve_config["io"]["selected_config"]) == Path(
+        manifest["artifacts"]["tuned"]["memory_stream"]
+    )
     assert retrieve_config["job"]["capped_test_count"] == 1
     assert retrieve_config["job"]["scoring"] == {
         "relevance_weight": 1.0,
@@ -379,3 +382,28 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
         if row["stage"] == "tune" and row.get("method") == "memory_stream"
     )
     assert tune_status["state"] == "complete"
+
+
+def test_retrieve_stage_configs_use_generic_selected_config_source(
+    tmp_path: Path,
+) -> None:
+    manifest = initialize_experiment(
+        "selected-config-source",
+        config=load_experiment_config(),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["dense", "bm25_graph_rerank"],
+        force=True,
+    )
+
+    dense_config = read_json(
+        manifest["stage_configs"]["retrieve"]["dense"]
+    )
+    graph_config = read_json(
+        manifest["stage_configs"]["retrieve"]["bm25_graph_rerank"]
+    )
+
+    assert dense_config["io"]["selected_config"] is None
+    assert Path(graph_config["io"]["selected_config"]) == Path(
+        manifest["artifacts"]["tuned"]["bm25_graph_rerank"]
+    )

@@ -175,12 +175,19 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
             importance_path=tmp_path / "dev.first_1000.importance.json",
             importance_sha256="abc123",
             dense_encoder=FakeEncoder(),
+            scoring_config=MemoryStreamScoringConfig(
+                relevance_weight=0.0,
+                importance_weight=1.0,
+            ),
         ),
     )
 
     assert isinstance(built.method, MemoryStreamMethod)
     assert built.method.name == "memory_stream"
-    assert built.method.scoring == MemoryStreamScoringConfig(recency_decay=1.0)
+    assert built.method.scoring == MemoryStreamScoringConfig(
+        relevance_weight=0.0,
+        importance_weight=1.0,
+    )
     assert built.method.dense_seed_ranker.method_name == "dense"
     assert set(built.method.importance_by_task_id) == {"hotpot_ms_1"}
     assert built.provenance.importance == ImportanceArtifactProvenance(
