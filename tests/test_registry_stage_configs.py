@@ -22,6 +22,7 @@ from graph_memory.registry.retrieval import (
     MemoryStreamRetrievalSettings,
     RetrievalMethodId,
 )
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.registry.specs import StageConfigSpec
 from graph_memory.registry.stage_configs import (
     DenseFinetuneTrainIO,
@@ -154,10 +155,12 @@ def test_memory_stream_retrieve_config_round_trips_importance_and_cap(tmp_path: 
                     passage_prefix="passage: ",
                     batch_size=8,
                 ),
-                relevance_weight=2.0,
-                recency_weight=1.0,
-                importance_weight=3.0,
-                recency_decay=0.95,
+                scoring=MemoryStreamScoringConfig(
+                    relevance_weight=2.0,
+                    recency_weight=1.0,
+                    importance_weight=3.0,
+                    recency_decay=0.95,
+                ),
                 capped_test_count=1000,
             ),
         ),

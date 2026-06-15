@@ -38,7 +38,6 @@ from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
 from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
-from graph_memory.retrieval.methods.memory_stream.scoring import MemoryStreamWeights
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
 from graph_memory.validation import select_importance_records
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
@@ -133,12 +132,7 @@ def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: objec
             name=settings.method.value,
             dense_seed_ranker=dense_seed_ranker,
             importance_by_task_id=importance_by_task_id,
-            weights=MemoryStreamWeights(
-                relevance=settings.relevance_weight,
-                recency=settings.recency_weight,
-                importance=settings.importance_weight,
-            ),
-            recency_decay=settings.recency_decay,
+            scoring=settings.scoring,
         ),
         method=settings.method,
         encoder=settings.encoder,

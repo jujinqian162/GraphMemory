@@ -21,6 +21,7 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
 from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
 from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_graphs, retrieval_task_inputs
@@ -166,7 +167,7 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
         MemoryStreamRetrievalSettings(
             top_k=2,
             encoder=DenseEncoderSettings(model_name="fake-model", query_prefix="query: ", passage_prefix="passage: "),
-            recency_decay=1.0,
+            scoring=MemoryStreamScoringConfig(recency_decay=1.0),
         ),
         MemoryStreamBuildPayload(
             task_inputs=task_inputs,
@@ -179,6 +180,7 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
 
     assert isinstance(built.method, MemoryStreamMethod)
     assert built.method.name == "memory_stream"
+    assert built.method.scoring == MemoryStreamScoringConfig(recency_decay=1.0)
     assert built.method.dense_seed_ranker.method_name == "dense"
     assert set(built.method.importance_by_task_id) == {"hotpot_ms_1"}
     assert built.provenance.importance == ImportanceArtifactProvenance(

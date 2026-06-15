@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.registry.ids import StrEnum
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
@@ -55,35 +55,13 @@ class DenseRetrievalSettings:
 class MemoryStreamRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
-    relevance_weight: float = 1.0
-    recency_weight: float = 0.0
-    importance_weight: float = 0.01
-    recency_decay: float = 0.99
+    scoring: MemoryStreamScoringConfig = field(
+        default_factory=MemoryStreamScoringConfig
+    )
     capped_test_count: int | None = None
     method: Literal[RetrievalMethodId.MEMORY_STREAM] = RetrievalMethodId.MEMORY_STREAM
 
     def __post_init__(self) -> None:
-        """Validate Memory Stream weights and pseudo-recency decay."""
-        weights = {
-            "relevance_weight": self.relevance_weight,
-            "recency_weight": self.recency_weight,
-            "importance_weight": self.importance_weight,
-        }
-        for field_name, value in weights.items():
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"Memory Stream {field_name} must be a finite number.")
-            number = float(value)
-            if not math.isfinite(number) or number < 0.0:
-                raise ValueError(f"Memory Stream {field_name} must be non-negative.")
-            object.__setattr__(self, field_name, number)
-        if self.relevance_weight + self.recency_weight + self.importance_weight <= 0.0:
-            raise ValueError("Memory Stream settings require at least one positive weight.")
-        if isinstance(self.recency_decay, bool) or not isinstance(self.recency_decay, (int, float)):
-            raise ValueError("Memory Stream recency_decay must be a finite number.")
-        recency_decay = float(self.recency_decay)
-        if not math.isfinite(recency_decay) or recency_decay <= 0.0 or recency_decay > 1.0:
-            raise ValueError("Memory Stream recency_decay must satisfy 0 < recency_decay <= 1.")
-        object.__setattr__(self, "recency_decay", recency_decay)
         if self.capped_test_count is not None:
             if isinstance(self.capped_test_count, bool) or not isinstance(self.capped_test_count, int):
                 raise ValueError("Memory Stream capped_test_count must be an integer.")

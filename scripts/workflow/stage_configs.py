@@ -34,6 +34,7 @@ from graph_memory.registry.retrieval import (
     RetrievalMethodId,
     SeedRetrievalSettings,
 )
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.registry.stage_configs import (
     DenseFinetuneTrainIO,
     DenseFinetuneTrainStageConfig,
@@ -277,10 +278,32 @@ def _retrieval_job(
         return MemoryStreamRetrievalSettings(
             top_k=top_k,
             encoder=_experiment_encoder(manifest),
-            relevance_weight=float(manifest["effective_config"].get("memory_stream_relevance_weight", 1.0)),
-            recency_weight=float(manifest["effective_config"].get("memory_stream_recency_weight", 0.0)),
-            importance_weight=float(manifest["effective_config"].get("memory_stream_importance_weight", 0.01)),
-            recency_decay=float(manifest["effective_config"].get("memory_stream_recency_decay", 0.99)),
+            scoring=MemoryStreamScoringConfig(
+                relevance_weight=float(
+                    manifest["effective_config"].get(
+                        "memory_stream_relevance_weight",
+                        1.0,
+                    )
+                ),
+                recency_weight=float(
+                    manifest["effective_config"].get(
+                        "memory_stream_recency_weight",
+                        0.0,
+                    )
+                ),
+                importance_weight=float(
+                    manifest["effective_config"].get(
+                        "memory_stream_importance_weight",
+                        0.01,
+                    )
+                ),
+                recency_decay=float(
+                    manifest["effective_config"].get(
+                        "memory_stream_recency_decay",
+                        0.99,
+                    )
+                ),
+            ),
             capped_test_count=int(manifest["effective_config"]["splits"]["test"]["max_examples"]),
         )
     if method_id is RetrievalMethodId.BM25_GRAPH_RERANK:

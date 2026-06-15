@@ -4,13 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from graph_memory.contracts.common import NodeId
-
-
-@dataclass(frozen=True)
-class MemoryStreamWeights:
-    relevance: float = 1.0
-    recency: float = 0.0
-    importance: float = 0.01
+from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 
 
 @dataclass(frozen=True)
@@ -52,18 +47,35 @@ def normalize_memory_stream_signals(raw_signals: RawMemoryStreamSignals) -> Norm
     )
 
 
-def combine_memory_stream_signals(
+def pseudo_recency_scores(
+    task_input: MemoryTaskInput,
+    *,
+    decay: float,
+) -> dict[NodeId, float]:
+    """Compute decay ** (max_position - position) for each memory item."""
+    memory_items = task_input["memory_items"]
+    max_position = max(item["position"] for item in memory_items)
+    return {
+        memory_item["id"]: decay ** (max_position - memory_item["position"])
+        for memory_item in memory_items
+    }
+
+
+def score_memory_stream(
     normalized_signals: NormalizedMemoryStreamSignals,
     *,
-    weights: MemoryStreamWeights,
+    config: MemoryStreamScoringConfig,
 ) -> dict[NodeId, float]:
     """Return weighted final score per node id."""
     node_ids = _all_node_ids(normalized_signals)
     return {
         node_id: (
-            weights.relevance * normalized_signals.relevance_by_node_id.get(node_id, 0.0)
-            + weights.recency * normalized_signals.recency_by_node_id.get(node_id, 0.0)
-            + weights.importance * normalized_signals.importance_by_node_id.get(node_id, 0.0)
+            config.relevance_weight
+            * normalized_signals.relevance_by_node_id.get(node_id, 0.0)
+            + config.recency_weight
+            * normalized_signals.recency_by_node_id.get(node_id, 0.0)
+            + config.importance_weight
+            * normalized_signals.importance_by_node_id.get(node_id, 0.0)
         )
         for node_id in node_ids
     }
@@ -83,11 +95,11 @@ def _zero_fill(scores_by_node_id: Mapping[NodeId, float], node_ids: set[NodeId])
 
 
 __all__ = [
-    "MemoryStreamWeights",
     "NormalizedMemoryStreamSignals",
     "RawMemoryStreamSignals",
-    "combine_memory_stream_signals",
     "normalize_memory_stream_signals",
     "normalize_task_signal",
+    "pseudo_recency_scores",
     "rank_memory_stream_scores",
+    "score_memory_stream",
 ]

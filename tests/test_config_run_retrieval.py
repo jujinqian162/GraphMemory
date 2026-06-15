@@ -8,6 +8,7 @@ from graph_memory.io import read_json, write_json
 from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings, MemoryStreamRetrievalSettings
 from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
 from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from scripts import run_retrieval
 from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_task_inputs
 
@@ -100,7 +101,7 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
                 query_prefix="query: ",
                 passage_prefix="passage: ",
             ),
-            recency_decay=1.0,
+            scoring=MemoryStreamScoringConfig(recency_decay=1.0),
             capped_test_count=1,
         ),
     )
@@ -118,5 +119,10 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
         "schema_version": 1,
     }
     assert summary["effective_config"]["job"]["capped_test_count"] == 1
-    assert summary["effective_config"]["job"]["relevance_weight"] == 1.0
+    assert summary["effective_config"]["job"]["scoring"] == {
+        "relevance_weight": 1.0,
+        "recency_weight": 0.0,
+        "importance_weight": 0.01,
+        "recency_decay": 1.0,
+    }
     assert summary["effective_config"]["job"]["encoder"]["model_name"] == "fake-model"
