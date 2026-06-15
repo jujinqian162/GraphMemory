@@ -8,14 +8,25 @@ import pytest
 
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.io import read_json, write_json
+from graph_memory.retrieval.methods.memory_stream.artifact import (
+    importance_content_digest,
+)
 from graph_memory.registry.retrieval import Bm25RetrievalSettings
 from graph_memory.registry.stage_configs import EvaluateIO, EvaluateStageConfig, RetrieveIO, RetrieveStageConfig
+from graph_memory.validation import ContractValidationError
 import scripts.aggregate_tables as aggregate_tables
 import scripts.build_graphs as build_graphs
 import scripts.evaluate_retrieval as evaluate_retrieval
 import scripts.prepare_hotpotqa as prepare_hotpotqa
 import scripts.run_retrieval as run_retrieval
 import scripts.tune_graph_rerank as tune_graph_rerank
+import scripts.tune_memory_stream as tune_memory_stream
+from tests.test_phase1_real_retrieval import (
+    FakeEncoder,
+    retrieval_graphs,
+    retrieval_task_inputs,
+    retrieval_task_labels,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hotpotqa_smoke.json"
@@ -258,6 +269,174 @@ def test_tune_graph_rerank_cli_reads_search_space_and_writes_neighbor_type_weigh
     assert "query_overlap" not in selected_config["neighbor_type_weights"]
     assert "neighbor_type_weights" in candidate_rows[0]["config"]
     assert "type_weights" not in candidate_rows[0]["config"]
+
+
+def test_tune_memory_stream_cli_writes_selected_config_and_sidecars(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "graph_memory.retrieval.methods.flat.dense.load_sentence_transformer",
+        lambda _model_name: FakeEncoder(),
+    )
+    task_inputs = retrieval_task_inputs()
+    tasks_path = tmp_path / "dev_memory_tasks.input.json"
+    labels_path = tmp_path / "dev_memory_tasks.labels.json"
+    graphs_path = tmp_path / "dev_graphs.json"
+    importance_path = tmp_path / "dev.importance.json"
+    grid_path = tmp_path / "memory_stream.search_space.json"
+    selected_config_path = tmp_path / "memory_stream.dev_selected.json"
+    write_json(tasks_path, task_inputs)
+    write_json(labels_path, retrieval_task_labels())
+    write_json(graphs_path, retrieval_graphs())
+    write_json(
+        importance_path,
+        {
+            "schema_version": 1,
+            "method": "memory_stream",
+            "tasks": [
+                {
+                    "task_id": task_input["task_id"],
+                    "content_digest": importance_content_digest(task_input),
+                    "scores": {
+                        item["id"]: index + 1
+                        for index, item in enumerate(task_input["memory_items"])
+                    },
+                }
+                for task_input in task_inputs
+            ],
+        },
+    )
+    write_json(
+        grid_path,
+        {
+            "relevance_weight": [1.0],
+            "recency_weight": [0.0],
+            "importance_weight": [0.1],
+            "recency_decay": [0.99],
+        },
+    )
+
+    assert tune_memory_stream.main(
+        [
+            "--tasks",
+            str(tasks_path),
+            "--labels",
+            str(labels_path),
+            "--graphs",
+            str(graphs_path),
+            "--importance",
+            str(importance_path),
+            "--output_config",
+            str(selected_config_path),
+            "--encoder_model",
+            "fake-model",
+            "--top_k",
+            "2",
+            "--grid_config",
+            str(grid_path),
+        ]
+    ) == 0
+
+    selected_config = read_json(selected_config_path)
+    candidates = read_json(
+        selected_config_path.with_name(
+            f"{selected_config_path.stem}.candidates.json"
+        )
+    )
+    summary = read_json(
+        selected_config_path.with_name(
+            f"{selected_config_path.stem}.run_summary.json"
+        )
+    )
+
+    assert set(selected_config) == {
+        "relevance_weight",
+        "recency_weight",
+        "importance_weight",
+        "recency_decay",
+    }
+    assert candidates[0]["config"] == selected_config
+    assert summary["status"] == "success"
+    assert summary["counts"] == {
+        "tasks": 1,
+        "grid_size": 1,
+        "candidate_rows": 1,
+    }
+    assert summary["effective_config"]["selected_scoring_config"] == selected_config
+    assert len(summary["effective_config"]["importance_sha256"]) == 64
+
+
+def test_tune_memory_stream_cli_writes_failed_summary_before_dense_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "graph_memory.retrieval.methods.flat.dense.load_sentence_transformer",
+        lambda _model_name: pytest.fail("dense encoder must not load"),
+    )
+    task_inputs = retrieval_task_inputs()
+    tasks_path = tmp_path / "dev_memory_tasks.input.json"
+    labels_path = tmp_path / "dev_memory_tasks.labels.json"
+    graphs_path = tmp_path / "dev_graphs.json"
+    importance_path = tmp_path / "mismatched.importance.json"
+    grid_path = tmp_path / "memory_stream.search_space.json"
+    selected_config_path = tmp_path / "memory_stream.dev_selected.json"
+    write_json(tasks_path, task_inputs)
+    write_json(labels_path, retrieval_task_labels())
+    write_json(graphs_path, retrieval_graphs())
+    write_json(
+        importance_path,
+        {
+            "schema_version": 1,
+            "method": "memory_stream",
+            "tasks": [
+                {
+                    "task_id": task_inputs[0]["task_id"],
+                    "content_digest": "wrong",
+                    "scores": {"m0": 1, "m1": 2, "m2": 3},
+                }
+            ],
+        },
+    )
+    write_json(
+        grid_path,
+        {
+            "relevance_weight": [1.0],
+            "recency_weight": [0.0],
+            "importance_weight": [0.1],
+            "recency_decay": [0.99],
+        },
+    )
+
+    with pytest.raises(ContractValidationError, match="content_digest mismatch"):
+        tune_memory_stream.main(
+            [
+                "--tasks",
+                str(tasks_path),
+                "--labels",
+                str(labels_path),
+                "--graphs",
+                str(graphs_path),
+                "--importance",
+                str(importance_path),
+                "--output_config",
+                str(selected_config_path),
+                "--encoder_model",
+                "fake-model",
+                "--grid_config",
+                str(grid_path),
+            ]
+        )
+
+    summary = read_json(
+        selected_config_path.with_name(
+            f"{selected_config_path.stem}.run_summary.json"
+        )
+    )
+    assert summary["status"] == "failed"
+    assert "content_digest mismatch" in summary["error"]
+    assert not selected_config_path.exists()
 
 
 def test_aggregate_tables_includes_experiment_runner_metric_filenames(tmp_path):

@@ -21,6 +21,29 @@ def test_core_script_parser_contracts_are_frozen() -> None:
     }
 
 
+def test_memory_stream_tuning_parser_contract_is_frozen() -> None:
+    import scripts.tune_memory_stream as tune_memory_stream
+
+    assert _parser_contract(tune_memory_stream.build_parser()) == {
+        "tasks": _store("--tasks", required=True),
+        "labels": _store("--labels", required=True),
+        "graphs": _store("--graphs", required=True),
+        "importance": _store("--importance", required=True),
+        "output_config": _store("--output_config", required=True),
+        "encoder_model": _store(
+            "--encoder_model",
+            default="intfloat/e5-base-v2",
+        ),
+        "query_prefix": _store("--query_prefix", default="query: "),
+        "passage_prefix": _store("--passage_prefix", default="passage: "),
+        "top_k": _store("--top_k", default=10, value_type="int"),
+        "grid_config": _store(
+            "--grid_config",
+            default="configs/search_spaces/memory_stream.json",
+        ),
+    }
+
+
 def test_experiment_parser_contract_is_frozen() -> None:
     import scripts.experiment as experiment
 
