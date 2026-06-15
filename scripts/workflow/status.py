@@ -9,6 +9,7 @@ from graph_memory.registry.methods import ArtifactKind, GraphInputSource, Tuning
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import now_iso
 from scripts.workflow.planner import _materialize_variant_manifest, _method_has_stage
+from scripts.workflow.stage_configs import _memory_stream_importance_path
 from scripts.workflow.types import ArtifactRole, ArtifactState, StageId
 
 
@@ -242,9 +243,10 @@ def _memory_stream_tune_status(
     grid_config = str(
         manifest["effective_config"]["search_spaces"]["memory_stream"]
     )
-    importance = str(
-        manifest["effective_config"]["memory_stream_importance_path"]
-    )
+    importance_path = _memory_stream_importance_path(manifest, method)
+    if importance_path is None:
+        raise ValueError("Memory Stream tuning requires an importance artifact path.")
+    importance = str(importance_path)
     return _summary_status(
         stage=StageId.TUNE.value,
         path=path,

@@ -384,6 +384,38 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
     assert tune_status["state"] == "complete"
 
 
+def test_memory_stream_tune_command_uses_default_importance_path(tmp_path: Path) -> None:
+    config = load_experiment_config()
+    config["methods"] = ["memory_stream"]
+
+    manifest = initialize_experiment(
+        "memory-stream-default-importance",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["memory_stream"],
+        force=True,
+    )
+
+    tune_commands = build_stage_plan(
+        manifest,
+        stages=["tune"],
+        methods=["memory_stream"],
+    )
+
+    assert Path(
+        tune_commands[0].argv[tune_commands[0].argv.index("--importance") + 1]
+    ) == Path(
+        "data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json"
+    )
+    tune_status = next(
+        row
+        for row in inspect_experiment_status(manifest)
+        if row["stage"] == "tune" and row.get("method") == "memory_stream"
+    )
+    assert tune_status["state"] == "missing"
+
+
 def test_retrieve_stage_configs_use_generic_selected_config_source(
     tmp_path: Path,
 ) -> None:

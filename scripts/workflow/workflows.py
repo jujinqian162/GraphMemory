@@ -7,6 +7,7 @@ from typing import Any
 
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import TuningKind
+from scripts.workflow.stage_configs import _memory_stream_importance_path
 from scripts.workflow.types import ArtifactRole, ChangeDimension, StageCommand, StageId, WorkflowId, WorkflowSpec, WorkflowStepSpec
 
 
@@ -280,6 +281,9 @@ def _memory_stream_tune_argv(
     manifest: dict[str, Any],
     method: str,
 ) -> list[str]:
+    importance_path = _memory_stream_importance_path(manifest, method)
+    if importance_path is None:
+        raise ValueError("Memory Stream tuning requires an importance artifact path.")
     return [
         sys.executable,
         "scripts/tune_memory_stream.py",
@@ -290,7 +294,7 @@ def _memory_stream_tune_argv(
         "--graphs",
         manifest["artifacts"]["graphs"]["dev"],
         "--importance",
-        str(manifest["effective_config"]["memory_stream_importance_path"]),
+        str(importance_path),
         "--output_config",
         manifest["artifacts"]["tuned"][method],
         "--top_k",
