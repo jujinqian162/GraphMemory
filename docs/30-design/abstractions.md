@@ -142,7 +142,7 @@ method name -> method metadata + runtime builder id
 Rules:
 
 - Registry keys define supported public method names and are the single source for validator and CLI method choices.
-- Registry metadata declares whether graphs, graph rerank config, dense encoder args, or checkpoint are required.
+- Registry metadata declares whether graphs, selected tuning config, dense encoder args, or checkpoint are required.
 - `experiment.py`, tuning, and scripts use registry capability queries instead of copied method tuples or string matching such as `"dense" in method`.
 - Runtime builders live in `graph_memory/registry/retrieval_builders.py` and owned method packages under `graph_memory/retrieval/methods/`.
 - Builders receive explicit registry job settings/runtime objects, not raw CLI args.
@@ -197,6 +197,41 @@ Graph-rerank methods under `graph_memory/retrieval/methods/graph_rerank/` select
 The explicit `initial_scores` argument is the only cache-friendly boundary needed for Phase 1. The first implementation may recompute initial rankings during dev tuning; a persisted score artifact can be introduced later if runtime becomes a blocker.
 
 `graph_rerank(...)` and `graph_rerank_with_breakdown(...)` remain compatibility helpers for direct tests, debug analysis, and callers that already have initial scores.
+
+## GridSearchRunner
+
+Purpose:
+
+```text
+candidate configs + evaluator + selection key -> selected candidate
+```
+
+Rules:
+
+- Lives in `graph_memory/tuning/grid_search.py`, not under `retrieval/`.
+- Knows only parameter grids, candidate iteration, evaluation callbacks, and selection keys.
+- Does not import retrieval, metrics, Graph Rerank, Memory Stream, workflow, or artifact IO.
+- Does not normalize candidate fields or apply domain validation.
+- Preserves candidate input order and selects the first candidate for exact key ties.
+- Empty candidate lists fail fast.
+
+Retrieval methods use thin adapters around this runner. The shared retrieval selection key lives in `graph_memory/retrieval/tuning/selection.py`; method-specific execution stays in `graph_rerank.py` and `memory_stream.py`.
+
+## MemoryStreamScoringConfig
+
+Purpose:
+
+```text
+relevance, pseudo-recency, and importance weights for Memory Stream scoring
+```
+
+Rules:
+
+- Lives with the Memory Stream method package because selected tuning output is also formal retrieval config.
+- Owns numeric validation for `relevance_weight`, `recency_weight`, `importance_weight`, and `recency_decay`.
+- Does not know search-space arrays, grid search, labels, or metrics.
+- The formal `MemoryStreamMethod` and tuning adapter must both call the same scoring functions.
+- Fixed tuning fields are represented as single-element arrays in `configs/search_spaces/memory_stream.json`, not as code branches.
 
 ## SeedSignalProvider
 
@@ -297,6 +332,7 @@ Rules:
 
 - Scripts may expose CLI flags such as `--encoder_model`, `--query_prefix`, and `--checkpoint`, but `ConfigLoader.load(Registry.configs.RETRIEVE, argv)` converts those values into typed stage config before stage orchestration.
 - `RetrieveStageConfig` is the retrieval use-case boundary. It carries `io` plus method-specific `RetrievalJobSettings`, not a wide application request.
+- `RetrieveIO.selected_config` is a generic tuned-config artifact path. Script adapters parse it into a method-specific typed config before calling the stage runner.
 - Registry-owned `RetrievalJobSettings` are the retrieval build boundary. The selected settings object must be precise for the method family.
 - `retrieval.execution.service.run_retrieval` only executes an already-built `RetrievalMethod`, measures latency, assembles ranked artifacts, and validates ranked results.
 - Retrieval execution does not construct dense runtime, parse graph config, load checkpoints, or accept loose `query_prefix` / `passage_prefix` parameters.
@@ -308,12 +344,13 @@ Batch orchestration belongs in service functions beneath scripts:
 ```text
 stages.retrieve.run_retrieve_stage(RetrieveStageConfig, loaded artifacts) -> RetrieveStageResult
 tune_graph_rerank(...) -> GraphRerankConfig
+tune_memory_stream(...) -> MemoryStreamScoringConfig
 aggregate_tables(...) -> table artifacts
 ```
 
 Service functions may loop over tasks, measure latency, and assemble artifacts. They should not read or write files directly.
 
-Graph-rerank tuning keeps its in-memory initial-score cache under `graph_memory/retrieval/tuning/initial_scores.py`. Tuning services may call retrieval-like helpers repeatedly in the first implementation. Prefer correctness and clear run summaries over introducing cache invalidation logic before the pipeline is stable.
+Graph-rerank tuning keeps its seed score cache under `graph_memory/retrieval/tuning/seed_scores.py`. Memory Stream tuning builds a signal cache from the dense seed scores and validated importance artifact. Both adapters reuse `GridSearchRunner` for candidate traversal and keep artifact IO in CLI scripts.
 
 ## Trainable Graph Components
 

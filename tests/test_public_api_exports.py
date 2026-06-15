@@ -14,7 +14,13 @@ import pytest
         ("graph_memory.training_pairs", {"build_train_pairs"}),
         (
             "graph_memory.retrieval.tuning",
-            {"graph_rerank_grid", "graph_rerank_grid_from_record", "tune_graph_rerank"},
+            {
+                "graph_rerank_grid",
+                "graph_rerank_grid_from_record",
+                "memory_stream_grid_from_record",
+                "tune_graph_rerank",
+                "tune_memory_stream",
+            },
         ),
         (
             "graph_memory.io",

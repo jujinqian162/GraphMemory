@@ -59,6 +59,7 @@ graph_memory/
   retrieval/
   stages/
   text/
+  tuning/
   training_pairs/
   validation/
   experiment.py
@@ -93,6 +94,7 @@ They must stay thin. New core logic belongs in the domain package that owns the 
 | `graphs/` | Graph build config, construction rules, graph index, statistics, and graph views. |
 | `stages/` | Stage-level orchestration between scripts, registry builders, and domain services. |
 | `retrieval/` | Retrieval contracts, compatibility catalog projection, execution service, flat methods, graph rerank, trainable adapter, and tuning. |
+| `tuning/` | Method-agnostic grid-search primitives that know only candidates, evaluator callbacks, and selection keys. |
 | `training_pairs/` | Deterministic positive/negative train-pair construction and sampling config. |
 | `models/graph_retriever/` | Trainable graph retriever config, tensor batches, neural model, checkpointing, training, dev evaluation, and inference. |
 | `evaluation/` | Metric primitives, connectivity, aggregate evaluation service, table splitting, and failure cases. |
@@ -174,12 +176,51 @@ retrieval.methods.graph_rerank
 retrieval.methods.trainable_graph
   -> checkpoint-backed trainable retrieval adapter
 retrieval.tuning
-  -> graph-rerank grid and selected-config service
+  -> retrieval selection policy plus Graph Rerank and Memory Stream tuning adapters
+graph_memory.tuning
+  -> generic grid search, with no retrieval or method imports
 ```
 
-`RetrievalBuildContext` is removed. Dense prefixes, graph configs, checkpoints, and seed providers belong to typed stage config/runtime objects at the stage and registry-builder boundary. Once execution starts, it receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense or checkpoint parameters.
+`RetrievalBuildContext` is removed. Dense prefixes, selected configs, graph inputs, checkpoints, and seed providers belong to typed stage config/runtime objects at the stage and registry-builder boundary. Once execution starts, it receives a built `RetrievalMethod`, task inputs, and `top_k`; it does not accept loose dense or checkpoint parameters.
+
+Tuned retrieval config is method-specific but the IO slot is generic:
+
+```text
+RetrieveIO.selected_config
+  -> GraphRerankConfig for graph-rerank methods
+  -> MemoryStreamScoringConfig for memory_stream
+```
+
+Workflow code decides whether a method needs a selected config through `SelectedConfigSource`. `RetrievalLifecycle` remains about runtime/training shape, while `TuningKind` selects the dev tuning adapter. This keeps Memory Stream as stateless retrieval even though it has a tune stage.
 
 `graph_memory.embeddings.DenseEncodingService` is the shared low-level dense text boundary. Flat dense retrieval and trainable graph features both depend on it for prefixes, normalized encoder calls, encoder text mini-batch size, output-shape checks, and task/node reconstruction. Collection consumers may use optional bulk ranking capabilities with deterministic single-task fallback. Normal `retrieval.execution.service.run_retrieval()` remains task-oriented because its artifact contract measures latency around each task's `rank_task()` call.
+
+## Tuning Boundary
+
+The generic tuning layer is deliberately small:
+
+```text
+graph_memory.tuning.grid_search
+  ParameterGrid
+  GridSearchRunner
+  EvaluatedCandidate
+  GridSearchResult
+```
+
+It expands parameter combinations, evaluates each candidate once, and selects the maximum injected selection key with deterministic first-candidate tie behavior. It does not import retrieval, metrics, Graph Rerank, Memory Stream, JSON IO, or workflow state.
+
+Retrieval tuning owns the evidence-retrieval policy and adapters:
+
+```text
+graph_memory.retrieval.tuning.selection
+  -> MetricRow objective and tie-break key
+graph_memory.retrieval.tuning.graph_rerank
+  -> graph artifact validation, seed score cache, graph candidate execution
+graph_memory.retrieval.tuning.memory_stream
+  -> importance validation, dense signal cache, Memory Stream candidate execution
+```
+
+Graph Rerank and Memory Stream share the same `GridSearchRunner` and retrieval selection policy, but they do not share candidate execution code. Expensive dense seed scoring is cached outside each candidate loop.
 
 ## Trainable Retriever Boundary
 

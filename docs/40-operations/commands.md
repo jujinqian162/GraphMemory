@@ -20,13 +20,13 @@ Old trainable configs, manifests, checkpoints, Dense-FT model directories, and r
 
 ## Recommended Experiment Runner
 
-Initialize a quick run:
+Initialize a quick run. Methods with a tuning adapter get a dev-only tune stage before test retrieval:
 
 ```powershell
 python scripts/experiment.py init quick_valid_100 `
   --config configs/experiments/hotpotqa_evidence_retrieval.json `
   --profile quick `
-  --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft `
+  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft `
   --force
 ```
 
@@ -163,9 +163,11 @@ python scripts/build_graphs.py `
   --max_bridge_edges 50
 ```
 
-## Tune Graph Rerank
+## Tune Selected Retrieval Configs
 
-Tuning remains graph-rerank specific and uses the search-space config directly:
+Tuning uses the dev split only. The selected config artifact is later consumed by test retrieval through `RetrieveIO.selected_config`; test retrieval does not read dev labels or candidate metrics.
+
+Graph Rerank tuning:
 
 ```powershell
 python scripts/tune_graph_rerank.py `
@@ -177,6 +179,24 @@ python scripts/tune_graph_rerank.py `
   --top_k 10 `
   --grid_config configs/search_spaces/graph_rerank.json
 ```
+
+Memory Stream tuning:
+
+```powershell
+python scripts/tune_memory_stream.py `
+  --tasks data/hotpotqa/processed/dev_memory_tasks.input.json `
+  --labels data/hotpotqa/processed/dev_memory_tasks.labels.json `
+  --graphs data/hotpotqa/processed/dev_graphs.json `
+  --importance data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json `
+  --output_config runs/manual_hotpotqa/tuned/memory_stream.dev_selected.json `
+  --encoder_model intfloat/e5-base-v2 `
+  --query_prefix "query: " `
+  --passage_prefix "passage: " `
+  --top_k 10 `
+  --grid_config configs/search_spaces/memory_stream.json
+```
+
+Memory Stream search-space JSON controls fixed fields through single-element arrays. Keeping `relevance_weight` fixed at `1.0` is a config choice, not a code branch.
 
 ## Aggregate Tables
 

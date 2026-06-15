@@ -23,7 +23,8 @@ LEGACY_GRAPH_RERANK_EXPORTS = {
 }
 NO_LOOSE_DENSE_PREFIX_MODULES = (
     PACKAGE_ROOT / "retrieval" / "execution" / "service.py",
-    PACKAGE_ROOT / "retrieval" / "tuning" / "service.py",
+    PACKAGE_ROOT / "retrieval" / "tuning" / "graph_rerank.py",
+    PACKAGE_ROOT / "retrieval" / "tuning" / "memory_stream.py",
 )
 NO_LOOSE_EXECUTION_PARAMETERS = {
     "encoder_model",
@@ -142,6 +143,61 @@ def test_retrieval_execution_runs_built_method_without_resolving_runtime_paramet
 
     assert "retrieval_method" in parameter_names
     assert parameter_names.isdisjoint(NO_LOOSE_EXECUTION_PARAMETERS)
+
+
+def test_generic_grid_search_does_not_import_retrieval_domain() -> None:
+    imports = _imported_modules(PACKAGE_ROOT / "tuning" / "grid_search.py")
+
+    assert not any(module == "graph_memory.retrieval" or module.startswith("graph_memory.retrieval.") for module in imports)
+
+
+def test_generic_tuning_package_does_not_import_graph_or_memory_stream_adapters() -> None:
+    violations: list[str] = []
+    for path in (PACKAGE_ROOT / "tuning").rglob("*.py"):
+        for module in _imported_modules(path):
+            if module.startswith("graph_memory.retrieval"):
+                violations.append(f"{path.relative_to(REPO_ROOT)} imports {module}")
+
+    assert violations == []
+
+
+def test_memory_stream_method_package_does_not_import_tuning_evaluation_or_cli() -> None:
+    violations: list[str] = []
+    package_root = PACKAGE_ROOT / "retrieval" / "methods" / "memory_stream"
+    forbidden_prefixes = (
+        "graph_memory.evaluation",
+        "graph_memory.retrieval.tuning",
+        "scripts",
+    )
+    for path in package_root.rglob("*.py"):
+        for module in _imported_modules(path):
+            if any(module == prefix or module.startswith(f"{prefix}.") for prefix in forbidden_prefixes):
+                violations.append(f"{path.relative_to(REPO_ROOT)} imports {module}")
+
+    assert violations == []
+
+
+def test_workflow_does_not_import_memory_stream_scoring_implementation() -> None:
+    violations: list[str] = []
+    workflow_root = REPO_ROOT / "scripts" / "workflow"
+    forbidden_module = "graph_memory.retrieval.methods.memory_stream.scoring"
+    for path in workflow_root.rglob("*.py"):
+        for module in _imported_modules(path):
+            if module == forbidden_module or module.startswith(f"{forbidden_module}."):
+                violations.append(f"{path.relative_to(REPO_ROOT)} imports {module}")
+
+    assert violations == []
+
+
+def _imported_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            modules.add(node.module)
+    return modules
 
 
 def _has_module(module_name: str) -> bool:
