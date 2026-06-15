@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from graph_memory.registry import Registry
-from graph_memory.registry.methods import ArtifactKind, GraphInputSource
+from graph_memory.registry.methods import ArtifactKind, GraphInputSource, TuningKind
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import now_iso
 from scripts.workflow.planner import _materialize_variant_manifest, _method_has_stage
@@ -185,6 +185,31 @@ def _train_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
 def _tune_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
     path = manifest["artifacts"]["tuned"][method]
     output_path = Path(path)
+    tuning = Registry.methods.get(method).tuning
+    if tuning is TuningKind.GRAPH_RERANK:
+        return _graph_rerank_tune_status(
+            manifest,
+            method=method,
+            path=path,
+            output_path=output_path,
+        )
+    if tuning is TuningKind.MEMORY_STREAM:
+        return _memory_stream_tune_status(
+            manifest,
+            method=method,
+            path=path,
+            output_path=output_path,
+        )
+    raise ValueError(f"Method does not register a tuning adapter: {method}")
+
+
+def _graph_rerank_tune_status(
+    manifest: dict[str, Any],
+    *,
+    method: str,
+    path: str,
+    output_path: Path,
+) -> dict[str, str]:
     expected_config: dict[str, object] = {
         "method": method,
         "top_k": manifest["effective_config"]["top_k"],
@@ -203,6 +228,42 @@ def _tune_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         },
         expected_outputs={"selected_config": path},
         expected_config=expected_config,
+        method=method,
+    )
+
+
+def _memory_stream_tune_status(
+    manifest: dict[str, Any],
+    *,
+    method: str,
+    path: str,
+    output_path: Path,
+) -> dict[str, str]:
+    grid_config = str(
+        manifest["effective_config"]["search_spaces"]["memory_stream"]
+    )
+    importance = str(
+        manifest["effective_config"]["memory_stream_importance_path"]
+    )
+    return _summary_status(
+        stage=StageId.TUNE.value,
+        path=path,
+        summary_path=output_path.with_name(
+            f"{output_path.stem}.run_summary.json"
+        ),
+        script="tune_memory_stream.py",
+        expected_inputs={
+            "tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+            "labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+            "graphs": manifest["artifacts"]["graphs"]["dev"],
+            "importance": importance,
+            "grid_config": grid_config,
+        },
+        expected_outputs={"selected_config": path},
+        expected_config={
+            "top_k": manifest["effective_config"]["top_k"],
+            "grid_config": grid_config,
+        },
         method=method,
     )
 

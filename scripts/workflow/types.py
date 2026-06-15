@@ -28,6 +28,7 @@ class WorkflowId(StrEnum):
     """Registered workflow families. / 已注册的 workflow 类型。"""
 
     STATELESS_RETRIEVAL = "stateless_retrieval"
+    TUNED_STATELESS_RETRIEVAL = "tuned_stateless_retrieval"
     GRAPH_RERANK = "graph_rerank"
     RGCN_TRAINABLE_RETRIEVAL = "rgcn_trainable_retrieval"
     DENSE_FINETUNE_RETRIEVAL = "dense_finetune_retrieval"

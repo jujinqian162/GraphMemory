@@ -23,6 +23,11 @@ class RetrievalLifecycle(StrEnum):
     DENSE_FINETUNE = "dense_finetune"
 
 
+class TuningKind(StrEnum):
+    GRAPH_RERANK = "graph_rerank"
+    MEMORY_STREAM = "memory_stream"
+
+
 class GraphInputSource(StrEnum):
     NONE = "none"
     GRAPH_ARTIFACT = "graph_artifact"
@@ -73,6 +78,7 @@ class MethodDefinition:
     method_config_type: type[object] | None
     train_artifact: TrainArtifactSpec | None
     seed_method: RetrievalMethodId | None = None
+    tuning: TuningKind | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +145,7 @@ def build_method_registry() -> MethodRegistry:
             method_config_type=None,
             train_artifact=None,
             seed_method=RetrievalMethodId.DENSE,
+            tuning=TuningKind.MEMORY_STREAM,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.BM25_GRAPH_RERANK,
@@ -153,6 +160,7 @@ def build_method_registry() -> MethodRegistry:
             method_config_type=None,
             train_artifact=None,
             seed_method=RetrievalMethodId.BM25,
+            tuning=TuningKind.GRAPH_RERANK,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_GRAPH_RERANK,
@@ -167,6 +175,7 @@ def build_method_registry() -> MethodRegistry:
             method_config_type=None,
             train_artifact=None,
             seed_method=RetrievalMethodId.DENSE,
+            tuning=TuningKind.GRAPH_RERANK,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
@@ -211,5 +220,6 @@ __all__ = [
     "RetrievalDependencySpec",
     "RetrievalLifecycle",
     "TrainArtifactSpec",
+    "TuningKind",
     "build_method_registry",
 ]

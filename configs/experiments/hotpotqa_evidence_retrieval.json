@@ -55,7 +55,8 @@
   },
   "recipe": "hotpotqa_evidence_retrieval",
   "search_spaces": {
-    "graph_rerank": "configs/search_spaces/graph_rerank.json"
+    "graph_rerank": "configs/search_spaces/graph_rerank.json",
+    "memory_stream": "configs/search_spaces/memory_stream.json"
   },
   "split_offsets": {
     "dev": 0,

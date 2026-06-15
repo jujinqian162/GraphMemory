@@ -11,6 +11,7 @@ from graph_memory.registry.methods import (
     GraphInputSource,
     ModelSource,
     RetrievalLifecycle,
+    TuningKind,
 )
 from graph_memory.registry.retrieval import RetrievalMethodId
 
@@ -51,6 +52,16 @@ def test_registry_lists_graph_rerank_methods_by_lifecycle() -> None:
         RetrievalMethodId.BM25_GRAPH_RERANK,
         RetrievalMethodId.DENSE_GRAPH_RERANK,
     )
+
+
+def test_tuning_capability_is_orthogonal_to_retrieval_lifecycle() -> None:
+    memory_stream = Registry.methods.get(RetrievalMethodId.MEMORY_STREAM)
+    dense = Registry.methods.get(RetrievalMethodId.DENSE)
+
+    assert memory_stream.lifecycle is RetrievalLifecycle.STATELESS
+    assert memory_stream.tuning is TuningKind.MEMORY_STREAM
+    assert dense.lifecycle is RetrievalLifecycle.STATELESS
+    assert dense.tuning is None
 
 
 def test_method_definitions_do_not_expose_capability_booleans_or_builder_ids() -> None:

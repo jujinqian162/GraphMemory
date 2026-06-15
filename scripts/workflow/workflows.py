@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from graph_memory.registry import Registry
+from graph_memory.registry.methods import TuningKind
 from scripts.workflow.types import ArtifactRole, ChangeDimension, StageCommand, StageId, WorkflowId, WorkflowSpec, WorkflowStepSpec
 
 
@@ -43,6 +45,23 @@ _AGGREGATE = WorkflowStepSpec(
 STATELESS_RETRIEVAL_WORKFLOW = WorkflowSpec(
     identifier=WorkflowId.STATELESS_RETRIEVAL,
     steps=(_PREPARE, _GRAPHS, _RETRIEVE, _EVALUATE, _AGGREGATE),
+)
+
+TUNED_STATELESS_RETRIEVAL_WORKFLOW = WorkflowSpec(
+    identifier=WorkflowId.TUNED_STATELESS_RETRIEVAL,
+    steps=(
+        _PREPARE,
+        _GRAPHS,
+        WorkflowStepSpec(
+            stage=StageId.TUNE,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.LABELS, ArtifactRole.GRAPHS),
+            outputs=(ArtifactRole.TUNED_CONFIG,),
+            command_adapter="scripts/tune_memory_stream.py",
+        ),
+        _RETRIEVE,
+        _EVALUATE,
+        _AGGREGATE,
+    ),
 )
 
 GRAPH_RERANK_WORKFLOW = WorkflowSpec(
@@ -221,27 +240,64 @@ def build_train_commands(manifest: dict[str, Any], methods: Sequence[str]) -> li
 def build_tune_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     for method in methods:
-        argv = [
-            sys.executable,
-            "scripts/tune_graph_rerank.py",
-            "--method",
-            method,
-            "--tasks",
-            manifest["artifacts"]["inputs"]["dev"]["input"],
-            "--labels",
-            manifest["artifacts"]["inputs"]["dev"]["labels"],
-            "--graphs",
-            manifest["artifacts"]["graphs"]["dev"],
-            "--output_config",
-            manifest["artifacts"]["tuned"][method],
-            "--top_k",
-            str(manifest["effective_config"]["top_k"]),
-            "--grid_config",
-            str(manifest["effective_config"]["search_spaces"]["graph_rerank"]),
-        ]
+        definition = Registry.methods.get(method)
+        if definition.tuning is TuningKind.GRAPH_RERANK:
+            argv = _graph_rerank_tune_argv(manifest, method)
+        elif definition.tuning is TuningKind.MEMORY_STREAM:
+            argv = _memory_stream_tune_argv(manifest, method)
+        else:
+            raise ValueError(f"Method does not register a tuning adapter: {method}")
         _append_dense_args(argv, manifest)
         commands.append(StageCommand(stage=StageId.TUNE, method=method, argv=argv))
     return commands
+
+
+def _graph_rerank_tune_argv(
+    manifest: dict[str, Any],
+    method: str,
+) -> list[str]:
+    return [
+        sys.executable,
+        "scripts/tune_graph_rerank.py",
+        "--method",
+        method,
+        "--tasks",
+        manifest["artifacts"]["inputs"]["dev"]["input"],
+        "--labels",
+        manifest["artifacts"]["inputs"]["dev"]["labels"],
+        "--graphs",
+        manifest["artifacts"]["graphs"]["dev"],
+        "--output_config",
+        manifest["artifacts"]["tuned"][method],
+        "--top_k",
+        str(manifest["effective_config"]["top_k"]),
+        "--grid_config",
+        str(manifest["effective_config"]["search_spaces"]["graph_rerank"]),
+    ]
+
+
+def _memory_stream_tune_argv(
+    manifest: dict[str, Any],
+    method: str,
+) -> list[str]:
+    return [
+        sys.executable,
+        "scripts/tune_memory_stream.py",
+        "--tasks",
+        manifest["artifacts"]["inputs"]["dev"]["input"],
+        "--labels",
+        manifest["artifacts"]["inputs"]["dev"]["labels"],
+        "--graphs",
+        manifest["artifacts"]["graphs"]["dev"],
+        "--importance",
+        str(manifest["effective_config"]["memory_stream_importance_path"]),
+        "--output_config",
+        manifest["artifacts"]["tuned"][method],
+        "--top_k",
+        str(manifest["effective_config"]["top_k"]),
+        "--grid_config",
+        str(manifest["effective_config"]["search_spaces"]["memory_stream"]),
+    ]
 
 
 def build_retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:

@@ -30,6 +30,7 @@ from scripts.workflow.types import (
     WorkflowId,
 )
 from scripts.workflow.workflows import RGCN_WORKFLOW
+from scripts.workflow.status import inspect_experiment_status
 import scripts.experiment as experiment_script
 
 TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
@@ -56,6 +57,7 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
     ]
     assert {workflow.value for workflow in WorkflowId} == {
         "stateless_retrieval",
+        "tuned_stateless_retrieval",
         "graph_rerank",
         "rgcn_trainable_retrieval",
         "dense_finetune_retrieval",
@@ -305,6 +307,75 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
     retrieve_config = read_json(retrieve_path)
     assert retrieve_config["io"]["importance"] == str(importance_path)
     assert retrieve_config["job"]["capped_test_count"] == 1
-    assert retrieve_config["job"]["relevance_weight"] == 1.0
-    assert retrieve_config["job"]["recency_weight"] == 0.0
-    assert retrieve_config["job"]["importance_weight"] == 0.01
+    assert retrieve_config["job"]["scoring"] == {
+        "relevance_weight": 1.0,
+        "recency_weight": 0.0,
+        "importance_weight": 0.01,
+        "recency_decay": 0.99,
+    }
+
+    workflow = get_workflow("memory_stream")
+    assert workflow.identifier is WorkflowId.TUNED_STATELESS_RETRIEVAL
+    assert [step.stage for step in workflow.steps] == [
+        StageId.PREPARE,
+        StageId.GRAPHS,
+        StageId.TUNE,
+        StageId.RETRIEVE,
+        StageId.EVALUATE,
+        StageId.AGGREGATE,
+    ]
+
+    tune_commands = build_stage_plan(
+        manifest,
+        stages=["tune"],
+        methods=["memory_stream"],
+    )
+    assert len(tune_commands) == 1
+    tune_command = tune_commands[0]
+    assert tune_command.argv[1] == "scripts/tune_memory_stream.py"
+    assert tune_command.argv[tune_command.argv.index("--importance") + 1] == str(
+        importance_path
+    )
+    assert tune_command.argv[tune_command.argv.index("--grid_config") + 1] == (
+        "configs/search_spaces/memory_stream.json"
+    )
+
+    selected_config_path = Path(
+        manifest["artifacts"]["tuned"]["memory_stream"]
+    )
+    write_json(
+        selected_config_path,
+        {
+            "relevance_weight": 1.0,
+            "recency_weight": 0.0,
+            "importance_weight": 0.01,
+            "recency_decay": 0.99,
+        },
+    )
+    write_json(
+        selected_config_path.with_name(
+            f"{selected_config_path.stem}.run_summary.json"
+        ),
+        {
+            "script": "tune_memory_stream.py",
+            "status": "success",
+            "inputs": {
+                "tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+                "labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+                "graphs": manifest["artifacts"]["graphs"]["dev"],
+                "importance": str(importance_path),
+                "grid_config": "configs/search_spaces/memory_stream.json",
+            },
+            "outputs": {"selected_config": str(selected_config_path)},
+            "effective_config": {
+                "top_k": manifest["effective_config"]["top_k"],
+                "grid_config": "configs/search_spaces/memory_stream.json",
+            },
+        },
+    )
+    tune_status = next(
+        row
+        for row in inspect_experiment_status(manifest)
+        if row["stage"] == "tune" and row.get("method") == "memory_stream"
+    )
+    assert tune_status["state"] == "complete"

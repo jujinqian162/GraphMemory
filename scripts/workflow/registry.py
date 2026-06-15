@@ -5,7 +5,7 @@ from typing import Any
 
 from graph_memory.registry import Registry
 from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES, AblationSuitePatch, AblationVariantPatch
-from graph_memory.registry.methods import RetrievalLifecycle
+from graph_memory.registry.methods import RetrievalLifecycle, TuningKind
 from scripts.workflow.types import (
     AblationSuiteSpec,
     ChangeDimension,
@@ -18,14 +18,25 @@ from scripts.workflow.workflows import (
     GRAPH_RERANK_WORKFLOW,
     RGCN_WORKFLOW,
     STATELESS_RETRIEVAL_WORKFLOW,
+    TUNED_STATELESS_RETRIEVAL_WORKFLOW,
 )
 
 
-WORKFLOW_BY_LIFECYCLE: dict[RetrievalLifecycle, WorkflowSpec] = {
-    RetrievalLifecycle.STATELESS: STATELESS_RETRIEVAL_WORKFLOW,
-    RetrievalLifecycle.GRAPH_RERANK: GRAPH_RERANK_WORKFLOW,
-    RetrievalLifecycle.RGCN_TRAINABLE: RGCN_WORKFLOW,
-    RetrievalLifecycle.DENSE_FINETUNE: DENSE_FT_WORKFLOW,
+WORKFLOW_BY_CAPABILITY: dict[
+    tuple[RetrievalLifecycle, TuningKind | None],
+    WorkflowSpec,
+] = {
+    (RetrievalLifecycle.STATELESS, None): STATELESS_RETRIEVAL_WORKFLOW,
+    (
+        RetrievalLifecycle.STATELESS,
+        TuningKind.MEMORY_STREAM,
+    ): TUNED_STATELESS_RETRIEVAL_WORKFLOW,
+    (
+        RetrievalLifecycle.GRAPH_RERANK,
+        TuningKind.GRAPH_RERANK,
+    ): GRAPH_RERANK_WORKFLOW,
+    (RetrievalLifecycle.RGCN_TRAINABLE, None): RGCN_WORKFLOW,
+    (RetrievalLifecycle.DENSE_FINETUNE, None): DENSE_FT_WORKFLOW,
 }
 
 
@@ -54,7 +65,9 @@ ABLATION_SUITE_REGISTRY: dict[str, AblationSuiteSpec] = {
 def get_workflow(method: str) -> WorkflowSpec:
     try:
         definition = Registry.methods.get(method)
-        return WORKFLOW_BY_LIFECYCLE[definition.lifecycle]
+        return WORKFLOW_BY_CAPABILITY[
+            (definition.lifecycle, definition.tuning)
+        ]
     except (KeyError, ValueError) as error:
         allowed = ", ".join(method_id.value for method_id in Registry.methods.list_ids())
         raise ValueError(f"Unsupported workflow method={method!r}; allowed values: {allowed}") from error

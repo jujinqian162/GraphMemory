@@ -33,7 +33,12 @@ EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
 SEARCH_SPACE_CONFIG_DIR = CONFIG_ROOT / "search_spaces"
 METHOD_CONFIG_DIR = CONFIG_ROOT / "methods"
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
-DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
+DEFAULT_GRAPH_RERANK_SEARCH_SPACE_CONFIG = Path(
+    "configs/search_spaces/graph_rerank.json"
+)
+DEFAULT_MEMORY_STREAM_SEARCH_SPACE_CONFIG = Path(
+    "configs/search_spaces/memory_stream.json"
+)
 LOGGER = logging.getLogger(__name__)
 STAGE_DESCRIPTIONS = {
     StageId.PREPARE.value: "Build split-specific task, label, and combined input artifacts.",
@@ -169,6 +174,11 @@ def build_effective_config(
     profile_config = dict(profiles[profile_name])
     split_offsets = config.get("split_offsets", {})
     split_sources = config.get("split_sources", {"train": "train", "dev": "dev", "test": "dev"})
+    search_spaces = {
+        "graph_rerank": str(DEFAULT_GRAPH_RERANK_SEARCH_SPACE_CONFIG),
+        "memory_stream": str(DEFAULT_MEMORY_STREAM_SEARCH_SPACE_CONFIG),
+    }
+    search_spaces.update(config.get("search_spaces", {}))
     base_config = {
         "recipe": config.get("recipe", "hotpotqa_evidence_retrieval"),
         "dataset": config.get("dataset", "hotpotqa"),
@@ -179,7 +189,7 @@ def build_effective_config(
         "raw": config["raw"],
         "graph": config.get("graph", {}),
         "methods": config.get("methods", [method.value for method in Registry.methods.list_ids()]),
-        "search_spaces": config.get("search_spaces", {"graph_rerank": str(DEFAULT_SEARCH_SPACE_CONFIG)}),
+        "search_spaces": search_spaces,
         "method_configs": config.get("method_configs", {}),
         **defaults,
         "splits": {
@@ -246,6 +256,11 @@ def list_method_specs() -> list[dict[str, str]]:
                 "name": method,
                 "workflow": ", ".join(required_stages_for_methods([method])),
                 "lifecycle": definition.lifecycle.value,
+                "tuning": (
+                    definition.tuning.value
+                    if definition.tuning is not None
+                    else ""
+                ),
                 "graph_source": definition.dependencies.graphs.value,
                 "graph_config_source": definition.dependencies.graph_config.value,
                 "model_source": definition.dependencies.model.value,
