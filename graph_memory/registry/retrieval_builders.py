@@ -20,6 +20,9 @@ from graph_memory.registry.retrieval import (
     GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
+    ImportanceArtifactProvenance,
+    MemoryStreamBuildPayload,
+    MemoryStreamRetrievalSettings,
     RetrievalBuilderSpec,
     RetrievalMethodId,
     RetrievalProvenance,
@@ -33,7 +36,11 @@ from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
+from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
+from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
+from graph_memory.retrieval.methods.memory_stream.scoring import MemoryStreamWeights
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
+from graph_memory.validation import select_importance_records
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
 
 
@@ -48,6 +55,10 @@ def build_retrieval_registry() -> RetrievalRegistry:
             DenseRetrievalSettings: RetrievalBuilderSpec(
                 DenseRetrievalSettings,
                 lambda settings, deps: _build_dense(cast(DenseRetrievalSettings, settings), deps),
+            ),
+            MemoryStreamRetrievalSettings: RetrievalBuilderSpec(
+                MemoryStreamRetrievalSettings,
+                lambda settings, deps: _build_memory_stream(cast(MemoryStreamRetrievalSettings, settings), deps),
             ),
             GraphRerankRetrievalSettings: RetrievalBuilderSpec(
                 GraphRerankRetrievalSettings,
@@ -108,6 +119,45 @@ def _build_dense(settings: DenseRetrievalSettings, payload: object) -> BuiltRetr
         method=settings.method,
         encoder=settings.encoder,
     )
+
+
+def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
+    build_payload = _require_payload(payload, MemoryStreamBuildPayload, method=settings.method.value)
+    importance_by_task_id = _select_importance_records_for_memory_stream(settings, build_payload)
+    dense_seed_ranker = _build_seed_retriever(
+        SeedRetrievalSettings(method=RetrievalMethodId.DENSE, encoder=settings.encoder),
+        SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
+    )
+    return _built(
+        MemoryStreamMethod(
+            name=settings.method.value,
+            dense_seed_ranker=dense_seed_ranker,
+            importance_by_task_id=importance_by_task_id,
+            weights=MemoryStreamWeights(
+                relevance=settings.relevance_weight,
+                recency=settings.recency_weight,
+                importance=settings.importance_weight,
+            ),
+            recency_decay=settings.recency_decay,
+        ),
+        method=settings.method,
+        encoder=settings.encoder,
+        importance=ImportanceArtifactProvenance(
+            path=build_payload.importance_path,
+            sha256=build_payload.importance_sha256,
+            schema_version=1,
+        ),
+    )
+
+
+def _select_importance_records_for_memory_stream(
+    settings: MemoryStreamRetrievalSettings,
+    payload: MemoryStreamBuildPayload,
+) -> Mapping[str, TaskImportanceRecord]:
+    """Select and validate current-task importance before method construction."""
+    _ = settings
+    selected_records = select_importance_records(payload.importance_artifact, payload.task_inputs)
+    return {record["task_id"]: record for record in selected_records}
 
 
 def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
@@ -255,6 +305,7 @@ def _built(
     model: Path | None = None,
     device: str | None = None,
     encoder: DenseEncoderSettings | None = None,
+    importance: ImportanceArtifactProvenance | None = None,
 ) -> BuiltRetrievalMethod:
     return BuiltRetrievalMethod(
         method=retrieval_method,
@@ -263,6 +314,7 @@ def _built(
             model=model,
             device=device,
             encoder=encoder,
+            importance=importance,
         ),
     )
 

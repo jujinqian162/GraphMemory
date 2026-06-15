@@ -80,6 +80,7 @@ class RetrieveIO:
     output: Path
     summary: Path
     graph_config: Path | None = None
+    importance: Path | None = None
 
 
 @dataclass(frozen=True)

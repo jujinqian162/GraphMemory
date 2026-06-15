@@ -34,6 +34,17 @@ data/hotpotqa/processed/memory_stream/dev.first_1000.importance.cleaning_summary
 `1..10`；ties 保持不变，恒定 task 映射为 `5`。清洗报告记录输入输出
 SHA-256、legacy 来源元数据、分布和异常统计。
 
+## Split Policy
+
+默认实验配置仍然共享 train/dev/test split。对普通 methods，test 例数
+继续由 profile 决定并且保持严格一致。
+
+`memory_stream` 是唯一的 method-level 特例：workflow 在写入该 method 的
+stage config 时，如果 profile 请求的 test 数量超过 cleaned importance
+artifact 实际覆盖的 task 数量，就将 test cap 截到可用数量，记录 warning，
+并把裁切后的 test 数量写入该 method 的输入/标签路径与 run summary。
+其他 methods 不做这种宽容裁切，缺失就仍然按错误退出。
+
 ## Artifact Contract
 
 ```json
@@ -77,14 +88,17 @@ score = (
 )
 ```
 
-按 `(-score, node_id)` 排序。默认权重均为 `1.0`，
-`recency_decay=0.99`。
+按 `(-score, node_id)` 排序。默认权重为
+`relevance_weight=1.0`、`recency_weight=0.0`、
+`importance_weight=0.01`。由于 HotpotQA 没有真实时间信息，position-derived
+pseudo-recency 默认禁用；`recency_decay=0.99` 仅在显式启用 recency 时生效。
 
 ## Remaining Tasks
 
 - [x] 精简 importance artifact contract 和严格 validator。
 - [x] 人工标注 legacy artifact 清洗、归一化和 summary。
 - [x] 删除本地 LLM annotation、prompt、cache、runtime 和 config。
+- [ ] 给 memory_stream 增加 method-aware test cap + warning 的 workflow 分支。
 - [ ] 实现 Memory Stream ranking method。
 - [ ] 注册 retrieval settings、builder 和 workflow。
 - [ ] 将 normalized importance path 记录到 retrieval provenance。

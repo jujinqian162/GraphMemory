@@ -18,14 +18,22 @@ read-only retrieval consumption, not an LLM annotation runtime.
 - Keep strict task-id, content-digest, and node-coverage validation.
 - Add Memory Stream retrieval using normalized relevance, pseudo-recency, and
   the cleaned importance sidecar.
+- Load the cleaned sidecar once before timed retrieval, validate the requested
+  task subset, and inject indexed scores into the method.
+- Register Memory Stream as a stateless retrieval method and reuse the existing
+  stateless retrieval workflow.
+- Keep shared experiment splits as the default, but let the workflow cap the
+  Memory Stream test split to the covered importance prefix and emit a warning
+  instead of failing when the profile requests more examples than exist.
 - Keep importance production outside workflow stages and run-local artifacts.
 - Remove obsolete prompt, cache, model runtime, annotation CLI, and config.
 
 ## Capabilities
 
 - `memory-stream-retrieval`: deterministic three-signal ranking.
-- `memory-stream-experiment-workflow`: workflow integration with a read-only
-  external importance dependency.
+- `memory-stream-experiment-workflow`: stateless-workflow integration with a
+  read-only external importance dependency and a Memory Stream-only test split
+  cap.
 
 ## Impact
 

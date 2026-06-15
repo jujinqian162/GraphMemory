@@ -11,6 +11,7 @@ from graph_memory.registry.retrieval import (
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
     GraphRerankRetrievalSettings,
+    MemoryStreamRetrievalSettings,
     RetrievalMethodId,
 )
 
@@ -124,6 +125,20 @@ def build_method_registry() -> MethodRegistry:
             ),
             method_config_type=None,
             train_artifact=None,
+        ),
+        MethodDefinition(
+            identifier=RetrievalMethodId.MEMORY_STREAM,
+            lifecycle=RetrievalLifecycle.STATELESS,
+            retrieval_settings_type=MemoryStreamRetrievalSettings,
+            dependencies=RetrievalDependencySpec(
+                graphs=GraphInputSource.NONE,
+                graph_config=GraphConfigSource.NONE,
+                model=ModelSource.NONE,
+                encoder=EncoderSource.EXPERIMENT_CONFIG,
+            ),
+            method_config_type=None,
+            train_artifact=None,
+            seed_method=RetrievalMethodId.DENSE,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.BM25_GRAPH_RERANK,

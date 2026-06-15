@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import sys
 import time
@@ -18,6 +20,8 @@ from graph_memory.registry.retrieval import (
     RetrievalProvenance,
 )
 from graph_memory.registry.stage_configs import RetrieveStageConfig
+from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
+from graph_memory.registry.retrieval import MemoryStreamRetrievalSettings
 from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.validation import (
     validate_memory_task_inputs,
@@ -39,17 +43,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     inputs = {"tasks": str(config.io.tasks)}
     if config.io.graphs is not None:
         inputs["graphs"] = str(config.io.graphs)
+    if config.io.importance is not None:
+        inputs["importance"] = str(config.io.importance)
     outputs = {"predictions": str(config.io.output), "run_summary": str(summary_path)}
 
     try:
         task_inputs = read_json(config.io.tasks)
         validate_memory_task_inputs(task_inputs)
+        importance_artifact, importance_sha256 = _load_memory_stream_importance_if_required(config)
         graphs = read_json(config.io.graphs) if config.io.graphs is not None else []
         result = run_retrieve_stage(
             config,
             task_inputs=task_inputs,
             graphs=graphs,
             graph_config=graph_config,
+            importance_artifact=importance_artifact,
+            importance_sha256=importance_sha256,
         )
         predictions = result.predictions
         effective_config = _effective_config(config, graph_config, provenance=result.provenance)
@@ -109,6 +118,23 @@ def _read_graph_config(path: Path | None) -> JsonObject | None:
     return cast(JsonObject, value)
 
 
+def _load_memory_stream_importance_if_required(
+    config: RetrieveStageConfig,
+) -> tuple[ImportanceArtifact | None, str | None]:
+    if not isinstance(config.job, MemoryStreamRetrievalSettings):
+        return None, None
+    importance_path = config.io.importance
+    if importance_path is None:
+        raise ValueError("Memory Stream retrieval requires an importance artifact path.")
+    if not importance_path.is_file():
+        raise ValueError(f"Memory Stream importance artifact not found: {importance_path}")
+    raw_bytes = importance_path.read_bytes()
+    artifact = json.loads(raw_bytes.decode("utf-8"))
+    if not isinstance(artifact, dict):
+        raise ValueError(f"Memory Stream importance artifact must be a JSON object: {importance_path}")
+    return artifact, hashlib.sha256(raw_bytes).hexdigest()
+
+
 def _effective_config(
     config: RetrieveStageConfig,
     graph_config: JsonValue,
@@ -118,7 +144,9 @@ def _effective_config(
     return {
         "method": config.job.method.value,
         "top_k": config.job.top_k,
+        "job": cast(JsonObject, CONFIG_LOADER.to_json(config.job)),
         "graph_config_path": str(config.io.graph_config) if config.io.graph_config is not None else None,
+        "importance_path": str(config.io.importance) if config.io.importance is not None else None,
         "graph_config": graph_config,
         "provenance": None if provenance is None else cast(JsonObject, CONFIG_LOADER.to_json(provenance)),
     }

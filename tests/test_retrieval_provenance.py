@@ -272,5 +272,6 @@ def test_run_retrieval_summary_serializes_builder_provenance_for_bm25(tmp_path: 
         "model": None,
         "device": None,
         "encoder": None,
+        "importance": None,
     }
     assert "encoder_model" not in summary["effective_config"]

@@ -1,3 +1,15 @@
-"""Memory Stream implementations live in their owned modules."""
+"""Memory Stream retrieval package."""
 
-__all__: list[str] = []
+from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
+from graph_memory.retrieval.methods.memory_stream.scoring import (
+    MemoryStreamWeights,
+    NormalizedMemoryStreamSignals,
+    RawMemoryStreamSignals,
+)
+
+__all__ = [
+    "MemoryStreamMethod",
+    "MemoryStreamWeights",
+    "NormalizedMemoryStreamSignals",
+    "RawMemoryStreamSignals",
+]

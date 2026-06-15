@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import logging
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.io import read_json
+from graph_memory.io import write_json
+from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
+from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
 from scripts.workflow.manifest import initialize_experiment, load_experiment_config
 from scripts.workflow.planner import build_stage_plan, earliest_invalidated_stage
 from scripts.workflow.registry import (
@@ -222,3 +228,83 @@ def test_experiment_cli_lists_and_filters_ablation_variants(capsys) -> None:
 
     assert "wo_graph" in output
     assert "full_rgcn" in output
+
+
+def _memory_stream_task(task_id: str, query: str, memory_items: list[dict[str, object]]) -> MemoryTaskInput:
+    return cast(
+        MemoryTaskInput,
+        cast(
+            object,
+            {
+                "task_id": task_id,
+                "query": query,
+                "memory_items": memory_items,
+            },
+        ),
+    )
+
+
+def _memory_stream_artifact(task_input: MemoryTaskInput) -> ImportanceArtifact:
+    return cast(
+        ImportanceArtifact,
+        cast(
+            object,
+            {
+                "schema_version": 1,
+                "method": "memory_stream",
+                "tasks": [
+                    {
+                        "task_id": task_input["task_id"],
+                        "content_digest": importance_content_digest(task_input),
+                        "scores": {"m0": 10},
+                    }
+                ],
+            },
+        ),
+    )
+
+
+def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = load_experiment_config()
+    config["methods"] = ["memory_stream"]
+    importance_path = tmp_path / "dev.first_1000.importance.json"
+    task_input = _memory_stream_task(
+        "hotpot_ms_1",
+        "Which river runs through Paris?",
+        [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "The Eiffel Tower is in Paris.",
+                "source": "Eiffel Tower",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    )
+    write_json(importance_path, _memory_stream_artifact(task_input))
+    config["memory_stream_importance_path"] = str(importance_path)
+
+    with caplog.at_level(logging.WARNING):
+        manifest = initialize_experiment(
+            "memory-stream-cap",
+            config=config,
+            run_root=tmp_path,
+            profile="full",
+            methods=["memory_stream"],
+            force=True,
+        )
+
+    assert manifest["effective_config"]["splits"]["test"]["max_examples"] == 1
+    assert any("Memory Stream" in record.message and "capped" in record.message for record in caplog.records)
+
+    retrieve_path = Path(manifest["stage_configs"]["retrieve"]["memory_stream"])
+    retrieve_config = read_json(retrieve_path)
+    assert retrieve_config["io"]["importance"] == str(importance_path)
+    assert retrieve_config["job"]["capped_test_count"] == 1
+    assert retrieve_config["job"]["relevance_weight"] == 1.0
+    assert retrieve_config["job"]["recency_weight"] == 0.0
+    assert retrieve_config["job"]["importance_weight"] == 0.01

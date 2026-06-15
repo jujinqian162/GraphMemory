@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
+from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     DenseEncoderSettings,
     DenseRetrievalSettings,
     FlatRetrievalBuildPayload,
+    ImportanceArtifactProvenance,
     GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
+    MemoryStreamBuildPayload,
+    MemoryStreamRetrievalSettings,
     RetrievalMethodId,
     SeedRetrievalSettings,
 )
 from graph_memory.retrieval.execution.service import run_retrieval
+from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
+from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
+from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
 from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_graphs, retrieval_task_inputs
 
 
@@ -86,3 +94,95 @@ def test_legacy_resolver_and_factory_modules_are_removed() -> None:
     ]
 
     assert [str(path) for path in legacy_paths if path.exists()] == []
+
+
+def _memory_stream_task(task_id: str, query: str, memory_items: list[dict[str, object]]) -> MemoryTaskInput:
+    return cast(
+        MemoryTaskInput,
+        cast(
+            object,
+            {
+                "task_id": task_id,
+                "query": query,
+                "memory_items": memory_items,
+            },
+        ),
+    )
+
+
+def test_memory_stream_builder_selects_current_task_importance_and_records_provenance(tmp_path: Path) -> None:
+    task_inputs: list[MemoryTaskInput] = [
+        _memory_stream_task(
+            "hotpot_ms_1",
+            "Which river runs through Paris?",
+            [
+                {
+                    "id": "m0",
+                    "node_type": "document_sentence",
+                    "text": "The Eiffel Tower is in Paris.",
+                    "source": "Eiffel Tower",
+                    "sentence_id": 0,
+                    "position": 0,
+                },
+                {
+                    "id": "m1",
+                    "node_type": "document_sentence",
+                    "text": "The Seine runs through Paris.",
+                    "source": "Paris",
+                    "sentence_id": 0,
+                    "position": 1,
+                },
+            ],
+        )
+    ]
+    extra_task = _memory_stream_task(
+        "hotpot_ms_extra",
+        "Which city has the Louvre?",
+        [
+            {
+                "id": "x0",
+                "node_type": "document_sentence",
+                "text": "The Louvre is in Paris.",
+                "source": "Louvre",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    )
+    artifact: ImportanceArtifact = {
+        "schema_version": 1,
+        "method": "memory_stream",
+        "tasks": [
+            {
+                "task_id": task["task_id"],
+                "content_digest": importance_content_digest(task),
+                "scores": {item["id"]: index + 1 for index, item in enumerate(task["memory_items"])},
+            }
+            for task in (*task_inputs, extra_task)
+        ],
+    }
+
+    built = Registry.retrieval.build(
+        MemoryStreamRetrievalSettings(
+            top_k=2,
+            encoder=DenseEncoderSettings(model_name="fake-model", query_prefix="query: ", passage_prefix="passage: "),
+            recency_decay=1.0,
+        ),
+        MemoryStreamBuildPayload(
+            task_inputs=task_inputs,
+            importance_artifact=artifact,
+            importance_path=tmp_path / "dev.first_1000.importance.json",
+            importance_sha256="abc123",
+            dense_encoder=FakeEncoder(),
+        ),
+    )
+
+    assert isinstance(built.method, MemoryStreamMethod)
+    assert built.method.name == "memory_stream"
+    assert built.method.dense_seed_ranker.method_name == "dense"
+    assert set(built.method.importance_by_task_id) == {"hotpot_ms_1"}
+    assert built.provenance.importance == ImportanceArtifactProvenance(
+        path=tmp_path / "dev.first_1000.importance.json",
+        sha256="abc123",
+        schema_version=1,
+    )

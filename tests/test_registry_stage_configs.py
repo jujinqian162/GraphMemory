@@ -16,7 +16,12 @@ from graph_memory.registry.method_configs import (
     RgcnModelSettings,
     RgcnTrainerSettings,
 )
-from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings, RetrievalMethodId
+from graph_memory.registry.retrieval import (
+    Bm25RetrievalSettings,
+    DenseEncoderSettings,
+    MemoryStreamRetrievalSettings,
+    RetrievalMethodId,
+)
 from graph_memory.registry.specs import StageConfigSpec
 from graph_memory.registry.stage_configs import (
     DenseFinetuneTrainIO,
@@ -125,6 +130,36 @@ def test_pair_retrieve_and_evaluate_configs_round_trip(tmp_path: Path) -> None:
                 output=tmp_path / "metrics.csv",
             ),
             failure_case_limit=3,
+        ),
+    )
+
+
+def test_memory_stream_retrieve_config_round_trips_importance_and_cap(tmp_path: Path) -> None:
+    _assert_config_round_trip(
+        tmp_path / "retrieve-memory-stream.json",
+        Registry.configs.RETRIEVE,
+        RetrieveStageConfig(
+            io=RetrieveIO(
+                tasks=tmp_path / "tasks.json",
+                graphs=None,
+                output=tmp_path / "predictions.json",
+                summary=tmp_path / "predictions.run_summary.json",
+                importance=tmp_path / "dev.first_1000.importance.json",
+            ),
+            job=MemoryStreamRetrievalSettings(
+                top_k=7,
+                encoder=DenseEncoderSettings(
+                    model_name="fake-e5",
+                    query_prefix="query: ",
+                    passage_prefix="passage: ",
+                    batch_size=8,
+                ),
+                relevance_weight=2.0,
+                recency_weight=1.0,
+                importance_weight=3.0,
+                recency_decay=0.95,
+                capped_test_count=1000,
+            ),
         ),
     )
 

@@ -12,25 +12,44 @@
 
 ## 2. Memory Stream Retrieval
 
-- [ ] 2.1 Add tests for relevance, pseudo-recency, importance, normalization,
-  constant signals, weights, and node-id tie-breaks.
-- [ ] 2.2 Implement task-local score normalization.
-- [ ] 2.3 Implement `MemoryStreamMethod` with equal default weights and
-  `recency_decay=0.99`.
-- [ ] 2.4 Reject invalid settings and invalid importance coverage.
+- [ ] 2.1 Add method tests with a fake dense seed ranker for relevance,
+  position-derived pseudo-recency, cleaned importance, complete-node output,
+  constant signals, weighted sums, and node-id tie-breaks.
+- [ ] 2.2 Add a Memory Stream-owned task-local min-max normalizer that maps
+  constant signals to `0.0`.
+- [ ] 2.3 Implement `MemoryStreamMethod` with an injected dense seed ranker and
+  prevalidated `task_id -> TaskImportanceRecord` index; perform no file IO.
+- [ ] 2.4 Add settings validation for non-negative weights, at least one
+  positive weight, and `0 < recency_decay <= 1`.
 
 ## 3. Registry and Workflow
 
-- [ ] 3.1 Add Memory Stream retrieval settings and builder.
-- [ ] 3.2 Declare dense encoder plus read-only importance dependencies.
-- [ ] 3.3 Add the workflow without an importance stage or run-local artifact.
-- [ ] 3.4 Default to
+- [ ] 3.1 Add `RetrievalMethodId.MEMORY_STREAM`,
+  `MemoryStreamRetrievalSettings`, `MemoryStreamBuildPayload`, and
+  `ImportanceArtifactProvenance`.
+- [ ] 3.2 Build the dense seed ranker through the existing dense contract,
+  select/validate current-task importance records once, and inject both into
+  `MemoryStreamMethod`.
+- [ ] 3.3 Register Memory Stream with `RetrievalLifecycle.STATELESS` and reuse
+  `STATELESS_RETRIEVAL_WORKFLOW`; add no workflow id or artifact role.
+- [ ] 3.4 Add optional `RetrieveIO.importance`; set it only for Memory Stream
+  from the `memory_stream_importance_path` experiment setting and default it to
   `data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json`.
-- [ ] 3.5 Record importance path/hash, weights, decay, and encoder provenance.
+- [ ] 3.5 Load the compact artifact once in `run_retrieval.py`, before method
+  construction and per-task timing; fail with the concrete missing path.
+- [ ] 3.6 Add a Memory Stream-only test cap in workflow planning so cloud-full
+  can warn and truncate to the available cleaned prefix instead of failing
+  halfway through the run.
+- [ ] 3.7 Extend retrieval provenance with importance path, SHA-256, and schema
+  version, and serialize weights, decay, capped test count, and encoder
+  settings.
+- [ ] 3.8 Add registry, stage-config, workflow, missing/stale artifact, default
+  path, override path, capped-test warning, and run-summary provenance tests.
 
 ## 4. Verification
 
-- [ ] 4.1 Run focused importance cleaning and retrieval tests.
+- [ ] 4.1 Run focused importance cleaning, method, registry, workflow, and
+  provenance tests.
 - [ ] 4.2 Run Ruff and BasedPyright.
 - [ ] 4.3 Run the repository test suite.
 - [ ] 4.4 Run real first-1000 cleaning and verify 1000 tasks / 41185 scores.

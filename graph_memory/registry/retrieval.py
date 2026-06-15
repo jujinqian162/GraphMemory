@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
     from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
+    from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
     from graph_memory.retrieval.signals import SeedSignalProvider
 
 PayloadT = TypeVar("PayloadT")
@@ -21,6 +23,7 @@ PayloadT = TypeVar("PayloadT")
 class RetrievalMethodId(StrEnum):
     BM25 = "bm25"
     DENSE = "dense"
+    MEMORY_STREAM = "memory_stream"
     DENSE_FT = "dense_ft"
     BM25_GRAPH_RERANK = "bm25_graph_rerank"
     DENSE_GRAPH_RERANK = "dense_graph_rerank"
@@ -46,6 +49,46 @@ class DenseRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
     method: Literal[RetrievalMethodId.DENSE] = RetrievalMethodId.DENSE
+
+
+@dataclass(frozen=True)
+class MemoryStreamRetrievalSettings:
+    top_k: int
+    encoder: DenseEncoderSettings
+    relevance_weight: float = 1.0
+    recency_weight: float = 0.0
+    importance_weight: float = 0.01
+    recency_decay: float = 0.99
+    capped_test_count: int | None = None
+    method: Literal[RetrievalMethodId.MEMORY_STREAM] = RetrievalMethodId.MEMORY_STREAM
+
+    def __post_init__(self) -> None:
+        """Validate Memory Stream weights and pseudo-recency decay."""
+        weights = {
+            "relevance_weight": self.relevance_weight,
+            "recency_weight": self.recency_weight,
+            "importance_weight": self.importance_weight,
+        }
+        for field_name, value in weights.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"Memory Stream {field_name} must be a finite number.")
+            number = float(value)
+            if not math.isfinite(number) or number < 0.0:
+                raise ValueError(f"Memory Stream {field_name} must be non-negative.")
+            object.__setattr__(self, field_name, number)
+        if self.relevance_weight + self.recency_weight + self.importance_weight <= 0.0:
+            raise ValueError("Memory Stream settings require at least one positive weight.")
+        if isinstance(self.recency_decay, bool) or not isinstance(self.recency_decay, (int, float)):
+            raise ValueError("Memory Stream recency_decay must be a finite number.")
+        recency_decay = float(self.recency_decay)
+        if not math.isfinite(recency_decay) or recency_decay <= 0.0 or recency_decay > 1.0:
+            raise ValueError("Memory Stream recency_decay must satisfy 0 < recency_decay <= 1.")
+        object.__setattr__(self, "recency_decay", recency_decay)
+        if self.capped_test_count is not None:
+            if isinstance(self.capped_test_count, bool) or not isinstance(self.capped_test_count, int):
+                raise ValueError("Memory Stream capped_test_count must be an integer.")
+            if self.capped_test_count < 0:
+                raise ValueError("Memory Stream capped_test_count must be non-negative.")
 
 
 def _default_neighbor_type_weights() -> dict[str, float]:
@@ -99,10 +142,18 @@ class DenseFinetunedRetrievalSettings:
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
+    | MemoryStreamRetrievalSettings
     | GraphRerankRetrievalSettings
     | CheckpointGraphRetrievalSettings
     | DenseFinetunedRetrievalSettings
 )
+
+
+@dataclass(frozen=True)
+class ImportanceArtifactProvenance:
+    path: Path
+    sha256: str
+    schema_version: int
 
 
 @dataclass(frozen=True)
@@ -111,6 +162,7 @@ class RetrievalProvenance:
     model: Path | None
     device: str | None
     encoder: DenseEncoderSettings | None
+    importance: ImportanceArtifactProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +179,15 @@ class SeedRetrieverBuildPayload:
 @dataclass(frozen=True)
 class FlatRetrievalBuildPayload:
     task_inputs: list[MemoryTaskInput]
+    dense_encoder: "SentenceEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class MemoryStreamBuildPayload:
+    task_inputs: list[MemoryTaskInput]
+    importance_artifact: "ImportanceArtifact"
+    importance_path: Path
+    importance_sha256: str
     dense_encoder: "SentenceEncoder | None" = None
 
 
@@ -186,6 +247,9 @@ __all__ = [
     "GraphRerankBuildPayload",
     "GraphRerankRetrievalSettings",
     "GraphRerankSettings",
+    "ImportanceArtifactProvenance",
+    "MemoryStreamBuildPayload",
+    "MemoryStreamRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

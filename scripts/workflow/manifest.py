@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 import shutil
@@ -23,6 +24,7 @@ from scripts.workflow.stage_configs import (
     load_trainable_method_configs,
     write_main_stage_configs,
     write_variant_stage_configs,
+    _memory_stream_importance_path,
 )
 from scripts.workflow.types import ArtifactRole, ConfigEntry, StageId, VariantArtifactNamespace, VariantSpec
 
@@ -32,6 +34,7 @@ SEARCH_SPACE_CONFIG_DIR = CONFIG_ROOT / "search_spaces"
 METHOD_CONFIG_DIR = CONFIG_ROOT / "methods"
 DEFAULT_EXPERIMENT_CONFIG = Path("configs/experiments/hotpotqa_evidence_retrieval.json")
 DEFAULT_SEARCH_SPACE_CONFIG = Path("configs/search_spaces/graph_rerank.json")
+LOGGER = logging.getLogger(__name__)
 STAGE_DESCRIPTIONS = {
     StageId.PREPARE.value: "Build split-specific task, label, and combined input artifacts.",
     StageId.GRAPHS.value: "Build evidence graph artifacts for train, dev, and test splits.",
@@ -128,6 +131,7 @@ def initialize_experiment(
         "run_units": [{"method": method, "variant": None} for method in selected_methods],
         "stage_status": {},
     }
+    manifest = _apply_memory_stream_test_cap(manifest)
     _write_resolved_method_configs(manifest)
     write_main_stage_configs(manifest, method_configs)
     if enabled:
@@ -199,6 +203,15 @@ def build_effective_config(
             },
         },
     }
+    for key in (
+        "memory_stream_importance_path",
+        "memory_stream_relevance_weight",
+        "memory_stream_recency_weight",
+        "memory_stream_importance_weight",
+        "memory_stream_recency_decay",
+    ):
+        if key in config:
+            base_config[key] = config[key]
     return merge_config(base_config, None, cli_overrides)
 
 
@@ -354,6 +367,33 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
             "efficiency": _path_str(run_dir / "tables" / "efficiency_results.csv"),
         },
     }
+
+
+def _apply_memory_stream_test_cap(manifest: dict[str, Any]) -> dict[str, Any]:
+    if "memory_stream" not in manifest.get("selected_methods", []):
+        return manifest
+    importance_path = _memory_stream_importance_path(manifest, "memory_stream")
+    if not importance_path.is_file():
+        raise ValueError(f"Memory Stream importance artifact not found: {importance_path}")
+    artifact = read_json(importance_path)
+    if not isinstance(artifact, dict):
+        raise ValueError(f"Memory Stream importance artifact must be a JSON object: {importance_path}")
+    tasks = artifact.get("tasks")
+    if not isinstance(tasks, list):
+        raise ValueError(f"Memory Stream importance artifact tasks must be a list: {importance_path}")
+    coverage = len(tasks)
+    test_split = manifest["effective_config"]["splits"]["test"]
+    requested_count = int(test_split["max_examples"])
+    if requested_count <= coverage:
+        return manifest
+    test_split["max_examples"] = coverage
+    LOGGER.warning(
+        "Memory Stream test split capped from %s to %s using %s",
+        requested_count,
+        coverage,
+        importance_path,
+    )
+    return manifest
 
 
 def _ablation_enabled(config: dict[str, Any]) -> bool:

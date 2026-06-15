@@ -29,6 +29,7 @@ from graph_memory.registry.retrieval import (
     DenseRetrievalSettings,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
+    MemoryStreamRetrievalSettings,
     RetrievalJobSettings,
     RetrievalMethodId,
     SeedRetrievalSettings,
@@ -250,6 +251,7 @@ def _retrieve_stage_config(
             tasks=Path(manifest["artifacts"]["inputs"]["test"]["input"]),
             graphs=graph_path,
             graph_config=graph_config,
+            importance=_memory_stream_importance_path(manifest, method),
             output=Path(manifest["artifacts"]["predictions"][method]),
             summary=Path(manifest["artifacts"]["predictions"][method]).with_name(
                 f"{Path(manifest['artifacts']['predictions'][method]).stem}.run_summary.json"
@@ -271,6 +273,16 @@ def _retrieval_job(
         return Bm25RetrievalSettings(top_k=top_k)
     if method_id is RetrievalMethodId.DENSE:
         return DenseRetrievalSettings(top_k=top_k, encoder=_experiment_encoder(manifest))
+    if method_id is RetrievalMethodId.MEMORY_STREAM:
+        return MemoryStreamRetrievalSettings(
+            top_k=top_k,
+            encoder=_experiment_encoder(manifest),
+            relevance_weight=float(manifest["effective_config"].get("memory_stream_relevance_weight", 1.0)),
+            recency_weight=float(manifest["effective_config"].get("memory_stream_recency_weight", 0.0)),
+            importance_weight=float(manifest["effective_config"].get("memory_stream_importance_weight", 0.01)),
+            recency_decay=float(manifest["effective_config"].get("memory_stream_recency_decay", 0.99)),
+            capped_test_count=int(manifest["effective_config"]["splits"]["test"]["max_examples"]),
+        )
     if method_id is RetrievalMethodId.BM25_GRAPH_RERANK:
         seed_method = definition.seed_method
         if seed_method is not RetrievalMethodId.BM25:
@@ -332,6 +344,16 @@ def _evaluate_stage_config(manifest: dict[str, Any], method: str) -> EvaluateSta
         ),
         failure_case_limit=50,
     )
+
+
+def _memory_stream_importance_path(manifest: Mapping[str, Any], method: str) -> Path | None:
+    """Return the external cleaned importance artifact path for Memory Stream only."""
+    if method != RetrievalMethodId.MEMORY_STREAM.value:
+        return None
+    configured = manifest["effective_config"].get("memory_stream_importance_path")
+    if configured is not None:
+        return Path(str(configured))
+    return Path("data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json")
 
 
 def _experiment_encoder(manifest: Mapping[str, Any]) -> DenseEncoderSettings:
