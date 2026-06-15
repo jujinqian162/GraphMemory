@@ -388,6 +388,8 @@ def _apply_memory_stream_test_cap(manifest: dict[str, Any]) -> dict[str, Any]:
     if "memory_stream" not in manifest.get("selected_methods", []):
         return manifest
     importance_path = _memory_stream_importance_path(manifest, "memory_stream")
+    if importance_path is None:
+        raise ValueError("Memory Stream importance artifact path is required.")
     if not importance_path.is_file():
         raise ValueError(f"Memory Stream importance artifact not found: {importance_path}")
     artifact = read_json(importance_path)
