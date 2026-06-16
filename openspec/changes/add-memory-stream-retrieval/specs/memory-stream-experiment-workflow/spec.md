@@ -48,6 +48,31 @@ artifact can support, and SHALL emit a warning instead of failing.
 - **AND** other methods keep their normal shared split policy
 - **AND** the capped count is used by both retrieve and evaluate stage configs
 
+### Requirement: Importance-backed split sources materialize covered tasks
+The system SHALL support `split_sources.dev = "importance"` and
+`split_sources.test = "importance"` for Memory Stream experiments by using the
+configured cleaned importance artifact as a task-id selector over canonical
+processed HotpotQA input and label artifacts.
+
+#### Scenario: Prepare joins canonical tasks by importance order
+- **WHEN** a split source is configured as `"importance"`
+- **THEN** prepare reads task ids from the cleaned importance artifact in order
+- **AND** writes run-local input and label files by joining those ids against canonical processed input and label artifacts
+- **AND** applies the selected profile count and split offset to the importance-ordered task id list
+
+#### Scenario: Importance source does not invent task content
+- **WHEN** a split is materialized from importance
+- **THEN** query text, memory item text, metadata, and labels come from canonical processed HotpotQA artifacts
+- **AND** the compact importance artifact supplies only task id order, coverage, and content digest checks
+
+#### Scenario: Stale canonical data fails early
+- **WHEN** a joined canonical input record has a content digest different from the matching importance task record
+- **THEN** prepare fails before graph building and names the stale task id
+
+#### Scenario: Unsupported importance source fails clearly
+- **WHEN** `"importance"` is configured for a split without Memory Stream selected or without a configured/default importance artifact
+- **THEN** experiment initialization or prepare planning fails with a concrete message
+
 ### Requirement: Experiment config excludes production settings
 The system SHALL configure only retrieval weights, recency decay, dense
 encoder settings, and an optional importance path override.

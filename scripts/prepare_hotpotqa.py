@@ -8,9 +8,11 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.datasets.hotpotqa import (
     combined_memory_tasks,
     convert_hotpotqa_example,
@@ -22,6 +24,7 @@ from graph_memory.datasets.splits import sample_split
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.validation import (
+    validate_task_importance_record,
     validate_memory_task_inputs,
     validate_memory_task_labels,
 )
@@ -31,7 +34,10 @@ LOGGER = logging.getLogger("prepare_hotpotqa")
 
 @dataclass(frozen=True)
 class PrepareHotpotQAArgs:
+    source: str
     input: str
+    input_labels: str | None
+    importance: str | None
     output_input: str
     output_labels: str
     output_combined: str | None
@@ -47,6 +53,13 @@ class ValidRawExamples:
     invalid_reason_counts: dict[str, int]
 
 
+@dataclass(frozen=True)
+class PreparedTasks:
+    task_inputs: list[MemoryTaskInput]
+    task_labels: list[MemoryTaskLabels]
+    counts: dict[str, object]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
@@ -56,6 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_input_path = Path(args.output_input)
     summary_path = output_input_path.with_name(f"{output_input_path.stem}.run_summary.json")
     effective_config = {
+        "source": args.source,
         "max_examples": args.max_examples,
         "seed": args.seed,
         "offset": args.offset,
@@ -63,7 +77,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "drop_invalid_examples": not args.strict_invalid_examples,
         "strict_invalid_examples": args.strict_invalid_examples,
     }
-    inputs = {"raw": args.input}
+    inputs = {"raw": args.input} if args.source == "raw" else {"canonical_inputs": args.input}
+    if args.input_labels is not None:
+        inputs["canonical_labels"] = args.input_labels
+    if args.importance is not None:
+        inputs["importance"] = args.importance
     outputs = {
         "inputs": args.output_input,
         "labels": args.output_labels,
@@ -73,28 +91,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         outputs["combined"] = args.output_combined
 
     try:
-        raw_records = read_json(args.input)
-        if not isinstance(raw_records, list):
-            raise ValueError("HotpotQA raw input must be a JSON list.")
-        LOGGER.info("read raw examples: %s", len(raw_records))
+        if args.source == "raw":
+            prepared = prepare_from_raw(args)
+        elif args.source == "importance":
+            prepared = prepare_from_importance(args)
+        else:
+            raise ValueError(f"Unsupported HotpotQA prepare source: {args.source}")
 
-        valid_raw_examples = select_valid_raw_examples(raw_records, strict=args.strict_invalid_examples)
-        invalid_examples_dropped = len(raw_records) - len(valid_raw_examples.records)
-        if invalid_examples_dropped:
-            LOGGER.info("dropped invalid raw examples: %s", invalid_examples_dropped)
-
-        selected_records = select_examples(
-            valid_raw_examples.records,
-            max_examples=args.max_examples,
-            seed=args.seed,
-            offset=args.offset,
-        )
-        LOGGER.info("selected examples: count=%s seed=%s offset=%s", len(selected_records), args.seed, args.offset)
-
-        parsed_examples = parse_hotpotqa_examples(selected_records)
-        conversion = convert_hotpotqa_examples(parsed_examples)
-        task_inputs = conversion.task_inputs
-        task_labels = conversion.task_labels
+        task_inputs = prepared.task_inputs
+        task_labels = prepared.task_labels
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
         validate_memory_task_inputs(task_inputs)
         validate_memory_task_labels(task_labels, inputs_by_task_id)
@@ -116,12 +121,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             inputs=inputs,
             outputs=outputs,
             counts={
-                "raw_examples": len(raw_records),
-                "valid_examples": len(valid_raw_examples.records),
-                "invalid_examples_dropped": invalid_examples_dropped,
-                "invalid_example_reasons": valid_raw_examples.invalid_reason_counts,
-                "selected_examples": len(selected_records),
-                "parsed_examples": len(parsed_examples),
+                **prepared.counts,
                 "task_inputs": len(task_inputs),
                 "task_labels": len(task_labels),
             },
@@ -174,6 +174,108 @@ def select_valid_raw_examples(raw_records: Sequence[object], *, strict: bool) ->
     return ValidRawExamples(records=valid_records, invalid_reason_counts=dict(invalid_reason_counts))
 
 
+def prepare_from_raw(args: PrepareHotpotQAArgs) -> PreparedTasks:
+    raw_records = read_json(args.input)
+    if not isinstance(raw_records, list):
+        raise ValueError("HotpotQA raw input must be a JSON list.")
+    LOGGER.info("read raw examples: %s", len(raw_records))
+
+    valid_raw_examples = select_valid_raw_examples(raw_records, strict=args.strict_invalid_examples)
+    invalid_examples_dropped = len(raw_records) - len(valid_raw_examples.records)
+    if invalid_examples_dropped:
+        LOGGER.info("dropped invalid raw examples: %s", invalid_examples_dropped)
+
+    selected_records = select_examples(
+        valid_raw_examples.records,
+        max_examples=args.max_examples,
+        seed=args.seed,
+        offset=args.offset,
+    )
+    LOGGER.info("selected examples: count=%s seed=%s offset=%s", len(selected_records), args.seed, args.offset)
+
+    parsed_examples = parse_hotpotqa_examples(selected_records)
+    conversion = convert_hotpotqa_examples(parsed_examples)
+    return PreparedTasks(
+        task_inputs=conversion.task_inputs,
+        task_labels=conversion.task_labels,
+        counts={
+            "raw_examples": len(raw_records),
+            "valid_examples": len(valid_raw_examples.records),
+            "invalid_examples_dropped": invalid_examples_dropped,
+            "invalid_example_reasons": valid_raw_examples.invalid_reason_counts,
+            "selected_examples": len(selected_records),
+            "parsed_examples": len(parsed_examples),
+        },
+    )
+
+
+def prepare_from_importance(args: PrepareHotpotQAArgs) -> PreparedTasks:
+    if args.input_labels is None:
+        raise ValueError("--input_labels is required when --source importance.")
+    if args.importance is None:
+        raise ValueError("--importance is required when --source importance.")
+
+    canonical_inputs = read_json(args.input)
+    canonical_labels = read_json(args.input_labels)
+    importance_artifact = read_json(args.importance)
+    if not isinstance(canonical_inputs, list):
+        raise ValueError("Canonical input artifact must be a JSON list.")
+    if not isinstance(canonical_labels, list):
+        raise ValueError("Canonical label artifact must be a JSON list.")
+    if not isinstance(importance_artifact, dict):
+        raise ValueError("Importance artifact must be a JSON object.")
+    if importance_artifact.get("schema_version") != 1 or importance_artifact.get("method") != "memory_stream":
+        raise ValueError("Importance artifact must use schema_version=1 and method=memory_stream.")
+    task_records = importance_artifact.get("tasks")
+    if not isinstance(task_records, list):
+        raise ValueError("Importance artifact tasks must be a list.")
+
+    typed_inputs = cast(list[MemoryTaskInput], canonical_inputs)
+    typed_labels = cast(list[MemoryTaskLabels], canonical_labels)
+    input_by_task_id = {task_input["task_id"]: task_input for task_input in typed_inputs}
+    label_by_task_id = {task_label["task_id"]: task_label for task_label in typed_labels}
+    validate_memory_task_inputs(typed_inputs)
+    validate_memory_task_labels(typed_labels, input_by_task_id)
+
+    selected_records = select_ordered_records(
+        task_records,
+        max_examples=args.max_examples,
+        offset=args.offset,
+    )
+    selected_inputs: list[MemoryTaskInput] = []
+    selected_labels: list[MemoryTaskLabels] = []
+    for task_record in selected_records:
+        if not isinstance(task_record, dict):
+            raise ValueError("Importance task record must be a JSON object.")
+        task_id = task_record.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            raise ValueError("Importance task record task_id must be a non-empty string.")
+        task_input = input_by_task_id.get(task_id)
+        if task_input is None:
+            raise ValueError(f"Canonical input missing importance task_id={task_id}.")
+        task_label = label_by_task_id.get(task_id)
+        if task_label is None:
+            raise ValueError(f"Canonical labels missing importance task_id={task_id}.")
+        validate_task_importance_record(task_record, task_input)
+        selected_inputs.append(task_input)
+        selected_labels.append(task_label)
+
+    LOGGER.info("selected importance-backed examples: count=%s offset=%s", len(selected_inputs), args.offset)
+    return PreparedTasks(
+        task_inputs=selected_inputs,
+        task_labels=selected_labels,
+        counts={
+            "canonical_task_inputs": len(typed_inputs),
+            "canonical_task_labels": len(typed_labels),
+            "importance_tasks": len(task_records),
+            "selected_examples": len(selected_inputs),
+            "parsed_examples": len(selected_inputs),
+            "invalid_examples_dropped": 0,
+            "invalid_example_reasons": {},
+        },
+    )
+
+
 def select_examples(raw_records: Sequence[object], *, max_examples: int | None, seed: int, offset: int) -> list[object]:
     if max_examples is None:
         if offset != 0:
@@ -182,9 +284,27 @@ def select_examples(raw_records: Sequence[object], *, max_examples: int | None, 
     return sample_split(raw_records, count=max_examples, seed=seed, offset=offset)
 
 
+def select_ordered_records(records: Sequence[object], *, max_examples: int | None, offset: int) -> list[object]:
+    if offset < 0:
+        raise ValueError("offset must be non-negative.")
+    if max_examples is None:
+        if offset != 0:
+            raise ValueError("--offset requires --max_examples so the split size is explicit.")
+        return list(records)
+    if max_examples < 0:
+        raise ValueError("max_examples must be non-negative.")
+    end = offset + max_examples
+    if end > len(records):
+        raise ValueError(f"Requested split offset+count={end} exceeds available examples={len(records)}.")
+    return list(records[offset:end])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Convert labeled HotpotQA examples into leakage-safe memory task artifacts.")
+    parser.add_argument("--source", choices=("raw", "importance"), default="raw", help="Source mode for materializing the split.")
     parser.add_argument("--input", required=True, help="Path to labeled HotpotQA raw JSON file.")
+    parser.add_argument("--input_labels", default=None, help="Path to canonical labels when --source importance is used.")
+    parser.add_argument("--importance", default=None, help="Path to compact Memory Stream importance artifact.")
     parser.add_argument("--output_input", required=True, help="Path to write input-visible memory task JSON.")
     parser.add_argument("--output_labels", required=True, help="Path to write label-only memory task JSON.")
     parser.add_argument("--output_combined", default=None, help="Optional compatibility output with input and label fields combined.")
@@ -202,7 +322,10 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: Sequence[str] | None = None) -> PrepareHotpotQAArgs:
     namespace = build_parser().parse_args(argv)
     return PrepareHotpotQAArgs(
+        source=namespace.source,
         input=namespace.input,
+        input_labels=namespace.input_labels,
+        importance=namespace.importance,
         output_input=namespace.output_input,
         output_labels=namespace.output_labels,
         output_combined=namespace.output_combined,

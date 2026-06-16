@@ -22,6 +22,9 @@ read-only retrieval consumption, not an LLM annotation runtime.
   task subset, and inject indexed scores into the method.
 - Register Memory Stream as a stateless retrieval method and reuse the existing
   stateless retrieval workflow.
+- Add an importance-backed prepare split source so a Memory Stream experiment
+  can set `split_sources.dev/test = "importance"` and materialize run-local
+  tasks from the cleaned sidecar's task ids instead of random sampling.
 - Keep shared experiment splits as the default, but let the workflow cap the
   Memory Stream test split to the covered importance prefix and emit a warning
   instead of failing when the profile requests more examples than exist.

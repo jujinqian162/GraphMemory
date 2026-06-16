@@ -12,6 +12,9 @@ from scripts.workflow.planner import _materialize_variant_manifest, _method_has_
 from scripts.workflow.stage_configs import _memory_stream_importance_path
 from scripts.workflow.types import ArtifactRole, ArtifactState, StageId
 
+DEFAULT_CANONICAL_DEV_INPUT = Path("data/hotpotqa/processed/dev_memory_tasks.input.json")
+DEFAULT_CANONICAL_DEV_LABELS = Path("data/hotpotqa/processed/dev_memory_tasks.labels.json")
+
 
 def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
     """Inspect ordinary artifacts and expanded ablation namespaces."""
@@ -93,23 +96,41 @@ def _prepare_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
     path = artifacts["input"]
     output_path = Path(path)
     split_config = manifest["effective_config"]["splits"][split]
-    raw_path = manifest["effective_config"]["raw"][split_config["source"]]
+    source = split_config["source"]
+    if source == "importance":
+        importance_path = _memory_stream_importance_path(manifest, "memory_stream")
+        if importance_path is None:
+            raise ValueError('split source "importance" requires a Memory Stream importance artifact path.')
+        expected_inputs = {
+            "canonical_inputs": DEFAULT_CANONICAL_DEV_INPUT,
+            "canonical_labels": DEFAULT_CANONICAL_DEV_LABELS,
+            "importance": importance_path,
+        }
+        expected_config = {
+            "source": "importance",
+            "max_examples": split_config["max_examples"],
+            "offset": split_config["offset"],
+        }
+    else:
+        raw_path = manifest["effective_config"]["raw"][source]
+        expected_inputs = {"raw": raw_path}
+        expected_config = {
+            "max_examples": split_config["max_examples"],
+            "seed": split_config["seed"],
+            "offset": split_config["offset"],
+        }
     return _summary_status(
         stage=StageId.PREPARE.value,
         path=path,
         summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
         script="prepare_hotpotqa.py",
-        expected_inputs={"raw": raw_path},
+        expected_inputs=expected_inputs,
         expected_outputs={
             "inputs": artifacts["input"],
             "labels": artifacts["labels"],
             "combined": artifacts["combined"],
         },
-        expected_config={
-            "max_examples": split_config["max_examples"],
-            "seed": split_config["seed"],
-            "offset": split_config["offset"],
-        },
+        expected_config=expected_config,
         split=split,
     )
 

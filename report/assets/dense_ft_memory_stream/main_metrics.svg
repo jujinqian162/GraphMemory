@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="560" viewBox="0 0 1180 560" role="img">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>
+text { font-family: Arial, sans-serif; fill: #20242a; }
+.title { font-size: 20px; font-weight: 700; }
+.subtitle { font-size: 12px; fill: #5f6672; }
+.axis { stroke: #c9ced6; stroke-width: 1; }
+.grid { stroke: #edf0f4; stroke-width: 1; }
+.tick { font-size: 12px; fill: #59616d; }
+.label { font-size: 13px; fill: #303640; }
+.small { font-size: 11px; fill: #59616d; }
+.value { font-size: 11px; fill: #20242a; }
+</style>
+<text class="title" x="88" y="34">HotpotQA test main metrics: Dense-FT, Memory Stream and Ours</text>
+<text class="subtitle" x="88" y="54">Y-axis starts at 0.3 to show differences among strong methods</text>
+<line class="grid" x1="88" y1="482.0" x2="1144" y2="482.0"/>
+<text class="tick" x="76" y="486.0" text-anchor="end">0.30</text>
+<line class="grid" x1="88" y1="393.7" x2="1144" y2="393.7"/>
+<text class="tick" x="76" y="397.7" text-anchor="end">0.45</text>
+<line class="grid" x1="88" y1="305.4" x2="1144" y2="305.4"/>
+<text class="tick" x="76" y="309.4" text-anchor="end">0.60</text>
+<line class="grid" x1="88" y1="217.1" x2="1144" y2="217.1"/>
+<text class="tick" x="76" y="221.1" text-anchor="end">0.75</text>
+<line class="grid" x1="88" y1="128.9" x2="1144" y2="128.9"/>
+<text class="tick" x="76" y="132.9" text-anchor="end">0.90</text>
+<line class="grid" x1="88" y1="70.0" x2="1144" y2="70.0"/>
+<text class="tick" x="76" y="74.0" text-anchor="end">1.00</text>
+<line class="axis" x1="88" y1="70" x2="88" y2="482"/>
+<line class="axis" x1="88" y1="482" x2="1144" y2="482"/>
+<rect x="301.0" y="171.7" width="30.0" height="310.3" rx="3" fill="#3b6fb6" opacity="0.95"/>
+<text class="value" x="316.0" y="165.7" text-anchor="middle">0.827</text>
+<rect x="337.0" y="294.8" width="30.0" height="187.2" rx="3" fill="#d95f02" opacity="0.95"/>
+<text class="value" x="352.0" y="288.8" text-anchor="middle">0.618</text>
+<rect x="373.0" y="160.4" width="30.0" height="321.6" rx="3" fill="#2f8f5b" opacity="0.95"/>
+<text class="value" x="388.0" y="154.4" text-anchor="middle">0.846</text>
+<text class="label" x="352.0" y="526" text-anchor="middle">BM25</text>
+<rect x="433.0" y="134.4" width="30.0" height="347.6" rx="3" fill="#3b6fb6" opacity="0.95"/>
+<text class="value" x="448.0" y="128.4" text-anchor="middle">0.891</text>
+<rect x="469.0" y="210.7" width="30.0" height="271.3" rx="3" fill="#d95f02" opacity="0.95"/>
+<text class="value" x="484.0" y="204.7" text-anchor="middle">0.761</text>
+<rect x="505.0" y="156.7" width="30.0" height="325.3" rx="3" fill="#2f8f5b" opacity="0.95"/>
+<text class="value" x="520.0" y="150.7" text-anchor="middle">0.853</text>
+<text class="label" x="484.0" y="526" text-anchor="middle">Dense</text>
+<rect x="565.0" y="103.0" width="30.0" height="379.0" rx="3" fill="#3b6fb6" opacity="0.95"/>
+<text class="value" x="580.0" y="97.0" text-anchor="middle">0.944</text>
+<rect x="601.0" y="147.5" width="30.0" height="334.5" rx="3" fill="#d95f02" opacity="0.95"/>
+<text class="value" x="616.0" y="141.5" text-anchor="middle">0.868</text>
+<rect x="637.0" y="132.7" width="30.0" height="349.3" rx="3" fill="#2f8f5b" opacity="0.95"/>
+<text class="value" x="652.0" y="126.7" text-anchor="middle">0.894</text>
+<text class="label" x="616.0" y="526" text-anchor="middle">Dense-FT</text>
+<rect x="697.0" y="134.1" width="30.0" height="347.9" rx="3" fill="#3b6fb6" opacity="0.95"/>
+<text class="value" x="712.0" y="128.1" text-anchor="middle">0.891</text>
+<rect x="733.0" y="211.3" width="30.0" height="270.7" rx="3" fill="#d95f02" opacity="0.95"/>
+<text class="value" x="748.0" y="205.3" text-anchor="middle">0.760</text>
+<rect x="769.0" y="156.3" width="30.0" height="325.7" rx="3" fill="#2f8f5b" opacity="0.95"/>
+<text class="value" x="784.0" y="150.3" text-anchor="middle">0.853</text>
+<text class="label" x="748.0" y="526" text-anchor="middle">Memory Stream</text>
+<rect x="829.0" y="92.9" width="30.0" height="389.1" rx="3" fill="#3b6fb6" opacity="0.95"/>
+<text class="value" x="844.0" y="86.9" text-anchor="middle">0.961</text>
+<rect x="865.0" y="121.8" width="30.0" height="360.2" rx="3" fill="#d95f02" opacity="0.95"/>
+<text class="value" x="880.0" y="115.8" text-anchor="middle">0.912</text>
+<rect x="901.0" y="118.9" width="30.0" height="363.1" rx="3" fill="#2f8f5b" opacity="0.95"/>
+<text class="value" x="916.0" y="112.9" text-anchor="middle">0.917</text>
+<text class="label" x="880.0" y="526" text-anchor="middle">Ours R-GCN</text>
+<rect x="88" y="526" width="12" height="12" fill="#3b6fb6"/>
+<text class="small" x="106" y="536">Recall@10</text>
+<rect x="258" y="526" width="12" height="12" fill="#d95f02"/>
+<text class="small" x="276" y="536">Full Support@10</text>
+<rect x="428" y="526" width="12" height="12" fill="#2f8f5b"/>
+<text class="small" x="446" y="536">MRR</text>
+</svg>

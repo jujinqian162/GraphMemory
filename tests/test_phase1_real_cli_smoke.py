@@ -638,6 +638,205 @@ def test_prepare_hotpotqa_drops_invalid_examples_before_sampling(tmp_path):
     assert any("supporting fact" in reason for reason in summary["counts"]["invalid_example_reasons"])
 
 
+def test_prepare_hotpotqa_materializes_importance_ordered_split(tmp_path):
+    task_a = {
+        "task_id": "hotpot_a",
+        "query": "Where is A?",
+        "memory_items": [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "A is in Paris.",
+                "source": "A",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    }
+    task_b = {
+        "task_id": "hotpot_b",
+        "query": "Where is B?",
+        "memory_items": [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "B is in Berlin.",
+                "source": "B",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    }
+    labels = [
+        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []},
+        {"task_id": "hotpot_b", "gold_answer": "Berlin", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []},
+    ]
+    importance = {
+        "schema_version": 1,
+        "method": "memory_stream",
+        "tasks": [
+            {"task_id": "hotpot_b", "content_digest": importance_content_digest(task_b), "scores": {"m0": 10}},
+            {"task_id": "hotpot_a", "content_digest": importance_content_digest(task_a), "scores": {"m0": 1}},
+        ],
+    }
+    canonical_inputs_path = tmp_path / "canonical.input.json"
+    canonical_labels_path = tmp_path / "canonical.labels.json"
+    importance_path = tmp_path / "importance.json"
+    output_input_path = tmp_path / "selected.input.json"
+    output_labels_path = tmp_path / "selected.labels.json"
+    write_json(canonical_inputs_path, [task_a, task_b])
+    write_json(canonical_labels_path, labels)
+    write_json(importance_path, importance)
+
+    assert prepare_hotpotqa.main(
+        [
+            "--source",
+            "importance",
+            "--input",
+            str(canonical_inputs_path),
+            "--input_labels",
+            str(canonical_labels_path),
+            "--importance",
+            str(importance_path),
+            "--output_input",
+            str(output_input_path),
+            "--output_labels",
+            str(output_labels_path),
+            "--max_examples",
+            "1",
+            "--offset",
+            "0",
+        ]
+    ) == 0
+
+    assert [task["task_id"] for task in read_json(output_input_path)] == ["hotpot_b"]
+    assert [label["task_id"] for label in read_json(output_labels_path)] == ["hotpot_b"]
+    summary = read_json(tmp_path / "selected.input.run_summary.json")
+    assert summary["effective_config"]["source"] == "importance"
+    assert summary["counts"]["importance_tasks"] == 2
+    assert summary["counts"]["selected_examples"] == 1
+
+
+def test_prepare_hotpotqa_importance_split_fails_when_canonical_input_is_missing_task(tmp_path):
+    task_a = {
+        "task_id": "hotpot_a",
+        "query": "Where is A?",
+        "memory_items": [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "A is in Paris.",
+                "source": "A",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    }
+    task_b = {
+        "task_id": "hotpot_b",
+        "query": "Where is B?",
+        "memory_items": [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "B is in Berlin.",
+                "source": "B",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    }
+    labels = [
+        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}
+    ]
+    importance = {
+        "schema_version": 1,
+        "method": "memory_stream",
+        "tasks": [
+            {"task_id": "hotpot_b", "content_digest": importance_content_digest(task_b), "scores": {"m0": 10}},
+        ],
+    }
+    canonical_inputs_path = tmp_path / "canonical.input.json"
+    canonical_labels_path = tmp_path / "canonical.labels.json"
+    importance_path = tmp_path / "importance.json"
+    write_json(canonical_inputs_path, [task_a])
+    write_json(canonical_labels_path, labels)
+    write_json(importance_path, importance)
+
+    with pytest.raises(ValueError, match="Canonical input missing importance task_id=hotpot_b"):
+        prepare_hotpotqa.main(
+            [
+                "--source",
+                "importance",
+                "--input",
+                str(canonical_inputs_path),
+                "--input_labels",
+                str(canonical_labels_path),
+                "--importance",
+                str(importance_path),
+                "--output_input",
+                str(tmp_path / "selected.input.json"),
+                "--output_labels",
+                str(tmp_path / "selected.labels.json"),
+                "--max_examples",
+                "1",
+            ]
+        )
+
+
+def test_prepare_hotpotqa_importance_split_rejects_stale_digest(tmp_path):
+    task_a = {
+        "task_id": "hotpot_a",
+        "query": "Where is A?",
+        "memory_items": [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "A is in Paris.",
+                "source": "A",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    }
+    labels = [
+        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}
+    ]
+    importance = {
+        "schema_version": 1,
+        "method": "memory_stream",
+        "tasks": [
+            {"task_id": "hotpot_a", "content_digest": "bad", "scores": {"m0": 10}},
+        ],
+    }
+    canonical_inputs_path = tmp_path / "canonical.input.json"
+    canonical_labels_path = tmp_path / "canonical.labels.json"
+    importance_path = tmp_path / "importance.json"
+    write_json(canonical_inputs_path, [task_a])
+    write_json(canonical_labels_path, labels)
+    write_json(importance_path, importance)
+
+    with pytest.raises(ValueError, match="content_digest"):
+        prepare_hotpotqa.main(
+            [
+                "--source",
+                "importance",
+                "--input",
+                str(canonical_inputs_path),
+                "--input_labels",
+                str(canonical_labels_path),
+                "--importance",
+                str(importance_path),
+                "--output_input",
+                str(tmp_path / "selected.input.json"),
+                "--output_labels",
+                str(tmp_path / "selected.labels.json"),
+                "--max_examples",
+                "1",
+            ]
+        )
+
+
 def test_prepare_hotpotqa_drops_examples_that_fail_output_validation(tmp_path):
     raw_path = tmp_path / "raw.json"
     raw_path.write_text(

@@ -42,11 +42,21 @@ the ordinary methods. That shared policy remains strict: if a split requests
 more data than exists, the workflow should still fail rather than silently
 truncate it.
 
-Memory Stream gets one explicit exception. When the selected profile asks for a
-larger test set than the cleaned importance sidecar can cover, the workflow
-caps Memory Stream to the available covered prefix, emits a warning, and writes
-the capped count into the method-specific stage config and run summary. The cap
-is method-scoped only; it does not change the default split for other methods.
+Memory Stream gets two explicit exceptions. First, an experiment may set
+`split_sources.dev` or `split_sources.test` to `"importance"`. That source does
+not construct tasks from the compact importance artifact alone. Instead, the
+prepare stage reads the cleaned importance task ids in artifact order, joins
+them against canonical processed HotpotQA input and label artifacts, verifies
+the joined input content digest against the importance record, and writes
+run-local split files. The compact importance artifact is therefore a split
+selector, while the canonical processed input/label files remain the source of
+complete `MemoryTaskInput` and label records.
+
+Second, when the selected profile asks for a larger test set than the cleaned
+importance sidecar can cover, the workflow caps Memory Stream to the available
+covered prefix, emits a warning, and writes the capped count into the
+method-specific stage config and run summary. The cap is method-scoped only; it
+does not change the default split for other methods.
 
 ## Retrieval
 

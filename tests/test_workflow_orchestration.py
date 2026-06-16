@@ -384,6 +384,103 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
     assert tune_status["state"] == "complete"
 
 
+def test_memory_stream_prepare_command_supports_importance_split_source(tmp_path: Path) -> None:
+    config = load_experiment_config()
+    config["methods"] = ["memory_stream"]
+    config["split_sources"] = {"train": "train", "dev": "importance", "test": "importance"}
+    importance_path = tmp_path / "dev.first_1000.importance.json"
+    task_input = _memory_stream_task(
+        "hotpot_ms_1",
+        "Which river runs through Paris?",
+        [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "The Seine runs through Paris.",
+                "source": "Paris",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    )
+    write_json(importance_path, _memory_stream_artifact(task_input))
+    config["memory_stream_importance_path"] = str(importance_path)
+
+    manifest = initialize_experiment(
+        "memory-stream-importance-source",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["memory_stream"],
+        force=True,
+    )
+
+    commands = build_stage_plan(manifest, stages=["prepare"], methods=["memory_stream"])
+    dev_command = next(command for command in commands if command.split == "dev")
+    assert dev_command.argv[dev_command.argv.index("--source") + 1] == "importance"
+    assert Path(dev_command.argv[dev_command.argv.index("--input") + 1]) == Path(
+        "data/hotpotqa/processed/dev_memory_tasks.input.json"
+    )
+    assert Path(dev_command.argv[dev_command.argv.index("--input_labels") + 1]) == Path(
+        "data/hotpotqa/processed/dev_memory_tasks.labels.json"
+    )
+    assert dev_command.argv[dev_command.argv.index("--importance") + 1] == str(importance_path)
+
+
+def test_memory_stream_importance_split_source_status_does_not_require_raw_key(tmp_path: Path) -> None:
+    config = load_experiment_config()
+    config["methods"] = ["memory_stream"]
+    config["split_sources"] = {"train": "train", "dev": "importance", "test": "importance"}
+    importance_path = tmp_path / "dev.first_1000.importance.json"
+    task_input = _memory_stream_task(
+        "hotpot_ms_1",
+        "Which river runs through Paris?",
+        [
+            {
+                "id": "m0",
+                "node_type": "document_sentence",
+                "text": "The Seine runs through Paris.",
+                "source": "Paris",
+                "sentence_id": 0,
+                "position": 0,
+            }
+        ],
+    )
+    write_json(importance_path, _memory_stream_artifact(task_input))
+    config["memory_stream_importance_path"] = str(importance_path)
+
+    manifest = initialize_experiment(
+        "memory-stream-importance-status",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["memory_stream"],
+        force=True,
+    )
+
+    rows = inspect_experiment_status(manifest)
+
+    dev_row = next(row for row in rows if row["stage"] == "prepare" and row.get("split") == "dev")
+    assert dev_row["state"] == "missing"
+
+
+def test_importance_split_source_requires_memory_stream_selection(tmp_path: Path) -> None:
+    config = load_experiment_config()
+    config["methods"] = ["bm25", "dense"]
+    config["split_sources"] = {"train": "train", "dev": "importance", "test": "importance"}
+    manifest = initialize_experiment(
+        "importance-source-without-memory-stream",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["bm25", "dense"],
+        force=True,
+    )
+
+    with pytest.raises(ValueError, match='split source "importance" requires selected method memory_stream'):
+        build_stage_plan(manifest, stages=["prepare"], methods=["bm25", "dense"])
+
+
 def test_memory_stream_tune_command_uses_default_importance_path(tmp_path: Path) -> None:
     config = load_experiment_config()
     config["methods"] = ["memory_stream"]

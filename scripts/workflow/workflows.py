@@ -10,6 +10,9 @@ from graph_memory.registry.methods import TuningKind
 from scripts.workflow.stage_configs import _memory_stream_importance_path
 from scripts.workflow.types import ArtifactRole, ChangeDimension, StageCommand, StageId, WorkflowId, WorkflowSpec, WorkflowStepSpec
 
+DEFAULT_CANONICAL_DEV_INPUT = Path("data/hotpotqa/processed/dev_memory_tasks.input.json")
+DEFAULT_CANONICAL_DEV_LABELS = Path("data/hotpotqa/processed/dev_memory_tasks.labels.json")
+
 
 _PREPARE = WorkflowStepSpec(
     stage=StageId.PREPARE,
@@ -163,28 +166,58 @@ def build_prepare_commands(manifest: dict[str, Any]) -> list[StageCommand]:
         split_config = config["splits"][split]
         raw_source = split_config["source"]
         artifacts = manifest["artifacts"]["inputs"][split]
+        if raw_source == "importance":
+            if "memory_stream" not in manifest.get("selected_methods", []):
+                raise ValueError('split source "importance" requires selected method memory_stream.')
+            importance_path = _memory_stream_importance_path(manifest, "memory_stream")
+            if importance_path is None:
+                raise ValueError('split source "importance" requires a Memory Stream importance artifact path.')
+            argv = [
+                sys.executable,
+                "scripts/prepare_hotpotqa.py",
+                "--source",
+                "importance",
+                "--input",
+                str(DEFAULT_CANONICAL_DEV_INPUT),
+                "--input_labels",
+                str(DEFAULT_CANONICAL_DEV_LABELS),
+                "--importance",
+                str(importance_path),
+                "--output_input",
+                artifacts["input"],
+                "--output_labels",
+                artifacts["labels"],
+                "--output_combined",
+                artifacts["combined"],
+                "--max_examples",
+                str(split_config["max_examples"]),
+                "--offset",
+                str(split_config["offset"]),
+            ]
+        else:
+            argv = [
+                sys.executable,
+                "scripts/prepare_hotpotqa.py",
+                "--input",
+                str(config["raw"][raw_source]),
+                "--output_input",
+                artifacts["input"],
+                "--output_labels",
+                artifacts["labels"],
+                "--output_combined",
+                artifacts["combined"],
+                "--max_examples",
+                str(split_config["max_examples"]),
+                "--seed",
+                str(split_config["seed"]),
+                "--offset",
+                str(split_config["offset"]),
+            ]
         commands.append(
             StageCommand(
                 stage=StageId.PREPARE,
                 split=split,
-                argv=[
-                    sys.executable,
-                    "scripts/prepare_hotpotqa.py",
-                    "--input",
-                    str(config["raw"][raw_source]),
-                    "--output_input",
-                    artifacts["input"],
-                    "--output_labels",
-                    artifacts["labels"],
-                    "--output_combined",
-                    artifacts["combined"],
-                    "--max_examples",
-                    str(split_config["max_examples"]),
-                    "--seed",
-                    str(split_config["seed"]),
-                    "--offset",
-                    str(split_config["offset"]),
-                ],
+                argv=argv,
             )
         )
     return commands

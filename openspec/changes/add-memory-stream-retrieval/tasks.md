@@ -40,10 +40,18 @@
 - [ ] 3.6 Add a Memory Stream-only test cap in workflow planning so cloud-full
   can warn and truncate to the available cleaned prefix instead of failing
   halfway through the run.
-- [ ] 3.7 Extend retrieval provenance with importance path, SHA-256, and schema
+- [x] 3.7 Support `split_sources.dev/test = "importance"` for Memory Stream
+  experiments by materializing run-local prepare artifacts from canonical
+  processed input/labels joined in cleaned-importance task-id order.
+- [x] 3.8 Validate importance-backed split materialization with missing task,
+  stale digest, count/offset, unsupported method, and run-local artifact tests.
+- [x] 3.9 Add `configs/experiments/hotpotqa_memory_stream.json` with
+  `bm25`, `dense`, `memory_stream`, full 1000-task Memory Stream coverage, and
+  `split_sources.dev/test = "importance"`.
+- [ ] 3.10 Extend retrieval provenance with importance path, SHA-256, and schema
   version, and serialize weights, decay, capped test count, and encoder
   settings.
-- [ ] 3.8 Add registry, stage-config, workflow, missing/stale artifact, default
+- [ ] 3.11 Add registry, stage-config, workflow, missing/stale artifact, default
   path, override path, capped-test warning, and run-summary provenance tests.
 
 ## 4. Verification
