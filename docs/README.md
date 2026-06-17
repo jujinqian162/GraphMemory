@@ -25,6 +25,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Engineering quality discussion log: `10-plans/engineering-quality-brainstorm.md`
 - Architecture: `30-design/architecture.md`
 - Abstractions: `30-design/abstractions.md`
+- Cross-dataset refactor design: `30-design/cross-dataset-refactor-design.md`
 - Architecture and abstraction discussion history: `10-plans/architecture-abstraction-brainstorm.md`
 - Core package layered refactor design history: `10-plans/graph-memory-core-package-refactor-design.md`
 - Contract documentation guide: `20-contracts/README.md`
