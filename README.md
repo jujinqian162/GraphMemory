@@ -32,8 +32,8 @@ Use the experiment runner for normal runs:
 
 ```powershell
 python scripts/experiment.py init quick_valid_100 --profile quick --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft
-python scripts/experiment.py plan quick_valid_100 --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate
-python scripts/experiment.py run quick_valid_100 --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate
+python scripts/experiment.py plan quick_valid_100
+python scripts/experiment.py run quick_valid_100
 python scripts/experiment.py status quick_valid_100
 ```
 

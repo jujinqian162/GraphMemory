@@ -10,7 +10,7 @@ The existing contracts to preserve are: named run isolation, manifest reuse, `CL
 
 - Make the common path `run <name> --method <method>` plan and execute the complete required workflow for that method.
 - Represent stage selection as a contiguous range over the selected method workflow when `--from`/`--to` is used.
-- Keep explicit `--stages` support for compatibility, but treat range selection as the ergonomic path.
+- Retire explicit stage-list selection from the public runner contract; use `--from`/`--to` for partial runs and the selected method workflow for defaults.
 - Add resource discovery subcommands so users can list stages, methods, configs, profiles, and recipes from the CLI.
 - Resolve top-level experiment configs and method training configs by contract names, while still accepting explicit paths for compatibility.
 - Improve `plan` rendering so generated commands are scan-friendly and optional terminal color is isolated to presentation.
@@ -19,7 +19,7 @@ The existing contracts to preserve are: named run isolation, manifest reuse, `CL
 
 - Do not rewrite low-level data preparation, graph construction, retrieval, evaluation, training, or aggregation scripts.
 - Do not introduce dynamic plugin loading for methods; the static registry remains the source of truth.
-- Do not remove `--stages` or `--methods` in this change.
+- Do not remove `--methods` in this change.
 - Do not change metric definitions, artifact filenames, or run directory layout.
 
 ## Decisions
@@ -61,6 +61,6 @@ The existing contracts to preserve are: named run isolation, manifest reuse, `CL
 ## Risks / Trade-offs
 
 - Existing automation may parse one-command-per-line `plan` output -> keep a structured `StageCommand.argv` API and only change the human-facing CLI formatting; tests pin the new output.
-- Explicit `--stages` can still produce non-contiguous or method-irrelevant selections -> preserve for compatibility, but validate unknown stages and prefer ranges in docs/output.
+- Existing automation that still passes an explicit stage list will fail argument parsing -> update current docs and tests to point to default workflow execution or `--from`/`--to` ranges.
 - Config-name resolution could hide typos if it falls back too broadly -> use deterministic directories and fail with the attempted contract path.
 - Multi-method ranges may include a stage needed by only one method -> commands are generated only for methods that require the stage, preserving ordered union behavior.

@@ -35,7 +35,8 @@ Plan without executing:
 ```powershell
 python scripts/experiment.py plan quick_valid_100 `
   --run-root runs `
-  --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate `
+  --from pairs `
+  --to evaluate `
   --methods dense_rgcn_graph_retriever,dense_ft
 ```
 
@@ -44,8 +45,7 @@ Run a trainable path:
 ```powershell
 python scripts/experiment.py run quick_valid_100 `
   --run-root runs `
-  --methods dense_rgcn_graph_retriever,dense_ft `
-  --stages prepare,graphs,pairs,train,retrieve,evaluate,aggregate
+  --methods dense_rgcn_graph_retriever,dense_ft
 ```
 
 Render the full selected plan instead of cache-pruned work:

@@ -56,7 +56,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         methods = _parse_methods(args)
         commands = build_stage_plan(
             manifest,
-            stages=_parse_csv(args.stages),
             methods=methods,
             from_stage=args.from_stage,
             to_stage=args.to_stage,
@@ -73,7 +72,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         methods = _parse_methods(args)
         commands = build_stage_plan(
             manifest,
-            stages=_parse_csv(args.stages),
             methods=methods,
             from_stage=args.from_stage,
             to_stage=args.to_stage,
@@ -129,7 +127,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_parser = subparsers.add_parser("plan", help="Print low-level commands without executing them.")
     _add_common_run_args(plan_parser, include_config=True)
-    plan_parser.add_argument("--stages", default=None, help="Comma-separated stages to plan.")
     plan_parser.add_argument("--from", dest="from_stage", default=None, help="Plan from this stage onward.")
     plan_parser.add_argument("--to", dest="to_stage", default=None, help="Plan through this stage.")
     plan_parser.add_argument("--color", choices=("auto", "always", "never"), default="auto")
@@ -143,7 +140,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="Execute selected experiment stages.")
     _add_common_run_args(run_parser, include_config=True)
-    run_parser.add_argument("--stages", default=None, help="Comma-separated stages to run.")
     run_parser.add_argument("--from", dest="from_stage", default=None, help="Run from this stage onward.")
     run_parser.add_argument("--to", dest="to_stage", default=None, help="Run through this stage.")
     run_parser.add_argument("--force", action="store_true", help="Reinitialize an existing manifest before running.")

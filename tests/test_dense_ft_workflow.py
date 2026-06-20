@@ -76,7 +76,7 @@ def test_dense_ft_plan_has_no_method_specific_argv_sprawl(tmp_path: Path) -> Non
     )
     commands = build_stage_plan(
         manifest,
-        stages=["pairs", "train", "retrieve", "evaluate"],
+        from_stage="pairs", to_stage="evaluate",
         methods=[DENSE_FT_METHOD],
     )
 

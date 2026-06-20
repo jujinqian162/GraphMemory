@@ -58,7 +58,8 @@ def test_stage_plan_uses_stage_config_commands_for_trainable_methods(tmp_path: P
 
     commands = build_stage_plan(
         manifest,
-        stages=["pairs", "train", "retrieve", "evaluate"],
+        from_stage="pairs",
+        to_stage="evaluate",
         methods=[DENSE_FT_METHOD],
     )
 
@@ -87,12 +88,12 @@ def test_trainable_retrieve_requires_checkpoint_or_train_stage(tmp_path: Path) -
     )
 
     with pytest.raises(ValueError, match="Trainable retrieval requires a trained checkpoint"):
-        build_stage_plan(manifest, stages=["retrieve"], methods=[TRAINABLE_METHOD])
+        build_stage_plan(manifest, from_stage="retrieve", to_stage="retrieve", methods=[TRAINABLE_METHOD])
 
     Path(manifest["artifacts"]["learned"][TRAINABLE_METHOD]["best_checkpoint"]).parent.mkdir(parents=True)
     Path(manifest["artifacts"]["learned"][TRAINABLE_METHOD]["best_checkpoint"]).write_bytes(b"fake")
 
-    commands = build_stage_plan(manifest, stages=["retrieve"], methods=[TRAINABLE_METHOD])
+    commands = build_stage_plan(manifest, from_stage="retrieve", to_stage="retrieve", methods=[TRAINABLE_METHOD])
     assert [command.stage for command in commands] == [StageId.RETRIEVE]
 
 
@@ -126,8 +127,10 @@ def test_experiment_cli_init_plan_and_list_current_resources(tmp_path: Path, cap
             "cli-current",
             "--run-root",
             str(tmp_path),
-            "--stages",
-            "pairs,train",
+            "--from",
+            "pairs",
+            "--to",
+            "train",
             "--methods",
             DENSE_FT_METHOD,
             "--no-cache",

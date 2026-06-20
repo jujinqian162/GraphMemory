@@ -80,7 +80,6 @@ Use a planner API shaped as:
 ```python
 build_stage_plan(
     manifest,
-    stages=None,
     methods=None,
     from_stage=None,
     to_stage=None,

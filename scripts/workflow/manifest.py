@@ -86,7 +86,6 @@ def initialize_experiment(
     run_root: str | Path = "runs",
     profile: str | None = None,
     methods: Sequence[str] | None = None,
-    stages: Sequence[str] | None = None,
     cli_overrides: dict[str, Any] | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
@@ -117,7 +116,7 @@ def initialize_experiment(
         method: CONFIG_LOADER.to_json(method_config)
         for method, method_config in method_configs.items()
     }
-    selected_stages = _select_stages(stages, from_stage=None, to_stage=None, methods=selected_methods)
+    selected_stages = _select_stages(from_stage=None, to_stage=None, methods=selected_methods)
     manifest: dict[str, Any] = {
         "experiment_name": experiment_name,
         "recipe": effective_config["recipe"],

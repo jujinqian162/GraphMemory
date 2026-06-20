@@ -1,7 +1,7 @@
 ## 1. Workflow Contracts
 
 - [x] 1.1 Add method-derived workflow selection in `graph_memory.experiment`, including flat, graph-rerank, and checkpoint-backed trainable methods.
-- [x] 1.2 Add contiguous `--from` / `--to` stage range selection over the selected method workflow while preserving explicit `--stages` compatibility.
+- [x] 1.2 Add contiguous `--from` / `--to` stage range selection over the selected method workflow and retire explicit stage-list selection.
 - [x] 1.3 Keep dependency validation fail-fast for graph-rerank tuned configs, train pairs, and trainable checkpoints when users start from downstream stages.
 
 ## 2. Config and Discovery

@@ -173,7 +173,7 @@ def test_ablation_plan_uses_variant_stage_config_commands(tmp_path: Path) -> Non
     baseline_metrics.write_text("metric,value\nRecall@5,1\n", encoding="utf-8")
     commands = build_stage_plan(
         manifest,
-        stages=["pairs", "train", "retrieve", "evaluate"],
+        from_stage="pairs", to_stage="evaluate",
         methods=[TRAINABLE_METHOD],
         variants=["wo_hard_negatives"],
         ablations_only=True,
@@ -203,7 +203,7 @@ def test_ablation_only_requires_main_baseline_metrics(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="baseline metrics"):
         build_stage_plan(
             manifest,
-            stages=["pairs"],
+            from_stage="pairs", to_stage="pairs",
             methods=[TRAINABLE_METHOD],
             variants=["wo_graph"],
             ablations_only=True,
@@ -342,7 +342,7 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
 
     tune_commands = build_stage_plan(
         manifest,
-        stages=["tune"],
+        from_stage="tune", to_stage="tune",
         methods=["memory_stream"],
     )
     assert len(tune_commands) == 1
@@ -426,7 +426,7 @@ def test_memory_stream_prepare_command_supports_importance_split_source(tmp_path
         force=True,
     )
 
-    commands = build_stage_plan(manifest, stages=["prepare"], methods=["memory_stream"])
+    commands = build_stage_plan(manifest, from_stage="prepare", to_stage="prepare", methods=["memory_stream"])
     dev_command = next(command for command in commands if command.split == "dev")
     assert dev_command.argv[dev_command.argv.index("--source") + 1] == "importance"
     assert Path(dev_command.argv[dev_command.argv.index("--input") + 1]) == Path(
@@ -488,7 +488,7 @@ def test_importance_split_source_requires_memory_stream_selection(tmp_path: Path
     )
 
     with pytest.raises(ValueError, match='split source "importance" requires selected method memory_stream'):
-        build_stage_plan(manifest, stages=["prepare"], methods=["bm25", "dense"])
+        build_stage_plan(manifest, from_stage="prepare", to_stage="prepare", methods=["bm25", "dense"])
 
 
 def test_memory_stream_tune_command_uses_default_importance_path(tmp_path: Path) -> None:
@@ -506,7 +506,7 @@ def test_memory_stream_tune_command_uses_default_importance_path(tmp_path: Path)
 
     tune_commands = build_stage_plan(
         manifest,
-        stages=["tune"],
+        from_stage="tune", to_stage="tune",
         methods=["memory_stream"],
     )
 

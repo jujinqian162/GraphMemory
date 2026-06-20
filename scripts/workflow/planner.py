@@ -39,7 +39,6 @@ def earliest_invalidated_stage(workflow: WorkflowSpec, variant: VariantSpec) -> 
 def build_stage_plan(
     manifest: dict[str, Any],
     *,
-    stages: Sequence[str] | None = None,
     methods: Sequence[str] | None = None,
     from_stage: str | None = None,
     to_stage: str | None = None,
@@ -57,14 +56,12 @@ def build_stage_plan(
             raise ValueError("Ablation filters require an ablation-enabled manifest.")
         return _ordinary_stage_plan(
             manifest,
-            stages=stages,
             methods=selected_methods,
             from_stage=from_stage,
             to_stage=to_stage,
         )
 
     selected_stages = _select_stages(
-        stages,
         from_stage=from_stage,
         to_stage=to_stage,
         methods=selected_methods,
@@ -80,7 +77,6 @@ def build_stage_plan(
             _without_aggregate(
                 _ordinary_stage_plan(
                     manifest,
-                    stages=stages,
                     methods=selected_methods,
                     from_stage=from_stage,
                     to_stage=to_stage,
@@ -117,12 +113,11 @@ def build_stage_plan(
 def _ordinary_stage_plan(
     manifest: dict[str, Any],
     *,
-    stages: Sequence[str] | None,
     methods: Sequence[str],
     from_stage: str | None,
     to_stage: str | None,
 ) -> list[StageCommand]:
-    selected_stages = _select_stages(stages, from_stage=from_stage, to_stage=to_stage, methods=methods)
+    selected_stages = _select_stages(from_stage=from_stage, to_stage=to_stage, methods=methods)
     _validate_stage_dependencies(manifest, selected_stages, methods)
     commands: list[StageCommand] = []
     if StageId.PREPARE.value in selected_stages:
@@ -290,29 +285,22 @@ def required_stages_for_methods(methods: Sequence[str]) -> list[str]:
 
 
 def _select_stages(
-    stages: Sequence[str] | None,
     *,
     from_stage: str | None,
     to_stage: str | None,
     methods: Sequence[str] | None = None,
 ) -> list[str]:
-    selected: list[str]
-    if stages is not None:
-        if from_stage is not None or to_stage is not None:
-            raise ValueError("Use either explicit stages or a stage range, not both.")
-        selected = list(stages)
+    workflow = required_stages_for_methods(methods) if methods is not None else [stage.value for stage in StageId]
+    if from_stage is None and to_stage is None:
+        selected = workflow
     else:
-        workflow = required_stages_for_methods(methods) if methods is not None else [stage.value for stage in StageId]
-        if from_stage is None and to_stage is None:
-            selected = workflow
-        else:
-            start_stage = from_stage or workflow[0]
-            end_stage = to_stage or workflow[-1]
-            start_index = _workflow_stage_index(workflow, start_stage)
-            end_index = _workflow_stage_index(workflow, end_stage)
-            if start_index > end_index:
-                raise ValueError(f"Stage range start={start_stage} comes after end={end_stage}.")
-            selected = workflow[start_index : end_index + 1]
+        start_stage = from_stage or workflow[0]
+        end_stage = to_stage or workflow[-1]
+        start_index = _workflow_stage_index(workflow, start_stage)
+        end_index = _workflow_stage_index(workflow, end_stage)
+        if start_index > end_index:
+            raise ValueError(f"Stage range start={start_stage} comes after end={end_stage}.")
+        selected = workflow[start_index : end_index + 1]
     unknown = [stage for stage in selected if stage not in {member.value for member in StageId}]
     if unknown:
         allowed = ", ".join(stage.value for stage in StageId)

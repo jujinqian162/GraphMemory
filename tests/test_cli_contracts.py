@@ -72,6 +72,22 @@ def test_experiment_parser_contract_is_frozen() -> None:
         "config": _store("--config"),
         "force": _flag("--force"),
     }
+    assert _parser_contract(root_subparsers.choices["plan"]) == {
+        "name": _positional(),
+        "run_root": _store("--run-root", default="runs"),
+        "profile": _store("--profile"),
+        "method": _append("--method"),
+        "methods": _store("--methods"),
+        "top_k": _store("--top-k", value_type="int"),
+        "config": _store("--config"),
+        "from_stage": _store("--from"),
+        "to_stage": _store("--to"),
+        "color": _store("--color", default="auto", choices=("auto", "always", "never")),
+        "no_cache": _flag("--no-cache"),
+        "force": _flag("--force"),
+        "variant": _append("--variant"),
+        "ablations_only": _flag("--ablations-only"),
+    }
     assert _parser_contract(root_subparsers.choices["run"]) == {
         "name": _positional(),
         "run_root": _store("--run-root", default="runs"),
@@ -80,7 +96,6 @@ def test_experiment_parser_contract_is_frozen() -> None:
         "methods": _store("--methods"),
         "top_k": _store("--top-k", value_type="int"),
         "config": _store("--config"),
-        "stages": _store("--stages"),
         "from_stage": _store("--from"),
         "to_stage": _store("--to"),
         "force": _flag("--force"),

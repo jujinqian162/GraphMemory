@@ -2,7 +2,7 @@
 
 - [x] 1.1 Run the current focused runner and R-GCN test set with an isolated pytest temp directory and record the pre-refactor baseline, without modifying unrelated dirty report or test files. Baseline: `53 passed`.
 - [x] 1.2 Add regression tests proving that ablation-disabled BM25, graph-rerank, and R-GCN manifests retain their current deterministic paths and method-first stage sequences.
-- [x] 1.3 Add regression tests proving that existing `scripts/experiment.py init`, `plan`, `run`, `status`, resource discovery, explicit `--stages`, and `--from` / `--to` CLI behavior remain available when ablation is disabled.
+- [x] 1.3 Add regression tests proving that existing `scripts/experiment.py init`, `plan`, `run`, `status`, resource discovery, and `--from` / `--to` CLI behavior remain available when ablation is disabled.
 - [x] 1.4 Add a compatibility test proving that documented low-level scripts remain directly callable without a manifest or workflow package.
 
 ## 2. Tests First: Typed Workflow Contracts
