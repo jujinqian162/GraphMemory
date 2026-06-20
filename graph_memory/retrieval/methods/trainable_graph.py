@@ -5,7 +5,6 @@ from pathlib import Path
 
 import torch
 
-from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader, GraphRetrieverInference
 from graph_memory.retrieval.contracts import RetrievalMethodResult
@@ -28,14 +27,12 @@ class TrainableGraphRetrievalMethod:
         cls,
         checkpoint_path: str | Path,
         *,
-        graphs: list[MemoryGraph],
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
         device: str | torch.device = "cpu",
     ) -> "TrainableGraphRetrievalMethod":
         inference = CheckpointGraphRetrieverLoader().load(
             checkpoint_path,
-            graphs=graphs,
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
             device=device,

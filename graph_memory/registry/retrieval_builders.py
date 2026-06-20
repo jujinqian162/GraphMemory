@@ -205,7 +205,6 @@ def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload:
     text_embedding_provider, seed_signal_provider, checkpoint = _checkpoint_graph_providers(settings, build_payload)
     method = TrainableGraphRetrievalMethod.from_checkpoint(
         settings.checkpoint,
-        graphs=list(graph_index.graph_by_task_id.values()),
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         device=settings.device,

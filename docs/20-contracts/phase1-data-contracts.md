@@ -175,11 +175,16 @@ Shape:
       },
       {
         "id": "m0",
-        "node_type": "document_sentence",
+        "node_type": "graph_item",
+        "node_kind": "document_sentence",
         "text": "sentence text",
-        "source": "Document_Title",
-        "sentence_id": 0,
-        "position": 0
+        "source_ref": "Document_Title",
+        "group_key": "document:Document_Title",
+        "sequence_index": 0,
+        "metadata": {
+          "title": "Document_Title",
+          "position": 0
+        }
       }
     ],
     "edges": [
@@ -198,7 +203,20 @@ Shape:
 Allowed node types:
 
 - `question`
-- `document_sentence`
+- `graph_item`
+
+Graph item node fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | Domain graph item id matching the projected request item id. |
+| `node_type` | string | Must be `graph_item` for non-query nodes. |
+| `node_kind` | string | Dataset/projector-provided item kind, such as `document_sentence`. |
+| `text` | string | Text used by graph rules and model features. |
+| `source_ref` | string, optional | Human-readable source reference, such as a document title or session id. |
+| `group_key` | string, optional | Grouping key for sequential or same-source rules. |
+| `sequence_index` | integer, optional | Order within `group_key` or source. |
+| `metadata` | object, optional | Dataset-owned extra fields that are not graph-domain required fields. |
 
 Allowed Phase 1 edge types:
 
@@ -225,7 +243,7 @@ Forbidden fields:
 Invariants:
 
 - Each graph must contain exactly one question node `q`.
-- All memory nodes from the input task must appear in the graph.
+- All projected graph item ids from the graph build request must appear in the graph.
 - Every edge endpoint must exist in `nodes`.
 - Edge weights must be finite numbers.
 - Graph construction must be reproducible from input-visible task fields and graph config.

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import torch
 
-from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import build_full_ranking_batches, move_training_batch
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
@@ -28,7 +27,6 @@ class GraphRetrieverInference:
     name: str
     model: torch.nn.Module
     model_config: RgcnModelConfig
-    graph_by_task_id: dict[str, MemoryGraph]
     text_embedding_provider: TextEmbeddingProvider
     seed_signal_provider: SeedSignalProvider
     device: torch.device
@@ -99,7 +97,6 @@ class CheckpointGraphRetrieverLoader:
         self,
         checkpoint_path: str | Path,
         *,
-        graphs: list[MemoryGraph],
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
         device: str | torch.device = "cpu",
@@ -122,7 +119,6 @@ class CheckpointGraphRetrieverLoader:
             name=checkpoint.model_config.method_name,
             model=model,
             model_config=checkpoint.model_config,
-            graph_by_task_id={graph["task_id"]: graph for graph in graphs},
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
             device=torch.device(device),

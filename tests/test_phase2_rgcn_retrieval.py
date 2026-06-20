@@ -158,7 +158,6 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     write_tiny_checkpoint(checkpoint_path)
     retriever = TrainableGraphRetrievalMethod.from_checkpoint(
         checkpoint_path,
-        graphs=tiny_graphs(),
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
@@ -179,6 +178,7 @@ def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
 
     assert parameters["text_embedding_provider"].default is Parameter.empty
     assert parameters["seed_signal_provider"].default is Parameter.empty
+    assert "graphs" not in parameters
     assert "dense_encoder" not in parameters
 
 
@@ -198,7 +198,6 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_
     write_tiny_checkpoint(checkpoint_path, model_config=model_config)
     retriever = TrainableGraphRetrievalMethod.from_checkpoint(
         checkpoint_path,
-        graphs=tiny_graphs(),
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
@@ -258,10 +257,9 @@ def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path
         device="cuda:7",
     )
 
-    def fake_from_checkpoint(checkpoint_path_arg, *, graphs, device="cpu", **kwargs):
+    def fake_from_checkpoint(checkpoint_path_arg, *, device="cpu", **kwargs):
         assert checkpoint_path_arg == checkpoint_path
         assert device == "cuda:7"
-        assert graphs == tiny_graphs()
         return TinyTrainableRetriever()
 
     monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
@@ -287,9 +285,8 @@ def test_run_retrieval_passes_device_to_trainable_retriever(monkeypatch, tmp_pat
     write_tiny_checkpoint(checkpoint_path)
     captured: dict[str, object] = {}
 
-    def fake_from_checkpoint(checkpoint_path_arg, *, graphs, device="cpu", **kwargs):
+    def fake_from_checkpoint(checkpoint_path_arg, *, device="cpu", **kwargs):
         captured["checkpoint_path"] = checkpoint_path_arg
-        captured["graphs"] = graphs
         captured["device"] = device
         return TinyTrainableRetriever()
 

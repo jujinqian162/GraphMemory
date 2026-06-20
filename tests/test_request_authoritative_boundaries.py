@@ -174,9 +174,8 @@ class StubSeedSignalProvider:
         return []
 
 
-def test_rgcn_inference_uses_request_graph_instead_of_cached_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rgcn_inference_uses_request_graph_for_tensorization(monkeypatch: pytest.MonkeyPatch) -> None:
     request_graph = _graph("task_1", edge_target="m0")
-    cached_graph = _graph("task_1", edge_target="m1")
     captured: dict[str, object] = {}
 
     def fake_build_full_ranking_batches(**kwargs: object) -> object:
@@ -194,7 +193,6 @@ def test_rgcn_inference_uses_request_graph_instead_of_cached_graph(monkeypatch: 
             passage_prefix="passage: ",
             encoder_batch_size=64,
         ),
-        graph_by_task_id={"task_1": cached_graph},
         text_embedding_provider=StubTextEmbeddingProvider(),
         seed_signal_provider=StubSeedSignalProvider(),
         device=torch.device("cpu"),
