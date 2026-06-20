@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from abstraction.domain.common.identifiers import MetricSuiteId
 from abstraction.domain.evaluation.metrics import MetricResultTable, MetricSelectionKey
@@ -46,8 +46,7 @@ class EvidenceMetricSuite:  # implement MetricSuite
         self.result_aggregator = result_aggregator
 
     def describe_metric_suite(self) -> MetricSelectionKey:
-        pass
-
+        raise NotImplementedError
     def evaluate_units(self, eval_units: EvaluationUnitBatch) -> MetricResultTable:
         evidence_units = [unit for unit in eval_units if isinstance(unit, EvidenceEvalUnit)]
         metric_rows = self.evidence_recall_metric.compute_evidence_recall(evidence_units)
@@ -66,8 +65,7 @@ class LongMemEvalMetricSuite:  # implement MetricSuite
         self.result_aggregator = result_aggregator
 
     def describe_metric_suite(self) -> MetricSelectionKey:
-        pass
-
+        raise NotImplementedError
     def evaluate_units(self, eval_units: EvaluationUnitBatch) -> MetricResultTable:
         support_units = [unit for unit in eval_units if isinstance(unit, SupportCoverageEvalUnit)]
         answer_units = [unit for unit in eval_units if isinstance(unit, AnswerEvalUnit)]
@@ -90,8 +88,7 @@ class MultiHopMetricSuite:  # implement MetricSuite
         self.result_aggregator = result_aggregator
 
     def describe_metric_suite(self) -> MetricSelectionKey:
-        pass
-
+        raise NotImplementedError
     def evaluate_units(self, eval_units: EvaluationUnitBatch) -> MetricResultTable:
         evidence_units = [unit for unit in eval_units if isinstance(unit, EvidenceEvalUnit)]
         multihop_units = [unit for unit in eval_units if isinstance(unit, MultiHopEvalUnit)]

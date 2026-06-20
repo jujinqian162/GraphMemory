@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
 from graph_memory.retrieval.methods.memory_stream.config import (
@@ -24,45 +25,46 @@ from graph_memory.retrieval.methods.memory_stream.scoring import (
     score_memory_stream,
 )
 from graph_memory.registry.retrieval import DenseEncoderSettings, MemoryStreamRetrievalSettings
+from graph_memory.retrieval.requests import TextRankingRequest
 
 
-def _task_input() -> MemoryTaskInput:
+def _task_input() -> HotpotQARankingRecord:
     return {
         "task_id": "hotpot_ms_1",
-        "query": "Which river runs through Paris?",
-        "memory_items": [
+        "question": "Which river runs through Paris?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
+                "sentence_id": "m0",
                 "text": "The Eiffel Tower is in Paris.",
-                "source": "Eiffel Tower",
-                "sentence_id": 0,
+                "title": "Eiffel Tower",
+                "sentence_index": 0,
                 "position": 0,
             },
             {
-                "id": "m1",
-                "node_type": "document_sentence",
+                "sentence_id": "m1",
                 "text": "The Seine runs through Paris.",
-                "source": "Paris",
-                "sentence_id": 0,
+                "title": "Paris",
+                "sentence_index": 0,
                 "position": 1,
             },
             {
-                "id": "m2",
-                "node_type": "document_sentence",
+                "sentence_id": "m2",
                 "text": "Paris is a major city in France.",
-                "source": "Paris",
-                "sentence_id": 1,
+                "title": "Paris",
+                "sentence_index": 1,
                 "position": 2,
             },
         ],
     }
 
 
-def _importance_record(task_input: MemoryTaskInput) -> TaskImportanceRecord:
+def _temporal_request(task_input: HotpotQARankingRecord):
+    return HotpotQAToTemporalMemoryRankingRequest().project(task_input, {})
+
+def _importance_record(task_input: HotpotQARankingRecord) -> TaskImportanceRecord:
     return {
         "task_id": task_input["task_id"],
-        "content_digest": importance_content_digest(task_input),
+        "content_digest": importance_content_digest(_temporal_request(task_input)),
         "scores": {"m0": 1, "m1": 10, "m2": 1},
     }
 
@@ -71,8 +73,8 @@ def _importance_record(task_input: MemoryTaskInput) -> TaskImportanceRecord:
 class _FakeDenseRanker:
     method_name: str = "dense"
 
-    def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
-        assert task_input["task_id"] == "hotpot_ms_1"
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
+        assert request.task_id == "hotpot_ms_1"
         return [
             RankedNode(node_id="m2", score=9.0),
             RankedNode(node_id="m0", score=5.0),
@@ -141,12 +143,16 @@ def test_memory_stream_method_ranks_complete_nodes_and_uses_fake_dense_seed_rank
         importance_by_task_id={task_input["task_id"]: _importance_record(task_input)},
         scoring=scoring,
     )
+    request = HotpotQAToTemporalMemoryRankingRequest().project(
+        task_input,
+        method.importance_scores_for_task(task_input["task_id"]),
+    )
 
-    result = method.rank_task(task_input, top_k=2)
+    result = method.rank_task(request, top_k=2)
     normalized = normalize_memory_stream_signals(
         RawMemoryStreamSignals(
             relevance_by_node_id={"m2": 9.0, "m0": 5.0, "m1": 5.0},
-            recency_by_node_id=pseudo_recency_scores(task_input, decay=1.0),
+            recency_by_node_id=pseudo_recency_scores(request, decay=1.0),
             importance_by_node_id={"m0": 1.0, "m1": 10.0, "m2": 1.0},
         )
     )
@@ -261,6 +267,8 @@ def test_memory_stream_scoring_config_parser_and_serializer_round_trip() -> None
         ),
     ],
 )
+
+
 def test_memory_stream_scoring_config_parser_validates_record(
     record: dict[str, object],
     match: str,

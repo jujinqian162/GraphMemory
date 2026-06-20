@@ -43,7 +43,7 @@ def _imported_modules(path: Path) -> set[str]:
 
 
 def test_dataset_package_preserves_hotpotqa_parsing_conversion_errors_and_split_order():
-    from graph_memory.datasets.hotpotqa.compatibility import combined_memory_tasks
+    from graph_memory.datasets.hotpotqa.compatibility import combined_hotpotqa_records
     from graph_memory.datasets.hotpotqa.converter import convert_hotpotqa_example
     from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
     from graph_memory.datasets.hotpotqa.records import HotpotQAExample
@@ -58,52 +58,48 @@ def test_dataset_package_preserves_hotpotqa_parsing_conversion_errors_and_split_
 
     converted = convert_hotpotqa_example(parsed)
 
-    assert converted.task_input == {
+    assert converted.ranking_record == {
         "task_id": "hotpot_abc123",
-        "query": "Where was Ada Lovelace honored?",
-        "memory_items": [
+        "question": "Where was Ada Lovelace honored?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
-                "text": "Ada Lovelace wrote notes.",
-                "source": "Ada Lovelace",
-                "sentence_id": 0,
+                "sentence_id": "m0",
+                "title": "Ada Lovelace",
+                "sentence_index": 0,
                 "position": 0,
+                "text": "Ada Lovelace wrote notes.",
             },
             {
-                "id": "m1",
-                "node_type": "document_sentence",
-                "text": "She worked with Charles Babbage.",
-                "source": "Ada Lovelace",
-                "sentence_id": 1,
+                "sentence_id": "m1",
+                "title": "Ada Lovelace",
+                "sentence_index": 1,
                 "position": 1,
+                "text": "She worked with Charles Babbage.",
             },
             {
-                "id": "m2",
-                "node_type": "document_sentence",
-                "text": "London hosted an exhibition.",
-                "source": "London",
-                "sentence_id": 0,
+                "sentence_id": "m2",
+                "title": "London",
+                "sentence_index": 0,
                 "position": 2,
+                "text": "London hosted an exhibition.",
             },
             {
-                "id": "m3",
-                "node_type": "document_sentence",
-                "text": "Paris hosted another event.",
-                "source": "London",
-                "sentence_id": 1,
+                "sentence_id": "m3",
+                "title": "London",
+                "sentence_index": 1,
                 "position": 3,
+                "text": "Paris hosted another event.",
             },
         ],
     }
-    assert converted.task_labels == {
+    assert converted.label_record == {
         "task_id": "hotpot_abc123",
         "gold_answer": "London",
-        "gold_evidence_nodes": ["m0", "m2"],
+        "gold_evidence_sentence_ids": ["m0", "m2"],
         "gold_dependency_edges": [],
     }
-    assert combined_memory_tasks([converted.task_input], [converted.task_labels]) == [
-        {**converted.task_input, **converted.task_labels}
+    assert combined_hotpotqa_records([converted.ranking_record], [converted.label_record]) == [
+        {**converted.ranking_record, **converted.label_record}
     ]
     assert sample_split(["a", "b", "c", "d", "e"], count=2, seed=5, offset=1) == ["b", "d"]
 
@@ -133,14 +129,17 @@ def test_text_package_preserves_tokens_lexical_scores_and_entities():
     idf = compute_idf(["Ada Lovelace wrote notes", "Ada visited London"])
     assert math.isclose(idf["ada"], math.log(3 / 3) + 1.0)
     assert math.isclose(idf["lovelace"], math.log(3 / 2) + 1.0)
-    assert math.isclose(lexical_score(
-        "Ada Lovelace in London",
-        "London honored Ada Lovelace",
-        {"ada": 1.0, "lovelace": 2.0, "london": 3.0},
-        title_aliases={"ada lovelace"},
-        query_entities={"ada lovelace", "london"},
-        passage_entities={"ada lovelace"},
-    ), 9.5)
+    assert math.isclose(
+        lexical_score(
+            "Ada Lovelace in London",
+            "London honored Ada Lovelace",
+            {"ada": 1.0, "lovelace": 2.0, "london": 3.0},
+            title_aliases={"ada lovelace"},
+            query_entities={"ada lovelace", "london"},
+            passage_entities={"ada lovelace"},
+        ),
+        9.5,
+    )
 
     assert title_aliases("The Ada Lovelace") == {"ada lovelace", "ada", "lovelace"}
     assert heuristic_entities("Ada Lovelace met NASA in Paris.") == {"ada lovelace", "nasa", "paris"}

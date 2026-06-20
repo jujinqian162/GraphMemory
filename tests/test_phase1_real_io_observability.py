@@ -63,9 +63,9 @@ def test_graph_statistics_counts_edges_and_isolated_memory_nodes():
             "task_id": "hotpot_ex1",
             "nodes": [
                 {"id": "q", "node_type": "question", "text": "query"},
-                {"id": "m0", "node_type": "document_sentence", "text": "a", "source": "A", "sentence_id": 0, "position": 0},
-                {"id": "m1", "node_type": "document_sentence", "text": "b", "source": "A", "sentence_id": 1, "position": 1},
-                {"id": "m2", "node_type": "document_sentence", "text": "c", "source": "B", "sentence_id": 0, "position": 2},
+                {"id": "m0", "node_type": "graph_item", "node_kind": "document_sentence", "text": "a", "source_ref": "A", "group_key": "document:A", "sequence_index": 0, "metadata": {"title": "A", "position": 0}},
+                {"id": "m1", "node_type": "graph_item", "node_kind": "document_sentence", "text": "b", "source_ref": "A", "group_key": "document:A", "sequence_index": 1, "metadata": {"title": "A", "position": 1}},
+                {"id": "m2", "node_type": "graph_item", "node_kind": "document_sentence", "text": "c", "source_ref": "B", "group_key": "document:B", "sequence_index": 0, "metadata": {"title": "B", "position": 2}},
             ],
             "edges": [
                 {"source": "m0", "target": "m1", "edge_type": "sequential", "weight": 1.0, "directed": False},

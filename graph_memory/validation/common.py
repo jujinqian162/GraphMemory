@@ -13,7 +13,7 @@ ValidationRecordMap: TypeAlias = dict[str, ValidationRecord]
 
 FORBIDDEN_LABEL_FIELDS: set[str] = {
     "gold_answer",
-    "gold_evidence_nodes",
+    "gold_evidence_item_ids",
     "gold_dependency_edges",
     "supporting_facts",
     "is_gold",
@@ -136,13 +136,6 @@ def _require_unique(value: str, seen_values: set[str], artifact_name: str) -> No
     if value in seen_values:
         raise ContractValidationError(f"Invalid {artifact_name}: duplicate value={value}.")
     seen_values.add(value)
-
-
-def _memory_node_ids(task_input: ValidationRecord) -> set[str]:
-    memory_items = task_input.get("memory_items")
-    if not isinstance(memory_items, list):
-        return set()
-    return {memory_item["id"] for memory_item in memory_items if isinstance(memory_item, dict) and "id" in memory_item}
 
 
 def _graph_node_ids(graph: ValidationRecord) -> set[str]:

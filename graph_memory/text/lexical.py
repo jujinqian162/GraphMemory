@@ -44,4 +44,3 @@ def _short_tokens(aliases: set[str] | None) -> set[str]:
     for alias in aliases or set():
         keep.update(token for token in alias.split() if len(token) <= 2)
     return keep
-

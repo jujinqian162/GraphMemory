@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 
 from graph_memory.config import CONFIG_LOADER
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
 from graph_memory.io import read_json, write_json
 from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings, MemoryStreamRetrievalSettings
 from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
@@ -80,8 +81,8 @@ def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
             "tasks": [
                 {
                     "task_id": task["task_id"],
-                    "content_digest": importance_content_digest(task),
-                    "scores": {item["id"]: index + 1 for index, item in enumerate(task["memory_items"])},
+                    "content_digest": importance_content_digest(HotpotQAToTemporalMemoryRankingRequest().project(task, {})),
+                    "scores": {item["sentence_id"]: index + 1 for index, item in enumerate(task["candidate_sentences"])},
                 }
                 for task in tasks
             ],

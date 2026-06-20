@@ -42,4 +42,4 @@ class CrossDatasetCapabilityPlanner:  # implement CapabilityPlanner
 
 class CapabilityStageGraphFactory:  # implement StageGraphFactory
     def create_stage_graph(self, intent: ExperimentRunIntent) -> StageGraph:
-        pass
+        raise NotImplementedError

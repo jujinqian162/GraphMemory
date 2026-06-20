@@ -37,8 +37,7 @@ class RunPrepareDatasetScript:  # implement ScriptCliEntrypoint
             prepared_dataset = context.dataset_preparation.prepare_dataset(args.intent)
             context.artifact_writer.write_prepared_dataset(prepared_dataset, args.command.writes_artifacts)
             return self._result(args, selected_branch="build_views_then_validate_boundaries")
-        pass
-
+        raise NotImplementedError
     def _result(self, args: ScriptCliArguments, selected_branch: str) -> ScriptCommandResult:
         return ScriptCommandResult(args.command, args.command.writes_artifacts, selected_branch)
 
@@ -56,8 +55,7 @@ class RunProjectRequestScript:  # implement ScriptCliEntrypoint
             request_result = context.request_projection.project_request(args.intent, prepared_dataset.task_views)
             context.artifact_writer.write_projected_request(request_result, args.command.writes_artifacts)
             return self._result(args, selected_branch="use_cli_selected_view_kind")
-        pass
-
+        raise NotImplementedError
     def _result(self, args: ScriptCliArguments, selected_branch: str) -> ScriptCommandResult:
         return ScriptCommandResult(args.command, args.command.writes_artifacts, selected_branch)
 
@@ -80,8 +78,7 @@ class RunBuildGraphScript:  # implement ScriptCliEntrypoint
             graph_result = context.artifact_reader.load_graph_result(args.command.reads_artifacts)
             context.artifact_writer.write_graph_result(graph_result, args.command.writes_artifacts)
             return self._result(args, selected_branch="load_existing_graph_then_index")
-        pass
-
+        raise NotImplementedError
     def _result(self, args: ScriptCliArguments, selected_branch: str) -> ScriptCommandResult:
         return ScriptCommandResult(args.command, args.command.writes_artifacts, selected_branch)
 
@@ -103,8 +100,7 @@ class RunTrainMethodScript:  # implement ScriptCliEntrypoint
             train_result = context.training.train_method_if_required(prepared_dataset.task_views, graph_result, method_capability)
             context.artifact_writer.write_training_result(train_result, args.command.writes_artifacts)
             return self._result(args, selected_branch="force_training_adapter_path")
-        pass
-
+        raise NotImplementedError
     def _result(self, args: ScriptCliArguments, selected_branch: str) -> ScriptCommandResult:
         return ScriptCommandResult(args.command, args.command.writes_artifacts, selected_branch)
 
@@ -122,8 +118,7 @@ class RunTuneMethodScript:  # implement ScriptCliEntrypoint
             return self._result(args, selected_branch="run_method_declared_tuning_adapter")
         if tune_mode == "capability_selected":
             return self._result(args, selected_branch="method_does_not_require_tuning")
-        pass
-
+        raise NotImplementedError
     def _result(self, args: ScriptCliArguments, selected_branch: str) -> ScriptCommandResult:
         return ScriptCommandResult(args.command, args.command.writes_artifacts, selected_branch)
 
@@ -149,6 +144,8 @@ class RunRetrieveStageScript:  # implement ScriptCliEntrypoint
             return self._write_retrieval_result(args, context, retrieval_result, "text_rank_task")
         if retrieval_mode == "rank" and method_capability.consumed_request_kind == RequestKind.GRAPH_RANKING:
             graph_result = context.artifact_reader.load_graph_result(args.command.reads_artifacts)
+            if graph_result is None:
+                raise ValueError("Graph ranking requires a graph artifact.")
             retrieval_result = context.retrieval.run_graph_ranking_stage(
                 method_capability,
                 request_result,
@@ -178,8 +175,7 @@ class RunRetrieveStageScript:  # implement ScriptCliEntrypoint
         if retrieval_mode == "rank" and method_capability.consumed_request_kind == RequestKind.ANSWER:
             retrieval_result = context.retrieval.run_answering_stage(method_capability, request_result)
             return self._write_retrieval_result(args, context, retrieval_result, "answer_task")
-        pass
-
+        raise NotImplementedError
     def _write_retrieval_result(
         self,
         args: ScriptCliArguments,
@@ -227,8 +223,7 @@ class RunEvaluateStageScript:  # implement ScriptCliEntrypoint
             evaluation_result = context.artifact_reader.load_evaluation_result(args.command.reads_artifacts)
             context.artifact_publication.publish_stage_artifacts(artifacts=[])
             return self._result(args, selected_branch="evaluate_then_publish_artifacts")
-        pass
-
+        raise NotImplementedError
     def _result(self, args: ScriptCliArguments, selected_branch: str) -> ScriptCommandResult:
         return ScriptCommandResult(args.command, args.command.writes_artifacts, selected_branch)
 

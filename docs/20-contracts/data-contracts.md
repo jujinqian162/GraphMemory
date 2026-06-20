@@ -18,10 +18,10 @@ This document defines disk artifact contracts for the Graph Memory project acros
 
 | Artifact | Producer | Consumer | Purpose |
 |---|---|---|---|
-| `*_memory_tasks.input.json` | `scripts/prepare_hotpotqa.py` | graph construction, retrieval, pair building | Input-visible query and memory sentence records. |
-| `*_memory_tasks.labels.json` | `scripts/prepare_hotpotqa.py` | evaluation, tuning, pair building, trainable dev evaluation | Gold answers and evidence labels. |
+| `*_memory_tasks.input.json` | `scripts/prepare_hotpotqa.py` | HotpotQA projectors for graph construction, retrieval, pair building, and model input | HotpotQA ranking records with `question` and `candidate_sentences`. File name stays stable for workflow compatibility. |
+| `*_memory_tasks.labels.json` | `scripts/prepare_hotpotqa.py` | evaluation, tuning, pair building, trainable dev evaluation | HotpotQA label records with gold answer and supporting sentence IDs. |
 | `*_memory_tasks.json` | `scripts/prepare_hotpotqa.py` | humans, compatibility only | Combined compatibility artifact. Must not be used by retrieval or graph construction. |
-| `*_graphs.json` | `scripts/build_graphs.py` | graph rerank, trainable graph retriever, evaluation connectivity | Typed graph over question and memory sentence nodes. |
+| `*_graphs.json` | `scripts/build_graphs.py` | graph rerank, trainable graph retriever, evaluation connectivity | Typed graph over question and evidence candidate nodes. |
 | `{split}_pairs.json` | `scripts/build_train_pairs.py` | trainable graph retriever training | Supervised query-node examples for training. |
 | `{split}_pairs.summary.json` | `scripts/build_train_pairs.py` | humans, reproducibility checks | Negative sampling summary and effective sampling config. |
 | `ranked_results_{method}.json` | `scripts/run_retrieval.py`, trainable inference | evaluation, analysis | Complete per-task ranking and optional retrieved subgraph. |
@@ -34,7 +34,7 @@ This document defines disk artifact contracts for the Graph Memory project acros
 
 ### Task IDs
 
-- `task_id` is the primary join key across inputs, labels, graphs, predictions, metrics, and train pairs.
+- `task_id` is the primary join key across ranking records, labels, graphs, predictions, metrics, and train pairs.
 - `task_id` must be unique within each artifact.
 - The same split must use the same `task_id` values across all derived artifacts.
 - Missing or duplicate `task_id` values are invalid.
@@ -46,14 +46,14 @@ task_id = "hotpot_" + raw_example["_id"]
 
 - A raw example without `_id` must fail conversion instead of receiving a generated position-based ID.
 
-### Node IDs
+### Candidate And Node IDs
 
 - `q` is reserved for the question node inside graph artifacts and model batches.
-- Memory sentence node IDs use `m{position}`, for example `m0`, `m1`, `m2`.
+- HotpotQA candidate sentence IDs use `m{position}`, for example `m0`, `m1`, `m2`.
 - `position` is the flattened sentence index within a task.
-- Any node referenced by graph edges, gold labels, train pairs, or ranked results must exist in the matching task.
+- Any candidate ID referenced by graph edges, gold labels, train pairs, or ranked results must exist in the matching HotpotQA ranking record.
 
-## Memory Task Input
+## HotpotQA Ranking Records
 
 File pattern:
 
@@ -67,15 +67,14 @@ Shape:
 [
   {
     "task_id": "hotpot_000001",
-    "query": "question text",
-    "memory_items": [
+    "question": "question text",
+    "candidate_sentences": [
       {
-        "id": "m0",
-        "node_type": "document_sentence",
-        "text": "sentence text",
-        "source": "Document_Title",
-        "sentence_id": 0,
-        "position": 0
+        "sentence_id": "m0",
+        "title": "Document_Title",
+        "sentence_index": 0,
+        "position": 0,
+        "text": "sentence text"
       }
     ]
   }
@@ -86,25 +85,24 @@ Required task fields:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `task_id` | string | Stable task identifier. |
-| `query` | string | Retrieval query. |
-| `memory_items` | array | Candidate memory sentences. |
+| `task_id` | string | Stable HotpotQA task identifier. |
+| `question` | string | Input-visible question text. |
+| `candidate_sentences` | array | Candidate evidence sentences. |
 
-Required `memory_items` fields:
+Required `candidate_sentences` fields:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `id` | string | Memory node id, usually `m{position}`. |
-| `node_type` | string | Must be `document_sentence` for HotpotQA sentence memory. |
-| `text` | string | Sentence text. |
-| `source` | string | Source document title. |
-| `sentence_id` | integer | Sentence index within the source document. |
+| `sentence_id` | string | Candidate sentence ID, usually `m{position}`. |
+| `title` | string | Source document title. |
+| `sentence_index` | integer | Sentence index within the source document. |
 | `position` | integer | Flattened sentence index within the task. |
+| `text` | string | Sentence text. |
 
 Forbidden fields:
 
 - `gold_answer`
-- `gold_evidence_nodes`
+- `gold_evidence_sentence_ids`
 - `gold_dependency_edges`
 - `supporting_facts`
 - `is_gold`
@@ -113,12 +111,12 @@ Forbidden fields:
 
 Invariants:
 
-- `memory_items` must not be empty.
-- `memory_items[*].id` must be unique within the task.
+- `candidate_sentences` must not be empty.
+- `candidate_sentences[*].sentence_id` must be unique within the task.
 - `position` must match flattened order.
-- `id` should match `m{position}` unless a later dataset documents a different rule.
+- `sentence_id` should match `m{position}` unless a later dataset documents a different rule in its own record contract.
 
-## Memory Task Labels
+## HotpotQA Label Records
 
 File pattern:
 
@@ -133,7 +131,7 @@ Shape:
   {
     "task_id": "hotpot_000001",
     "gold_answer": "answer text",
-    "gold_evidence_nodes": ["m1", "m7"],
+    "gold_evidence_sentence_ids": ["m1", "m7"],
     "gold_dependency_edges": []
   }
 ]
@@ -143,17 +141,38 @@ Required fields:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `task_id` | string | Stable task identifier matching input artifact. |
+| `task_id` | string | Stable task identifier matching the ranking record. |
 | `gold_answer` | string | Gold answer, used only for optional analysis. |
-| `gold_evidence_nodes` | array of strings | Gold supporting sentence node IDs. |
+| `gold_evidence_sentence_ids` | array of strings | Gold supporting sentence IDs. |
 | `gold_dependency_edges` | array | Dependency edge labels if a dataset provides them; empty for HotpotQA sentence evidence. |
 
 Invariants:
 
-- Every label record must match exactly one input task.
-- Every `gold_evidence_nodes` entry must refer to a memory item in the matching input task.
-- HotpotQA label records must contain at least one gold evidence node.
+- Every label record must match exactly one ranking record.
+- Every `gold_evidence_sentence_ids` entry must refer to a candidate sentence in the matching ranking record.
+- HotpotQA label records must contain at least one gold evidence sentence ID.
 
+## Consumer Request Contracts
+
+Dataset artifacts are not method inputs. Dataset-specific projectors translate records into stable consumer-side requests:
+
+```text
+HotpotQARankingRecord -> HotpotQA-owned prepared dataset artifact
+HotpotQALabelRecord -> HotpotQA-owned label artifact
+Dataset-specific record -> dataset-specific projector -> consumer request
+```
+
+Current stable request contracts:
+
+| Request | Owner | Main consumers |
+|---|---|---|
+| `TextRankingRequest` | `graph_memory.retrieval.requests` | BM25, Dense, Dense-FT, text seed providers. |
+| `GraphBuildRequest` | `graph_memory.graphs.requests` | graph construction. |
+| `GraphRankingRequest` | `graph_memory.retrieval.requests` | Graph Rerank and trainable graph retrieval. |
+| `TemporalMemoryRankingRequest` | `graph_memory.retrieval.requests` | Memory Stream. |
+| `EvidenceEvaluationRequest` | `graph_memory.evaluation.requests` | evidence metric suite aggregation and failure-case analysis. |
+
+A shared task view can be introduced later only if multiple dataset projectors genuinely share the same stable intermediate semantics.
 ## Memory Graphs
 
 File pattern:
@@ -221,7 +240,7 @@ Required edge fields:
 Invariants:
 
 - Each graph must contain exactly one question node `q`.
-- All memory nodes from the input task must appear in the graph.
+- All candidate sentence nodes from the ranking record must appear in the graph.
 - Every edge endpoint must exist in `nodes`.
 - Edge weights must be finite non-negative numbers.
 - Graph construction must be reproducible from input-visible task fields and graph config.
@@ -273,17 +292,17 @@ Required fields:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `task_id` | string | Task join key matching input, label, and graph artifacts. |
+| `task_id` | string | Task join key matching ranking, label, and graph artifacts. |
 | `node_id` | string | Supervised memory node id; must not be `q`. |
 | `label` | integer | Binary evidence label, `1` for gold evidence and `0` for sampled negative. |
 | `sample_type` | string | Sampling source used to create this row. |
 
 Invariants:
 
-- `task_id` must exist in input, label, and graph artifacts.
+- `task_id` must exist in ranking, label, and graph artifacts.
 - `node_id` must be a memory node in the task, never `q`.
-- `label=1` rows must exactly come from `gold_evidence_nodes`.
-- `label=0` rows must not include any gold evidence node.
+- `label=1` rows must exactly come from `gold_evidence_sentence_ids`.
+- `label=0` rows must not include any gold evidence sentence ID.
 - `sample_type="positive"` requires `label=1`.
 - All other sample types require `label=0`.
 - Duplicate `(task_id, node_id, sample_type)` rows are invalid.
@@ -411,7 +430,7 @@ Invariants:
 
 ## Metric CSVs
 
-`scripts/evaluate_retrieval.py` produces a wide per-method metric CSV so aggregation has one complete input row per method.
+`scripts/evaluate_retrieval.py` currently selects the evidence metric suite and produces a wide per-method metric CSV so aggregation has one complete input row per method. Metric rows are suite-owned: the evidence suite keeps the columns below, while a future LongMemEval suite can define turn/session/answer metric columns without adding evidence-only columns to retrievers.
 
 Wide metric columns:
 
@@ -440,8 +459,8 @@ HotpotQA-only values:
 
 Invariants:
 
-- Metrics are computed from prediction artifacts, label artifacts, and graph artifacts.
-- Metrics must not read gold fields from input task artifacts.
+- Metrics are computed by the selected metric suite from prediction artifacts, label artifacts, and graph artifacts.
+- Metrics must not read gold fields from ranking records.
 - All numeric metrics except latency must be in `[0.0, 1.0]`.
 
 Aggregate outputs:
@@ -499,13 +518,14 @@ Purpose:
 Recommended validators:
 
 ```text
-validate_memory_task_inputs(records)
-validate_memory_task_labels(records, inputs_by_task_id)
-validate_graphs(graphs, inputs_by_task_id)
-validate_train_pairs(records, inputs_by_task_id, labels_by_task_id, graphs_by_task_id)
+validate_hotpotqa_ranking_records(records)
+validate_hotpotqa_label_records(records, ranking_records_by_task_id)
+validate_graphs(graphs, ranking_records_by_task_id)
+validate_train_pairs(records, ranking_records_by_task_id, labels_by_task_id, graphs_by_task_id)
 validate_train_pair_build_summary(summary)
-validate_ranked_results(predictions, inputs_by_task_id)
+validate_ranked_results(predictions, ranking_records_by_task_id)
 validate_metric_rows(rows)
+validate_metric_rows(rows, metric_suite=custom_suite)
 ```
 
 Validation should run:

@@ -16,31 +16,21 @@ class GraphRuleSet(Protocol):
 
 class HotpotQAGraphRuleSet:  # implement GraphRuleSet
     def describe_rule_set(self) -> str:
-        pass
-
+        raise NotImplementedError
     def derive_visible_edges(self, view: GraphBuildView) -> Sequence[GraphEdge]:
-        pass
-
-
+        raise NotImplementedError
 class LongMemEvalGraphRuleSet:  # implement GraphRuleSet
     def describe_rule_set(self) -> str:
-        pass
-
+        raise NotImplementedError
     def derive_visible_edges(self, view: GraphBuildView) -> Sequence[GraphEdge]:
-        pass
-
-
+        raise NotImplementedError
 class TwoWikiGraphRuleSet:  # implement GraphRuleSet
     def describe_rule_set(self) -> str:
-        pass
-
+        raise NotImplementedError
     def derive_visible_edges(self, view: GraphBuildView) -> Sequence[GraphEdge]:
-        pass
-
-
+        raise NotImplementedError
 class GraphRAGInputGraphRuleSet:  # implement GraphRuleSet
     def describe_rule_set(self) -> str:
-        pass
-
+        raise NotImplementedError
     def derive_visible_edges(self, view: GraphBuildView) -> Sequence[GraphEdge]:
-        pass
+        raise NotImplementedError

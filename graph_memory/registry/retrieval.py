@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.registry.ids import StrEnum
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
+from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
+from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextRankingRequest
 
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
@@ -147,6 +148,7 @@ class RetrievalProvenance:
 class BuiltRetrievalMethod:
     method: "RetrievalMethod"
     provenance: RetrievalProvenance
+    execution_tasks: list[RetrievalExecutionTask]
 
 
 @dataclass(frozen=True)
@@ -156,13 +158,13 @@ class SeedRetrieverBuildPayload:
 
 @dataclass(frozen=True)
 class FlatRetrievalBuildPayload:
-    task_inputs: list[MemoryTaskInput]
+    ranking_requests: list[TextRankingRequest]
     dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
 class MemoryStreamBuildPayload:
-    task_inputs: list[MemoryTaskInput]
+    temporal_requests: list[TemporalMemoryRankingRequest]
     importance_artifact: "ImportanceArtifact"
     importance_path: Path
     importance_sha256: str
@@ -172,7 +174,7 @@ class MemoryStreamBuildPayload:
 
 @dataclass(frozen=True)
 class GraphRerankBuildPayload:
-    task_inputs: list[MemoryTaskInput]
+    ranking_requests: list[TextRankingRequest]
     graphs: list[MemoryGraph]
     graph_config: object | Mapping[str, object] | None = None
     dense_encoder: "SentenceEncoder | None" = None
@@ -180,7 +182,7 @@ class GraphRerankBuildPayload:
 
 @dataclass(frozen=True)
 class CheckpointGraphBuildPayload:
-    task_inputs: list[MemoryTaskInput]
+    ranking_requests: list[TextRankingRequest]
     graphs: list[MemoryGraph]
     dense_encoder: "SentenceEncoder | None" = None
     text_embedding_provider: "TextEmbeddingProvider | None" = None
@@ -213,6 +215,7 @@ class RetrievalRegistry:
         except KeyError as error:
             raise ValueError(f"Unsupported retrieval settings type: {type(settings).__name__}") from error
         return spec.build(settings, payload)
+
 
 __all__ = [
     "Bm25RetrievalSettings",

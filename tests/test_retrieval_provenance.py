@@ -7,7 +7,8 @@ import torch
 
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.io import read_json, write_json
 from graph_memory.models.dense_finetune.metadata import (
     DenseFinetuneModelMetadata,
@@ -55,26 +56,24 @@ class FakeEncoder:
         return array
 
 
-def retrieval_task_inputs() -> list[MemoryTaskInput]:
+def retrieval_task_inputs() -> list[HotpotQARankingRecord]:
     return [
         {
             "task_id": "hotpot_ex1",
-            "query": "Which river runs through the city with the Eiffel Tower?",
-            "memory_items": [
+            "question": "Which river runs through the city with the Eiffel Tower?",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m0",
                     "text": "The Eiffel Tower is in Paris.",
-                    "source": "Eiffel Tower",
-                    "sentence_id": 0,
+                    "title": "Eiffel Tower",
+                    "sentence_index": 0,
                     "position": 0,
                 },
                 {
-                    "id": "m1",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m1",
                     "text": "The Seine runs through Paris.",
-                    "source": "Paris",
-                    "sentence_id": 0,
+                    "title": "Paris",
+                    "sentence_index": 0,
                     "position": 1,
                 },
             ],
@@ -82,20 +81,25 @@ def retrieval_task_inputs() -> list[MemoryTaskInput]:
     ]
 
 
+def retrieval_ranking_requests():
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task) for task in retrieval_task_inputs()]
+
+
 class _FakeProvider:
     embedding_dim = 4
 
-    def encode_task_nodes(self, task_input, node_ids):
+    def encode_task_nodes(self, request, node_ids):
         return torch.zeros((len(node_ids), 4), dtype=torch.float32)
 
-    def score_task(self, task_input):
+    def score_task(self, request):
         return []
 
 
 class _FakeRgcnMethod:
     name = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value
 
-    def rank_task(self, task_input, *, top_k: int) -> RetrievalMethodResult:
+    def rank_task(self, request, *, top_k: int) -> RetrievalMethodResult:
         return RetrievalMethodResult(ranked_nodes=[])
 
 
@@ -123,7 +127,7 @@ def _rgcn_model_config() -> RgcnModelConfig:
 def test_bm25_builder_provenance_omits_model_device_and_encoder() -> None:
     built = Registry.retrieval.build(
         Bm25RetrievalSettings(top_k=2),
-        FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs()),
+        FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests()),
     )
 
     assert built.method.name == "bm25"
@@ -152,7 +156,7 @@ def test_dense_ft_builder_provenance_uses_model_directory_device_and_metadata(tm
 
     built = Registry.retrieval.build(
         DenseFinetunedRetrievalSettings(top_k=2, checkpoint=model_dir, device="cuda:7"),
-        FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs(), dense_encoder=FakeEncoder()),
+        FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests(), dense_encoder=FakeEncoder()),
     )
 
     assert built.provenance.method is RetrievalMethodId.DENSE_FT
@@ -187,17 +191,16 @@ def test_rgcn_builder_provenance_uses_checkpoint_encoder_and_device(
         "from_checkpoint",
         lambda *args, **kwargs: _FakeRgcnMethod(),
     )
-    task_inputs: list[MemoryTaskInput] = [
+    task_inputs: list[HotpotQARankingRecord] = [
         {
             "task_id": "task",
-            "query": "query",
-            "memory_items": [
+            "question": "query",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m0",
                     "text": "evidence",
-                    "source": "doc",
-                    "sentence_id": 0,
+                    "title": "doc",
+                    "sentence_index": 0,
                     "position": 0,
                 }
             ],
@@ -208,7 +211,16 @@ def test_rgcn_builder_provenance_uses_checkpoint_encoder_and_device(
             "task_id": "task",
             "nodes": [
                 {"id": "q", "node_type": "question", "text": "query"},
-                task_inputs[0]["memory_items"][0],
+                {
+                    "id": "m0",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "evidence",
+                    "source_ref": "doc",
+                    "group_key": "document:doc",
+                    "sequence_index": 0,
+                    "metadata": {"title": "doc", "position": 0},
+                },
             ],
             "edges": [
                 {
@@ -230,7 +242,7 @@ def test_rgcn_builder_provenance_uses_checkpoint_encoder_and_device(
             device="cuda:7",
         ),
         CheckpointGraphBuildPayload(
-            task_inputs=task_inputs,
+            ranking_requests=[HotpotQAToTextRankingRequest().project(task_input) for task_input in task_inputs],
             graphs=graphs,
             text_embedding_provider=provider,
             seed_signal_provider=provider,

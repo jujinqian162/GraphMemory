@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.common import JsonObject, JsonValue
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.dense_finetune.training import DenseFinetuneTrainingResult
@@ -30,12 +32,13 @@ from graph_memory.registry.stage_configs import (
     RgcnTrainStageConfig,
     TrainStageConfig,
 )
-from graph_memory.registry.training import (
+from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
     RgcnTrainPayload,
     TrainDependencies,
     TrainPayload,
 )
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.stages.train import TrainingResult, run_train_stage
 
@@ -117,33 +120,61 @@ def _injected_dependencies(
 
 def _load_payload(config: TrainStageConfig, *, dependencies: TrainDependencies | None) -> TrainPayload:
     if isinstance(config, RgcnTrainStageConfig):
+        train_records = cast(list[HotpotQARankingRecord], read_json(config.io.train_tasks))
+        train_labels = (
+            None
+            if config.io.train_labels is None
+            else _evidence_labels(cast(list[HotpotQALabelRecord], read_json(config.io.train_labels)))
+        )
+        dev_records = cast(list[HotpotQARankingRecord], read_json(config.io.dev_tasks))
         return RgcnTrainPayload(
-            train_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.train_tasks)),
-            train_labels=(
-                None
-                if config.io.train_labels is None
-                else cast(list[MemoryTaskLabels], read_json(config.io.train_labels))
-            ),
+            train_requests=_text_requests(train_records),
+            train_labels=train_labels,
             train_graphs=cast(list[MemoryGraph], read_json(config.io.train_graphs)),
             train_pairs=cast(list[TrainPairRecord], read_json(config.io.train_pairs)),
-            dev_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.dev_tasks)),
-            dev_labels=cast(list[MemoryTaskLabels], read_json(config.io.dev_labels)),
+            dev_requests=_text_requests(dev_records),
+            dev_labels=_evidence_labels(cast(list[HotpotQALabelRecord], read_json(config.io.dev_labels))),
             dev_graphs=cast(list[MemoryGraph], read_json(config.io.dev_graphs)),
             dependencies=dependencies,
         )
     if isinstance(config, DenseFinetuneTrainStageConfig):
         if dependencies is not None:
             raise ValueError("Provider overrides are only valid for R-GCN training.")
+        train_records = cast(list[HotpotQARankingRecord], read_json(config.io.train_tasks))
+        dev_records = cast(list[HotpotQARankingRecord], read_json(config.io.dev_tasks))
         return DenseFinetuneTrainPayload(
-            train_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.train_tasks)),
-            train_labels=cast(list[MemoryTaskLabels], read_json(config.io.train_labels)),
+            train_requests=_text_requests(train_records),
+            train_labels=_evidence_labels(cast(list[HotpotQALabelRecord], read_json(config.io.train_labels))),
             train_pairs=cast(list[TrainPairRecord], read_json(config.io.train_pairs)),
-            dev_task_inputs=cast(list[MemoryTaskInput], read_json(config.io.dev_tasks)),
-            dev_labels=cast(list[MemoryTaskLabels], read_json(config.io.dev_labels)),
+            dev_requests=_text_requests(dev_records),
+            dev_labels=_evidence_labels(cast(list[HotpotQALabelRecord], read_json(config.io.dev_labels))),
             output_dir=config.io.output_dir,
             model_dir=config.io.model_dir,
         )
     assert_never(config)
+
+
+def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(record) for record in records]
+
+
+def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple(_dependency_edge(edge) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
+
+
+def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
+    if len(edge) != 2:
+        raise ValueError(f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}.")
+    return edge[0], edge[1]
 
 
 def _write_method_artifacts(config: TrainStageConfig, result: TrainingResult) -> JsonObject:
@@ -236,9 +267,9 @@ def _effective_config(config: TrainStageConfig, result: TrainingResult) -> JsonO
 
 def _result_counts(payload: TrainPayload, result: TrainingResult) -> JsonObject:
     counts: dict[str, JsonValue] = {
-        "train_tasks": len(payload.train_task_inputs),
+        "train_tasks": len(payload.train_requests),
         "train_pairs": len(payload.train_pairs),
-        "dev_tasks": len(payload.dev_task_inputs),
+        "dev_tasks": len(payload.dev_requests),
     }
     if isinstance(result, RgcnTrainingResult):
         counts["epochs"] = result.training_config.epochs

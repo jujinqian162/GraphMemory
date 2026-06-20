@@ -169,8 +169,7 @@ Suggested shape:
   "task_id": "hotpot_000123",
   "method": "dense_graph_rerank",
   "failure_type": "missing_full_support_at_10",
-  "query": "question text",
-  "gold_evidence_nodes": ["m1", "m7"],
+  "gold_evidence_item_ids": ["m1", "m7"],
   "retrieved_top_k": ["m7", "m3", "m4"],
   "missing_gold_nodes": ["m1"],
   "connected_gold_in_top_k": false,
@@ -201,7 +200,7 @@ Suggested shape:
   "checked_paths": [],
   "forbidden_fields": [
     "gold_answer",
-    "gold_evidence_nodes",
+    "gold_evidence_sentence_ids",
     "gold_dependency_edges",
     "supporting_facts",
     "is_gold",

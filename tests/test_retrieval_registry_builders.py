@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
@@ -24,14 +25,19 @@ from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArt
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
 from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
-from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_graphs, retrieval_task_inputs
+from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_graphs, retrieval_ranking_requests
+
+
+def _temporal_requests(task_inputs: list[HotpotQARankingRecord]):
+    projector = HotpotQAToTemporalMemoryRankingRequest()
+    return [projector.project(task_input, {}) for task_input in task_inputs]
 
 
 def test_registry_builds_bm25_method_from_settings_without_dense_fields() -> None:
     settings = Bm25RetrievalSettings(top_k=2)
 
-    built = Registry.retrieval.build(settings, FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs()))
-    predictions = run_retrieval(retrieval_method=built.method, task_inputs=retrieval_task_inputs(), top_k=settings.top_k)
+    built = Registry.retrieval.build(settings, FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests()))
+    predictions = run_retrieval(retrieval_method=built.method, tasks=built.execution_tasks, top_k=settings.top_k)
 
     assert not hasattr(settings, "encoder")
     assert built.method.name == "bm25"
@@ -46,9 +52,9 @@ def test_registry_builds_dense_method_from_settings_encoder() -> None:
 
     built = Registry.retrieval.build(
         settings,
-        FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs(), dense_encoder=FakeEncoder()),
+        FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests(), dense_encoder=FakeEncoder()),
     )
-    predictions = run_retrieval(retrieval_method=built.method, task_inputs=retrieval_task_inputs(), top_k=settings.top_k)
+    predictions = run_retrieval(retrieval_method=built.method, tasks=built.execution_tasks, top_k=settings.top_k)
 
     assert built.method.name == "dense"
     assert predictions[0]["method"] == "dense"
@@ -64,9 +70,9 @@ def test_registry_builds_graph_rerank_method_from_seed_settings() -> None:
 
     built = Registry.retrieval.build(
         settings,
-        GraphRerankBuildPayload(task_inputs=retrieval_task_inputs(), graphs=retrieval_graphs()),
+        GraphRerankBuildPayload(ranking_requests=retrieval_ranking_requests(), graphs=retrieval_graphs()),
     )
-    predictions = run_retrieval(retrieval_method=built.method, task_inputs=retrieval_task_inputs(), top_k=settings.top_k)
+    predictions = run_retrieval(retrieval_method=built.method, tasks=built.execution_tasks, top_k=settings.top_k)
 
     assert built.method.name == "bm25_graph_rerank"
     assert predictions[0]["method"] == "bm25_graph_rerank"
@@ -97,29 +103,41 @@ def test_legacy_resolver_and_factory_modules_are_removed() -> None:
     assert [str(path) for path in legacy_paths if path.exists()] == []
 
 
-def _memory_stream_task(task_id: str, query: str, memory_items: list[dict[str, object]]) -> MemoryTaskInput:
+def _as_int(value: object) -> int:
+    return int(cast(int | str, value))
+
+
+def _memory_stream_task(task_id: str, query: str, memory_items: list[dict[str, object]]) -> HotpotQARankingRecord:
     return cast(
-        MemoryTaskInput,
+        HotpotQARankingRecord,
         cast(
             object,
             {
                 "task_id": task_id,
-                "query": query,
-                "memory_items": memory_items,
+                "question": query,
+                "candidate_sentences": [
+                    {
+                        "sentence_id": str(item["id"]),
+                        "title": str(item["source"]),
+                        "sentence_index": _as_int(item["sentence_id"]),
+                        "position": _as_int(item["position"]),
+                        "text": str(item["text"]),
+                    }
+                    for item in memory_items
+                ],
             },
         ),
     )
 
 
 def test_memory_stream_builder_selects_current_task_importance_and_records_provenance(tmp_path: Path) -> None:
-    task_inputs: list[MemoryTaskInput] = [
+    task_inputs: list[HotpotQARankingRecord] = [
         _memory_stream_task(
             "hotpot_ms_1",
             "Which river runs through Paris?",
             [
                 {
                     "id": "m0",
-                    "node_type": "document_sentence",
                     "text": "The Eiffel Tower is in Paris.",
                     "source": "Eiffel Tower",
                     "sentence_id": 0,
@@ -127,7 +145,6 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
                 },
                 {
                     "id": "m1",
-                    "node_type": "document_sentence",
                     "text": "The Seine runs through Paris.",
                     "source": "Paris",
                     "sentence_id": 0,
@@ -142,7 +159,6 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
         [
             {
                 "id": "x0",
-                "node_type": "document_sentence",
                 "text": "The Louvre is in Paris.",
                 "source": "Louvre",
                 "sentence_id": 0,
@@ -150,19 +166,20 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
             }
         ],
     )
+    temporal_requests = _temporal_requests([*task_inputs, extra_task])
+    selected_temporal_requests = temporal_requests[: len(task_inputs)]
     artifact: ImportanceArtifact = {
         "schema_version": 1,
         "method": "memory_stream",
         "tasks": [
             {
-                "task_id": task["task_id"],
-                "content_digest": importance_content_digest(task),
-                "scores": {item["id"]: index + 1 for index, item in enumerate(task["memory_items"])},
+                "task_id": request.task_id,
+                "content_digest": importance_content_digest(request),
+                "scores": {candidate.item_id: index + 1 for index, candidate in enumerate(request.candidates)},
             }
-            for task in (*task_inputs, extra_task)
+            for request in temporal_requests
         ],
     }
-
     built = Registry.retrieval.build(
         MemoryStreamRetrievalSettings(
             top_k=2,
@@ -170,7 +187,7 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
             scoring=MemoryStreamScoringConfig(recency_decay=1.0),
         ),
         MemoryStreamBuildPayload(
-            task_inputs=task_inputs,
+            temporal_requests=selected_temporal_requests,
             importance_artifact=artifact,
             importance_path=tmp_path / "dev.first_1000.importance.json",
             importance_sha256="abc123",

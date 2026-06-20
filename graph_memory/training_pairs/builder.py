@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import random
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
 from graph_memory.contracts.common import TaskId, TrainPairSampleType
-from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
 from graph_memory.retrieval.contracts import SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignalProvider
 from graph_memory.training_pairs.config import NegativeSamplingConfig
+from graph_memory.training_pairs.requests import TrainPairBuildTask
 from graph_memory.training_pairs.samplers import (
     BM25HardNegativeSampler,
     DenseHardNegativeSampler,
@@ -23,8 +23,6 @@ from graph_memory.training_pairs.samplers import (
 )
 from graph_memory.validation import (
     validate_graphs,
-    validate_memory_task_inputs,
-    validate_memory_task_labels,
     validate_negative_sampling_config,
     validate_task_id_alignment,
     validate_train_pair_build_summary,
@@ -53,21 +51,16 @@ class TrainPairBuilder:
     config: NegativeSamplingConfig
     samplers: tuple[NegativeSampler, ...]
 
-    def build(
-        self,
-        task_inputs: list[MemoryTaskInput],
-        labels: list[MemoryTaskLabels],
-        graphs: list[MemoryGraph],
-    ) -> TrainPairBuildResult:
+    def build(self, tasks: Sequence[TrainPairBuildTask]) -> TrainPairBuildResult:
+        task_list = list(tasks)
         validate_negative_sampling_config(self.config)
-        validate_memory_task_inputs(task_inputs)
-        inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        labels_by_task_id = {label["task_id"]: label for label in labels}
-        graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
-        validate_memory_task_labels(labels, inputs_by_task_id)
-        validate_graphs(graphs, inputs_by_task_id)
-        validate_task_id_alignment("train pair labels", set(inputs_by_task_id), set(labels_by_task_id))
-        validate_task_id_alignment("train pair graphs", set(inputs_by_task_id), set(graphs_by_task_id))
+        text_requests = [task.text_request for task in task_list]
+        labels_by_task_id = {task.label.task_id: task.label for task in task_list}
+        graphs_by_task_id = {task.graph["task_id"]: task.graph for task in task_list}
+        task_ids = {request.task_id for request in text_requests}
+        validate_graphs(list(graphs_by_task_id.values()), text_requests)
+        validate_task_id_alignment("train pair labels", task_ids, set(labels_by_task_id))
+        validate_task_id_alignment("train pair graphs", task_ids, set(graphs_by_task_id))
 
         rng = random.Random(self.config.random_seed)
         pairs: list[TrainPairRecord] = []
@@ -75,18 +68,17 @@ class TrainPairBuilder:
         negative_count_by_type: Counter[str] = Counter()
         tasks_with_no_positive: list[TaskId] = []
         prepared_samplers = tuple(
-            sampler.precompute(task_inputs)
+            sampler.precompute(text_requests)
             if isinstance(sampler, DenseHardNegativeSampler)
             else sampler
             for sampler in self.samplers
         )
 
-        for task_input in task_inputs:
-            task_id = task_input["task_id"]
-            task_labels = labels_by_task_id[task_id]
-            task_graph = graphs_by_task_id[task_id]
-            memory_node_ids = [memory_item["id"] for memory_item in task_input["memory_items"]]
-            gold_nodes = list(task_labels["gold_evidence_nodes"])
+        for task in task_list:
+            text_request = task.text_request
+            task_id = text_request.task_id
+            memory_node_ids = [candidate.item_id for candidate in text_request.candidates]
+            gold_nodes = list(task.label.gold_evidence_item_ids)
             if not gold_nodes:
                 tasks_with_no_positive.append(task_id)
                 continue
@@ -103,8 +95,8 @@ class TrainPairBuilder:
 
             gold_node_set = set(gold_nodes)
             context = PairSamplingContext(
-                task_input=task_input,
-                graph=task_graph,
+                text_request=text_request,
+                graph=task.graph,
                 gold_node_ids=gold_node_set,
                 non_gold_node_ids=[node_id for node_id in memory_node_ids if node_id not in gold_node_set],
                 rng=rng,
@@ -123,7 +115,7 @@ class TrainPairBuilder:
 
         positive_count = sum(1 for pair in pairs if pair["label"] == 1)
         negative_count = sum(negative_count_by_type.values())
-        num_tasks = len(task_inputs)
+        num_tasks = len(task_list)
         summary: TrainPairBuildSummary = {
             "positive_count": positive_count,
             "negative_count_by_type": dict(sorted(negative_count_by_type.items())),
@@ -135,7 +127,7 @@ class TrainPairBuilder:
 
         validate_train_pairs(
             pairs,
-            inputs_by_task_id,
+            text_requests,
             labels_by_task_id,
             graphs_by_task_id,
         )
@@ -144,19 +136,17 @@ class TrainPairBuilder:
 
 
 def build_train_pairs(
-    task_inputs: list[MemoryTaskInput],
-    labels: list[MemoryTaskLabels],
-    graphs: list[MemoryGraph],
+    tasks: Sequence[TrainPairBuildTask],
     config: NegativeSamplingConfig,
     *,
     bm25_retriever: SeedRanker | None = None,
     dense_retriever: SeedRanker | None = None,
     dense_seed_signal_provider: SeedSignalProvider | None = None,
-    dense_config: DenseConfig | None = None, 
+    dense_config: DenseConfig | None = None,
 ) -> TrainPairBuildResult:
     """
-    Build validated train pair records from already-loaded artifacts.
-    从已读取的 artifact 构造并验证训练 pair 记录。
+    Build validated train pair records from already-projected domain tasks.
+    从已投影的 domain task 构造并验证训练 pair 记录。
     """
 
     builder = TrainPairBuilder(
@@ -169,7 +159,7 @@ def build_train_pairs(
             dense_config=dense_config,
         ),
     )
-    return builder.build(task_inputs, labels, graphs)
+    return builder.build(tasks)
 
 
 def _build_default_samplers(

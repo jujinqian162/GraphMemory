@@ -8,7 +8,9 @@ from typing import Any, cast
 import pytest
 import scripts.train_method as train_method_script
 from graph_memory.config import CONFIG_LOADER
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.io import write_json
 from graph_memory.models.dense_finetune.training import (
@@ -28,38 +30,49 @@ from graph_memory.registry.stage_configs import DenseFinetuneTrainIO, DenseFinet
 from scripts.train_method import main as train_method_main
 
 
-def _task(task_id: str, *, query: str) -> MemoryTaskInput:
+def _task(task_id: str, *, query: str) -> HotpotQARankingRecord:
     return {
         "task_id": task_id,
-        "query": query,
-        "memory_items": [
+        "question": query,
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
-                "source": "Gold",
+                "sentence_id": "m0",
+                "title": "Gold",
                 "text": "Gold evidence sentence.",
-                "sentence_id": 0,
+                "sentence_index": 0,
                 "position": 0,
             },
             {
-                "id": "m1",
-                "node_type": "document_sentence",
-                "source": "Hard",
+                "sentence_id": "m1",
+                "title": "Hard",
                 "text": "Hard negative sentence.",
-                "sentence_id": 1,
+                "sentence_index": 1,
                 "position": 1,
             },
         ],
     }
 
 
-def _labels(task_id: str) -> MemoryTaskLabels:
+def _labels(task_id: str) -> HotpotQALabelRecord:
     return {
         "task_id": task_id,
         "gold_answer": "answer",
-        "gold_evidence_nodes": ["m0"],
+        "gold_evidence_sentence_ids": ["m0"],
         "gold_dependency_edges": [],
     }
+
+
+def _request(task: HotpotQARankingRecord):
+    return HotpotQAToTextRankingRequest().project(task)
+
+
+def _evidence_label(label: HotpotQALabelRecord) -> EvidenceLabel:
+    return EvidenceLabel(
+        task_id=label["task_id"],
+        gold_answer=label["gold_answer"],
+        gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+        gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+    )
 
 
 def _pairs(task_id: str) -> list[TrainPairRecord]:
@@ -266,10 +279,10 @@ def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(t
 
     result = train_dense_finetune(
         config=config,
-        train_task_inputs=[train_task],
+        train_requests=[_request(train_task)],
         train_pairs=_pairs("train"),
-        dev_task_inputs=[dev_task],
-        dev_labels=[_labels("dev")],
+        dev_requests=[_request(dev_task)],
+        dev_labels=[_evidence_label(_labels("dev"))],
         output_dir=tmp_path / "output",
         model_dir=tmp_path / "model",
         model_factory=model_factory,

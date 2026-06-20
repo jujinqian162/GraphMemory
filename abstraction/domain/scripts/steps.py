@@ -23,7 +23,6 @@ from abstraction.domain.retrieval.capabilities import MethodCapability, MethodRe
 from abstraction.domain.retrieval.predictions import RetrievalPrediction
 from abstraction.domain.retrieval.requests import RetrievalRequest
 from abstraction.domain.scripts.components import (
-    ArtifactManifestBuilder,
     EvalViewSelector,
     GraphRuleSetSelector,
     MethodRuntimeResolver,
@@ -36,7 +35,7 @@ from abstraction.domain.task_views.ports import EvalViewCatalog, TaskViewCatalog
 from abstraction.domain.task_views.views import TaskView
 from abstraction.domain.training.ports import TrainArtifactContract, TrainableMethodAdapter, TrainingViewBuilder
 from abstraction.domain.workflow.guards import AssetCoverageGuard, LabelVisibilityGuard, SplitAlignmentGuard
-from abstraction.domain.workflow.manifest import ArtifactManifest, ExperimentRunIntent
+from abstraction.domain.workflow.manifest import ExperimentRunIntent
 from abstraction.domain.workflow.scenarios import ScenarioCompatibilityReviewer, ScenarioFlow
 from abstraction.domain.workflow.stages import StageGraph
 
@@ -318,9 +317,7 @@ class EvaluationStep:
 
 class ArtifactPublicationStep:
     def publish_stage_artifacts(self, artifacts: Sequence[ArtifactRef]) -> None:
-        pass
-
-
+        raise NotImplementedError
 class ScriptBoundaryReviewStep:
     def __init__(
         self,

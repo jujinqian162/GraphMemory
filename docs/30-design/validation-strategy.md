@@ -41,11 +41,11 @@ predictions + labels + graphs
 
 | Validator | Purpose |
 |---|---|
-| `validate_memory_task_inputs(records)` | Input-visible task records are complete and label-free. |
-| `validate_memory_task_labels(records, inputs_by_task_id)` | Gold labels match known task and node IDs. |
-| `validate_graphs(graphs, inputs_by_task_id)` | Graph nodes/edges are complete, endpoint-safe, and label-free. |
-| `validate_ranked_results(predictions, inputs_by_task_id)` | Rankings are complete, finite, duplicate-free, and method-consistent. |
-| `validate_train_pairs(records, inputs_by_task_id, labels_by_task_id, graphs_by_task_id)` | Train pairs match task, label, and graph artifacts without invalid negatives. |
+| `validate_hotpotqa_ranking_records(records)` | HotpotQA ranking records are complete and label-free. |
+| `validate_hotpotqa_label_records(records, ranking_records_by_task_id)` | HotpotQA labels match known task and candidate sentence IDs. |
+| `validate_graphs(graphs, ranking_records_by_task_id)` | Graph nodes/edges are complete, endpoint-safe, and label-free. |
+| `validate_ranked_results(predictions, ranking_records_by_task_id)` | Rankings are complete, finite, duplicate-free, and method-consistent. |
+| `validate_train_pairs(records, ranking_records_by_task_id, labels_by_task_id, graphs_by_task_id)` | Train pairs match ranking, label, and graph artifacts without invalid negatives. |
 | `validate_train_pair_build_summary(summary)` | Negative sampling summary matches the documented artifact shape. |
 | `validate_graph_rerank_config(config)` | Rerank parameters are finite and valid. |
 | `validate_negative_sampling_config(config)` | Pair-builder sampling counts and hard-pool settings are valid. |
@@ -143,7 +143,7 @@ Rule:
 Forbidden fields in input-visible artifacts:
 
 - `gold_answer`
-- `gold_evidence_nodes`
+- `gold_evidence_sentence_ids`
 - `gold_dependency_edges`
 - `supporting_facts`
 - `is_gold`
@@ -160,14 +160,14 @@ Evaluation artifacts may contain gold labels because evaluation is label-aware.
 
 ## Artifact-Specific Invariants
 
-### Memory Task Inputs
+### HotpotQA Ranking Records
 
 Validate:
 
 - unique `task_id`
-- non-empty `memory_items`
-- unique memory item IDs within task
-- `id == m{position}` for HotpotQA Phase 1
+- non-empty `candidate_sentences`
+- unique candidate sentence IDs within task
+- `sentence_id == m{position}` for HotpotQA Phase 1
 - positions are contiguous from `0`
 - required fields exist
 - forbidden fields are absent
@@ -176,10 +176,10 @@ Validate:
 
 Validate:
 
-- labels match known task IDs
-- each label record has at least one gold evidence node for HotpotQA Phase 1
-- every gold node exists in that task input
-- no duplicate gold nodes
+- labels match known HotpotQA ranking record IDs
+- each label record has at least one gold evidence sentence ID for HotpotQA Phase 1
+- every gold evidence sentence ID exists in that HotpotQA ranking record
+- no duplicate gold evidence sentence IDs
 - `gold_dependency_edges` is empty for HotpotQA Phase 1 unless a dependency-labeled dataset is explicitly used
 
 ### Graphs
@@ -188,7 +188,7 @@ Validate:
 
 - graph task IDs match task inputs
 - exactly one `q` node
-- all task memory nodes exist in graph nodes
+- all ranking-record candidate sentence IDs exist in graph nodes
 - edge endpoints exist
 - edge types are allowed
 - edge weights are finite and non-negative
@@ -222,8 +222,8 @@ Validate:
 
 - pair task IDs exist in input, label, and graph artifacts
 - pair node IDs are memory nodes, never `q`
-- positive rows exactly come from gold evidence nodes
-- negative rows never include gold evidence nodes
+- positive rows exactly come from gold evidence sentence IDs
+- negative rows never include gold evidence sentence IDs
 - `sample_type="positive"` only appears with `label=1`
 - negative sample types only appear with `label=0`
 - duplicate `(task_id, node_id, sample_type)` rows are invalid

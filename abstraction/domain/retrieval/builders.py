@@ -32,18 +32,14 @@ class AnswerPredictionBuilder(Protocol):
 
 class RankedScoresRankingPredictionBuilder:  # implement RankingPredictionBuilder
     def build_ranking_prediction(self, ranked_scores: RankedScores) -> RankingPrediction:
-        pass
-
-
+        raise NotImplementedError
 class RankedScoresContextPredictionBuilder:  # implement ContextPredictionBuilder
     def build_context_prediction(
         self,
         request: ContextGatheringRequest,
         ranked_scores: RankedScores,
     ) -> ContextPrediction:
-        pass
-
-
+        raise NotImplementedError
 class ReaderAnswerPredictionBuilder:  # implement AnswerPredictionBuilder
     def build_answer_prediction(self, request: AnswerRequest, answer_text: str) -> AnswerPrediction:
-        pass
+        raise NotImplementedError

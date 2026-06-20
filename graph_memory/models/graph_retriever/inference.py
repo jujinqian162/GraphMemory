@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
 import torch
 
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import build_full_ranking_batches, move_training_batch
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
@@ -13,7 +14,8 @@ from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import GraphScoringModelFactory
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace
-from graph_memory.retrieval.signals import SeedSignalProvider
+from graph_memory.retrieval.requests import GraphRankingRequest, TextRankingRequest
+from graph_memory.retrieval.signals import SeedSignal, SeedSignalProvider, seed_signals_from_ranked_nodes
 
 
 @dataclass(frozen=True)
@@ -21,22 +23,6 @@ class GraphRetrieverInference:
     """
     Checkpoint-backed trainable graph retriever inference runtime.
     基于 checkpoint 的可训练图检索推理 runtime。
-
-    Fields / 字段:
-    - name: Public retrieval method name.
-      name：公开检索方法名。
-    - model: Loaded evidence scoring model.
-      model：已加载的 evidence scoring model。
-    - model_config: Model reconstruction and feature config.
-      model_config：模型重建和特征配置。
-    - graph_by_task_id: Graph artifacts keyed by task id.
-      graph_by_task_id：按 task id 索引的 graph artifact。
-    - text_embedding_provider: Frozen text embedding provider.
-      text_embedding_provider：冻结文本 embedding provider。
-    - seed_signal_provider: Frozen seed signal provider.
-      seed_signal_provider：冻结 seed signal provider。
-    - device: Torch device used for inference.
-      device：推理使用的 torch device。
     """
 
     name: str
@@ -47,16 +33,19 @@ class GraphRetrieverInference:
     seed_signal_provider: SeedSignalProvider
     device: torch.device
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
-        graph = self.graph_by_task_id.get(task_input["task_id"])
-        if graph is None:
-            raise ValueError(f"Missing graph for task_id={task_input['task_id']}.")
+    def rank_task(self, request: GraphRankingRequest, *, top_k: int) -> RetrievalMethodResult:
+        graph = request.graph
+        text_request = TextRankingRequest(
+            task_id=request.task_id,
+            query_text=request.query_text,
+            candidates=request.candidates,
+        )
         batches = build_full_ranking_batches(
-            task_inputs=[task_input],
+            ranking_requests=[text_request],
             graphs=[graph],
             model_config=self.model_config,
             text_embedding_provider=self.text_embedding_provider,
-            seed_signal_provider=self.seed_signal_provider,
+            seed_signal_provider=_PrecomputedGraphRankingSignalProvider(request),
             batch_size=1,
         )
         if len(batches) != 1:
@@ -78,6 +67,23 @@ class GraphRetrieverInference:
             ranked_nodes=ranked_nodes,
             trace=RetrievalTrace(retrieved_edges=retrieved_subgraph["edges"]),
         )
+
+
+@dataclass(frozen=True)
+class _PrecomputedGraphRankingSignalProvider:
+    request: GraphRankingRequest
+
+    def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
+        if request.task_id != self.request.task_id:
+            raise ValueError(f"Unexpected graph ranking task_id={request.task_id}.")
+        ranked_nodes = [
+            RankedNode(node_id=candidate.item_id, score=float(self.request.initial_scores.get(candidate.item_id, 0.0)))
+            for candidate in request.candidates
+        ]
+        return seed_signals_from_ranked_nodes(request, ranked_nodes)
+
+    def score_tasks(self, requests: Sequence[TextRankingRequest]) -> list[list[SeedSignal]]:
+        return [self.score_task(request) for request in requests]
 
 
 @dataclass(frozen=True)

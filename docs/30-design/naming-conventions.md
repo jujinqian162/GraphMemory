@@ -6,13 +6,13 @@ Status: Working reference.
 
 ## Goal
 
-Names should make the experiment readable as a system. Prefer explicit domain language over short clever names. A reader should understand what a module, function, or variable owns without tracing its internals.
+Names should make the experiment readable as a system. Prefer explicit domain language over short clever names. Dataset-owned records should stay named after the dataset, while stable method inputs should use request names owned by the consumer package. A reader should understand what a module, function, or variable owns without tracing its internals.
 
 ## General Rules
 
 - Use Python standard naming style unless a data contract requires a specific external field name.
 - Prefer full domain words over abbreviations.
-- Use consistent terms from the project: `task`, `memory_item`, `graph`, `edge`, `retriever`, `reranker`, `prediction`, `label`, `metric`.
+- Use consistent terms from the project: `task`, `candidate_sentence`, `request`, `graph`, `edge`, `retriever`, `reranker`, `prediction`, `label`, `metric`.
 - Do not use generic names such as `data`, `obj`, `item`, `result`, `info` when a domain name is available.
 - Avoid ambiguous terms like `record` unless the code is truly artifact-generic.
 - Keep public names stable and boring.
@@ -48,7 +48,7 @@ Use verb-first names for actions:
 |---|---|
 | Convert raw data | `convert_hotpotqa_examples` |
 | Build artifacts | `build_graph`, `build_graphs` |
-| Validate artifacts | `validate_memory_task_inputs` |
+| Validate artifacts | `validate_hotpotqa_ranking_records` |
 | Compute metrics | `recall_at`, `full_support_at` |
 | Run service | `run_retrieval`, `tune_graph_rerank` |
 | Load/write files | `read_json`, `write_json`, `write_csv` |
@@ -87,10 +87,10 @@ Prefer names that state the artifact role:
 
 | Prefer | Avoid |
 |---|---|
-| `task_input` | `task`, when labels may also exist |
-| `task_labels` | `gold`, if the object contains more than gold nodes |
-| `memory_items` | `items` |
-| `gold_nodes` | `labels`, when only node IDs are meant |
+| `ranking_record` or `text_request` | `task`, when labels or method-specific requests may also exist |
+| `label_record` | `gold`, if the object contains more than gold IDs |
+| `candidate_sentences` or `candidates` | `items` |
+| `gold_evidence_sentence_ids` | `labels`, when only candidate IDs are meant |
 | `graph_by_task_id` | `graphs` when lookup shape matters |
 | `ranked_nodes` | `results` |
 | `initial_ranking` | `ranking1` |
@@ -106,13 +106,13 @@ Rules:
 
 ## Artifact Field Names
 
-External JSON/CSV fields follow the data contract, not Python naming preferences.
+External JSON/CSV fields follow the data contract, not Python naming preferences. Request dataclasses may intentionally use consumer-side names such as `query_text`, `candidates`, and `item_id`.
 
 Examples:
 
 - `task_id`
-- `memory_items`
-- `gold_evidence_nodes`
+- `candidate_sentences`
+- `gold_evidence_sentence_ids`
 - `ranked_nodes`
 - `retrieved_subgraph`
 - `latency_ms`

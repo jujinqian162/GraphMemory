@@ -61,45 +61,31 @@ class ScriptArtifactWriter(Protocol):
 
 class ManifestScriptArtifactReader:  # implement ScriptArtifactReader
     def load_prepared_dataset(self, artifact_refs: Sequence[str]) -> PreparedDatasetResult:
-        pass
-
+        raise NotImplementedError
     def load_projected_request(self, artifact_refs: Sequence[str]) -> ProjectedRequestResult:
-        pass
-
+        raise NotImplementedError
     def load_graph_result(self, artifact_refs: Sequence[str]) -> GraphBuildResult | None:
-        pass
-
+        raise NotImplementedError
     def load_training_result(self, artifact_refs: Sequence[str]) -> TrainingResult | None:
-        pass
-
+        raise NotImplementedError
     def load_required_training_result(self, artifact_refs: Sequence[str]) -> TrainingResult:
-        pass
-
+        raise NotImplementedError
     def load_temporal_memory_signals(self, artifact_refs: Sequence[str]) -> TemporalMemorySignals:
-        pass
-
+        raise NotImplementedError
     def load_retrieval_result(self, artifact_refs: Sequence[str]) -> RetrievalResult:
-        pass
-
+        raise NotImplementedError
     def load_evaluation_result(self, artifact_refs: Sequence[str]) -> EvaluationResult:
-        pass
-
-
+        raise NotImplementedError
 class ManifestScriptArtifactWriter:  # implement ScriptArtifactWriter
     def write_prepared_dataset(self, result: PreparedDatasetResult, artifact_refs: Sequence[str]) -> None:
-        pass
-
+        raise NotImplementedError
     def write_projected_request(self, result: ProjectedRequestResult, artifact_refs: Sequence[str]) -> None:
-        pass
-
+        raise NotImplementedError
     def write_graph_result(self, result: GraphBuildResult | None, artifact_refs: Sequence[str]) -> None:
-        pass
-
+        raise NotImplementedError
     def write_training_result(self, result: TrainingResult | None, artifact_refs: Sequence[str]) -> None:
-        pass
-
+        raise NotImplementedError
     def write_retrieval_result(self, result: RetrievalResult, artifact_refs: Sequence[str]) -> None:
-        pass
-
+        raise NotImplementedError
     def write_evaluation_result(self, result: EvaluationResult, artifact_refs: Sequence[str]) -> None:
-        pass
+        raise NotImplementedError

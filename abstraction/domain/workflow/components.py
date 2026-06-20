@@ -83,9 +83,7 @@ class StageKindCommandSelector:  # implement StageCommandSelector
             return [*common_arguments, ScriptArgument("evaluation_mode", "projection_only")]
         if stage.stage_kind == StageKind.RUN_METRICS:
             return [*common_arguments, ScriptArgument("evaluation_mode", "prediction_to_metric")]
-        pass
-
-
+        raise NotImplementedError
 class StageGraphCommandPlanner:  # implement WorkflowCommandPlanner
     def __init__(self, stage_command_selector: StageCommandSelector) -> None:
         self.stage_command_selector = stage_command_selector
@@ -115,5 +113,4 @@ class StageGraphCommandPlanner:  # implement WorkflowCommandPlanner
 
 class SequentialWorkflowCommandExecutor:  # implement WorkflowCommandExecutor
     def execute_command_plan(self, plan: WorkflowCommandPlan) -> Sequence[ScriptCommandResult]:
-        pass
-
+        raise NotImplementedError

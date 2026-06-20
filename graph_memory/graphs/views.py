@@ -38,4 +38,3 @@ def model_visible_graph(graph: MemoryGraph, enabled_edge_types: frozenset[str]) 
             if edge.get("edge_type") in enabled_edge_types
         ],
     }
-

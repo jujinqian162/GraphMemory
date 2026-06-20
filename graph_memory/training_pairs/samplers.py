@@ -7,9 +7,9 @@ from typing import Protocol
 
 from graph_memory.contracts.common import TrainPairSampleType
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.bulk import task_groups
+from graph_memory.retrieval.contracts import RankedNode, SeedRanker
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignal, SeedSignalProvider, score_tasks
 
 
@@ -20,7 +20,7 @@ class PairSamplingContext:
     单个 task 的负采样共享状态。
     """
 
-    task_input: MemoryTaskInput
+    text_request: TextRankingRequest
     graph: MemoryGraph
     gold_node_ids: set[str]
     non_gold_node_ids: list[str]
@@ -55,7 +55,7 @@ class BM25HardNegativeSampler:
 
     def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]:
         return _hard_retriever_negatives(
-            self.retriever.rank(context.task_input),
+            self.retriever.rank(context.text_request),
             context.gold_node_ids,
             desired_count=desired_count,
             hard_pool_size=self.hard_pool_size,
@@ -71,12 +71,12 @@ class DenseHardNegativeSampler:
 
     def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]:
         signals = (
-            self.precomputed_signals_by_task_id.get(context.task_input["task_id"])
+            self.precomputed_signals_by_task_id.get(context.text_request.task_id)
             if self.precomputed_signals_by_task_id is not None
             else None
         )
         if signals is None:
-            signals = self.seed_signal_provider.score_task(context.task_input)
+            signals = self.seed_signal_provider.score_task(context.text_request)
         return _hard_retriever_negatives(
             [
                 RankedNode(node_id=signal.node_id, score=signal.score)
@@ -89,16 +89,16 @@ class DenseHardNegativeSampler:
 
     def precompute(
         self,
-        task_inputs: Sequence[MemoryTaskInput],
+        text_requests: Sequence[TextRankingRequest],
     ) -> DenseHardNegativeSampler:
         signals_by_task_id: dict[str, list[SeedSignal]] = {}
-        for task_group in task_groups(task_inputs):
-            for task_input, signals in zip(
-                task_group,
-                score_tasks(self.seed_signal_provider, task_group),
+        for request_group in task_groups(text_requests):
+            for request, signals in zip(
+                request_group,
+                score_tasks(self.seed_signal_provider, request_group),
                 strict=True,
             ):
-                signals_by_task_id[task_input["task_id"]] = signals
+                signals_by_task_id[request.task_id] = signals
         return replace(self, precomputed_signals_by_task_id=signals_by_task_id)
 
 

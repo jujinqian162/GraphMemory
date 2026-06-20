@@ -286,7 +286,7 @@ def _stage_file_parser(description: str) -> argparse.ArgumentParser:
 
 
 def _prepare_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Convert labeled HotpotQA examples into graph-memory artifacts.")
+    parser = argparse.ArgumentParser(description="Convert labeled HotpotQA examples into HotpotQA ranking and label artifacts.")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output_input", required=True)
     parser.add_argument("--output_labels", required=True)
@@ -299,7 +299,7 @@ def _prepare_parser() -> argparse.ArgumentParser:
 
 
 def _graphs_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build typed memory graphs from task inputs.")
+    parser = argparse.ArgumentParser(description="Build typed memory graphs from HotpotQA ranking records.")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--max_query_overlap", type=int, default=20)

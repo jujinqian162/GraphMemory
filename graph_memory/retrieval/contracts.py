@@ -5,7 +5,7 @@ from typing import Protocol
 
 from graph_memory.contracts.common import NodeId, Score
 from graph_memory.contracts.graphs import GraphEdge
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class SeedRanker(Protocol):
     def method_name(self) -> str:
         ...
 
-    def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         ...
 
 
@@ -39,5 +39,10 @@ class RetrievalMethod(Protocol):
     def name(self) -> str:
         ...
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
+    def rank_task(
+        self,
+        request: RankingMethodRequest,
+        *,
+        top_k: int,
+    ) -> RetrievalMethodResult:
         ...

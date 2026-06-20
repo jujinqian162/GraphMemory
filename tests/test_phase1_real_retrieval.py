@@ -6,9 +6,11 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import cast
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import EncoderSource, GraphInputSource, ModelSource, RetrievalLifecycle, SelectedConfigSource
 from graph_memory.registry.retrieval import (
@@ -28,7 +30,7 @@ from graph_memory.retrieval.methods.graph_rerank.normalization import normalize_
 from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.retrieval.requests import DenseRuntime
+from graph_memory.retrieval.requests import DenseRuntime, TextRankingRequest
 from graph_memory.retrieval.methods.graph_rerank.config import (
     GraphRerankConfig,
     ensure_graph_rerank_config,
@@ -182,8 +184,8 @@ def tune_graph_rerank(
 ):
     return tune_graph_rerank_service(
         method=method,
-        task_inputs=task_inputs,
-        labels=labels,
+        ranking_requests=[HotpotQAToTextRankingRequest().project(task_input) for task_input in task_inputs],
+        labels=evidence_labels(labels),
         graphs=graphs,
         grid=grid,
         top_k=top_k,
@@ -207,34 +209,31 @@ def rank_graph_for_test(initial_scores: dict[str, float], graph: MemoryGraph, co
     ).ranked_nodes
 
 
-def retrieval_task_inputs() -> list[MemoryTaskInput]:
+def retrieval_task_inputs() -> list[HotpotQARankingRecord]:
     return [
         {
             "task_id": "hotpot_ex1",
-            "query": "Which river runs through the city with the Eiffel Tower?",
-            "memory_items": [
+            "question": "Which river runs through the city with the Eiffel Tower?",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m0",
                     "text": "The Eiffel Tower is in Paris.",
-                    "source": "Eiffel Tower",
-                    "sentence_id": 0,
+                    "title": "Eiffel Tower",
+                    "sentence_index": 0,
                     "position": 0,
                 },
                 {
-                    "id": "m1",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m1",
                     "text": "The Seine runs through Paris.",
-                    "source": "Paris",
-                    "sentence_id": 0,
+                    "title": "Paris",
+                    "sentence_index": 0,
                     "position": 1,
                 },
                 {
-                    "id": "m2",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m2",
                     "text": "Mount Everest is tall.",
-                    "source": "Mount Everest",
-                    "sentence_id": 0,
+                    "title": "Mount Everest",
+                    "sentence_index": 0,
                     "position": 2,
                 },
             ],
@@ -242,14 +241,47 @@ def retrieval_task_inputs() -> list[MemoryTaskInput]:
     ]
 
 
-def retrieval_task_labels() -> list[MemoryTaskLabels]:
+def retrieval_task_labels() -> list[HotpotQALabelRecord]:
     return [
         {
             "task_id": "hotpot_ex1",
             "gold_answer": "Seine",
-            "gold_evidence_nodes": ["m0", "m1"],
+            "gold_evidence_sentence_ids": ["m0", "m1"],
             "gold_dependency_edges": [],
         }
+    ]
+
+
+def retrieval_ranking_requests() -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task) for task in retrieval_task_inputs()]
+
+
+def evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
+
+
+def _graph_nodes(record: HotpotQARankingRecord) -> list[GraphItemNode]:
+    return [
+        {
+            "id": sentence["sentence_id"],
+            "node_type": "graph_item",
+            "node_kind": "document_sentence",
+            "text": sentence["text"],
+            "source_ref": sentence["title"],
+            "group_key": f"document:{sentence['title']}",
+            "sequence_index": sentence["sentence_index"],
+            "metadata": {"title": sentence["title"], "position": sentence["position"]},
+        }
+        for sentence in record["candidate_sentences"]
     ]
 
 
@@ -259,8 +291,8 @@ def retrieval_graphs() -> list[MemoryGraph]:
         {
             "task_id": "hotpot_ex1",
             "nodes": [
-                {"id": "q", "node_type": "question", "text": task_input["query"]},
-                *task_input["memory_items"],
+                {"id": "q", "node_type": "question", "text": task_input["question"]},
+                *_graph_nodes(task_input),
             ],
             "edges": [
                 {"source": "q", "target": "m0", "edge_type": "query_overlap", "weight": 1.0, "directed": True},
@@ -302,7 +334,7 @@ def test_bm25_and_dense_emit_same_ranked_schema():
         )
 
         assert result[0]["method"] == method
-        assert len(result[0]["ranked_nodes"]) == len(retrieval_task_inputs()[0]["memory_items"])
+        assert len(result[0]["ranked_nodes"]) == len(retrieval_task_inputs()[0]["candidate_sentences"])
         assert "node_id" in result[0]["ranked_nodes"][0]
         assert "score" in result[0]["ranked_nodes"][0]
         assert len(result[0]["retrieved_subgraph"]["nodes"]) <= 2
@@ -394,7 +426,7 @@ def test_type_weights_is_rejected_even_when_neighbor_type_weights_is_present():
 
 def test_graph_pipeline_requires_graph_for_every_task():
     task_inputs = retrieval_task_inputs()
-    second_task: MemoryTaskInput = {
+    second_task: HotpotQARankingRecord = {
         **task_inputs[0],
         "task_id": "hotpot_ex2",
     }
@@ -534,25 +566,23 @@ def test_graph_rerank_normalizes_graph_components_before_combining():
 
 
 def test_retrieval_pipeline_normalizes_graph_components_before_combining():
-    task_inputs: list[MemoryTaskInput] = [
+    task_inputs: list[HotpotQARankingRecord] = [
         {
             "task_id": "hotpot_ex1",
-            "query": "Which city has the landmark?",
-            "memory_items": [
+            "question": "Which city has the landmark?",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m0",
                     "text": "The best evidence sentence.",
-                    "source": "Evidence",
-                    "sentence_id": 0,
+                    "title": "Evidence",
+                    "sentence_index": 0,
                     "position": 0,
                 },
                 {
-                    "id": "m1",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m1",
                     "text": "A noisy graph distractor.",
-                    "source": "Noise",
-                    "sentence_id": 0,
+                    "title": "Noise",
+                    "sentence_index": 0,
                     "position": 1,
                 },
             ],
@@ -562,8 +592,8 @@ def test_retrieval_pipeline_normalizes_graph_components_before_combining():
         {
             "task_id": "hotpot_ex1",
             "nodes": [
-                {"id": "q", "node_type": "question", "text": task_inputs[0]["query"]},
-                *task_inputs[0]["memory_items"],
+                {"id": "q", "node_type": "question", "text": task_inputs[0]["question"]},
+                *_graph_nodes(task_inputs[0]),
             ],
             "edges": [
                 {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 10_000.0, "directed": True},
@@ -573,7 +603,7 @@ def test_retrieval_pipeline_normalizes_graph_components_before_combining():
 
     result = run_graph_rerank_from_seed_score_cache(
         method="dense_graph_rerank",
-        task_inputs=task_inputs,
+        ranking_requests=[HotpotQAToTextRankingRequest().project(task_input) for task_input in task_inputs],
         graphs=graphs,
         seed_score_cache=SeedScoreCache(
             scores_by_task_id={"hotpot_ex1": {"m0": 1.0, "m1": 0.95}},
@@ -672,7 +702,7 @@ def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
     direct_result = rank_graph_from_initial_scores(initial_scores, retrieval_graphs()[0], config, top_k=2)
     retrieval_result = run_graph_rerank_from_seed_score_cache(
         method="bm25_graph_rerank",
-        task_inputs=retrieval_task_inputs(),
+        ranking_requests=retrieval_ranking_requests(),
         graphs=retrieval_graphs(),
         seed_score_cache=SeedScoreCache(
             scores_by_task_id={"hotpot_ex1": initial_scores},
@@ -866,19 +896,20 @@ def test_tuning_candidate_metrics_match_normal_retrieval_path():
         dense_encoder=FakeEncoder(),
     )
     expected_rows = evaluate_results(
-        run_retrieval(
-            method="dense_graph_rerank",
-            task_inputs=retrieval_task_inputs(),
+        EvidenceEvaluationRequest(
+            predictions=run_retrieval(
+                method="dense_graph_rerank",
+                task_inputs=retrieval_task_inputs(),
+                graphs=graphs,
+                top_k=2,
+                encoder_model="fake-model",
+                dense_encoder=FakeEncoder(),
+                graph_config=config,
+            ),
+            labels=evidence_labels(retrieval_task_labels()),
             graphs=graphs,
-            top_k=2,
-            encoder_model="fake-model",
-            dense_encoder=FakeEncoder(),
-            graph_config=config,
-        ),
-        retrieval_task_labels(),
-        graphs,
+        )
     )
-
     for key, value in expected_rows[0].items():
         if key == "Retrieval Latency / Query":
             continue

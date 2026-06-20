@@ -6,7 +6,8 @@ from pathlib import Path
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest, HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
@@ -30,6 +31,7 @@ from graph_memory.retrieval.methods.memory_stream.config import (
     MemoryStreamScoringConfig,
     parse_memory_stream_scoring_config,
 )
+from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextRankingRequest
 
 
 @dataclass(frozen=True)
@@ -41,19 +43,23 @@ class RetrieveStageResult:
 def run_retrieve_stage(
     config: RetrieveStageConfig,
     *,
-    task_inputs: list[MemoryTaskInput],
+    task_inputs: list[HotpotQARankingRecord],
     graphs: list[MemoryGraph] | None,
     selected_config: GraphRerankConfig | MemoryStreamScoringConfig | Mapping[str, object] | None = None,
     importance_artifact: ImportanceArtifact | None = None,
     importance_sha256: str | None = None,
     dense_encoder: SentenceEncoder | None = None,
 ) -> RetrieveStageResult:
+    ranking_requests = _text_requests(task_inputs)
+    temporal_requests = _temporal_requests(task_inputs)
+    graph_list = graphs or []
     built = Registry.retrieval.build(
         config.job,
         _build_payload(
             config,
-            task_inputs=task_inputs,
-            graphs=graphs,
+            ranking_requests=ranking_requests,
+            temporal_requests=temporal_requests,
+            graphs=graph_list,
             selected_config=selected_config,
             importance_artifact=importance_artifact,
             importance_sha256=importance_sha256,
@@ -62,7 +68,7 @@ def run_retrieve_stage(
     )
     predictions = run_retrieval(
         retrieval_method=built.method,
-        task_inputs=task_inputs,
+        tasks=built.execution_tasks,
         top_k=config.job.top_k,
     )
     return RetrieveStageResult(predictions=predictions, provenance=built.provenance)
@@ -71,8 +77,9 @@ def run_retrieve_stage(
 def _build_payload(
     config: RetrieveStageConfig,
     *,
-    task_inputs: list[MemoryTaskInput],
-    graphs: list[MemoryGraph] | None,
+    ranking_requests: list[TextRankingRequest],
+    temporal_requests: list[TemporalMemoryRankingRequest],
+    graphs: list[MemoryGraph],
     selected_config: GraphRerankConfig | MemoryStreamScoringConfig | Mapping[str, object] | None,
     importance_artifact: ImportanceArtifact | None,
     importance_sha256: str | None,
@@ -80,10 +87,10 @@ def _build_payload(
 ) -> object:
     job = config.job
     if isinstance(job, (Bm25RetrievalSettings, DenseRetrievalSettings, DenseFinetunedRetrievalSettings)):
-        return FlatRetrievalBuildPayload(task_inputs=task_inputs, dense_encoder=dense_encoder)
+        return FlatRetrievalBuildPayload(ranking_requests=ranking_requests, dense_encoder=dense_encoder)
     if isinstance(job, MemoryStreamRetrievalSettings):
         return MemoryStreamBuildPayload(
-            task_inputs=task_inputs,
+            temporal_requests=temporal_requests,
             importance_artifact=_require_memory_stream_importance_artifact(config, importance_artifact),
             importance_path=_require_memory_stream_importance_path(config),
             importance_sha256=_require_memory_stream_importance_sha256(config, importance_sha256),
@@ -92,18 +99,29 @@ def _build_payload(
         )
     if isinstance(job, GraphRerankRetrievalSettings):
         return GraphRerankBuildPayload(
-            task_inputs=task_inputs,
-            graphs=graphs or [],
+            ranking_requests=ranking_requests,
+            graphs=graphs,
             graph_config=_selected_graph_rerank_config(selected_config),
             dense_encoder=dense_encoder,
         )
     if isinstance(job, CheckpointGraphRetrievalSettings):
         return CheckpointGraphBuildPayload(
-            task_inputs=task_inputs,
-            graphs=graphs or [],
+            ranking_requests=ranking_requests,
+            graphs=graphs,
             dense_encoder=dense_encoder,
         )
     raise ValueError(f"Unsupported retrieval job config: {type(job).__name__}")
+
+
+def _text_requests(task_inputs: list[HotpotQARankingRecord]) -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(record) for record in task_inputs]
+
+
+def _temporal_requests(task_inputs: list[HotpotQARankingRecord]) -> list[TemporalMemoryRankingRequest]:
+    projector = HotpotQAToTemporalMemoryRankingRequest()
+    return [projector.project(record, {}) for record in task_inputs]
+
 
 
 def _selected_memory_stream_scoring_config(

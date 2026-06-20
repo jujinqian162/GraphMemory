@@ -22,4 +22,3 @@ def sample_split(examples: Sequence[T], count: int, seed: int, offset: int = 0) 
     rng.shuffle(indices)
     selected_indices = indices[offset : offset + count]
     return [examples[index] for index in selected_indices]
-

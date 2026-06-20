@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
+from graph_memory.evaluation.service import evaluate_results
 from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.execution.results import assemble_ranked_result
@@ -26,13 +27,12 @@ from graph_memory.retrieval.methods.memory_stream.scoring import (
     rank_memory_stream_scores,
     score_memory_stream,
 )
-from graph_memory.retrieval.requests import DenseRuntime
+from graph_memory.retrieval.requests import DenseRuntime, TemporalMemoryRankingRequest, TextRankingRequest
 from graph_memory.retrieval.tuning.seed_scores import precompute_seed_score_cache
 from graph_memory.retrieval.tuning.selection import retrieval_candidate_key
 from graph_memory.tuning.grid_search import GridSearchRunner
 from graph_memory.validation import (
     select_importance_records,
-    validate_memory_task_inputs,
     validate_ranked_results,
 )
 
@@ -50,16 +50,17 @@ class MemoryStreamSignalCache:
 
 def precompute_memory_stream_signal_cache(
     *,
-    task_inputs: list[MemoryTaskInput],
+    temporal_requests: list[TemporalMemoryRankingRequest],
     importance_artifact: ImportanceArtifact,
     dense_runtime: DenseRuntime,
 ) -> MemoryStreamSignalCache:
+    text_requests = [_text_request_from_temporal(request) for request in temporal_requests]
     seed_cache = precompute_seed_score_cache(
         seed_method=RetrievalMethodId.DENSE,
-        task_inputs=task_inputs,
+        ranking_requests=text_requests,
         dense_runtime=dense_runtime,
     )
-    importance_records = select_importance_records(importance_artifact, task_inputs)
+    importance_records = select_importance_records(importance_artifact, temporal_requests)
     importance_by_task_id = {
         record["task_id"]: {
             node_id: float(score)
@@ -70,8 +71,8 @@ def precompute_memory_stream_signal_cache(
 
     normalized_relevance: dict[str, dict[str, float]] = {}
     normalized_importance: dict[str, dict[str, float]] = {}
-    for task_input in task_inputs:
-        task_id = task_input["task_id"]
+    for request in temporal_requests:
+        task_id = request.task_id
         normalized = normalize_memory_stream_signals(
             RawMemoryStreamSignals(
                 relevance_by_node_id=seed_cache.scores_by_task_id[task_id],
@@ -79,12 +80,8 @@ def precompute_memory_stream_signal_cache(
                 importance_by_node_id=importance_by_task_id[task_id],
             )
         )
-        normalized_relevance[task_id] = dict(
-            normalized.relevance_by_node_id
-        )
-        normalized_importance[task_id] = dict(
-            normalized.importance_by_node_id
-        )
+        normalized_relevance[task_id] = dict(normalized.relevance_by_node_id)
+        normalized_importance[task_id] = dict(normalized.importance_by_node_id)
 
     return MemoryStreamSignalCache(
         relevance_by_task_id=normalized_relevance,
@@ -95,21 +92,17 @@ def precompute_memory_stream_signal_cache(
 
 def run_memory_stream_from_signal_cache(
     *,
-    task_inputs: list[MemoryTaskInput],
+    temporal_requests: list[TemporalMemoryRankingRequest],
     signal_cache: MemoryStreamSignalCache,
     top_k: int,
     scoring: MemoryStreamScoringConfig,
 ) -> list[RankedResult]:
     if top_k <= 0:
         raise ValueError("top_k must be a positive integer.")
-    validate_memory_task_inputs(task_inputs)
-    inputs_by_task_id = {
-        task_input["task_id"]: task_input for task_input in task_inputs
-    }
 
     predictions: list[RankedResult] = []
-    for task_input in task_inputs:
-        task_id = task_input["task_id"]
+    for request in temporal_requests:
+        task_id = request.task_id
         try:
             relevance = signal_cache.relevance_by_task_id[task_id]
             importance = signal_cache.importance_by_task_id[task_id]
@@ -121,7 +114,7 @@ def run_memory_stream_from_signal_cache(
         started = time.perf_counter()
         recency = normalize_task_signal(
             pseudo_recency_scores(
-                task_input,
+                request,
                 decay=scoring.recency_decay,
             )
         )
@@ -140,7 +133,7 @@ def run_memory_stream_from_signal_cache(
         ranking_latency_ms = (time.perf_counter() - started) * 1000.0
         predictions.append(
             assemble_ranked_result(
-                task_input=task_input,
+                text_request=_text_request_from_temporal(request),
                 method=RetrievalMethodId.MEMORY_STREAM.value,
                 ranked_nodes=ranked_nodes,
                 top_k=top_k,
@@ -152,14 +145,14 @@ def run_memory_stream_from_signal_cache(
             )
         )
 
-    validate_ranked_results(predictions, inputs_by_task_id)
+    validate_ranked_results(predictions, [_text_request_from_temporal(request) for request in temporal_requests])
     return predictions
 
 
 def tune_memory_stream(
     *,
-    task_inputs: list[MemoryTaskInput],
-    labels: list[MemoryTaskLabels],
+    temporal_requests: list[TemporalMemoryRankingRequest],
+    labels: list[EvidenceLabel],
     graphs: list[MemoryGraph],
     importance_artifact: ImportanceArtifact,
     grid: list[MemoryStreamScoringConfig],
@@ -169,10 +162,8 @@ def tune_memory_stream(
     MemoryStreamScoringConfigRecord,
     list[MemoryStreamTuningCandidateRow],
 ]:
-    from graph_memory.evaluation.service import evaluate_results
-
     signal_cache = precompute_memory_stream_signal_cache(
-        task_inputs=task_inputs,
+        temporal_requests=temporal_requests,
         importance_artifact=importance_artifact,
         dense_runtime=dense_runtime or DenseRuntime(config=DenseConfig()),
     )
@@ -181,12 +172,12 @@ def tune_memory_stream(
         scoring: MemoryStreamScoringConfig,
     ) -> MemoryStreamTuningCandidateRow:
         predictions = run_memory_stream_from_signal_cache(
-            task_inputs=task_inputs,
+            temporal_requests=temporal_requests,
             signal_cache=signal_cache,
             top_k=top_k,
             scoring=scoring,
         )
-        metric_rows = evaluate_results(predictions, labels, graphs)
+        metric_rows = evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=labels, graphs=graphs))
         if len(metric_rows) != 1:
             raise ValueError(
                 "Expected one aggregate metric row per tuning candidate."
@@ -204,10 +195,12 @@ def tune_memory_stream(
         grid,
         evaluate_candidate,
     )
-    candidate_rows = [
-        candidate.evaluation for candidate in result.candidates
-    ]
+    candidate_rows = [candidate.evaluation for candidate in result.candidates]
     return result.selected.evaluation["config"], candidate_rows
+
+
+def _text_request_from_temporal(request: TemporalMemoryRankingRequest) -> TextRankingRequest:
+    return TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
 
 
 __all__ = [

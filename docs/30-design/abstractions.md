@@ -33,7 +33,7 @@ Recommended forms:
 | `TaskId`, `NodeId`, `MethodName`, `Score` | simple aliases |
 | node types, edge types, method names | `Literal` first; `Enum` only if needed |
 | parsed raw dataset examples | small frozen dataclasses |
-| `MemoryTaskInput`, `MemoryTaskLabels`, `MemoryGraph` | `TypedDict` |
+| `HotpotQARankingRecord`, `HotpotQALabelRecord`, `MemoryGraph` | `TypedDict` |
 | `RankedNode`, `RerankResult`, score components | frozen dataclasses |
 | configs | frozen dataclasses |
 | metric rows and run summaries | JSON/CSV-shaped dicts with validation |
@@ -53,28 +53,28 @@ Concrete types that define stable contracts must follow the bilingual triple-quo
 `docs/20-contracts/README.md`. Field meaning belongs in the type docstring and contract document, not only in
 inline comments.
 
-## Retriever
+## SeedRanker
 
 Purpose:
 
 ```text
-MemoryTaskInput -> complete ranking over memory node IDs
+TextRankingRequest -> complete ranking over candidate item IDs
 ```
 
 Contract:
 
 ```python
-class Retriever(Protocol):
+class SeedRanker(Protocol):
     method_name: str
 
-    def rank(self, task: MemoryTaskInput) -> list[RankedNode]:
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         ...
 ```
 
 Rules:
 
-- Handles one task at a time.
-- Returns every memory node exactly once.
+- Handles one request at a time.
+- Returns every candidate item exactly once.
 - Does not read labels.
 - Does not compute metrics.
 - Does not write files.
@@ -85,7 +85,7 @@ Rules:
 Purpose:
 
 ```text
-MemoryTaskInput + optional graph context -> final ranked nodes and retrieved subgraph edges
+TextRankingRequest | GraphRankingRequest | TemporalMemoryRankingRequest -> final ranked nodes and retrieved subgraph trace
 ```
 
 Contract:
@@ -94,7 +94,12 @@ Contract:
 class RetrievalMethod(Protocol):
     name: str
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> tuple[list[RankedNode], list[GraphEdge]]:
+    def rank_task(
+        self,
+        request: TextRankingRequest | GraphRankingRequest | TemporalMemoryRankingRequest,
+        *,
+        top_k: int,
+    ) -> RetrievalMethodResult:
         ...
 ```
 
@@ -102,7 +107,8 @@ Rules:
 
 - Is the top-level internal boundary for public baseline names such as `bm25`, `dense`, `bm25_graph_rerank`, and future methods.
 - Owns method-specific requirements such as whether graphs and graph configs are required.
-- Returns every memory node exactly once in the ranked node list.
+- Consumes only the request type required by the method family.
+- Returns every candidate item exactly once in the ranked node list.
 - Does not read labels, compute metrics, or write files.
 - May be implemented by a score pipeline, graph traversal method, hierarchical memory method, or trainable graph retriever.
 
@@ -113,7 +119,7 @@ This is the stable abstraction for future baseline growth. Do not make weighted 
 Purpose:
 
 ```text
-Retriever.rank(task_input) -> complete flat ranking
+SeedRanker.rank(request) -> complete flat ranking
 ```
 
 Use this implementation for public flat baselines whose final ranking is exactly the seed retriever output:
@@ -131,12 +137,12 @@ Rules:
 
 ## RetrievalMethodSpec Registry
 
-Public method dispatch uses the static catalog in `graph_memory/retrieval/catalog.py` because methods have different required inputs. `graph_memory/retrieval_registry.py` is retained only as a thin workflow integration port over the catalog.
+Public method dispatch uses `graph_memory.registry.methods` as the single source of method metadata. Runtime construction stays in `graph_memory/registry/retrieval_builders.py` and method-family packages under `graph_memory/retrieval/methods/`.
 
 Purpose:
 
 ```text
-method name -> method metadata + runtime builder id
+method name -> method metadata + typed runtime builder
 ```
 
 Rules:
@@ -240,13 +246,13 @@ Trainable graph retrieval needs a shared abstraction for frozen baseline retriev
 Purpose:
 
 ```text
-MemoryTaskInput -> one seed score/rank signal per memory node
+TextRankingRequest -> one seed score/rank signal per candidate item
 ```
 
 Rules:
 
 - Used by hard negative sampling, node feature construction, and trainable retrieval inference.
-- Returns every memory node exactly once and never returns `q`.
+- Returns every candidate item exactly once and never returns `q`.
 - Does not read labels.
 - Uses deterministic tie-breaking.
 - Keeps score, rank, and rank-percentile semantics explicit.
@@ -258,14 +264,15 @@ The field contract lives in `docs/20-contracts/retrieval-contracts.md`.
 Keep graph construction function-based in Phase 1:
 
 ```text
-build_graph(task_input, config) -> MemoryGraph
-build_graphs(task_inputs, config) -> list[MemoryGraph]
+GraphBuildRequest -> MemoryGraph
+build_graph(request, config) -> MemoryGraph
+build_graphs(requests, config) -> list[MemoryGraph]
 graph_statistics(graphs) -> dict
 ```
 
 Rules:
 
-- Reads only input-visible task records.
+- Reads only input-visible graph build requests produced by dataset-specific projectors.
 - Does not read labels.
 - Does not run retrieval.
 - Does not compute evaluation metrics.
@@ -288,14 +295,14 @@ query_evidence_connectivity_at(...)
 The aggregate evaluator owns task joins:
 
 ```text
-evaluate_results(predictions, labels, graphs) -> list[EvaluationRow]
+evaluate_results(EvidenceEvaluationRequest) -> list[EvaluationRow]
 ```
 
 Rules:
 
-- Reads labels and graphs.
+- Reads predictions, labels, and graphs from an `EvidenceEvaluationRequest`.
 - Never re-runs retrieval.
-- Never reads gold fields from input task artifacts.
+- Never reads gold fields from ranking records.
 - Raises if predictions, labels, and graphs do not align.
 
 ## Validation
@@ -303,10 +310,10 @@ Rules:
 Validators are fail-fast functions:
 
 ```text
-validate_memory_task_inputs(records) -> None
-validate_memory_task_labels(records, inputs_by_task_id) -> None
-validate_graphs(graphs, inputs_by_task_id) -> None
-validate_ranked_results(predictions, inputs_by_task_id) -> None
+validate_hotpotqa_ranking_records(records) -> None
+validate_hotpotqa_label_records(records, ranking_records_by_task_id) -> None
+validate_graphs(graphs, ranking_records_by_task_id) -> None
+validate_ranked_results(predictions, ranking_records_by_task_id) -> None
 ```
 
 Rules:

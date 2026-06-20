@@ -9,4 +9,3 @@ class GraphBuildConfig:
     max_entity_neighbors: int = 10
     max_bridge_edges: int = 50
     use_spacy: bool = False
-

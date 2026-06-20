@@ -4,8 +4,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from graph_memory.contracts.common import NodeId
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.contracts.errors import ContractValidationError
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
+from graph_memory.retrieval.requests import TemporalMemoryRankingRequest
 
 
 @dataclass(frozen=True)
@@ -48,16 +49,18 @@ def normalize_memory_stream_signals(raw_signals: RawMemoryStreamSignals) -> Norm
 
 
 def pseudo_recency_scores(
-    task_input: MemoryTaskInput,
+    request: TemporalMemoryRankingRequest,
     *,
     decay: float,
 ) -> dict[NodeId, float]:
-    """Compute decay ** (max_position - position) for each memory item."""
-    memory_items = task_input["memory_items"]
-    max_position = max(item["position"] for item in memory_items)
+    """Compute decay ** (max_position - position) for each temporal candidate."""
+    position_by_item_id = _position_by_item_id(request)
+    if not position_by_item_id:
+        return {}
+    max_position = max(position_by_item_id.values())
     return {
-        memory_item["id"]: decay ** (max_position - memory_item["position"])
-        for memory_item in memory_items
+        item_id: decay ** (max_position - position)
+        for item_id, position in position_by_item_id.items()
     }
 
 
@@ -84,6 +87,33 @@ def score_memory_stream(
 def rank_memory_stream_scores(score_by_node_id: Mapping[NodeId, float]) -> list[tuple[NodeId, float]]:
     """Sort by descending score and ascending node id."""
     return sorted(score_by_node_id.items(), key=lambda item: (-item[1], item[0]))
+
+
+def _position_by_item_id(request: TemporalMemoryRankingRequest) -> dict[NodeId, int]:
+    raw_positions = request.metadata.get("position_by_item_id")
+    if not isinstance(raw_positions, Mapping):
+        raise ContractValidationError(
+            f"Invalid temporal memory request: task_id={request.task_id} missing position_by_item_id metadata."
+        )
+    expected_ids = {candidate.item_id for candidate in request.candidates}
+    positions: dict[NodeId, int] = {}
+    for item_id, position in raw_positions.items():
+        if not isinstance(item_id, str) or not item_id:
+            raise ContractValidationError(
+                f"Invalid temporal memory request: task_id={request.task_id} position item ids must be non-empty strings."
+            )
+        if not isinstance(position, int) or isinstance(position, bool):
+            raise ContractValidationError(
+                f"Invalid temporal memory request: task_id={request.task_id} item_id={item_id} position must be an integer."
+            )
+        positions[item_id] = position
+    missing = sorted(expected_ids - set(positions))
+    extra = sorted(set(positions) - expected_ids)
+    if missing or extra:
+        raise ContractValidationError(
+            f"Invalid temporal memory request: task_id={request.task_id} position ids mismatch missing={missing} extra={extra}."
+        )
+    return positions
 
 
 def _all_node_ids(signals: RawMemoryStreamSignals | NormalizedMemoryStreamSignals) -> set[NodeId]:

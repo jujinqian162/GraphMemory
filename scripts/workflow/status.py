@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -363,9 +363,9 @@ def _summary_status(
     path: str,
     summary_path: Path,
     script: str,
-    expected_inputs: dict[str, object],
-    expected_outputs: dict[str, object],
-    expected_config: dict[str, object],
+    expected_inputs: Mapping[str, object],
+    expected_outputs: Mapping[str, object],
+    expected_config: Mapping[str, object],
     method: str | None = None,
     split: str | None = None,
     artifact_kind: ArtifactKind | None = None,
@@ -457,7 +457,7 @@ def _same_path(left: object, right: str | Path) -> bool:
     return isinstance(left, str) and Path(left) == Path(right)
 
 
-def _summary_section_matches(section: object, expected: dict[str, object], *, path_values: bool) -> bool:
+def _summary_section_matches(section: object, expected: Mapping[str, object], *, path_values: bool) -> bool:
     if not isinstance(section, dict):
         return not expected
     for key, expected_value in expected.items():

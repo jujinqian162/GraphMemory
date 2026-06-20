@@ -3,38 +3,39 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from graph_memory.contracts.tasks import MemoryTaskInput
-from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
+from graph_memory.contracts.errors import ContractValidationError
 from graph_memory.retrieval.methods.memory_stream.artifact import (
     importance_content_digest,
     task_node_ids,
 )
-from graph_memory.contracts.errors import ContractValidationError
+from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
+from graph_memory.retrieval.requests import TemporalMemoryRankingRequest
 
 ARTIFACT_FIELDS = {"schema_version", "method", "tasks"}
 TASK_RECORD_FIELDS = {"task_id", "content_digest", "scores"}
 
 
-def validate_importance_artifact(artifact: object, task_inputs: Sequence[MemoryTaskInput]) -> None:
+def validate_importance_artifact(artifact: object, temporal_requests: Sequence[TemporalMemoryRankingRequest]) -> None:
     tasks = _validate_artifact_envelope(artifact)
-    if len(tasks) != len(task_inputs):
+    if len(tasks) != len(temporal_requests):
         raise ContractValidationError(
-            f"Invalid importance artifact: task count mismatch expected={len(task_inputs)} observed={len(tasks)}."
+            f"Invalid importance artifact: task count mismatch expected={len(temporal_requests)} observed={len(tasks)}."
         )
-    for index, (task_record, task_input) in enumerate(zip(tasks, task_inputs, strict=True)):
+    for index, (task_record, request) in enumerate(zip(tasks, temporal_requests, strict=True)):
         if not isinstance(task_record, Mapping):
             raise ContractValidationError(f"Invalid importance artifact: task record index={index} is not an object.")
         record = cast(Mapping[str, object], task_record)
-        if record.get("task_id") != task_input["task_id"]:
+        if record.get("task_id") != request.task_id:
             raise ContractValidationError(
-                f"Invalid importance artifact: task order mismatch index={index} expected={task_input['task_id']} observed={record.get('task_id')}."
+                "Invalid importance artifact: "
+                f"task order mismatch index={index} expected={request.task_id} observed={record.get('task_id')}."
             )
-        validate_task_importance_record(record, task_input)
+        validate_task_importance_record(record, request)
 
 
 def select_importance_records(
     artifact: object,
-    task_inputs: Sequence[MemoryTaskInput],
+    temporal_requests: Sequence[TemporalMemoryRankingRequest],
 ) -> list[TaskImportanceRecord]:
     task_records = _validate_artifact_envelope(artifact)
     records_by_task_id: dict[str, Mapping[str, object]] = {}
@@ -57,27 +58,26 @@ def select_importance_records(
         records_by_task_id[task_id] = record
 
     selected: list[TaskImportanceRecord] = []
-    for task_input in task_inputs:
-        task_id = task_input["task_id"]
-        task_record = records_by_task_id.get(task_id)
+    for request in temporal_requests:
+        task_record = records_by_task_id.get(request.task_id)
         if task_record is None:
             raise ContractValidationError(
-                f"Invalid importance artifact: missing task_id={task_id}."
+                f"Invalid importance artifact: missing task_id={request.task_id}."
             )
-        validate_task_importance_record(task_record, task_input)
+        validate_task_importance_record(task_record, request)
         selected.append(cast(TaskImportanceRecord, task_record))
     return selected
 
 
-def validate_task_importance_record(record: object, task_input: MemoryTaskInput) -> None:
+def validate_task_importance_record(record: object, request: TemporalMemoryRankingRequest) -> None:
     task_record = _require_mapping(record, "task importance record")
-    task_id = task_input["task_id"]
+    task_id = request.task_id
     _reject_unknown(task_record, TASK_RECORD_FIELDS, "task importance record", task_id=task_id)
     if task_record.get("task_id") != task_id:
         raise ContractValidationError(
             f"Invalid task importance record: task_id={task_id} observed task_id={task_record.get('task_id')}."
         )
-    expected_digest = importance_content_digest(task_input)
+    expected_digest = importance_content_digest(request)
     if task_record.get("content_digest") != expected_digest:
         raise ContractValidationError(
             f"Invalid task importance record: task_id={task_id} content_digest mismatch."
@@ -85,7 +85,7 @@ def validate_task_importance_record(record: object, task_input: MemoryTaskInput)
     scores = task_record.get("scores")
     if not isinstance(scores, Mapping):
         raise ContractValidationError(f"Invalid task importance record: task_id={task_id} scores must be an object.")
-    _validate_score_mapping(cast(Mapping[str, object], scores), task_input, artifact_name="task importance record")
+    _validate_score_mapping(cast(Mapping[str, object], scores), request, artifact_name="task importance record")
 
 
 def _validate_artifact_envelope(artifact: object) -> list[object]:
@@ -103,18 +103,18 @@ def _validate_artifact_envelope(artifact: object) -> list[object]:
 
 def _validate_score_mapping(
     scores: Mapping[str, object],
-    task_input: MemoryTaskInput,
+    request: TemporalMemoryRankingRequest,
     *,
     artifact_name: str,
 ) -> None:
-    task_id = task_input["task_id"]
-    expected_ids = set(task_node_ids(task_input))
+    task_id = request.task_id
+    expected_ids = set(task_node_ids(request))
     observed_ids = set(scores)
     if expected_ids != observed_ids:
         missing = sorted(expected_ids - observed_ids)
         extra = sorted(observed_ids - expected_ids)
         raise ContractValidationError(f"Invalid {artifact_name}: task_id={task_id} missing={missing} extra={extra}.")
-    for node_id in task_node_ids(task_input):
+    for node_id in task_node_ids(request):
         value = scores[node_id]
         if not isinstance(value, int) or isinstance(value, bool):
             raise ContractValidationError(

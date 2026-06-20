@@ -43,8 +43,8 @@ class TrainPairRecord(TypedDict):
     一个 query-node 监督样本对应的训练 pair artifact 行。
 
     Fields / 字段:
-    - task_id: Task join key matching memory task, label, and graph artifacts.
-      task_id：任务 join key，必须匹配 memory task、label 和 graph artifact。
+    - task_id: Task join key matching ranking record, label, and graph artifacts.
+      task_id：任务 join key，必须匹配 ranking record、label 和 graph artifact。
     - node_id: Memory node id being supervised; must not be the question node `q`.
       node_id：被监督的 memory node id；不能是问题节点 `q`。
     - label: Binary evidence label, where 1 means gold evidence and 0 means sampled negative.
@@ -145,8 +145,8 @@ class TrainPairRecord(TypedDict):
     一个 query-node 监督样本对应的训练 pair artifact 行。
 
     Fields / 字段:
-    - task_id: Task join key matching memory task, label, and graph artifacts.
-      task_id：任务 join key，必须匹配 memory task、label 和 graph artifact。
+    - task_id: Task join key matching ranking record, label, and graph artifacts.
+      task_id：任务 join key，必须匹配 ranking record、label 和 graph artifact。
     - node_id: Memory node id being supervised; must not be the question node `q`.
       node_id：被监督的 memory node id；不能是问题节点 `q`。
     - label: Binary evidence label, where 1 means gold evidence and 0 means sampled negative.
@@ -163,9 +163,9 @@ class TrainPairRecord(TypedDict):
 
 Validation rules:
 
-- `task_id` must exist in input, label, and graph artifacts.
+- `task_id` must exist in ranking, label, and graph artifacts.
 - `node_id` must be a memory node in the task, never `q`.
-- `label=1` rows must exactly come from `gold_evidence_nodes`.
+- `label=1` rows must exactly come from the label record evidence ids.
 - `label=0` rows must not include any gold evidence node.
 - `sample_type="positive"` requires `label=1`.
 - All other sample types require `label=0`.
@@ -283,11 +283,11 @@ class SeedSignalProvider(Protocol):
     可替换的冻结初始检索信号提供器。
 
     Methods / 方法:
-    - score_task: Return one SeedSignal for every memory node in the task.
-      score_task：为 task 中每个 memory node 返回一个 SeedSignal。
+    - score_task: Return one SeedSignal for every candidate item in the request.
+      score_task：为 request 中每个候选 item 返回一个 SeedSignal。
     """
 
-    def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
+    def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
         ...
 ```
 
@@ -555,7 +555,7 @@ Dev evaluation during training should:
 3. Use existing retrieval metrics against dev labels and graphs.
 4. Select `best.pt` by the configured retrieval metric.
 
-If dev BCE loss is needed, it should be computed from full-node labels derived in memory from `dev_memory_tasks.labels.json`, not from a separate dev pairs artifact.
+If dev BCE loss is needed, it should be computed from full-node labels derived in memory from the dev HotpotQA label records, not from a separate dev pairs artifact.
 
 ## Validators
 

@@ -5,7 +5,6 @@ from typing import cast
 
 import numpy as np
 
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.embeddings import (
     DenseEncodingService,
     DenseTaskEncodingRequest,
@@ -13,6 +12,7 @@ from graph_memory.embeddings import (
     load_sentence_transformer,
 )
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.retrieval.requests import DenseConfigLike, TextRankingRequest
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ class DenseTaskRetriever:
         batch_size: int = 64,
         query_prefix: str = "query: ",
         passage_prefix: str = "passage: ",
-        config: DenseConfig | None = None,
+        config: DenseConfigLike | None = None,
         encoder: SentenceEncoder | None = None,
     ) -> None:
         self.config = config or DenseConfig(
@@ -49,33 +49,33 @@ class DenseTaskRetriever:
             batch_size=self.config.batch_size,
         )
 
-    def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
-        return self.rank_many([task_input])[0]
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
+        return self.rank_many([request])[0]
 
-    def rank_many(self, task_inputs: list[MemoryTaskInput]) -> list[list[RankedNode]]:
-        requests = [
+    def rank_many(self, requests: list[TextRankingRequest]) -> list[list[RankedNode]]:
+        encoding_requests = [
             DenseTaskEncodingRequest(
-                task_input=task_input,
-                node_ids=("q", *(memory_item["id"] for memory_item in task_input["memory_items"])),
+                ranking_request=request,
+                node_ids=("q", *(candidate.item_id for candidate in request.candidates)),
             )
-            for task_input in task_inputs
+            for request in requests
         ]
         return [
-            self._rank_from_embeddings(request.task_input, result.embeddings)
-            for request, result in zip(requests, self.encoding_service.encode_tasks(requests), strict=True)
+            self._rank_from_embeddings(request.ranking_request, result.embeddings)
+            for request, result in zip(encoding_requests, self.encoding_service.encode_tasks(encoding_requests), strict=True)
         ]
 
     @staticmethod
     def _rank_from_embeddings(
-        task_input: MemoryTaskInput,
+        request: TextRankingRequest,
         embeddings: np.ndarray,
     ) -> list[RankedNode]:
         query_vector = embeddings[0]
         passage_matrix = embeddings[1:]
         scores = passage_matrix @ query_vector
         ranked_nodes = [
-            RankedNode(node_id=memory_item["id"], score=float(score))
-            for memory_item, score in zip(task_input["memory_items"], scores)
+            RankedNode(node_id=candidate.item_id, score=float(score))
+            for candidate, score in zip(request.candidates, scores, strict=True)
         ]
         return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
 

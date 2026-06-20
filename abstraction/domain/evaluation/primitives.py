@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol, Sequence
 
 from abstraction.domain.evaluation.metrics import MetricRow, MetricResultTable
-from abstraction.domain.projections.prediction_to_eval import (
+from abstraction.domain.projections.eval_units import (
     AnswerEvalUnit,
     EvidenceEvalUnit,
     MultiHopEvalUnit,
@@ -38,25 +38,16 @@ class MetricResultAggregator(Protocol):
 
 class EvidenceRecallAtKMetric:  # implement EvidenceRecallMetric
     def compute_evidence_recall(self, eval_units: Sequence[EvidenceEvalUnit]) -> Sequence[MetricRow]:
-        pass
-
-
+        raise NotImplementedError
 class TurnSessionSupportMetric:  # implement SupportCoverageMetric
     def compute_support_coverage(self, eval_units: Sequence[SupportCoverageEvalUnit]) -> Sequence[MetricRow]:
-        pass
-
-
+        raise NotImplementedError
 class ParagraphEntityPathMetric:  # implement MultiHopSupportMetric
     def compute_multihop_support(self, eval_units: Sequence[MultiHopEvalUnit]) -> Sequence[MetricRow]:
-        pass
-
-
+        raise NotImplementedError
 class ExactMatchF1AnswerMetric:  # implement AnswerQualityMetric
     def compute_answer_quality(self, eval_units: Sequence[AnswerEvalUnit]) -> Sequence[MetricRow]:
-        pass
-
-
+        raise NotImplementedError
 class PerTaskMetricResultAggregator:  # implement MetricResultAggregator
     def aggregate_metric_rows(self, rows: Sequence[MetricRow]) -> MetricResultTable:
-        pass
-
+        raise NotImplementedError

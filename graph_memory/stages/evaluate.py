@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import FailureCase, MetricRow
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.contracts.tasks import MemoryTaskLabels
-from graph_memory.evaluation.failure_cases import build_failure_cases
-from graph_memory.evaluation.service import evaluate_results
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToEvidenceEvaluationRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
+from graph_memory.evaluation.suites import evidence_metric_suite
 from graph_memory.registry.stage_configs import EvaluateStageConfig
 
 
@@ -21,14 +21,18 @@ def run_evaluate_stage(
     config: EvaluateStageConfig,
     *,
     predictions: list[RankedResult],
-    labels: list[MemoryTaskLabels],
+    labels: list[HotpotQALabelRecord],
     graphs: list[MemoryGraph],
 ) -> EvaluateStageResult:
-    metric_rows = evaluate_results(predictions, labels, graphs)
-    failure_cases = build_failure_cases(
-        predictions,
-        labels,
-        graphs,
+    request = HotpotQAToEvidenceEvaluationRequest().project(
+        predictions=predictions,
+        labels=labels,
+        graphs=graphs,
+    )
+    suite = evidence_metric_suite()
+    metric_rows = suite.evaluate(request)
+    failure_cases = suite.build_failure_cases(
+        request,
         top_k=10,
         limit=config.failure_case_limit,
     )

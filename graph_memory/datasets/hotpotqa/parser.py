@@ -85,4 +85,3 @@ def _required_string(
     if not isinstance(value, str) or (not allow_empty and not value):
         raise ValueError(f"{path} must contain a non-empty string {field_name}.")
     return value
-

@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 
 from graph_memory.config import CONFIG_LOADER
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToGraphRankingRequest, HotpotQAToTextRankingRequest
 from graph_memory.io import write_json
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
@@ -30,6 +31,11 @@ from tests.test_phase2_rgcn_training import (
     tiny_training_config,
 )
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
+
+
+def _ranking_requests(task_inputs):
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task_input) for task_input in task_inputs]
 
 
 class TinyTrainableRetriever:
@@ -68,13 +74,17 @@ def run_retrieval(
     built = Registry.retrieval.build(
         settings,
         CheckpointGraphBuildPayload(
-            task_inputs=task_inputs,
+            ranking_requests=_ranking_requests(task_inputs),
             graphs=graphs,
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
         )
     )
-    return execute_retrieval(retrieval_method=built.method, task_inputs=task_inputs, top_k=top_k)
+    return execute_retrieval(
+        retrieval_method=built.method,
+        tasks=built.execution_tasks,
+        top_k=top_k,
+    )
 
 
 def write_tiny_checkpoint(path: Path, *, model_config=None) -> None:
@@ -131,6 +141,18 @@ def write_rgcn_retrieve_stage_config(
     write_json(path, CONFIG_LOADER.to_json(config))
 
 
+
+def tiny_graph_ranking_request():
+    record = tiny_task_inputs()[0]
+    text_request = HotpotQAToTextRankingRequest().project(record)
+    signals = RetrieverSeedSignalProvider(FakeRetriever()).score_task(text_request)
+    return HotpotQAToGraphRankingRequest().project(
+        record,
+        tiny_graphs()[0],
+        {signal.node_id: signal.score for signal in signals},
+    )
+
+
 def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Path):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
@@ -141,7 +163,7 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    result = retriever.rank_task(tiny_task_inputs()[0], top_k=2)
+    result = retriever.rank_task(tiny_graph_ranking_request(), top_k=2)
     ranked_nodes = result.ranked_nodes
     retrieved_edges = result.trace.retrieved_edges
 
@@ -181,7 +203,7 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    result = retriever.rank_task(tiny_task_inputs()[0], top_k=3)
+    result = retriever.rank_task(tiny_graph_ranking_request(), top_k=3)
     retrieved_edges = result.trace.retrieved_edges
 
     assert all(edge["edge_type"] != "bridge" for edge in retrieved_edges)
@@ -210,7 +232,7 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    validate_ranked_results(predictions, {task["task_id"]: task for task in tiny_task_inputs()})
+    validate_ranked_results(predictions, _ranking_requests(tiny_task_inputs()))
     assert predictions[0]["method"] == "dense_rgcn_graph_retriever"
     assert predictions[0]["retrieved_subgraph"]["nodes"] == [
         ranked_node["node_id"] for ranked_node in predictions[0]["ranked_nodes"][:2]

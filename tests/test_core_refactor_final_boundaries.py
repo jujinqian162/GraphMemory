@@ -148,6 +148,10 @@ def test_unreachable_refactor_leftovers_are_removed() -> None:
     assert not hasattr(retrieval_builders, "RETRIEVAL_REGISTRY")
     assert not hasattr(retrieval_builders, "RuntimeRetrievalRegistry")
     assert not hasattr(training_registry, "TRAINING_REGISTRY")
+    assert not hasattr(training_registry, "RgcnTrainPayload")
+    assert not hasattr(training_registry, "DenseFinetuneTrainPayload")
+    assert not hasattr(training_registry, "RgcnGraphRetrieverTrainer")
+    assert not hasattr(training_registry, "DenseFinetuneMethodTrainer")
     assert not hasattr(retrieval_contracts, "Retriever")
 
     assert not hasattr(rerank_components, "ComponentName")

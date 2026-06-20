@@ -5,11 +5,16 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.common import JsonValue
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord, HotpotQARankingRecord
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
@@ -17,6 +22,7 @@ from graph_memory.registry.conversions import dense_config_from_encoder_settings
 from graph_memory.registry.stage_configs import PairBuildStageConfig
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.training_pairs import build_train_pairs
+from graph_memory.training_pairs.requests import TrainPairBuildTask
 
 LOGGER = logging.getLogger("build_train_pairs")
 
@@ -36,10 +42,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs = {"pairs": str(config.io.output), "summary": str(summary_path), "run_summary": str(run_summary_path)}
 
     try:
-        task_inputs = read_json(config.io.tasks)
-        labels = read_json(config.io.labels)
-        graphs = read_json(config.io.graphs)
-        result = build_train_pairs(task_inputs, labels, graphs, sampling_config, dense_config=dense_config)
+        task_inputs = cast(list[HotpotQARankingRecord], read_json(config.io.tasks))
+        labels = cast(list[HotpotQALabelRecord], read_json(config.io.labels))
+        graphs = cast(list[MemoryGraph], read_json(config.io.graphs))
+        result = build_train_pairs(_train_pair_tasks(task_inputs, labels, graphs), sampling_config, dense_config=dense_config)
         write_json(config.io.output, result.pairs)
         write_json(summary_path, result.summary)
 
@@ -86,6 +92,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         write_run_summary(run_summary_path, summary)
         raise
+
+
+def _train_pair_tasks(
+    task_inputs: list[HotpotQARankingRecord],
+    labels: list[HotpotQALabelRecord],
+    graphs: list[MemoryGraph],
+) -> list[TrainPairBuildTask]:
+    text_projector = HotpotQAToTextRankingRequest()
+    labels_by_task_id = {label["task_id"]: _evidence_label(label) for label in labels}
+    graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
+    return [
+        TrainPairBuildTask(
+            text_request=text_projector.project(record),
+            label=labels_by_task_id[record["task_id"]],
+            graph=graphs_by_task_id[record["task_id"]],
+        )
+        for record in task_inputs
+    ]
+
+
+def _evidence_label(record: HotpotQALabelRecord) -> EvidenceLabel:
+    return EvidenceLabel(
+        task_id=record["task_id"],
+        gold_answer=record["gold_answer"],
+        gold_evidence_item_ids=tuple(record["gold_evidence_sentence_ids"]),
+        gold_dependency_edges=tuple((edge[0], edge[1]) for edge in record["gold_dependency_edges"]),
+    )
 
 
 def _effective_config(config: PairBuildStageConfig) -> dict[str, JsonValue]:

@@ -40,4 +40,3 @@ class EdgeAccumulator:
             return source, target, edge_type
         left, right = sorted([source, target])
         return left, right, edge_type
-

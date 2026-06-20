@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, Protocol, Sequence, TypeAlias, TypeVar
+from typing import Generic, Protocol, Sequence, TypeAlias, TypeVar, cast
 
 from abstraction.domain.common.capability_names import PredictionKind, RequestKind, ViewKind
 from abstraction.domain.common.identifiers import DatasetId
@@ -82,8 +82,8 @@ class CapabilityProjectionRegistry:  # implement ProjectionRegistry
             definition = projection.describe_projection()
             if definition.source_kind == source_view_kind and definition.target_kind == target_request_kind:
                 if definition.dataset_scope in (None, dataset_id):
-                    return projection
-        pass
+                    return cast(TaskToRequestProjection, projection)
+        raise NotImplementedError
 
     def find_prediction_to_eval_projection(
         self,
@@ -95,9 +95,8 @@ class CapabilityProjectionRegistry:  # implement ProjectionRegistry
             definition = projection.describe_projection()
             if definition.source_kind == source_prediction_kind and definition.target_kind == target_eval_unit_kind:
                 if definition.dataset_scope in (None, dataset_id):
-                    return projection
-        pass
-
+                    return cast(PredictionToEvalProjection, projection)
+        raise NotImplementedError
 
 class RegistryProjectionPlanner:  # implement ProjectionPlanner
     def __init__(self, projection_registry: ProjectionRegistry) -> None:
@@ -105,8 +104,8 @@ class RegistryProjectionPlanner:  # implement ProjectionPlanner
 
     def plan_projection_chain(self, requested_projection: ProjectionDefinition) -> Sequence[ProjectionDefinition]:
         direct_projection = self.projection_registry.find_task_to_request_projection(
-            source_view_kind=requested_projection.source_kind,
-            target_request_kind=requested_projection.target_kind,
-            dataset_id=requested_projection.dataset_scope,
+            source_view_kind=cast(ViewKind, requested_projection.source_kind),
+            target_request_kind=cast(RequestKind, requested_projection.target_kind),
+            dataset_id=cast(DatasetId, requested_projection.dataset_scope),
         )
         return [direct_projection.describe_projection()]

@@ -107,9 +107,7 @@ class DenseRankingMethod:  # implement TextRankingMethod
 
 
 class DenseFineTunedRankingMethod(DenseRankingMethod):  # implement TextRankingMethod
-    pass
-
-
+    raise NotImplementedError
 class GraphRerankMethod:  # implement GraphRankingMethod
     def __init__(
         self,
@@ -147,9 +145,7 @@ class GraphRerankMethod:  # implement GraphRankingMethod
 
 
 class TrainableGraphRankingMethod(GraphRerankMethod):  # implement GraphRankingMethod
-    pass
-
-
+    raise NotImplementedError
 class MemoryStreamRankingMethod:  # implement TemporalMemoryRankingMethod
     def __init__(
         self,
@@ -245,4 +241,4 @@ class ReaderAnsweringMethod:  # implement AnsweringMethod
         return self.prediction_builder.build_answer_prediction(request, answer_text)
 
     def _draft_answer(self, request: AnswerRequest) -> str:
-        pass
+        raise NotImplementedError

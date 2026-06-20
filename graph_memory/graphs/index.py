@@ -20,4 +20,3 @@ class GraphIndex:
         if graph is None:
             raise ValueError(f"Missing graph for task_id={task_id}.")
         return graph
-

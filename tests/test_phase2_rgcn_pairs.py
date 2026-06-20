@@ -5,8 +5,10 @@ import pytest
 
 import graph_memory.training_pairs.builder as pair_builder
 from graph_memory.config import CONFIG_LOADER
-from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.io import write_json
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.registry.stage_configs import (
@@ -16,49 +18,47 @@ from graph_memory.registry.stage_configs import (
     PairSamplingSettings,
 )
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.config import NegativeSamplingConfig
+from graph_memory.training_pairs.requests import TrainPairBuildTask
 from graph_memory.validation import ContractValidationError, validate_train_pairs
 import scripts.build_train_pairs as build_train_pairs_script
 from scripts.build_train_pairs import main as build_train_pairs_main
 
 
-def tiny_task_inputs() -> list[MemoryTaskInput]:
+def tiny_task_inputs() -> list[HotpotQARankingRecord]:
     return [
         {
             "task_id": "hotpot_pair_test",
-            "query": "Which city links the bridge evidence?",
-            "memory_items": [
+            "question": "Which city links the bridge evidence?",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m0",
                     "text": "Alpha city is connected to the bridge.",
-                    "source": "Alpha",
-                    "sentence_id": 0,
+                    "title": "Alpha",
+                    "sentence_index": 0,
                     "position": 0,
                 },
                 {
-                    "id": "m1",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m1",
                     "text": "The bridge evidence is in Beta.",
-                    "source": "Beta",
-                    "sentence_id": 0,
+                    "title": "Beta",
+                    "sentence_index": 0,
                     "position": 1,
                 },
                 {
-                    "id": "m2",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m2",
                     "text": "Gamma is a nearby distractor.",
-                    "source": "Gamma",
-                    "sentence_id": 0,
+                    "title": "Gamma",
+                    "sentence_index": 0,
                     "position": 2,
                 },
                 {
-                    "id": "m3",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m3",
                     "text": "The answer depends on Delta.",
-                    "source": "Delta",
-                    "sentence_id": 0,
+                    "title": "Delta",
+                    "sentence_index": 0,
                     "position": 3,
                 },
             ],
@@ -66,14 +66,30 @@ def tiny_task_inputs() -> list[MemoryTaskInput]:
     ]
 
 
-def tiny_labels() -> list[MemoryTaskLabels]:
+def tiny_labels() -> list[HotpotQALabelRecord]:
     return [
         {
             "task_id": "hotpot_pair_test",
             "gold_answer": "Beta and Delta",
-            "gold_evidence_nodes": ["m1", "m3"],
+            "gold_evidence_sentence_ids": ["m1", "m3"],
             "gold_dependency_edges": [],
         }
+    ]
+
+
+def _graph_nodes(task: HotpotQARankingRecord) -> list[GraphItemNode]:
+    return [
+        {
+            "id": sentence["sentence_id"],
+            "node_type": "graph_item",
+            "node_kind": "document_sentence",
+            "text": sentence["text"],
+            "source_ref": sentence["title"],
+            "group_key": f"document:{sentence['title']}",
+            "sequence_index": sentence["sentence_index"],
+            "metadata": {"title": sentence["title"], "position": sentence["position"]},
+        }
+        for sentence in task["candidate_sentences"]
     ]
 
 
@@ -83,14 +99,42 @@ def tiny_graphs() -> list[MemoryGraph]:
         {
             "task_id": task["task_id"],
             "nodes": [
-                {"id": "q", "node_type": "question", "text": task["query"]},
-                *task["memory_items"],
+                {"id": "q", "node_type": "question", "text": task["question"]},
+                *_graph_nodes(task),
             ],
             "edges": [
                 {"source": "m1", "target": "m2", "edge_type": "bridge", "weight": 1.0, "directed": False},
                 {"source": "m3", "target": "m0", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
             ],
         }
+    ]
+
+
+def _ranking_requests():
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task) for task in tiny_task_inputs()]
+
+
+def _evidence_labels():
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        )
+        for label in tiny_labels()
+    ]
+
+
+def _label_by_task_id():
+    return {label.task_id: label for label in _evidence_labels()}
+
+
+def _pair_tasks() -> list[TrainPairBuildTask]:
+    return [
+        TrainPairBuildTask(text_request=request, label=label, graph=graph)
+        for request, label, graph in zip(_ranking_requests(), _evidence_labels(), tiny_graphs(), strict=True)
     ]
 
 
@@ -151,7 +195,7 @@ def test_train_pair_validation_rejects_question_node_sample():
     ]
 
     with pytest.raises(ContractValidationError, match="q"):
-        validate_train_pairs(pairs, by_task_id(tiny_task_inputs()), by_task_id(tiny_labels()), by_task_id(tiny_graphs()))
+        validate_train_pairs(pairs, _ranking_requests(), _label_by_task_id(), by_task_id(tiny_graphs()))
 
 
 def test_build_train_pairs_creates_valid_positive_random_and_graph_neighbor_samples():
@@ -164,7 +208,7 @@ def test_build_train_pairs_creates_valid_positive_random_and_graph_neighbor_samp
         hard_pool_size=10,
     )
 
-    result = build_train_pairs(tiny_task_inputs(), tiny_labels(), tiny_graphs(), config)
+    result = build_train_pairs(_pair_tasks(), config)
 
     assert result.summary["positive_count"] == 2
     assert result.summary["negative_count_by_type"] == {"easy_random": 2, "hard_graph_neighbor": 2}
@@ -172,8 +216,8 @@ def test_build_train_pairs_creates_valid_positive_random_and_graph_neighbor_samp
     assert all(pair["node_id"] != "q" for pair in result.pairs)
     validate_train_pairs(
         result.pairs,
-        by_task_id(tiny_task_inputs()),
-        by_task_id(tiny_labels()),
+        _ranking_requests(),
+        _label_by_task_id(),
         by_task_id(tiny_graphs()),
     )
 
@@ -298,10 +342,10 @@ def test_build_train_pairs_cli_uses_config_encoder_for_hard_dense_negatives(tmp_
         ):
             observed_model_names.append(model_name if config is None else config.model_name)
 
-        def rank(self, task_input):
+        def rank(self, request: TextRankingRequest):
             return [
-                RankedNode(node_id=memory_item["id"], score=float(index))
-                for index, memory_item in enumerate(task_input["memory_items"])
+                RankedNode(node_id=candidate.item_id, score=float(index))
+                for index, candidate in enumerate(request.candidates)
             ]
 
     monkeypatch.setattr(pair_builder, "DenseTaskRetriever", FakeDenseTaskRetriever)
@@ -353,10 +397,10 @@ def test_build_train_pairs_stage_config_controls_sampling_without_cli_overrides(
         ):
             observed_model_names.append(model_name if config is None else config.model_name)
 
-        def rank(self, task_input):
+        def rank(self, request: TextRankingRequest):
             return [
-                RankedNode(node_id=memory_item["id"], score=float(index))
-                for index, memory_item in enumerate(task_input["memory_items"])
+                RankedNode(node_id=candidate.item_id, score=float(index))
+                for index, candidate in enumerate(request.candidates)
             ]
 
     monkeypatch.setattr(pair_builder, "DenseTaskRetriever", FakeDenseTaskRetriever)

@@ -54,12 +54,12 @@ task_id = "hotpot_" + raw_example["_id"]
 - `position` is the flattened sentence index within a task.
 - A node referenced by a graph edge, gold label, or ranked result must exist in that task.
 
-## Memory Task Input Contract
+## HotpotQA Ranking Record Contract
 
 File pattern:
 
 ```text
-data/hotpotqa/processed/{split}_memory_tasks.input.json
+data/hotpotqa/processed/{split}_inputs.json
 ```
 
 Shape:
@@ -68,15 +68,14 @@ Shape:
 [
   {
     "task_id": "hotpot_000001",
-    "query": "question text",
-    "memory_items": [
+    "question": "question text",
+    "candidate_sentences": [
       {
-        "id": "m0",
-        "node_type": "document_sentence",
-        "text": "sentence text",
-        "source": "Document_Title",
-        "sentence_id": 0,
-        "position": 0
+        "sentence_id": "m0",
+        "title": "Document_Title",
+        "sentence_index": 0,
+        "position": 0,
+        "text": "sentence text"
       }
     ]
   }
@@ -88,24 +87,23 @@ Required fields:
 | Field | Type | Meaning |
 |---|---|---|
 | `task_id` | string | Stable task identifier. |
-| `query` | string | Retrieval query. |
-| `memory_items` | array | Candidate memory sentences. |
+| `question` | string | Retrieval query. |
+| `candidate_sentences` | array | Candidate HotpotQA sentences. |
 
-Required `memory_items` fields:
+Required `candidate_sentences` fields:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `id` | string | Memory node id, usually `m{position}`. |
-| `node_type` | string | Must be `document_sentence` in Phase 1. |
-| `text` | string | Sentence text. |
-| `source` | string | HotpotQA document title. |
-| `sentence_id` | integer | Sentence index within the source document. |
+| `sentence_id` | string | Candidate sentence id, usually `m{position}`. |
+| `title` | string | HotpotQA document title. |
+| `sentence_index` | integer | Sentence index within the source document. |
 | `position` | integer | Flattened sentence index within the task. |
+| `text` | string | Sentence text. |
 
 Forbidden fields:
 
 - `gold_answer`
-- `gold_evidence_nodes`
+- `gold_evidence_sentence_ids`
 - `gold_dependency_edges`
 - `supporting_facts`
 - `is_gold`
@@ -114,17 +112,17 @@ Forbidden fields:
 
 Invariants:
 
-- `memory_items` must not be empty.
-- `memory_items[*].id` must be unique within the task.
+- `candidate_sentences` must not be empty.
+- `candidate_sentences[*].sentence_id` must be unique within the task.
 - `position` must match flattened order.
-- `id` should match `m{position}` unless a later dataset explicitly documents a different rule.
+- `sentence_id` should match `m{position}` unless a later dataset explicitly documents a different rule.
 
-## Memory Task Label Contract
+## HotpotQA Label Record Contract
 
 File pattern:
 
 ```text
-data/hotpotqa/processed/{split}_memory_tasks.labels.json
+data/hotpotqa/processed/{split}_labels.json
 ```
 
 Shape:
@@ -134,7 +132,7 @@ Shape:
   {
     "task_id": "hotpot_000001",
     "gold_answer": "answer text",
-    "gold_evidence_nodes": ["m1", "m7"],
+    "gold_evidence_sentence_ids": ["m1", "m7"],
     "gold_dependency_edges": []
   }
 ]
@@ -146,13 +144,13 @@ Required fields:
 |---|---|---|
 | `task_id` | string | Stable task identifier matching input artifact. |
 | `gold_answer` | string | Gold answer, used only for optional analysis. |
-| `gold_evidence_nodes` | array of strings | Gold supporting sentence node IDs. |
+| `gold_evidence_sentence_ids` | array of strings | Gold supporting sentence IDs. |
 | `gold_dependency_edges` | array | Empty for HotpotQA Phase 1 unless a dataset provides dependency labels. |
 
 Invariants:
 
 - Every label record must match exactly one input task.
-- Every `gold_evidence_nodes` entry must refer to a memory item in the matching input task.
+- Every `gold_evidence_sentence_ids` entry must refer to a candidate sentence in the matching input task.
 - `gold_dependency_edges` is empty for HotpotQA Phase 1.
 
 ## Graph Contract
@@ -435,8 +433,8 @@ Purpose:
 
 Recommended validators:
 
-- `validate_memory_task_inputs(records)`
-- `validate_memory_task_labels(records, inputs_by_task_id)`
+- `validate_hotpotqa_ranking_records(records)`
+- `validate_hotpotqa_label_records(records, records_by_task_id)`
 - `validate_graphs(graphs, inputs_by_task_id)`
 - `validate_ranked_results(predictions, inputs_by_task_id)`
 - `validate_metric_rows(rows)`

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import math
+from typing import Protocol
 
 from graph_memory.validation.common import ContractValidationError, _require_record_list
+
+
+class MetricRowValidator(Protocol):
+    def validate_metric_rows(self, rows: object) -> None:
+        ...
+
 
 METRIC_COLUMNS = [
     "Method",
@@ -23,7 +30,14 @@ METRIC_COLUMNS = [
 ]
 
 
-def validate_metric_rows(rows: object) -> None:
+def validate_metric_rows(rows: object, *, metric_suite: MetricRowValidator | None = None) -> None:
+    if metric_suite is not None:
+        metric_suite.validate_metric_rows(rows)
+        return
+    validate_evidence_metric_rows(rows)
+
+
+def validate_evidence_metric_rows(rows: object) -> None:
     rows = _require_record_list(rows, "metric rows")
     for row in rows:
         if not isinstance(row, dict):
@@ -44,4 +58,4 @@ def validate_metric_rows(rows: object) -> None:
                 raise ContractValidationError(f"Invalid metric rows: column={column} must be in [0.0, 1.0].")
 
 
-__all__ = ["validate_metric_rows"]
+__all__ = ["METRIC_COLUMNS", "MetricRowValidator", "validate_evidence_metric_rows", "validate_metric_rows"]

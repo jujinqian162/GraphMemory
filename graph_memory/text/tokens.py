@@ -49,4 +49,3 @@ def content_tokens(text: str, keep_short: set[str] | None = None) -> list[str]:
             continue
         tokens.append(token)
     return tokens
-

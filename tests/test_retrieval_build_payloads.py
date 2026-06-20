@@ -13,11 +13,11 @@ from graph_memory.registry.retrieval import (
     SeedRetrievalSettings,
     _require_payload,
 )
-from tests.test_phase2_rgcn_training import tiny_graphs, tiny_task_inputs
+from tests.test_phase2_rgcn_training import tiny_graphs, tiny_ranking_requests
 
 
 def test_require_payload_accepts_expected_payload_type() -> None:
-    payload = FlatRetrievalBuildPayload(task_inputs=tiny_task_inputs())
+    payload = FlatRetrievalBuildPayload(ranking_requests=tiny_ranking_requests())
 
     assert _require_payload(payload, FlatRetrievalBuildPayload, method="bm25") is payload
 
@@ -30,7 +30,7 @@ def test_require_payload_rejects_incompatible_payload_type() -> None:
 def test_bm25_builder_accepts_flat_payload() -> None:
     built = Registry.retrieval.build(
         Bm25RetrievalSettings(top_k=2),
-        FlatRetrievalBuildPayload(task_inputs=tiny_task_inputs()),
+        FlatRetrievalBuildPayload(ranking_requests=tiny_ranking_requests()),
     )
 
     assert built.method.name == "bm25"
@@ -45,7 +45,7 @@ def test_graph_rerank_builder_requires_graph_payload() -> None:
     )
 
     with pytest.raises(TypeError, match="bm25_graph_rerank expected GraphRerankBuildPayload"):
-        Registry.retrieval.build(settings, FlatRetrievalBuildPayload(task_inputs=tiny_task_inputs()))
+        Registry.retrieval.build(settings, FlatRetrievalBuildPayload(ranking_requests=tiny_ranking_requests()))
 
 
 def test_graph_rerank_builder_accepts_graph_payload() -> None:
@@ -59,7 +59,7 @@ def test_graph_rerank_builder_accepts_graph_payload() -> None:
     built = Registry.retrieval.build(
         settings,
         GraphRerankBuildPayload(
-            task_inputs=tiny_task_inputs(),
+            ranking_requests=tiny_ranking_requests(),
             graphs=tiny_graphs(),
             graph_config=None,
         ),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from graph_memory.validation.common import (
     ContractValidationError,
-    _memory_node_ids,
+    ValidationRecord,
     _reject_unknown_fields,
     _require_record_list,
     _require_record_map,
@@ -12,94 +12,126 @@ from graph_memory.validation.common import (
     validate_no_label_fields,
 )
 
-MEMORY_TASK_INPUT_FIELDS = {"task_id", "query", "memory_items", "metadata", "debug"}
-MEMORY_ITEM_FIELDS = {"id", "node_type", "text", "source", "sentence_id", "position"}
-LABEL_FIELDS = {"task_id", "gold_answer", "gold_evidence_nodes", "gold_dependency_edges", "metadata", "debug"}
+HOTPOTQA_RANKING_RECORD_FIELDS = {"task_id", "question", "candidate_sentences", "metadata", "debug"}
+HOTPOTQA_CANDIDATE_SENTENCE_FIELDS = {"sentence_id", "title", "sentence_index", "position", "text"}
+HOTPOTQA_LABEL_RECORD_FIELDS = {
+    "task_id",
+    "gold_answer",
+    "gold_evidence_sentence_ids",
+    "gold_dependency_edges",
+    "metadata",
+    "debug",
+}
 
 
-def validate_memory_task_inputs(records: object) -> None:
-    records = _require_record_list(records, "memory task inputs")
+def validate_hotpotqa_ranking_records(records: object) -> None:
+    records = _require_record_list(records, "HotpotQA ranking records")
 
     seen_task_ids: set[str] = set()
-    for index, task_input in enumerate(records):
-        if not isinstance(task_input, dict):
-            raise ContractValidationError(f"Invalid memory task inputs: record index={index} is not an object.")
-        task_id = _required_string(task_input, "task_id", "memory task input")
-        _reject_unknown_fields(task_input, MEMORY_TASK_INPUT_FIELDS, "memory task input", task_id)
-        validate_no_label_fields(task_input, artifact_name="memory task input", task_id=task_id)
-        _require_unique(task_id, seen_task_ids, "memory task input task_id")
-        _required_string(task_input, "query", "memory task input", task_id)
+    for index, ranking_record in enumerate(records):
+        if not isinstance(ranking_record, dict):
+            raise ContractValidationError(f"Invalid HotpotQA ranking records: record index={index} is not an object.")
+        task_id = _required_string(ranking_record, "task_id", "HotpotQA ranking record")
+        _reject_unknown_fields(ranking_record, HOTPOTQA_RANKING_RECORD_FIELDS, "HotpotQA ranking record", task_id)
+        validate_no_label_fields(ranking_record, artifact_name="HotpotQA ranking record", task_id=task_id)
+        if "gold_evidence_sentence_ids" in ranking_record:
+            raise ContractValidationError(
+                f"Invalid HotpotQA ranking record: task_id={task_id} forbidden label field gold_evidence_sentence_ids."
+            )
+        _require_unique(task_id, seen_task_ids, "HotpotQA ranking record task_id")
+        _required_string(ranking_record, "question", "HotpotQA ranking record", task_id)
 
-        memory_items = task_input.get("memory_items")
-        if not isinstance(memory_items, list) or not memory_items:
-            raise ContractValidationError(f"Invalid memory task input: task_id={task_id} memory_items must be non-empty.")
+        candidate_sentences = ranking_record.get("candidate_sentences")
+        if not isinstance(candidate_sentences, list) or not candidate_sentences:
+            raise ContractValidationError(
+                f"Invalid HotpotQA ranking record: task_id={task_id} candidate_sentences must be non-empty."
+            )
 
-        seen_node_ids: set[str] = set()
-        for expected_position, memory_item in enumerate(memory_items):
-            if not isinstance(memory_item, dict):
+        seen_sentence_ids: set[str] = set()
+        for expected_position, candidate_sentence in enumerate(candidate_sentences):
+            if not isinstance(candidate_sentence, dict):
                 raise ContractValidationError(
-                    f"Invalid memory task input: task_id={task_id} memory item index={expected_position} is not an object."
+                    "Invalid HotpotQA ranking record: "
+                    f"task_id={task_id} candidate sentence index={expected_position} is not an object."
                 )
-            _reject_unknown_fields(memory_item, MEMORY_ITEM_FIELDS, "memory item", task_id)
-            node_id = _required_string(memory_item, "id", "memory item", task_id)
-            _require_unique(node_id, seen_node_ids, f"memory item id task_id={task_id}")
-            if node_id != f"m{expected_position}":
+            _reject_unknown_fields(
+                candidate_sentence,
+                HOTPOTQA_CANDIDATE_SENTENCE_FIELDS,
+                "HotpotQA candidate sentence",
+                task_id,
+            )
+            sentence_id = _required_string(candidate_sentence, "sentence_id", "HotpotQA candidate sentence", task_id)
+            _require_unique(sentence_id, seen_sentence_ids, f"HotpotQA candidate sentence id task_id={task_id}")
+            if sentence_id != f"m{expected_position}":
                 raise ContractValidationError(
-                    f"Invalid memory task input: task_id={task_id} node_id={node_id} expected id=m{expected_position}."
+                    "Invalid HotpotQA ranking record: "
+                    f"task_id={task_id} sentence_id={sentence_id} expected m{expected_position}."
                 )
-            if memory_item.get("node_type") != "document_sentence":
-                raise ContractValidationError(
-                    f"Invalid memory task input: task_id={task_id} node_id={node_id} node_type must be document_sentence."
-                )
-            _required_string(memory_item, "text", "memory item", task_id)
-            _required_string(memory_item, "source", "memory item", task_id)
-            _required_int(memory_item, "sentence_id", "memory item", task_id, minimum=0)
-            position = _required_int(memory_item, "position", "memory item", task_id, minimum=0)
+            _required_string(candidate_sentence, "title", "HotpotQA candidate sentence", task_id)
+            _required_string(candidate_sentence, "text", "HotpotQA candidate sentence", task_id)
+            _required_int(candidate_sentence, "sentence_index", "HotpotQA candidate sentence", task_id, minimum=0)
+            position = _required_int(candidate_sentence, "position", "HotpotQA candidate sentence", task_id, minimum=0)
             if position != expected_position:
                 raise ContractValidationError(
-                    f"Invalid memory task input: task_id={task_id} node_id={node_id} position={position} expected {expected_position}."
+                    "Invalid HotpotQA ranking record: "
+                    f"task_id={task_id} sentence_id={sentence_id} position={position} expected {expected_position}."
                 )
 
 
-def validate_memory_task_labels(records: object, inputs_by_task_id: object) -> None:
-    records = _require_record_list(records, "memory task labels")
-    inputs_by_task_id = _require_record_map(inputs_by_task_id, "memory task inputs by task_id")
+def validate_hotpotqa_label_records(records: object, records_by_task_id: object) -> None:
+    records = _require_record_list(records, "HotpotQA label records")
+    records_by_task_id = _require_record_map(records_by_task_id, "HotpotQA ranking records by task_id")
 
     seen_task_ids: set[str] = set()
-    for index, task_labels in enumerate(records):
-        if not isinstance(task_labels, dict):
-            raise ContractValidationError(f"Invalid memory task labels: record index={index} is not an object.")
-        task_id = _required_string(task_labels, "task_id", "memory task labels")
-        _reject_unknown_fields(task_labels, LABEL_FIELDS, "memory task labels", task_id)
-        _require_unique(task_id, seen_task_ids, "memory task labels task_id")
-        if task_id not in inputs_by_task_id:
-            raise ContractValidationError(f"Invalid memory task labels: task_id={task_id} has no matching input task.")
+    for index, label_record in enumerate(records):
+        if not isinstance(label_record, dict):
+            raise ContractValidationError(f"Invalid HotpotQA label records: record index={index} is not an object.")
+        task_id = _required_string(label_record, "task_id", "HotpotQA label record")
+        _reject_unknown_fields(label_record, HOTPOTQA_LABEL_RECORD_FIELDS, "HotpotQA label record", task_id)
+        _require_unique(task_id, seen_task_ids, "HotpotQA label record task_id")
+        if task_id not in records_by_task_id:
+            raise ContractValidationError(f"Invalid HotpotQA label record: task_id={task_id} has no matching ranking record.")
 
-        _required_string(task_labels, "gold_answer", "memory task labels", task_id)
-        gold_nodes = task_labels.get("gold_evidence_nodes")
-        if not isinstance(gold_nodes, list) or not gold_nodes:
+        _required_string(label_record, "gold_answer", "HotpotQA label record", task_id)
+        gold_sentence_ids = label_record.get("gold_evidence_sentence_ids")
+        if not isinstance(gold_sentence_ids, list) or not gold_sentence_ids:
             raise ContractValidationError(
-                f"Invalid memory task labels: task_id={task_id} gold_evidence_nodes must be a non-empty list."
+                "Invalid HotpotQA label record: "
+                f"task_id={task_id} gold_evidence_sentence_ids must be a non-empty list."
             )
-        if len(gold_nodes) != len(set(gold_nodes)):
-            raise ContractValidationError(f"Invalid memory task labels: task_id={task_id} duplicate gold evidence node.")
+        if len(gold_sentence_ids) != len(set(gold_sentence_ids)):
+            raise ContractValidationError(
+                f"Invalid HotpotQA label record: task_id={task_id} duplicate gold evidence sentence."
+            )
 
-        valid_node_ids = _memory_node_ids(inputs_by_task_id[task_id])
-        for node_id in gold_nodes:
-            if not isinstance(node_id, str) or node_id not in valid_node_ids:
+        valid_sentence_ids = _hotpotqa_candidate_sentence_ids(records_by_task_id[task_id])
+        for sentence_id in gold_sentence_ids:
+            if not isinstance(sentence_id, str) or sentence_id not in valid_sentence_ids:
                 raise ContractValidationError(
-                    f"Invalid memory task labels: task_id={task_id} gold node={node_id} does not exist in input task."
+                    "Invalid HotpotQA label record: "
+                    f"task_id={task_id} gold sentence={sentence_id} does not exist in ranking record."
                 )
 
-        dependency_edges = task_labels.get("gold_dependency_edges")
+        dependency_edges = label_record.get("gold_dependency_edges")
         if not isinstance(dependency_edges, list):
             raise ContractValidationError(
-                f"Invalid memory task labels: task_id={task_id} gold_dependency_edges must be a list."
+                f"Invalid HotpotQA label record: task_id={task_id} gold_dependency_edges must be a list."
             )
         if dependency_edges:
             raise ContractValidationError(
-                f"Invalid memory task labels: task_id={task_id} gold_dependency_edges must be empty for HotpotQA Phase 1."
+                f"Invalid HotpotQA label record: task_id={task_id} gold_dependency_edges must be empty for HotpotQA Phase 1."
             )
 
 
-__all__ = ["validate_memory_task_inputs", "validate_memory_task_labels", "validate_no_label_fields"]
+def _hotpotqa_candidate_sentence_ids(ranking_record: ValidationRecord) -> set[str]:
+    candidate_sentences = ranking_record.get("candidate_sentences")
+    if not isinstance(candidate_sentences, list):
+        return set()
+    return {
+        candidate_sentence["sentence_id"]
+        for candidate_sentence in candidate_sentences
+        if isinstance(candidate_sentence, dict) and "sentence_id" in candidate_sentence
+    }
+
+
+__all__ = ["validate_hotpotqa_label_records", "validate_hotpotqa_ranking_records", "validate_no_label_fields"]

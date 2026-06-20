@@ -19,8 +19,10 @@ from graph_memory.models.graph_retriever.training import (
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.io import write_json
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
-from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
@@ -32,8 +34,9 @@ from graph_memory.registry import Registry
 from graph_memory.registry.method_configs import RgcnMethodSettings, RgcnModelSettings, RgcnTrainerSettings
 from graph_memory.registry.retrieval import DenseEncoderSettings, RetrievalMethodId
 from graph_memory.registry.stage_configs import RgcnTrainIO, RgcnTrainStageConfig
-from graph_memory.registry.training import RgcnTrainPayload, TrainDependencies
+from graph_memory.stages.train_payloads import RgcnTrainPayload, TrainDependencies
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.stages.train import run_train_stage
 from graph_memory.validation import (
     ContractValidationError,
@@ -49,10 +52,10 @@ from scripts.train_method import main as train_method_main
 class FakeRetriever:
     method_name = "dense"
 
-    def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         scores = {"m0": 0.9, "m1": 0.2, "m2": 0.7}
         return sorted(
-            [RankedNode(node_id=item["id"], score=scores[item["id"]]) for item in task_input["memory_items"]],
+            [RankedNode(node_id=candidate.item_id, score=scores[candidate.item_id]) for candidate in request.candidates],
             key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
         )
 
@@ -62,7 +65,7 @@ class FakeTextEmbeddingProvider(TextEmbeddingProvider):
     def embedding_dim(self) -> int:
         return 4
 
-    def encode_task_nodes(self, task_input: MemoryTaskInput, node_ids: list[str]) -> torch.Tensor:
+    def encode_task_nodes(self, request: TextRankingRequest, node_ids: list[str]) -> torch.Tensor:
         rows: list[list[float]] = []
         for node_id in node_ids:
             if node_id == "q":
@@ -73,34 +76,31 @@ class FakeTextEmbeddingProvider(TextEmbeddingProvider):
         return torch.tensor(rows, dtype=torch.float32)
 
 
-def tiny_task_inputs() -> list[MemoryTaskInput]:
+def tiny_task_inputs() -> list[HotpotQARankingRecord]:
     return [
         {
             "task_id": "hotpot_rgcn_train",
-            "query": "Which evidence mentions Alpha?",
-            "memory_items": [
+            "question": "Which evidence mentions Alpha?",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m0",
                     "text": "Alpha is the answer evidence.",
-                    "source": "A",
-                    "sentence_id": 0,
+                    "title": "A",
+                    "sentence_index": 0,
                     "position": 0,
                 },
                 {
-                    "id": "m1",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m1",
                     "text": "Beta is unrelated.",
-                    "source": "B",
-                    "sentence_id": 0,
+                    "title": "B",
+                    "sentence_index": 0,
                     "position": 1,
                 },
                 {
-                    "id": "m2",
-                    "node_type": "document_sentence",
+                    "sentence_id": "m2",
                     "text": "Gamma connects to Alpha.",
-                    "source": "C",
-                    "sentence_id": 0,
+                    "title": "C",
+                    "sentence_index": 0,
                     "position": 2,
                 },
             ],
@@ -108,14 +108,47 @@ def tiny_task_inputs() -> list[MemoryTaskInput]:
     ]
 
 
-def tiny_labels() -> list[MemoryTaskLabels]:
+def tiny_labels() -> list[HotpotQALabelRecord]:
     return [
         {
             "task_id": "hotpot_rgcn_train",
             "gold_answer": "Alpha",
-            "gold_evidence_nodes": ["m0"],
+            "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
         }
+    ]
+
+
+def tiny_ranking_requests() -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task) for task in tiny_task_inputs()]
+
+
+def evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
+
+
+def _graph_nodes(task: HotpotQARankingRecord) -> list[GraphItemNode]:
+    return [
+        {
+            "id": sentence["sentence_id"],
+            "node_type": "graph_item",
+            "node_kind": "document_sentence",
+            "text": sentence["text"],
+            "source_ref": sentence["title"],
+            "group_key": f"document:{sentence['title']}",
+            "sequence_index": sentence["sentence_index"],
+            "metadata": {"title": sentence["title"], "position": sentence["position"]},
+        }
+        for sentence in task["candidate_sentences"]
     ]
 
 
@@ -124,7 +157,7 @@ def tiny_graphs() -> list[MemoryGraph]:
     return [
         {
             "task_id": task["task_id"],
-            "nodes": [{"id": "q", "node_type": "question", "text": task["query"]}, *task["memory_items"]],
+            "nodes": [{"id": "q", "node_type": "question", "text": task["question"]}, *_graph_nodes(task)],
             "edges": [
                 {"source": "q", "target": "m0", "edge_type": "query_overlap", "weight": 1.0, "directed": True},
                 {"source": "m0", "target": "m2", "edge_type": "bridge", "weight": 0.8, "directed": False},
@@ -244,7 +277,7 @@ def write_rgcn_train_stage_config(path: Path, config: RgcnTrainStageConfig) -> N
 
 def test_seed_signal_provider_and_feature_builder_share_rank_semantics():
     provider = RetrieverSeedSignalProvider(FakeRetriever())
-    signals = provider.score_task(tiny_task_inputs()[0])
+    signals = provider.score_task(HotpotQAToTextRankingRequest().project(tiny_task_inputs()[0]))
 
     assert [(signal.node_id, signal.rank, signal.rank_percentile) for signal in signals] == [
         ("m0", 1, 0.0),
@@ -286,7 +319,7 @@ def test_model_and_checkpoint_config_validation_reject_missing_dimension():
 
 def test_build_training_batches_uses_dataclasses_not_raw_artifact_dicts():
     batches = build_training_batches(
-        task_inputs=tiny_task_inputs(),
+        ranking_requests=tiny_ranking_requests(),
         graphs=tiny_graphs(),
         pairs=tiny_pairs(),
         model_config=tiny_model_config(),
@@ -326,11 +359,11 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
         )
 
     result = train_graph_retriever(
-        train_task_inputs=tiny_task_inputs(),
+        train_requests=tiny_ranking_requests(),
         train_graphs=tiny_graphs(),
         train_pairs=tiny_pairs(),
-        dev_task_inputs=tiny_task_inputs(),
-        dev_labels=tiny_labels(),
+        dev_requests=tiny_ranking_requests(),
+        dev_labels=evidence_labels(tiny_labels()),
         dev_graphs=tiny_graphs(),
         model_config=tiny_model_config(),
         training_config=tiny_training_config(),
@@ -529,11 +562,11 @@ def test_training_registry_builds_trainer_from_settings_type() -> None:
 
 def test_train_stage_uses_train_labels_for_pair_validation() -> None:
     config = make_rgcn_train_stage_config()
-    mismatched_labels: list[MemoryTaskLabels] = [
+    mismatched_labels: list[HotpotQALabelRecord] = [
         {
             "task_id": "hotpot_rgcn_train",
             "gold_answer": "Gamma",
-            "gold_evidence_nodes": ["m2"],
+            "gold_evidence_sentence_ids": ["m2"],
             "gold_dependency_edges": [],
         }
     ]
@@ -542,12 +575,12 @@ def test_train_stage_uses_train_labels_for_pair_validation() -> None:
         run_train_stage(
             config,
             payload=RgcnTrainPayload(
-                train_task_inputs=tiny_task_inputs(),
-                train_labels=mismatched_labels,
+                train_requests=tiny_ranking_requests(),
+                train_labels=evidence_labels(mismatched_labels),
                 train_graphs=tiny_graphs(),
                 train_pairs=tiny_pairs(),
-                dev_task_inputs=tiny_task_inputs(),
-                dev_labels=tiny_labels(),
+                dev_requests=tiny_ranking_requests(),
+                dev_labels=evidence_labels(tiny_labels()),
                 dev_graphs=tiny_graphs(),
                 dependencies=TrainDependencies(
                     text_embedding_provider=FakeTextEmbeddingProvider(),

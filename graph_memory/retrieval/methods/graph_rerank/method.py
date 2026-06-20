@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace, SeedRanker
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.retrieval.methods.graph_rerank.engine import rank_graph_from_initial_scores
+from graph_memory.retrieval.requests import GraphRankingRequest, RankingMethodRequest, TextRankingRequest
 
 
 @dataclass(frozen=True)
@@ -16,22 +16,20 @@ class GraphRerankMethod:
     graphs: GraphIndex
     graph_config: GraphRerankConfig
 
-    def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
-        initial_ranking = self.retriever.rank(task_input)
-        initial_scores = {ranked_node.node_id: ranked_node.score for ranked_node in initial_ranking}
-        return self.rank_task_from_scores(task_input, initial_scores, top_k=top_k)
+    def rank_task(self, request: RankingMethodRequest, *, top_k: int) -> RetrievalMethodResult:
+        if not isinstance(request, GraphRankingRequest):
+            raise TypeError(f"{self.name} requires GraphRankingRequest, got {type(request).__name__}.")
+        return self.rank_task_from_scores(request, top_k=top_k)
 
     def rank_task_from_scores(
         self,
-        task_input: MemoryTaskInput,
-        initial_scores: dict[str, float],
+        request: GraphRankingRequest,
         *,
         top_k: int,
     ) -> RetrievalMethodResult:
-        graph = self.graphs.get_required(task_input["task_id"])
         result = rank_graph_from_initial_scores(
-            initial_scores,
-            graph,
+            dict(request.initial_scores),
+            request.graph,
             self.graph_config,
             top_k=top_k,
         )
@@ -44,5 +42,5 @@ class GraphRerankMethod:
 class PrecomputedInitialRetriever:
     method_name = "precomputed_initial_scores"
 
-    def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         raise RuntimeError("Precomputed initial score pipelines require rank_task_from_scores.")

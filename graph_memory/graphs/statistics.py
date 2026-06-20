@@ -44,4 +44,3 @@ def graph_statistics(
     if graph_config is not None:
         stats["graph_config"] = graph_config
     return stats
-

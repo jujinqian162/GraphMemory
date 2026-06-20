@@ -7,20 +7,24 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord, HotpotQARankingRecord
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.retrieval.requests import DenseRuntime
+from graph_memory.retrieval.requests import DenseRuntime, TextRankingRequest
 from graph_memory.retrieval.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
 from graph_memory.validation import (
     validate_graphs,
-    validate_memory_task_inputs,
-    validate_memory_task_labels,
+    validate_hotpotqa_ranking_records,
+    validate_hotpotqa_label_records,
 )
 
 LOGGER = logging.getLogger("tune_graph_rerank")
@@ -70,10 +74,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         task_inputs = read_json(args.tasks)
         labels = read_json(args.labels)
         graphs = read_json(args.graphs)
-        validate_memory_task_inputs(task_inputs)
+        validate_hotpotqa_ranking_records(task_inputs)
         inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_memory_task_labels(labels, inputs_by_task_id)
-        validate_graphs(graphs, inputs_by_task_id)
+        validate_hotpotqa_label_records(labels, inputs_by_task_id)
+        ranking_requests = _text_requests(cast(list[HotpotQARankingRecord], task_inputs))
+        evidence_labels = _evidence_labels(cast(list[HotpotQALabelRecord], labels))
+        validate_graphs(graphs, ranking_requests)
 
         grid = (
             graph_rerank_grid_from_record(read_json(args.grid_config))
@@ -82,8 +88,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         selected_config, candidate_rows = tune_graph_rerank(
             method=args.method,
-            task_inputs=task_inputs,
-            labels=labels,
+            ranking_requests=ranking_requests,
+            labels=evidence_labels,
             graphs=graphs,
             grid=grid,
             top_k=args.top_k,
@@ -135,6 +141,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise
 
 
+def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(record) for record in records]
+
+
+def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple(_dependency_edge(edge) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
+
+
+def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
+    if len(edge) != 2:
+        raise ValueError(f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}.")
+    return edge[0], edge[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank parameters on dev labels.")
     parser.add_argument(
@@ -145,8 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
             for method in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
         ),
     )
-    parser.add_argument("--tasks", required=True, help="Path to dev *_memory_tasks.input.json.")
-    parser.add_argument("--labels", required=True, help="Path to dev *_memory_tasks.labels.json.")
+    parser.add_argument("--tasks", required=True, help="Path to dev HotpotQA ranking record JSON.")
+    parser.add_argument("--labels", required=True, help="Path to dev HotpotQA label record JSON.")
     parser.add_argument("--graphs", required=True, help="Path to dev *_graphs.json.")
     parser.add_argument("--output_config", required=True, help="Path to write selected graph rerank config JSON.")
     parser.add_argument("--encoder_model", default="intfloat/e5-base-v2")

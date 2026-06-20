@@ -5,48 +5,45 @@ import math
 from collections.abc import Mapping
 from pathlib import Path
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToGraphBuildRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 
 
 ROOT = Path(__file__).resolve().parents[1]
 GRAPH_BUILD_CONFIG_OWNER = "graph_memory.graphs.config"
 
 
-def _task_input() -> MemoryTaskInput:
+def _task_input() -> HotpotQARankingRecord:
     return {
         "task_id": "hotpot_graph_batch3",
-        "query": "Which river runs through the city that hosts the Eiffel Tower?",
-        "memory_items": [
+        "question": "Which river runs through the city that hosts the Eiffel Tower?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
+                "sentence_id": "m0",
                 "text": "The Eiffel Tower is in Paris.",
-                "source": "Eiffel Tower",
-                "sentence_id": 0,
+                "title": "Eiffel Tower",
+                "sentence_index": 0,
                 "position": 0,
             },
             {
-                "id": "m1",
-                "node_type": "document_sentence",
+                "sentence_id": "m1",
                 "text": "It opened in 1889.",
-                "source": "Eiffel Tower",
-                "sentence_id": 1,
+                "title": "Eiffel Tower",
+                "sentence_index": 1,
                 "position": 1,
             },
             {
-                "id": "m2",
-                "node_type": "document_sentence",
+                "sentence_id": "m2",
                 "text": "Paris is a city in France.",
-                "source": "Paris",
-                "sentence_id": 0,
+                "title": "Paris",
+                "sentence_index": 0,
                 "position": 2,
             },
             {
-                "id": "m3",
-                "node_type": "document_sentence",
+                "sentence_id": "m3",
                 "text": "The Seine runs through Paris.",
-                "source": "Paris",
-                "sentence_id": 1,
+                "title": "Paris",
+                "sentence_index": 1,
                 "position": 3,
             },
         ],
@@ -102,8 +99,9 @@ def test_graph_domain_package_exposes_config_builder_index_statistics_and_views(
         BridgeEdgeRule,
     )
 
-    graph = builder.build(_task_input())
-    assert build_graphs([_task_input()], builder.config) == [graph]
+    request = HotpotQAToGraphBuildRequest().project(_task_input())
+    graph = builder.build(request)
+    assert build_graphs([request], builder.config) == [graph]
     assert GraphIndex.from_graphs([graph]).graph_by_task_id == {"hotpot_graph_batch3": graph}
 
     expected_edges = [

@@ -5,15 +5,15 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from graph_memory.contracts.common import NodeId
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
+from graph_memory.retrieval.requests import TextRankingRequest
 
 
 @dataclass(frozen=True)
 class SeedSignal:
     """
-    Frozen seed retrieval signal for one memory node.
-    一个 memory node 的冻结初始检索信号。
+    Frozen seed retrieval signal for one candidate node.
+    一个候选节点的冻结初始检索信号。
     """
 
     node_id: NodeId
@@ -29,42 +29,42 @@ class SeedSignalProvider(Protocol):
     可替换的冻结初始检索信号提供器。
     """
 
-    def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
+    def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
         ...
 
 
 @runtime_checkable
 class BulkSeedSignalProvider(Protocol):
-    def score_tasks(self, task_inputs: Sequence[MemoryTaskInput]) -> list[list[SeedSignal]]:
+    def score_tasks(self, requests: Sequence[TextRankingRequest]) -> list[list[SeedSignal]]:
         ...
 
 
 def score_tasks(
     provider: SeedSignalProvider,
-    task_inputs: Sequence[MemoryTaskInput],
+    requests: Sequence[TextRankingRequest],
 ) -> list[list[SeedSignal]]:
-    task_list = list(task_inputs)
+    request_list = list(requests)
     if isinstance(provider, BulkSeedSignalProvider):
-        results = provider.score_tasks(task_list)
-        if len(results) != len(task_list):
+        results = provider.score_tasks(request_list)
+        if len(results) != len(request_list):
             raise ValueError(
                 "Bulk seed signal provider returned an invalid result count: "
-                f"expected={len(task_list)} observed={len(results)}."
+                f"expected={len(request_list)} observed={len(results)}."
             )
         return results
-    return [provider.score_task(task_input) for task_input in task_list]
+    return [provider.score_task(request) for request in request_list]
 
 
 def seed_signals_from_ranked_nodes(
-    task_input: MemoryTaskInput,
+    request: TextRankingRequest,
     ranked_nodes: list[RankedNode],
 ) -> list[SeedSignal]:
-    expected_node_ids = {memory_item["id"] for memory_item in task_input["memory_items"]}
+    expected_node_ids = {candidate.item_id for candidate in request.candidates}
     observed_node_ids = {ranked_node.node_id for ranked_node in ranked_nodes}
     if observed_node_ids != expected_node_ids:
         missing = sorted(expected_node_ids - observed_node_ids)
         extra = sorted(observed_node_ids - expected_node_ids)
-        raise ValueError(f"Seed retriever must return every memory node exactly once; missing={missing} extra={extra}.")
+        raise ValueError(f"Seed retriever must return every candidate node exactly once; missing={missing} extra={extra}.")
 
     sorted_nodes = sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
     denominator = max(1, len(sorted_nodes) - 1)
@@ -88,17 +88,17 @@ class RetrieverSeedSignalProvider:
 
     retriever: SeedRanker
 
-    def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
-        return seed_signals_from_ranked_nodes(task_input, self.retriever.rank(task_input))
+    def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
+        return seed_signals_from_ranked_nodes(request, self.retriever.rank(request))
 
-    def score_tasks(self, task_inputs: Sequence[MemoryTaskInput]) -> list[list[SeedSignal]]:
+    def score_tasks(self, requests: Sequence[TextRankingRequest]) -> list[list[SeedSignal]]:
         from graph_memory.retrieval.bulk import rank_tasks
 
         return [
-            seed_signals_from_ranked_nodes(task_input, ranked_nodes)
-            for task_input, ranked_nodes in zip(
-                task_inputs,
-                rank_tasks(self.retriever, task_inputs),
+            seed_signals_from_ranked_nodes(request, ranked_nodes)
+            for request, ranked_nodes in zip(
+                requests,
+                rank_tasks(self.retriever, requests),
                 strict=True,
             )
         ]

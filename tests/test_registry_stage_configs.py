@@ -38,7 +38,7 @@ from graph_memory.registry.stage_configs import (
     RgcnTrainIO,
     RgcnTrainStageConfig,
 )
-from graph_memory.registry.training import DenseFinetuneMethodTrainer, RgcnGraphRetrieverTrainer
+from graph_memory.stages.trainers import DenseFinetuneMethodTrainer, RgcnGraphRetrieverTrainer
 
 
 def _write_config(path: Path, config: object) -> None:

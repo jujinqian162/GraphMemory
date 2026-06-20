@@ -4,8 +4,7 @@ from typing import Literal, TypedDict
 
 from typing_extensions import NotRequired
 
-from graph_memory.contracts.common import EdgeType, TaskId
-from graph_memory.contracts.tasks import MemoryItem
+from graph_memory.contracts.common import EdgeType, JsonValue, NodeId, TaskId
 
 
 class QuestionNode(TypedDict):
@@ -14,11 +13,18 @@ class QuestionNode(TypedDict):
     text: str
 
 
-class GraphMemoryNode(MemoryItem):
-    pass
+class GraphItemNode(TypedDict):
+    id: NodeId
+    node_type: Literal["graph_item"]
+    node_kind: str
+    text: str
+    source_ref: NotRequired[str]
+    group_key: NotRequired[str]
+    sequence_index: NotRequired[int]
+    metadata: NotRequired[dict[str, JsonValue]]
 
 
-GraphNode = QuestionNode | GraphMemoryNode
+GraphNode = QuestionNode | GraphItemNode
 
 
 class GraphEdge(TypedDict):
@@ -37,4 +43,4 @@ class MemoryGraph(TypedDict):
     debug: NotRequired[dict[str, object]]
 
 
-__all__ = ["GraphEdge", "GraphMemoryNode", "GraphNode", "MemoryGraph", "QuestionNode"]
+__all__ = ["GraphEdge", "GraphItemNode", "GraphNode", "MemoryGraph", "QuestionNode"]

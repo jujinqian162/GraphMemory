@@ -7,25 +7,25 @@ from typing import cast
 
 import pytest
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.infrastructure.io import read_json, write_json
 from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
 from graph_memory.validation import ContractValidationError, validate_importance_artifact
 from scripts.data import clean_importance
 
 
-def _task(task_id: str = "hotpot_ms_1") -> MemoryTaskInput:
+def _task(task_id: str = "hotpot_ms_1") -> HotpotQARankingRecord:
     scores = [2, 4, 4, 8]
     return {
         "task_id": task_id,
-        "query": "query",
-        "memory_items": [
+        "question": "query",
+        "candidate_sentences": [
             {
-                "id": f"m{index}",
-                "node_type": "document_sentence",
+                "sentence_id": f"m{index}",
                 "text": f"sentence {index}",
-                "source": "source",
-                "sentence_id": index,
+                "title": "source",
+                "sentence_index": index,
                 "position": index,
             }
             for index in range(len(scores))
@@ -33,7 +33,11 @@ def _task(task_id: str = "hotpot_ms_1") -> MemoryTaskInput:
     }
 
 
-def _legacy_artifact(task: MemoryTaskInput, scores: list[int] | None = None) -> dict[str, object]:
+def _request(task: HotpotQARankingRecord):
+    return HotpotQAToTemporalMemoryRankingRequest().project(task, {})
+
+
+def _legacy_artifact(task: HotpotQARankingRecord, scores: list[int] | None = None) -> dict[str, object]:
     values = scores or [2, 4, 4, 8]
     return {
         "method": "memory_stream",
@@ -43,7 +47,7 @@ def _legacy_artifact(task: MemoryTaskInput, scores: list[int] | None = None) -> 
         "tasks": [
             {
                 "task_id": task["task_id"],
-                "content_digest": importance_content_digest(task),
+                "content_digest": importance_content_digest(_request(task)),
                 "scores": {f"m{index}": score for index, score in enumerate(values)},
             }
         ],
@@ -77,7 +81,7 @@ def test_clean_legacy_artifact_produces_compact_schema_and_summary() -> None:
         "tasks": [
             {
                 "task_id": task["task_id"],
-                "content_digest": importance_content_digest(task),
+                "content_digest": importance_content_digest(_request(task)),
                 "scores": {"m0": 1, "m1": 6, "m2": 6, "m3": 10},
             }
         ],
@@ -87,8 +91,8 @@ def test_clean_legacy_artifact_produces_compact_schema_and_summary() -> None:
     assert source["path"] == "legacy.json"
     assert source["sha256"] == "abc123"
     assert legacy_metadata["model"] == "gpt-5.4-mini"
-    assert summary["counts"] == {"tasks": 1, "memory_items": 4, "constant_tasks": 0}
-    validate_importance_artifact(artifact, [task])
+    assert summary["counts"] == {"tasks": 1, "candidate_sentences": 4, "constant_tasks": 0}
+    validate_importance_artifact(artifact, [_request(task)])
 
 
 def test_clean_legacy_artifact_rejects_task_and_node_mismatches() -> None:

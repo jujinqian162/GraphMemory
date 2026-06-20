@@ -5,8 +5,10 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import torch
 
-from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.contracts.graphs import GraphEdge, GraphItemNode, MemoryGraph
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.models.graph_retriever.batching import (
     build_full_ranking_batches,
@@ -21,6 +23,7 @@ from graph_memory.models.graph_retriever.config.records import (
 from graph_memory.models.graph_retriever.text_embeddings import DenseGraphFeatureProvider
 from graph_memory.models.graph_retriever.training import train_graph_retriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignal
 
 
@@ -43,17 +46,16 @@ class RecordingEncoder:
         return 4
 
 
-def _task(task_id: str, query: str, node_ids: list[str]) -> MemoryTaskInput:
+def _task(task_id: str, query: str, node_ids: list[str]) -> HotpotQARankingRecord:
     return {
         "task_id": task_id,
-        "query": query,
-        "memory_items": [
+        "question": query,
+        "candidate_sentences": [
             {
-                "id": node_id,
-                "node_type": "document_sentence",
+                "sentence_id": node_id,
                 "text": f"text-{node_id}",
-                "source": f"source-{node_id}",
-                "sentence_id": index,
+                "title": f"source-{node_id}",
+                "sentence_index": index,
                 "position": index,
             }
             for index, node_id in enumerate(node_ids)
@@ -61,8 +63,41 @@ def _task(task_id: str, query: str, node_ids: list[str]) -> MemoryTaskInput:
     }
 
 
-def _graph(task_input: MemoryTaskInput) -> MemoryGraph:
-    memory_ids = [item["id"] for item in task_input["memory_items"]]
+def _ranking_requests(tasks: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task) for task in tasks]
+
+
+def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
+
+
+def _graph_nodes(task_input: HotpotQARankingRecord) -> list[GraphItemNode]:
+    return [
+        {
+            "id": sentence["sentence_id"],
+            "node_type": "graph_item",
+            "node_kind": "document_sentence",
+            "text": sentence["text"],
+            "source_ref": sentence["title"],
+            "group_key": f"document:{sentence['title']}",
+            "sequence_index": sentence["sentence_index"],
+            "metadata": {"title": sentence["title"], "position": sentence["position"]},
+        }
+        for sentence in task_input["candidate_sentences"]
+    ]
+
+
+def _graph(task_input: HotpotQARankingRecord) -> MemoryGraph:
+    memory_ids = [item["sentence_id"] for item in task_input["candidate_sentences"]]
     edges: list[GraphEdge] = [
         {
             "source": "q",
@@ -84,7 +119,7 @@ def _graph(task_input: MemoryTaskInput) -> MemoryGraph:
         )
     return {
         "task_id": task_input["task_id"],
-        "nodes": [{"id": "q", "node_type": "question", "text": task_input["query"]}, *task_input["memory_items"]],
+        "nodes": [{"id": "q", "node_type": "question", "text": task_input["question"]}, *_graph_nodes(task_input)],
         "edges": edges,
     }
 
@@ -119,7 +154,7 @@ def _model_config() -> RgcnModelConfig:
 
 
 def _fixture() -> tuple[
-    list[MemoryTaskInput],
+    list[HotpotQARankingRecord],
     list[MemoryGraph],
     list[TrainPairRecord],
     Mapping[str, Sequence[float]],
@@ -173,7 +208,7 @@ def test_joint_dense_graph_features_match_separate_providers_with_one_encoder_ca
     joint_encoder = RecordingEncoder(vectors)
     joint_provider = DenseGraphFeatureProvider(encoder=joint_encoder, batch_size=5)
     joint_batch = build_training_batches(
-        task_inputs=tasks,
+        ranking_requests=_ranking_requests(tasks),
         graphs=graphs,
         pairs=pairs,
         model_config=_model_config(),
@@ -189,7 +224,7 @@ def test_joint_dense_graph_features_match_separate_providers_with_one_encoder_ca
         DenseTaskRetriever(config=DenseConfig(batch_size=5), encoder=seed_encoder)
     )
     separate_batch = build_training_batches(
-        task_inputs=tasks,
+        ranking_requests=_ranking_requests(tasks),
         graphs=graphs,
         pairs=pairs,
         model_config=_model_config(),
@@ -216,19 +251,19 @@ def test_independently_injected_seed_provider_keeps_its_semantics() -> None:
     text_provider = DenseGraphFeatureProvider(encoder=RecordingEncoder(vectors))
 
     class CustomSeedProvider:
-        def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
+        def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
             return [
                 SeedSignal(
-                    node_id=item["id"],
+                    node_id=item.item_id,
                     score=9.0 - index,
                     rank=index + 1,
                     rank_percentile=float(index),
                 )
-                for index, item in enumerate(reversed(task_input["memory_items"]))
+                for index, item in enumerate(reversed(request.candidates))
             ]
 
     batch = build_training_batches(
-        task_inputs=tasks,
+        ranking_requests=_ranking_requests(tasks),
         graphs=graphs,
         pairs=pairs,
         model_config=_model_config(),
@@ -243,17 +278,17 @@ def test_independently_injected_seed_provider_keeps_its_semantics() -> None:
 
 def test_multi_epoch_training_builds_frozen_dev_features_once_but_evaluates_each_epoch() -> None:
     tasks, graphs, pairs, vectors = _fixture()
-    labels: list[MemoryTaskLabels] = [
+    labels: list[HotpotQALabelRecord] = [
         {
             "task_id": "t1",
             "gold_answer": "answer",
-            "gold_evidence_nodes": ["m0"],
+            "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
         },
         {
             "task_id": "t2",
             "gold_answer": "answer",
-            "gold_evidence_nodes": ["m0"],
+            "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
         },
     ]
@@ -261,12 +296,12 @@ def test_multi_epoch_training_builds_frozen_dev_features_once_but_evaluates_each
     provider = DenseGraphFeatureProvider(encoder=encoder, batch_size=8)
 
     result = train_graph_retriever(
-        train_task_inputs=tasks,
+        train_requests=_ranking_requests(tasks),
         train_graphs=graphs,
         train_pairs=pairs,
-        train_labels=labels,
-        dev_task_inputs=tasks,
-        dev_labels=labels,
+        train_labels=_evidence_labels(labels),
+        dev_requests=_ranking_requests(tasks),
+        dev_labels=_evidence_labels(labels),
         dev_graphs=graphs,
         model_config=_model_config(),
         training_config=RgcnTrainingConfig(
@@ -289,20 +324,20 @@ def test_multi_epoch_training_builds_frozen_dev_features_once_but_evaluates_each
 
 def test_reused_cpu_batches_are_not_mutated_by_device_movement() -> None:
     tasks, graphs, _, vectors = _fixture()
-    labels: list[MemoryTaskLabels] = [
+    labels: list[HotpotQALabelRecord] = [
         {
             "task_id": task["task_id"],
             "gold_answer": "answer",
-            "gold_evidence_nodes": ["m0"],
+            "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
         }
         for task in tasks
     ]
     provider = DenseGraphFeatureProvider(encoder=RecordingEncoder(vectors))
     batch = build_full_ranking_batches(
-        task_inputs=tasks,
+        ranking_requests=_ranking_requests(tasks),
         graphs=graphs,
-        labels=labels,
+        labels=_evidence_labels(labels),
         model_config=_model_config(),
         text_embedding_provider=provider,
         seed_signal_provider=provider,
@@ -323,11 +358,11 @@ def test_reused_cpu_batches_are_not_mutated_by_device_movement() -> None:
 
 def test_frozen_feature_reuse_does_not_cross_training_invocations() -> None:
     tasks, graphs, pairs, vectors = _fixture()
-    labels: list[MemoryTaskLabels] = [
+    labels: list[HotpotQALabelRecord] = [
         {
             "task_id": task["task_id"],
             "gold_answer": "answer",
-            "gold_evidence_nodes": ["m0"],
+            "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
         }
         for task in tasks
@@ -346,12 +381,12 @@ def test_frozen_feature_reuse_does_not_cross_training_invocations() -> None:
 
     for _ in range(2):
         train_graph_retriever(
-            train_task_inputs=tasks,
+            train_requests=_ranking_requests(tasks),
             train_graphs=graphs,
             train_pairs=pairs,
-            train_labels=labels,
-            dev_task_inputs=tasks,
-            dev_labels=labels,
+            train_labels=_evidence_labels(labels),
+            dev_requests=_ranking_requests(tasks),
+            dev_labels=_evidence_labels(labels),
             dev_graphs=graphs,
             model_config=_model_config(),
             training_config=training_config,

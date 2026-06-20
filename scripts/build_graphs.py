@@ -11,13 +11,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.graphs.config import GraphBuildConfig
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToGraphBuildRequest
 from graph_memory.graphs.construction.builder import build_graphs
 from graph_memory.graphs.statistics import graph_statistics
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.validation import (
     validate_graphs,
-    validate_memory_task_inputs,
+    validate_hotpotqa_ranking_records,
 )
 
 LOGGER = logging.getLogger("build_graphs")
@@ -58,13 +59,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs = {"graphs": args.output, "graph_stats": str(stats_path), "run_summary": str(summary_path)}
 
     try:
-        task_inputs = read_json(args.input)
-        validate_memory_task_inputs(task_inputs)
-        inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        LOGGER.info("read task inputs: %s", len(task_inputs))
+        ranking_records = read_json(args.input)
+        validate_hotpotqa_ranking_records(ranking_records)
+        LOGGER.info("read HotpotQA ranking records: %s", len(ranking_records))
 
-        graphs = build_graphs(task_inputs, config)
-        validate_graphs(graphs, inputs_by_task_id)
+        projector = HotpotQAToGraphBuildRequest()
+        graph_requests = [projector.project(record) for record in ranking_records]
+        graphs = build_graphs(graph_requests, config)
+        validate_graphs(graphs, graph_requests)
         stats = graph_statistics(graphs, graph_config=effective_config)
         write_json(args.output, graphs)
         write_json(stats_path, stats)
@@ -78,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             inputs=inputs,
             outputs=outputs,
             counts={
-                "task_inputs": len(task_inputs),
+                "ranking_records": len(ranking_records),
                 "graphs": len(graphs),
                 "avg_nodes": stats["avg_nodes"],
                 "avg_edges": stats["avg_edges"],
@@ -113,8 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build typed memory graphs from leakage-safe task inputs.")
-    parser.add_argument("--input", required=True, help="Path to *_memory_tasks.input.json.")
+    parser = argparse.ArgumentParser(description="Build typed graphs from HotpotQA ranking records.")
+    parser.add_argument("--input", required=True, help="Path to HotpotQA ranking record JSON.")
     parser.add_argument("--output", required=True, help="Path to write *_graphs.json.")
     parser.add_argument("--max_query_overlap", type=int, default=20)
     parser.add_argument("--max_entity_neighbors", type=int, default=10)

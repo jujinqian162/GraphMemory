@@ -12,7 +12,7 @@ from graph_memory.registry.stage_configs import (
     RgcnTrainStageConfig,
     TrainStageConfig,
 )
-from graph_memory.registry.training import TrainPayload
+from graph_memory.stages.train_payloads import TrainPayload
 
 TrainingResult: TypeAlias = RgcnTrainingResult | DenseFinetuneTrainingResult
 

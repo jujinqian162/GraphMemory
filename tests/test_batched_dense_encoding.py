@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 import torch
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingRequest
 from graph_memory.models.graph_retriever.contracts import encode_task_node_groups
 from graph_memory.retrieval.bulk import rank_tasks
@@ -16,26 +17,31 @@ from graph_memory.retrieval.contracts import (
     RetrievalMethodResult,
 )
 from graph_memory.retrieval.execution import service as retrieval_service
+from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
+from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignal, score_tasks
 
 
-def _task(task_id: str, *, query: str, node_ids: Sequence[str]) -> MemoryTaskInput:
+def _record(task_id: str, *, query: str, node_ids: Sequence[str]) -> HotpotQARankingRecord:
     return {
         "task_id": task_id,
-        "query": query,
-        "memory_items": [
+        "question": query,
+        "candidate_sentences": [
             {
-                "id": node_id,
-                "node_type": "document_sentence",
+                "sentence_id": node_id,
                 "text": f"text-{node_id}",
-                "source": f"source-{node_id}",
-                "sentence_id": index,
+                "title": f"source-{node_id}",
+                "sentence_index": index,
                 "position": index,
             }
             for index, node_id in enumerate(node_ids)
         ],
     }
+
+
+def _request(record: HotpotQARankingRecord) -> TextRankingRequest:
+    return HotpotQAToTextRankingRequest().project(record)
 
 
 class RecordingEncoder:
@@ -67,13 +73,13 @@ def test_dense_encoding_service_flattens_variable_length_tasks_and_restores_orde
         passage_prefix="P: ",
         batch_size=7,
     )
-    first = _task("t1", query="first", node_ids=["m0", "m1"])
-    second = _task("t2", query="second", node_ids=["m2", "m3", "m4"])
+    first = _request(_record("t1", query="first", node_ids=["m0", "m1"]))
+    second = _request(_record("t2", query="second", node_ids=["m2", "m3", "m4"]))
 
     results = service.encode_tasks(
         [
-            DenseTaskEncodingRequest(task_input=first, node_ids=("q", "m1")),
-            DenseTaskEncodingRequest(task_input=second, node_ids=("m4", "q", "m2")),
+            DenseTaskEncodingRequest(ranking_request=first, node_ids=("q", "m1")),
+            DenseTaskEncodingRequest(ranking_request=second, node_ids=("m4", "q", "m2")),
         ]
     )
 
@@ -120,10 +126,10 @@ def test_dense_encoding_service_rejects_invalid_encoder_shapes(returned: np.ndar
             return returned
 
     service = DenseEncodingService(encoder=InvalidShapeEncoder(), batch_size=3)
-    task_input = _task("t", query="question", node_ids=["m0"])
+    request = _request(_record("t", query="question", node_ids=["m0"]))
 
     with pytest.raises(ValueError, match="embedding shape"):
-        service.encode_tasks([DenseTaskEncodingRequest(task_input=task_input, node_ids=("q", "m0"))])
+        service.encode_tasks([DenseTaskEncodingRequest(ranking_request=request, node_ids=("q", "m0"))])
 
 
 def test_dense_encoding_service_prefers_current_embedding_dimension_api() -> None:
@@ -140,8 +146,8 @@ def test_dense_encoding_service_prefers_current_embedding_dimension_api() -> Non
 
 
 def test_dense_retriever_bulk_and_single_paths_preserve_scores_order_and_tie_breaks() -> None:
-    first = _task("t1", query="first", node_ids=["m1", "m0", "m2"])
-    second = _task("t2", query="second", node_ids=["m3"])
+    first = _request(_record("t1", query="first", node_ids=["m1", "m0", "m2"]))
+    second = _request(_record("t2", query="second", node_ids=["m3"]))
     vectors = {
         "query: first": [1.0, 0.0],
         "passage: source-m1. text-m1": [0.5, 0.0],
@@ -190,9 +196,9 @@ def test_dense_retriever_bulk_and_single_paths_preserve_scores_order_and_tie_bre
 
 
 def test_bulk_capability_helpers_fall_back_in_deterministic_input_order() -> None:
-    tasks = [
-        _task("t1", query="first", node_ids=["m0"]),
-        _task("t2", query="second", node_ids=["m1"]),
+    requests = [
+        _request(_record("t1", query="first", node_ids=["m0"])),
+        _request(_record("t2", query="second", node_ids=["m1"])),
     ]
 
     class SingleRanker:
@@ -201,9 +207,9 @@ def test_bulk_capability_helpers_fall_back_in_deterministic_input_order() -> Non
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
-            self.calls.append(task_input["task_id"])
-            return [RankedNode(node_id=task_input["memory_items"][0]["id"], score=1.0)]
+        def rank(self, request: TextRankingRequest) -> list[RankedNode]:
+            self.calls.append(request.task_id)
+            return [RankedNode(node_id=request.candidates[0].item_id, score=1.0)]
 
     class SingleTextProvider:
         embedding_dim = 2
@@ -211,40 +217,40 @@ def test_bulk_capability_helpers_fall_back_in_deterministic_input_order() -> Non
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def encode_task_nodes(self, task_input: MemoryTaskInput, node_ids: list[str]) -> torch.Tensor:
-            self.calls.append(task_input["task_id"])
+        def encode_task_nodes(self, request: TextRankingRequest, node_ids: list[str]) -> torch.Tensor:
+            self.calls.append(request.task_id)
             return torch.full((len(node_ids), 2), float(len(self.calls)), dtype=torch.float32)
 
     class SingleSeedProvider:
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
-            self.calls.append(task_input["task_id"])
-            node_id = task_input["memory_items"][0]["id"]
+        def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
+            self.calls.append(request.task_id)
+            node_id = request.candidates[0].item_id
             return [SeedSignal(node_id=node_id, score=1.0, rank=1, rank_percentile=0.0)]
 
     ranker = SingleRanker()
     text_provider = SingleTextProvider()
     seed_provider = SingleSeedProvider()
-    requests = [
-        DenseTaskEncodingRequest(task_input=tasks[0], node_ids=("q", "m0")),
-        DenseTaskEncodingRequest(task_input=tasks[1], node_ids=("q", "m1")),
+    encoding_requests = [
+        DenseTaskEncodingRequest(ranking_request=requests[0], node_ids=("q", "m0")),
+        DenseTaskEncodingRequest(ranking_request=requests[1], node_ids=("q", "m1")),
     ]
 
-    assert [[node.node_id for node in rows] for rows in rank_tasks(ranker, tasks)] == [["m0"], ["m1"]]
+    assert [[node.node_id for node in rows] for rows in rank_tasks(ranker, requests)] == [["m0"], ["m1"]]
     assert ranker.calls == ["t1", "t2"]
-    embeddings = encode_task_node_groups(text_provider, requests)
+    embeddings = encode_task_node_groups(text_provider, encoding_requests)
     assert [tensor[:, 0].tolist() for tensor in embeddings] == [[1.0, 1.0], [2.0, 2.0]]
     assert text_provider.calls == ["t1", "t2"]
-    assert [[signal.node_id for signal in rows] for rows in score_tasks(seed_provider, tasks)] == [["m0"], ["m1"]]
+    assert [[signal.node_id for signal in rows] for rows in score_tasks(seed_provider, requests)] == [["m0"], ["m1"]]
     assert seed_provider.calls == ["t1", "t2"]
 
 
 def test_bulk_capability_helpers_prefer_bulk_methods() -> None:
-    tasks = [
-        _task("t1", query="first", node_ids=["m0"]),
-        _task("t2", query="second", node_ids=["m1"]),
+    requests = [
+        _request(_record("t1", query="first", node_ids=["m0"])),
+        _request(_record("t2", query="second", node_ids=["m1"])),
     ]
 
     class BulkRanker:
@@ -253,20 +259,20 @@ def test_bulk_capability_helpers_prefer_bulk_methods() -> None:
         def __init__(self) -> None:
             self.bulk_calls = 0
 
-        def rank(self, task_input: MemoryTaskInput) -> list[RankedNode]:
+        def rank(self, request: TextRankingRequest) -> list[RankedNode]:
             raise AssertionError("single rank fallback must not run")
 
-        def rank_many(self, task_inputs: list[MemoryTaskInput]) -> list[list[RankedNode]]:
+        def rank_many(self, request_batch: list[TextRankingRequest]) -> list[list[RankedNode]]:
             self.bulk_calls += 1
             return [
-                [RankedNode(node_id=task_input["memory_items"][0]["id"], score=1.0)]
-                for task_input in task_inputs
+                [RankedNode(node_id=request.candidates[0].item_id, score=1.0)]
+                for request in request_batch
             ]
 
     class BulkTextProvider:
         embedding_dim = 2
 
-        def encode_task_nodes(self, task_input: MemoryTaskInput, node_ids: list[str]) -> torch.Tensor:
+        def encode_task_nodes(self, request: TextRankingRequest, node_ids: list[str]) -> torch.Tensor:
             raise AssertionError("single text fallback must not run")
 
         def encode_task_node_groups(
@@ -276,32 +282,32 @@ def test_bulk_capability_helpers_prefer_bulk_methods() -> None:
             return [torch.ones((len(request.node_ids), 2), dtype=torch.float32) for request in requests]
 
     class BulkSeedProvider:
-        def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
+        def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
             raise AssertionError("single seed fallback must not run")
 
-        def score_tasks(self, task_inputs: Sequence[MemoryTaskInput]) -> list[list[SeedSignal]]:
+        def score_tasks(self, request_batch: Sequence[TextRankingRequest]) -> list[list[SeedSignal]]:
             return [
                 [
                     SeedSignal(
-                        node_id=task_input["memory_items"][0]["id"],
+                        node_id=request.candidates[0].item_id,
                         score=1.0,
                         rank=1,
                         rank_percentile=0.0,
                     )
                 ]
-                for task_input in task_inputs
+                for request in request_batch
             ]
 
     ranker = BulkRanker()
-    requests = [
-        DenseTaskEncodingRequest(task_input=tasks[0], node_ids=("q", "m0")),
-        DenseTaskEncodingRequest(task_input=tasks[1], node_ids=("q", "m1")),
+    encoding_requests = [
+        DenseTaskEncodingRequest(ranking_request=requests[0], node_ids=("q", "m0")),
+        DenseTaskEncodingRequest(ranking_request=requests[1], node_ids=("q", "m1")),
     ]
 
-    assert len(rank_tasks(ranker, tasks)) == 2
+    assert len(rank_tasks(ranker, requests)) == 2
     assert ranker.bulk_calls == 1
-    assert len(encode_task_node_groups(BulkTextProvider(), requests)) == 2
-    assert len(score_tasks(BulkSeedProvider(), tasks)) == 2
+    assert len(encode_task_node_groups(BulkTextProvider(), encoding_requests)) == 2
+    assert len(score_tasks(BulkSeedProvider(), requests)) == 2
 
 
 def test_embeddings_package_stays_low_level_and_encoder_protocol_is_shared() -> None:
@@ -324,9 +330,9 @@ def test_embeddings_package_stays_low_level_and_encoder_protocol_is_shared() -> 
 
 
 def test_run_retrieval_keeps_per_task_rank_and_latency_boundaries(monkeypatch) -> None:
-    tasks = [
-        _task("t1", query="first", node_ids=["m0"]),
-        _task("t2", query="second", node_ids=["m0"]),
+    records = [
+        _record("t1", query="first", node_ids=["m0"]),
+        _record("t2", query="second", node_ids=["m0"]),
     ]
 
     class TaskOrientedMethod:
@@ -335,8 +341,9 @@ def test_run_retrieval_keeps_per_task_rank_and_latency_boundaries(monkeypatch) -
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def rank_task(self, task_input: MemoryTaskInput, *, top_k: int) -> RetrievalMethodResult:
-            self.calls.append(task_input["task_id"])
+        def rank_task(self, request: RankingMethodRequest, *, top_k: int) -> RetrievalMethodResult:
+            assert isinstance(request, TextRankingRequest)
+            self.calls.append(request.task_id)
             return RetrievalMethodResult(
                 ranked_nodes=[RankedNode(node_id="m0", score=float(top_k))]
             )
@@ -345,9 +352,10 @@ def test_run_retrieval_keeps_per_task_rank_and_latency_boundaries(monkeypatch) -
     monkeypatch.setattr(retrieval_service.time, "perf_counter", lambda: next(times))
     method = TaskOrientedMethod()
 
+    requests = [_request(record) for record in records]
     predictions = retrieval_service.run_retrieval(
         retrieval_method=method,
-        task_inputs=tasks,
+        tasks=[RetrievalExecutionTask(text_request=request, method_request=request) for request in requests],
         top_k=1,
     )
 

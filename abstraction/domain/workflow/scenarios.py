@@ -20,52 +20,36 @@ class ScenarioFlow(Protocol):
 
 class DenseLongMemEvalScenarioFlow:  # implement ScenarioFlow
     def describe_required_view(self) -> ViewKind:
-        pass
-
+        raise NotImplementedError
     def describe_required_request(self) -> RequestKind:
-        pass
-
+        raise NotImplementedError
     def connect_projection(self, registry: ProjectionRegistry) -> None:
-        pass
-
-
+        raise NotImplementedError
 class GraphRerankLongMemEvalScenarioFlow:  # implement ScenarioFlow
     def describe_required_view(self) -> ViewKind:
-        pass
-
+        raise NotImplementedError
     def describe_required_request(self) -> RequestKind:
-        pass
-
+        raise NotImplementedError
     def connect_projection(self, registry: ProjectionRegistry) -> None:
-        pass
-
-
+        raise NotImplementedError
 class GraphRAGTwoWikiScenarioFlow:  # implement ScenarioFlow
     def describe_required_view(self) -> ViewKind:
-        pass
-
+        raise NotImplementedError
     def describe_required_request(self) -> RequestKind:
-        pass
-
+        raise NotImplementedError
     def connect_projection(self, registry: ProjectionRegistry) -> None:
-        pass
-
-
+        raise NotImplementedError
 class HotpotEvidenceRankingScenarioFlow:  # implement ScenarioFlow
     def describe_required_view(self) -> ViewKind:
-        pass
-
+        raise NotImplementedError
     def describe_required_request(self) -> RequestKind:
-        pass
-
+        raise NotImplementedError
     def connect_projection(self, registry: ProjectionRegistry) -> None:
-        pass
-
-
+        raise NotImplementedError
 class ScenarioCompatibilityReviewer:
     def assert_method_matches_scenario(
         self,
         scenario: ScenarioFlow,
         method_capability: MethodCapability,
     ) -> None:
-        pass
+        raise NotImplementedError

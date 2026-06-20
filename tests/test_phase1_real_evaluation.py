@@ -16,8 +16,21 @@ from graph_memory.evaluation.service import (
 )
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.contracts.tasks import MemoryTaskLabels
+from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.validation import ContractValidationError
+
+
+def _evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
 
 
 def test_node_metrics_use_ranked_nodes_and_gold_nodes():
@@ -79,11 +92,11 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "input_tokens": 10,
         }
     ]
-    labels: list[MemoryTaskLabels] = [
+    labels: list[HotpotQALabelRecord] = [
         {
             "task_id": "hotpot_ex1",
             "gold_answer": "Paris",
-            "gold_evidence_nodes": ["m0", "m2"],
+            "gold_evidence_sentence_ids": ["m0", "m2"],
             "gold_dependency_edges": [],
         }
     ]
@@ -104,7 +117,7 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
         ),
     )
 
-    rows = evaluate_results(predictions, labels, graphs)
+    rows = evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=_evidence_labels(labels), graphs=graphs))
 
     assert rows == [
         {
@@ -134,8 +147,8 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
 
 def test_evaluate_results_rejects_task_id_mismatch():
     predictions: list[RankedResult] = [{"task_id": "hotpot_ex1", "method": "bm25", "ranked_nodes": [], "retrieved_subgraph": {"nodes": [], "edges": []}, "latency_ms": 0.0, "input_tokens": 0}]
-    labels: list[MemoryTaskLabels] = [{"task_id": "hotpot_other", "gold_answer": "", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}]
+    labels: list[HotpotQALabelRecord] = [{"task_id": "hotpot_other", "gold_answer": "", "gold_evidence_sentence_ids": ["m0"], "gold_dependency_edges": []}]
     graphs: list[MemoryGraph] = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
 
     with pytest.raises(ContractValidationError, match="task_id"):
-        evaluate_results(predictions, labels, graphs)
+        evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=_evidence_labels(labels), graphs=graphs))

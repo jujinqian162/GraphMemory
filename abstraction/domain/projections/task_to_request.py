@@ -16,48 +16,31 @@ from abstraction.domain.task_views.views import (
 
 class EvidenceToTextRankingProjection:  # implement ProjectionAdapter
     def describe_projection(self) -> ProjectionDefinition:
-        pass
-
+        raise NotImplementedError
     def project(self, source: EvidenceRankingView) -> TextRankingRequest:
-        pass
-
-
+        raise NotImplementedError
 class ContextToTextRankingProjection:  # implement ProjectionAdapter
     def describe_projection(self) -> ProjectionDefinition:
-        pass
-
+        raise NotImplementedError
     def project(self, source: ContextGatheringView) -> TextRankingRequest:
-        pass
-
-
+        raise NotImplementedError
 class GraphBuildToGraphRankingProjection:  # implement ProjectionAdapter
     def describe_projection(self) -> ProjectionDefinition:
-        pass
-
+        raise NotImplementedError
     def project(self, source: GraphBuildView) -> GraphRankingRequest:
-        pass
-
-
+        raise NotImplementedError
 class ContextToTemporalMemoryProjection:  # implement ProjectionAdapter
     def describe_projection(self) -> ProjectionDefinition:
-        pass
-
+        raise NotImplementedError
     def project(self, source: ContextGatheringView) -> TemporalMemoryRankingRequest:
-        pass
-
-
+        raise NotImplementedError
 class ContextToContextGatheringProjection:  # implement ProjectionAdapter
     def describe_projection(self) -> ProjectionDefinition:
-        pass
-
+        raise NotImplementedError
     def project(self, source: ContextGatheringView) -> ContextGatheringRequest:
-        pass
-
-
+        raise NotImplementedError
 class EvidenceGraphToContextGatheringProjection:  # implement ProjectionAdapter
     def describe_projection(self) -> ProjectionDefinition:
-        pass
-
+        raise NotImplementedError
     def project(self, source: GraphBuildView) -> ContextGatheringRequest:
-        pass
-
+        raise NotImplementedError

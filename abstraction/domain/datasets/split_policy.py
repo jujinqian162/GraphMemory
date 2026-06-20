@@ -44,5 +44,4 @@ class SplitPolicyResolver(Protocol):
 
 class ManifestSplitPolicyResolver:  # implement SplitPolicyResolver
     def resolve_split_policy(self, recipe: BenchmarkRecipe, method_id: MethodId) -> SplitPolicy:
-        pass
-
+        raise NotImplementedError

@@ -96,22 +96,16 @@ class ScriptCompositionRoot(Protocol):
 
 class ScriptLocalCompositionRoot:  # implement ScriptCompositionRoot
     def build_prepare_dataset_context(self, args: ScriptCliArguments) -> PrepareDatasetScriptContext:
-        pass
-
+        raise NotImplementedError
     def build_project_request_context(self, args: ScriptCliArguments) -> ProjectRequestScriptContext:
-        pass
-
+        raise NotImplementedError
     def build_graph_context(self, args: ScriptCliArguments) -> BuildGraphScriptContext:
-        pass
-
+        raise NotImplementedError
     def build_train_context(self, args: ScriptCliArguments) -> TrainMethodScriptContext:
-        pass
-
+        raise NotImplementedError
     def build_tune_context(self, args: ScriptCliArguments) -> TuneMethodScriptContext:
-        pass
-
+        raise NotImplementedError
     def build_retrieve_context(self, args: ScriptCliArguments) -> RetrieveScriptContext:
-        pass
-
+        raise NotImplementedError
     def build_evaluate_context(self, args: ScriptCliArguments) -> EvaluateScriptContext:
-        pass
+        raise NotImplementedError

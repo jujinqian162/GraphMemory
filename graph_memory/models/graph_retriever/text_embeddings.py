@@ -7,7 +7,6 @@ from typing import cast
 import torch
 from torch import Tensor
 
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.embeddings import (
     DenseEncodingService,
     DenseTaskEncodingRequest,
@@ -17,6 +16,7 @@ from graph_memory.embeddings import (
 )
 from graph_memory.models.graph_retriever.contracts import TaskGraphFeatures
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignal, seed_signals_from_ranked_nodes
 
 
@@ -42,9 +42,9 @@ class DenseGraphFeatureProvider:
         object.__setattr__(self, "encoding_service", service)
         object.__setattr__(self, "embedding_dim", service.embedding_dim)
 
-    def encode_task_nodes(self, task_input: MemoryTaskInput, node_ids: list[str]) -> Tensor:
+    def encode_task_nodes(self, request: TextRankingRequest, node_ids: list[str]) -> Tensor:
         return self.encode_task_node_groups(
-            [DenseTaskEncodingRequest(task_input=task_input, node_ids=tuple(node_ids))]
+            [DenseTaskEncodingRequest(ranking_request=request, node_ids=tuple(node_ids))]
         )[0]
 
     def encode_task_node_groups(
@@ -56,20 +56,20 @@ class DenseGraphFeatureProvider:
             for result in self.encoding_service.encode_tasks(requests)
         ]
 
-    def score_task(self, task_input: MemoryTaskInput) -> list[SeedSignal]:
-        return self.score_tasks([task_input])[0]
+    def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
+        return self.score_tasks([request])[0]
 
-    def score_tasks(self, task_inputs: Sequence[MemoryTaskInput]) -> list[list[SeedSignal]]:
-        requests = [
+    def score_tasks(self, requests: Sequence[TextRankingRequest]) -> list[list[SeedSignal]]:
+        encoding_requests = [
             DenseTaskEncodingRequest(
-                task_input=task_input,
-                node_ids=("q", *(item["id"] for item in task_input["memory_items"])),
+                ranking_request=request,
+                node_ids=("q", *(candidate.item_id for candidate in request.candidates)),
             )
-            for task_input in task_inputs
+            for request in requests
         ]
         return [
             features.seed_signals
-            for features in self.build_task_feature_groups(requests)
+            for features in self.build_task_feature_groups(encoding_requests)
         ]
 
     def build_task_feature_groups(
@@ -79,7 +79,7 @@ class DenseGraphFeatureProvider:
         return [
             TaskGraphFeatures(
                 node_embeddings=self._tensor_from_result(result),
-                seed_signals=self._seed_signals(request.task_input, result),
+                seed_signals=self._seed_signals(request.ranking_request, result),
             )
             for request, result in zip(
                 requests,
@@ -94,7 +94,7 @@ class DenseGraphFeatureProvider:
 
     @staticmethod
     def _seed_signals(
-        task_input: MemoryTaskInput,
+        request: TextRankingRequest,
         result: DenseTaskEncodingResult,
     ) -> list[SeedSignal]:
         row_by_node_id = {
@@ -102,21 +102,21 @@ class DenseGraphFeatureProvider:
             for index, node_id in enumerate(result.node_ids)
         }
         if "q" not in row_by_node_id:
-            raise ValueError(f"Dense graph features require q node for task_id={task_input['task_id']}.")
+            raise ValueError(f"Dense graph features require q node for task_id={request.task_id}.")
         try:
             ranked_nodes = [
                 RankedNode(
-                    node_id=memory_item["id"],
-                    score=float(row_by_node_id[memory_item["id"]] @ row_by_node_id["q"]),
+                    node_id=candidate.item_id,
+                    score=float(row_by_node_id[candidate.item_id] @ row_by_node_id["q"]),
                 )
-                for memory_item in task_input["memory_items"]
+                for candidate in request.candidates
             ]
         except KeyError as error:
             raise ValueError(
                 f"Dense graph features are missing node_id={error.args[0]} "
-                f"for task_id={task_input['task_id']}."
+                f"for task_id={request.task_id}."
             ) from error
-        return seed_signals_from_ranked_nodes(task_input, ranked_nodes)
+        return seed_signals_from_ranked_nodes(request, ranked_nodes)
 
     @staticmethod
     def _load_encoder(model_name: str) -> SentenceEncoder:

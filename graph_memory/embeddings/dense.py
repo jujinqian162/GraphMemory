@@ -2,26 +2,26 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
 from graph_memory.contracts.common import NodeId, TaskId
-from graph_memory.contracts.tasks import MemoryItem, MemoryTaskInput
 from graph_memory.embeddings.contracts import SentenceEncoder
 
 
-def format_dense_query(task_input: MemoryTaskInput, *, query_prefix: str) -> str:
-    return query_prefix + task_input["query"]
+def format_dense_query(request: Any, *, query_prefix: str) -> str:
+    return query_prefix + request.query_text
 
 
-def format_dense_passage(memory_item: MemoryItem, *, passage_prefix: str) -> str:
-    return passage_prefix + f'{memory_item["source"]}. {memory_item["text"]}'
+def format_dense_passage(candidate: Any, *, passage_prefix: str) -> str:
+    return passage_prefix + candidate.text
 
 
 @dataclass(frozen=True)
 class DenseTaskEncodingRequest:
-    task_input: MemoryTaskInput
+    ranking_request: Any
     node_ids: tuple[NodeId, ...]
 
 
@@ -88,7 +88,7 @@ class DenseEncodingService:
             next_offset = row_offset + row_count
             results.append(
                 DenseTaskEncodingResult(
-                    task_id=request.task_input["task_id"],
+                    task_id=request.ranking_request.task_id,
                     node_ids=request.node_ids,
                     embeddings=matrix[row_offset:next_offset].copy(),
                 )
@@ -97,17 +97,18 @@ class DenseEncodingService:
         return results
 
     def _texts_for_request(self, request: DenseTaskEncodingRequest) -> list[str]:
-        text_by_node_id = {"q": format_dense_query(request.task_input, query_prefix=self.query_prefix)}
-        for memory_item in request.task_input["memory_items"]:
-            text_by_node_id[memory_item["id"]] = format_dense_passage(
-                memory_item,
+        ranking_request = request.ranking_request
+        text_by_node_id = {"q": format_dense_query(ranking_request, query_prefix=self.query_prefix)}
+        for candidate in ranking_request.candidates:
+            text_by_node_id[candidate.item_id] = format_dense_passage(
+                candidate,
                 passage_prefix=self.passage_prefix,
             )
         try:
             return [text_by_node_id[node_id] for node_id in request.node_ids]
         except KeyError as error:
             raise ValueError(
-                f"Unknown dense encoding node_id={error.args[0]} for task_id={request.task_input['task_id']}."
+                f"Unknown dense encoding node_id={error.args[0]} for task_id={ranking_request.task_id}."
             ) from error
 
     def _encode_texts(self, texts: Sequence[str], *, batch_size: int) -> NDArray[np.float64]:

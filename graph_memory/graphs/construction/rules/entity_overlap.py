@@ -15,10 +15,10 @@ class EntityOverlapEdgeRule:
 
     def add_edges(self, graph_input: PreparedGraphInput, accumulator: EdgeAccumulator) -> None:
         candidates: list[tuple[float, str, str]] = []
-        for left, right in combinations(graph_input.task_input["memory_items"], 2):
-            score = float(len(graph_input.entities_by_node_id[left["id"]] & graph_input.entities_by_node_id[right["id"]]))
+        for left, right in combinations(graph_input.request.nodes, 2):
+            score = float(len(graph_input.entities_by_node_id[left.node_id] & graph_input.entities_by_node_id[right.node_id]))
             if score > 0.0:
-                candidates.append((score, left["id"], right["id"]))
+                candidates.append((score, left.node_id, right.node_id))
 
         neighbor_counts: dict[str, int] = defaultdict(int)
         for score, source, target in sorted(candidates, key=lambda candidate: (-candidate[0], candidate[1], candidate[2])):
@@ -30,4 +30,3 @@ class EntityOverlapEdgeRule:
             accumulator.add(source, target, "entity_overlap", score, directed=False)
             neighbor_counts[source] += 1
             neighbor_counts[target] += 1
-

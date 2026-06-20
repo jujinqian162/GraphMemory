@@ -6,22 +6,22 @@ from typing import Protocol, runtime_checkable
 
 from torch import Tensor
 
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.embeddings import DenseTaskEncodingRequest
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignal, SeedSignalProvider, score_tasks
 
 
 class TextEmbeddingProvider(Protocol):
     """
-    Replaceable provider for frozen query and memory text embeddings.
-    可替换的冻结 query 和 memory 文本 embedding 提供器。
+    Replaceable provider for frozen query and candidate text embeddings.
+    可替换的冻结 query 和 candidate 文本 embedding 提供器。
     """
 
     @property
     def embedding_dim(self) -> int:
         ...
 
-    def encode_task_nodes(self, task_input: MemoryTaskInput, node_ids: list[str]) -> Tensor:
+    def encode_task_nodes(self, request: TextRankingRequest, node_ids: list[str]) -> Tensor:
         ...
 
 
@@ -63,7 +63,7 @@ def encode_task_node_groups(
             )
         return results
     return [
-        provider.encode_task_nodes(request.task_input, list(request.node_ids))
+        provider.encode_task_nodes(request.ranking_request, list(request.node_ids))
         for request in request_list
     ]
 
@@ -89,7 +89,7 @@ def build_task_feature_groups(
     embeddings_by_task = encode_task_node_groups(text_embedding_provider, request_list)
     signals_by_task = score_tasks(
         seed_signal_provider,
-        [request.task_input for request in request_list],
+        [request.ranking_request for request in request_list],
     )
     return [
         TaskGraphFeatures(node_embeddings=embeddings, seed_signals=signals)

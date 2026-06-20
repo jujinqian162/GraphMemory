@@ -33,6 +33,7 @@ MetricRow = TypedDict(
 )
 
 MetricTableRow: TypeAlias = dict[str, MetricValue]
+MetricSuiteRow: TypeAlias = dict[str, MetricValue]
 
 TaskMetricRow = TypedDict(
     "TaskMetricRow",
@@ -61,10 +62,10 @@ class FailureCase(TypedDict):
     task_id: TaskId
     method: MethodName
     failure_type: str
-    gold_evidence_nodes: list[NodeId]
+    gold_evidence_item_ids: list[NodeId]
     retrieved_top_k: list[NodeId]
     missing_gold_nodes: list[NodeId]
     connected_gold_in_top_k: bool
 
 
-__all__ = ["FailureCase", "MetricRow", "MetricTableRow", "MetricValue", "TaskMetricRow"]
+__all__ = ["FailureCase", "MetricRow", "MetricSuiteRow", "MetricTableRow", "MetricValue", "TaskMetricRow"]

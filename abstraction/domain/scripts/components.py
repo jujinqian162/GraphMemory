@@ -140,9 +140,7 @@ class CapabilityTaskViewSelector:  # implement TaskViewSelector
         for task_view in task_views:
             if task_view.view_kind in accepted_view_kinds:
                 return task_view
-        pass
-
-
+        raise NotImplementedError
 class MetricEvalViewSelector:  # implement EvalViewSelector
     def select_metric_label_view(self, eval_views: Sequence[EvalLabelView]) -> EvalLabelView:
         return eval_views[0]
@@ -154,11 +152,11 @@ class CapabilityGraphRuleSetSelector:  # implement GraphRuleSetSelector
         task_views: Sequence[TaskView],
         method_capability: MethodCapability,
     ) -> tuple[GraphBuildView, GraphRuleSet]:
-        pass
-
-
+        raise NotImplementedError
 class CapabilityRetrievalRequestAssembler:  # implement RetrievalRequestAssembler
     def as_text_ranking_request(self, projected_request: RetrievalRequest) -> TextRankingRequest:
+        if not isinstance(projected_request, TextRankingRequest):
+            raise TypeError("Expected TextRankingRequest.")
         return projected_request
 
     def as_trained_text_ranking_request(
@@ -176,15 +174,16 @@ class CapabilityRetrievalRequestAssembler:  # implement RetrievalRequestAssemble
         graph_artifact: GraphArtifact,
         graph_index: GraphIndexView,
     ) -> GraphRankingRequest:
-        graph_seed_request = projected_request
+        if not isinstance(projected_request, GraphRankingRequest):
+            raise TypeError("Expected GraphRankingRequest.")
         return GraphRankingRequest(
-            request_id=graph_seed_request.request_id,
+            request_id=projected_request.request_id,
             request_kind=RequestKind.GRAPH_RANKING,
-            task_id=graph_seed_request.task_id,
-            query_ref=graph_seed_request.query_ref,
+            task_id=projected_request.task_id,
+            query_ref=projected_request.query_ref,
             candidate_item_ids=graph_index.candidate_item_ids,
             graph_ref=graph_index.graph_ref,
-            seed_scores_by_item=graph_seed_request.seed_scores_by_item,
+            seed_scores_by_item=projected_request.seed_scores_by_item,
         )
 
     def as_temporal_memory_ranking_request(
@@ -192,14 +191,15 @@ class CapabilityRetrievalRequestAssembler:  # implement RetrievalRequestAssemble
         projected_request: RetrievalRequest,
         temporal_signals: TemporalMemorySignals,
     ) -> TemporalMemoryRankingRequest:
-        memory_seed_request = projected_request
+        if not isinstance(projected_request, TemporalMemoryRankingRequest):
+            raise TypeError("Expected TemporalMemoryRankingRequest.")
         return TemporalMemoryRankingRequest(
-            request_id=memory_seed_request.request_id,
+            request_id=projected_request.request_id,
             request_kind=RequestKind.TEMPORAL_MEMORY_RANKING,
-            task_id=memory_seed_request.task_id,
-            query_text=memory_seed_request.query_text,
-            memory_item_ids=memory_seed_request.memory_item_ids,
-            memory_text_by_item=memory_seed_request.memory_text_by_item,
+            task_id=projected_request.task_id,
+            query_text=projected_request.query_text,
+            memory_item_ids=projected_request.memory_item_ids,
+            memory_text_by_item=projected_request.memory_text_by_item,
             recency_signal_by_item=temporal_signals.recency_signal_by_item,
             importance_signal_by_item=temporal_signals.importance_signal_by_item,
         )
@@ -209,19 +209,22 @@ class CapabilityRetrievalRequestAssembler:  # implement RetrievalRequestAssemble
         projected_request: RetrievalRequest,
         graph_artifact: GraphArtifact | None,
     ) -> ContextGatheringRequest:
-        context_seed_request = projected_request
+        if not isinstance(projected_request, ContextGatheringRequest):
+            raise TypeError("Expected ContextGatheringRequest.")
         return ContextGatheringRequest(
-            request_id=context_seed_request.request_id,
+            request_id=projected_request.request_id,
             request_kind=RequestKind.CONTEXT_GATHERING,
-            task_id=context_seed_request.task_id,
-            question_text=context_seed_request.question_text,
-            text_store_ref=context_seed_request.text_store_ref,
+            task_id=projected_request.task_id,
+            question_text=projected_request.question_text,
+            text_store_ref=projected_request.text_store_ref,
             graph_or_session_context_ref=self._graph_context_ref(graph_artifact),
-            candidate_context_item_ids=context_seed_request.candidate_context_item_ids,
-            candidate_text_by_item=context_seed_request.candidate_text_by_item,
+            candidate_context_item_ids=projected_request.candidate_context_item_ids,
+            candidate_text_by_item=projected_request.candidate_text_by_item,
         )
 
     def as_answer_request(self, projected_request: RetrievalRequest) -> AnswerRequest:
+        if not isinstance(projected_request, AnswerRequest):
+            raise TypeError("Expected AnswerRequest.")
         return projected_request
 
     def _assert_train_artifact_matches_request(
@@ -229,11 +232,10 @@ class CapabilityRetrievalRequestAssembler:  # implement RetrievalRequestAssemble
         train_artifact: TrainArtifactContract,
         text_request: TextRankingRequest,
     ) -> None:
-        pass
+        raise NotImplementedError
 
     def _graph_context_ref(self, graph_artifact: GraphArtifact | None) -> str | None:
         return None if graph_artifact is None else graph_artifact.artifact_id.value
-
 
 class RegistryMethodRuntimeResolver:  # implement MethodRuntimeResolver
     def get_text_ranking_method(
@@ -260,31 +262,23 @@ class RegistryMethodRuntimeResolver:  # implement MethodRuntimeResolver
         return self._load_answering_method(method_capability)
 
     def _load_text_ranking_method(self, method_capability: MethodCapability) -> TextRankingMethod:
-        pass
-
+        raise NotImplementedError
     def _load_trained_text_ranking_method(
         self,
         method_capability: MethodCapability,
         train_artifact: TrainArtifactContract,
     ) -> TextRankingMethod:
-        pass
-
+        raise NotImplementedError
     def _load_graph_ranking_method(self, method_capability: MethodCapability) -> GraphRankingMethod:
-        pass
-
+        raise NotImplementedError
     def _load_trained_graph_ranking_method(self, method_capability: MethodCapability) -> GraphRankingMethod:
-        pass
-
+        raise NotImplementedError
     def _load_temporal_memory_method(self, method_capability: MethodCapability) -> TemporalMemoryRankingMethod:
-        pass
-
+        raise NotImplementedError
     def _load_context_gathering_method(self, method_capability: MethodCapability) -> ContextGatheringMethod:
-        pass
-
+        raise NotImplementedError
     def _load_answering_method(self, method_capability: MethodCapability) -> AnsweringMethod:
-        pass
-
-
+        raise NotImplementedError
 class ManifestFromStageGraphBuilder:  # implement ArtifactManifestBuilder
     def build_manifest(
         self,

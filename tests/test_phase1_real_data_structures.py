@@ -26,22 +26,22 @@ def test_supporting_facts_map_title_sentence_to_node_ids():
     conversion = convert_hotpotqa_examples(parsed_examples)
 
     assert isinstance(conversion, HotpotQAConversionResult)
-    inputs = conversion.task_inputs
-    labels = conversion.task_labels
+    inputs = conversion.ranking_records
+    labels = conversion.label_records
     assert inputs[0]["task_id"] == "hotpot_ex1"
-    assert inputs[0]["query"] == "Where is the Eiffel Tower and what river runs through that city?"
-    assert inputs[0]["memory_items"][0]["id"] == "m0"
-    assert inputs[0]["memory_items"][0]["sentence_id"] == 0
-    assert inputs[0]["memory_items"][0]["position"] == 0
-    assert inputs[0]["memory_items"][3]["id"] == "m3"
-    assert inputs[0]["memory_items"][3]["sentence_id"] == 1
-    assert inputs[0]["memory_items"][3]["position"] == 3
+    assert inputs[0]["question"] == "Where is the Eiffel Tower and what river runs through that city?"
+    assert inputs[0]["candidate_sentences"][0]["sentence_id"] == "m0"
+    assert inputs[0]["candidate_sentences"][0]["sentence_index"] == 0
+    assert inputs[0]["candidate_sentences"][0]["position"] == 0
+    assert inputs[0]["candidate_sentences"][3]["sentence_id"] == "m3"
+    assert inputs[0]["candidate_sentences"][3]["sentence_index"] == 1
+    assert inputs[0]["candidate_sentences"][3]["position"] == 3
     assert labels[0]["task_id"] == "hotpot_ex1"
     assert labels[0]["gold_answer"] == "Paris and the Seine"
-    assert labels[0]["gold_evidence_nodes"] == ["m0", "m3"]
+    assert labels[0]["gold_evidence_sentence_ids"] == ["m0", "m3"]
     assert labels[0]["gold_dependency_edges"] == []
     assert "gold_answer" not in inputs[0]
-    assert "gold_evidence_nodes" not in inputs[0]
+    assert "gold_evidence_sentence_ids" not in inputs[0]
     assert "supporting_facts" not in inputs[0]
 
 

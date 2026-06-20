@@ -8,7 +8,8 @@ from typing import cast
 
 import pytest
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.io import read_json
 from graph_memory.io import write_json
 from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
@@ -232,21 +233,33 @@ def test_experiment_cli_lists_and_filters_ablation_variants(capsys) -> None:
     assert "full_rgcn" in output
 
 
-def _memory_stream_task(task_id: str, query: str, memory_items: list[dict[str, object]]) -> MemoryTaskInput:
+def _as_int(value: object) -> int:
+    return int(cast(int | str, value))
+
+
+def _memory_stream_task(task_id: str, query: str, memory_items: list[dict[str, object]]) -> HotpotQARankingRecord:
     return cast(
-        MemoryTaskInput,
+        HotpotQARankingRecord,
         cast(
             object,
             {
                 "task_id": task_id,
-                "query": query,
-                "memory_items": memory_items,
+                "question": query,
+                "candidate_sentences": [
+                    {
+                        "sentence_id": str(item["id"]),
+                        "title": str(item["source"]),
+                        "sentence_index": _as_int(item["sentence_id"]),
+                        "position": _as_int(item["position"]),
+                        "text": str(item["text"]),
+                    }
+                    for item in memory_items
+                ],
             },
         ),
     )
 
-
-def _memory_stream_artifact(task_input: MemoryTaskInput) -> ImportanceArtifact:
+def _memory_stream_artifact(task_input: HotpotQARankingRecord) -> ImportanceArtifact:
     return cast(
         ImportanceArtifact,
         cast(
@@ -257,7 +270,7 @@ def _memory_stream_artifact(task_input: MemoryTaskInput) -> ImportanceArtifact:
                 "tasks": [
                     {
                         "task_id": task_input["task_id"],
-                        "content_digest": importance_content_digest(task_input),
+                        "content_digest": importance_content_digest(HotpotQAToTemporalMemoryRankingRequest().project(task_input, {})),
                         "scores": {"m0": 10},
                     }
                 ],
@@ -279,7 +292,6 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
         [
             {
                 "id": "m0",
-                "node_type": "document_sentence",
                 "text": "The Eiffel Tower is in Paris.",
                 "source": "Eiffel Tower",
                 "sentence_id": 0,
@@ -395,7 +407,6 @@ def test_memory_stream_prepare_command_supports_importance_split_source(tmp_path
         [
             {
                 "id": "m0",
-                "node_type": "document_sentence",
                 "text": "The Seine runs through Paris.",
                 "source": "Paris",
                 "sentence_id": 0,
@@ -438,7 +449,6 @@ def test_memory_stream_importance_split_source_status_does_not_require_raw_key(t
         [
             {
                 "id": "m0",
-                "node_type": "document_sentence",
                 "text": "The Seine runs through Paris.",
                 "source": "Paris",
                 "sentence_id": 0,

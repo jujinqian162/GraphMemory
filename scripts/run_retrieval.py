@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.common import JsonObject, JsonValue
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
@@ -32,9 +34,10 @@ from graph_memory.retrieval.methods.memory_stream.config import (
     memory_stream_scoring_config_record,
     parse_memory_stream_scoring_config,
 )
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.stages.retrieve import run_retrieve_stage
 from graph_memory.validation import (
-    validate_memory_task_inputs,
+    validate_hotpotqa_ranking_records,
     validate_ranked_results,
 )
 
@@ -61,7 +64,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         task_inputs = read_json(config.io.tasks)
-        validate_memory_task_inputs(task_inputs)
+        validate_hotpotqa_ranking_records(task_inputs)
+        text_requests = _text_requests(cast(list[HotpotQARankingRecord], task_inputs))
         importance_artifact, importance_sha256 = _load_memory_stream_importance_if_required(config)
         graphs = read_json(config.io.graphs) if config.io.graphs is not None else []
         result = run_retrieve_stage(
@@ -74,8 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         predictions = result.predictions
         effective_config = _effective_config(config, selected_config, provenance=result.provenance)
-        inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_ranked_results(predictions, inputs_by_task_id)
+        validate_ranked_results(predictions, text_requests)
         write_json(config.io.output, predictions)
 
         avg_latency = (
@@ -120,6 +123,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_run_summary(summary_path, summary)
         raise
 
+
+
+def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(record) for record in records]
 
 SelectedConfig = GraphRerankConfig | MemoryStreamScoringConfig
 

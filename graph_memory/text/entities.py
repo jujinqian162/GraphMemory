@@ -42,4 +42,3 @@ def _normalize_entity(value: str) -> str:
         if normalized.startswith(determiner):
             normalized = normalized[len(determiner) :]
     return normalized.strip()
-

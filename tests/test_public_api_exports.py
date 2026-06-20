@@ -42,7 +42,6 @@ import pytest
         (
             "graph_memory.registry.training",
             {
-                "TrainDependencies",
                 "TrainingRegistry",
                 "build_training_registry",
             },

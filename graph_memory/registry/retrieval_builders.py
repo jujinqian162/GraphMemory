@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.registry.retrieval import (
@@ -32,6 +31,14 @@ from graph_memory.registry.retrieval import (
     _require_payload,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
+from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
+from graph_memory.retrieval.requests import (
+    DenseConfigLike,
+    GraphRankingRequest,
+    TemporalMemoryRankingRequest,
+    TextRankingRequest,
+)
+from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
@@ -74,10 +81,11 @@ def build_retrieval_registry() -> RetrievalRegistry:
         },
     )
 
+
 def seed_retrieval_settings_for_method(
     *,
     method: RetrievalMethodId,
-    dense_config: DenseConfig | None = None,
+    dense_config: DenseConfigLike | None = None,
 ) -> SeedRetrievalSettings:
     if method is RetrievalMethodId.BM25:
         return SeedRetrievalSettings(method=RetrievalMethodId.BM25)
@@ -86,7 +94,7 @@ def seed_retrieval_settings_for_method(
     raise ValueError(f"Unsupported seed retrieval method: {method.value}")
 
 
-def _dense_encoder_settings(config: DenseConfig | None) -> DenseEncoderSettings:
+def _dense_encoder_settings(config: DenseConfigLike | None) -> DenseEncoderSettings:
     if config is None:
         config = DenseConfig()
     return DenseEncoderSettings(
@@ -98,10 +106,11 @@ def _dense_encoder_settings(config: DenseConfig | None) -> DenseEncoderSettings:
 
 
 def _build_bm25(settings: Bm25RetrievalSettings, payload: object) -> BuiltRetrievalMethod:
-    _ = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
+    build_payload = _require_payload(payload, FlatRetrievalBuildPayload, method=settings.method.value)
     return _built(
         ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever()),
         method=settings.method,
+        execution_tasks=_text_execution_tasks(build_payload.ranking_requests),
     )
 
 
@@ -117,6 +126,7 @@ def _build_dense(settings: DenseRetrievalSettings, payload: object) -> BuiltRetr
         ),
         method=settings.method,
         encoder=settings.encoder,
+        execution_tasks=_text_execution_tasks(build_payload.ranking_requests),
     )
 
 
@@ -141,6 +151,7 @@ def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: objec
             sha256=build_payload.importance_sha256,
             schema_version=1,
         ),
+        execution_tasks=_memory_stream_execution_tasks(build_payload.temporal_requests, importance_by_task_id),
     )
 
 
@@ -150,7 +161,7 @@ def _select_importance_records_for_memory_stream(
 ) -> Mapping[str, TaskImportanceRecord]:
     """Select and validate current-task importance before method construction."""
     _ = settings
-    selected_records = select_importance_records(payload.importance_artifact, payload.task_inputs)
+    selected_records = select_importance_records(payload.importance_artifact, payload.temporal_requests)
     return {record["task_id"]: record for record in selected_records}
 
 
@@ -159,22 +170,30 @@ def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object)
     from graph_memory.retrieval.methods.graph_rerank.method import GraphRerankMethod
 
     build_payload = _require_payload(payload, GraphRerankBuildPayload, method=settings.method.value)
+    seed_ranker = _build_seed_retriever(
+        settings.seed,
+        SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
+    )
+    graph_index = _validated_graph_index(settings.method.value, build_payload.ranking_requests, build_payload.graphs)
+    graph_config = (
+        ensure_graph_rerank_config(cast(GraphRerankConfig | Mapping[str, object] | None, build_payload.graph_config))
+        if build_payload.graph_config is not None
+        else _graph_rerank_config(settings.rerank)
+    )
     return _built(
         GraphRerankMethod(
             name=settings.method.value,
-            retriever=_build_seed_retriever(
-                settings.seed,
-                SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
-            ),
-            graphs=_validated_graph_index(settings.method.value, build_payload.task_inputs, build_payload.graphs),
-            graph_config=(
-                ensure_graph_rerank_config(cast(GraphRerankConfig | Mapping[str, object] | None, build_payload.graph_config))
-                if build_payload.graph_config is not None
-                else _graph_rerank_config(settings.rerank)
-            ),
+            retriever=seed_ranker,
+            graphs=graph_index,
+            graph_config=graph_config,
         ),
         method=settings.method,
         encoder=settings.seed.encoder,
+        execution_tasks=_graph_execution_tasks(
+            build_payload.ranking_requests,
+            graph_index,
+            _initial_scores_from_seed_ranker(seed_ranker),
+        ),
     )
 
 
@@ -182,20 +201,15 @@ def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload:
     from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 
     build_payload = _require_payload(payload, CheckpointGraphBuildPayload, method=settings.method.value)
+    graph_index = _validated_graph_index(settings.method.value, build_payload.ranking_requests, build_payload.graphs)
     text_embedding_provider, seed_signal_provider, checkpoint = _checkpoint_graph_providers(settings, build_payload)
     method = TrainableGraphRetrievalMethod.from_checkpoint(
-            settings.checkpoint,
-            graphs=list(
-                _validated_graph_index(
-                    settings.method.value,
-                    build_payload.task_inputs,
-                    build_payload.graphs,
-                ).graph_by_task_id.values()
-            ),
-            text_embedding_provider=text_embedding_provider,
-            seed_signal_provider=seed_signal_provider,
-            device=settings.device,
-        )
+        settings.checkpoint,
+        graphs=list(graph_index.graph_by_task_id.values()),
+        text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
+        device=settings.device,
+    )
     return _built(
         method,
         method=settings.method,
@@ -206,6 +220,11 @@ def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload:
             query_prefix=checkpoint.model_config.query_prefix,
             passage_prefix=checkpoint.model_config.passage_prefix,
             batch_size=checkpoint.model_config.encoder_batch_size,
+        ),
+        execution_tasks=_graph_execution_tasks(
+            build_payload.ranking_requests,
+            graph_index,
+            _initial_scores_from_seed_signal_provider(seed_signal_provider),
         ),
     )
 
@@ -223,17 +242,17 @@ def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) 
         except RuntimeError as error:
             raise RuntimeError("sentence-transformers is required for dense-ft retrieval.") from error
     method = ScorePipelineMethod(
-            name=settings.method.value,
-            retriever=DenseTaskRetriever(
-                config=DenseConfig(
-                    model_name=str(settings.checkpoint),
-                    query_prefix=metadata.query_prefix,
-                    passage_prefix=metadata.passage_prefix,
-                    batch_size=metadata.batch_size,
-                ),
-                encoder=encoder,
+        name=settings.method.value,
+        retriever=DenseTaskRetriever(
+            config=DenseConfig(
+                model_name=str(settings.checkpoint),
+                query_prefix=metadata.query_prefix,
+                passage_prefix=metadata.passage_prefix,
+                batch_size=metadata.batch_size,
             ),
-        )
+            encoder=encoder,
+        ),
+    )
     return _built(
         method,
         method=settings.method,
@@ -245,6 +264,7 @@ def _build_dense_ft(settings: DenseFinetunedRetrievalSettings, payload: object) 
             passage_prefix=metadata.passage_prefix,
             batch_size=metadata.batch_size,
         ),
+        execution_tasks=_text_execution_tasks(build_payload.ranking_requests),
     )
 
 
@@ -296,6 +316,7 @@ def _built(
     retrieval_method: RetrievalMethod,
     *,
     method: RetrievalMethodId,
+    execution_tasks: list[RetrievalExecutionTask],
     model: Path | None = None,
     device: str | None = None,
     encoder: DenseEncoderSettings | None = None,
@@ -310,6 +331,7 @@ def _built(
             encoder=encoder,
             importance=importance,
         ),
+        execution_tasks=execution_tasks,
     )
 
 
@@ -343,18 +365,87 @@ def _graph_rerank_config(settings: GraphRerankSettings) -> GraphRerankConfig:
     )
 
 
-def _validated_graph_index(method: str, task_inputs: list[MemoryTaskInput], graphs: list[MemoryGraph]) -> GraphIndex:
+def _validated_graph_index(method: str, ranking_requests: list[TextRankingRequest], graphs: list[MemoryGraph]) -> GraphIndex:
     if not graphs:
         raise ValueError(f"Graph-backed retrieval method={method} requires graph inputs.")
-    inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-    validate_graphs(graphs, inputs_by_task_id)
+    requests_by_task_id = {request.task_id: request for request in ranking_requests}
+    validate_graphs(graphs, ranking_requests)
     validate_task_id_alignment(
         "retrieval graph inputs",
-        set(inputs_by_task_id),
+        set(requests_by_task_id),
         {graph["task_id"] for graph in graphs},
     )
     return GraphIndex.from_graphs(graphs)
 
+def _text_execution_tasks(ranking_requests: list[TextRankingRequest]) -> list[RetrievalExecutionTask]:
+    return [
+        RetrievalExecutionTask(text_request=request, method_request=request)
+        for request in ranking_requests
+    ]
+
+
+def _graph_execution_tasks(
+    ranking_requests: list[TextRankingRequest],
+    graph_index: GraphIndex,
+    initial_scores_for_request: Callable[[TextRankingRequest], dict[str, float]],
+) -> list[RetrievalExecutionTask]:
+    tasks: list[RetrievalExecutionTask] = []
+    for request in ranking_requests:
+        graph_request = GraphRankingRequest(
+            task_id=request.task_id,
+            query_text=request.query_text,
+            candidates=request.candidates,
+            graph=graph_index.get_required(request.task_id),
+            initial_scores=initial_scores_for_request(request),
+        )
+        tasks.append(RetrievalExecutionTask(text_request=request, method_request=graph_request))
+    return tasks
+
+
+def _initial_scores_from_seed_ranker(seed_ranker: SeedRanker) -> Callable[[TextRankingRequest], dict[str, float]]:
+    def initial_scores(request: TextRankingRequest) -> dict[str, float]:
+        return {
+            ranked_node.node_id: ranked_node.score
+            for ranked_node in seed_ranker.rank(request)
+        }
+
+    return initial_scores
+
+
+def _initial_scores_from_seed_signal_provider(seed_signal_provider: "SeedSignalProvider") -> Callable[[TextRankingRequest], dict[str, float]]:
+    def initial_scores(request: TextRankingRequest) -> dict[str, float]:
+        return {
+            signal.node_id: signal.score
+            for signal in seed_signal_provider.score_task(request)
+        }
+
+    return initial_scores
+
+
+def _memory_stream_execution_tasks(
+    temporal_requests: list[TemporalMemoryRankingRequest],
+    importance_by_task_id: Mapping[str, TaskImportanceRecord],
+) -> list[RetrievalExecutionTask]:
+    tasks: list[RetrievalExecutionTask] = []
+    for request in temporal_requests:
+        try:
+            task_importance = importance_by_task_id[request.task_id]
+        except KeyError as error:
+            raise ValueError(f"Missing importance record for task_id={request.task_id}.") from error
+        method_request = TemporalMemoryRankingRequest(
+            task_id=request.task_id,
+            query_text=request.query_text,
+            candidates=request.candidates,
+            importance_by_item_id={node_id: float(score) for node_id, score in task_importance["scores"].items()},
+            metadata=request.metadata,
+        )
+        text_request = TextRankingRequest(
+            task_id=request.task_id,
+            query_text=request.query_text,
+            candidates=request.candidates,
+        )
+        tasks.append(RetrievalExecutionTask(text_request=text_request, method_request=method_request))
+    return tasks
 
 __all__ = [
     "build_retrieval_registry",

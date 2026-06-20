@@ -78,44 +78,28 @@ class WeightedScoreCombiner(Protocol):
 
 class BM25TextRelevanceScorer:  # implement TextRelevanceScorer
     def score_text_relevance(self, request: TextRankingRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class DenseTextRelevanceScorer:  # implement TextRelevanceScorer
     def score_text_relevance(self, request: TextRankingRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class GraphTopologySupportScorer:  # implement GraphSupportScorer
     def score_graph_support(self, request: GraphRankingRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class GraphQueryBridgeScorer:  # implement QueryBridgeScorer
     def score_query_bridge(self, request: GraphRankingRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class PositionRecencyScorer:  # implement TemporalRecencyScorer
     def score_recency(self, request: TemporalMemoryRankingRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class SidecarImportanceScorer:  # implement MemoryImportanceScorer
     def score_importance(self, request: TemporalMemoryRankingRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class GraphContextExpansionScorer:  # implement ContextExpansionScorer
     def score_context_expansion(self, request: ContextGatheringRequest) -> ScoreVector:
-        pass
-
-
+        raise NotImplementedError
 class PerTaskScoreNormalizer:  # implement ScoreNormalizer
     def normalize_scores(self, scores: Sequence[ScoreVector]) -> Sequence[ScoreVector]:
-        pass
-
-
+        raise NotImplementedError
 class LinearWeightedScoreCombiner:  # implement WeightedScoreCombiner
     def combine_scores(
         self,
@@ -123,4 +107,4 @@ class LinearWeightedScoreCombiner:  # implement WeightedScoreCombiner
         weights: Sequence[ScoreWeight],
         candidate_item_ids: Sequence[ItemId],
     ) -> RankedScores:
-        pass
+        raise NotImplementedError

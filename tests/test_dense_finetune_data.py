@@ -5,7 +5,9 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import pytest
 
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingRequest
 from graph_memory.models.dense_finetune.data import (
@@ -15,17 +17,16 @@ from graph_memory.models.dense_finetune.data import (
 )
 
 
-def _task(task_id: str, *, query: str, nodes: Mapping[str, tuple[str, str]]) -> MemoryTaskInput:
+def _task(task_id: str, *, query: str, nodes: Mapping[str, tuple[str, str]]) -> HotpotQARankingRecord:
     return {
         "task_id": task_id,
-        "query": query,
-        "memory_items": [
+        "question": query,
+        "candidate_sentences": [
             {
-                "id": node_id,
-                "node_type": "document_sentence",
-                "source": source,
+                "sentence_id": node_id,
+                "title": source,
                 "text": text,
-                "sentence_id": index,
+                "sentence_index": index,
                 "position": index,
             }
             for index, (node_id, (source, text)) in enumerate(nodes.items())
@@ -33,13 +34,26 @@ def _task(task_id: str, *, query: str, nodes: Mapping[str, tuple[str, str]]) -> 
     }
 
 
-def _labels(task_id: str, gold_nodes: list[str]) -> MemoryTaskLabels:
+def _labels(task_id: str, gold_nodes: list[str]) -> HotpotQALabelRecord:
     return {
         "task_id": task_id,
         "gold_answer": "answer",
-        "gold_evidence_nodes": gold_nodes,
+        "gold_evidence_sentence_ids": gold_nodes,
         "gold_dependency_edges": [],
     }
+
+
+def _request(task: HotpotQARankingRecord):
+    return HotpotQAToTextRankingRequest().project(task)
+
+
+def _evidence_label(label: HotpotQALabelRecord) -> EvidenceLabel:
+    return EvidenceLabel(
+        task_id=label["task_id"],
+        gold_answer=label["gold_answer"],
+        gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+        gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+    )
 
 
 class RecordingEncoder:
@@ -77,9 +91,10 @@ def test_dense_finetune_uses_same_text_format_as_dense_encoding_service() -> Non
         batch_size=8,
     )
 
-    service.encode_task(DenseTaskEncodingRequest(task_input=task, node_ids=("q", "m0", "m1")))
+    text_request = HotpotQAToTextRankingRequest().project(task)
+    service.encode_task(DenseTaskEncodingRequest(ranking_request=text_request, node_ids=("q", "m0", "m1")))
     result = build_dense_finetune_examples(
-        task_inputs=[task],
+        ranking_requests=[_request(task)],
         train_pairs=[
             TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive"),
             TrainPairRecord(task_id="t1", node_id="m1", label=0, sample_type="hard_dense"),
@@ -117,7 +132,7 @@ def test_dense_finetune_builds_positive_only_rows_without_negatives() -> None:
     task = _task("t1", query="query", nodes={"m0": ("S", "positive")})
 
     result = build_dense_finetune_examples(
-        task_inputs=[task],
+        ranking_requests=[_request(task)],
         train_pairs=[TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive")],
         settings=DenseFinetuneDataSettings(),
     )
@@ -150,7 +165,7 @@ def test_dense_finetune_selects_hard_negatives_by_priority_and_original_order() 
     ]
 
     result = build_dense_finetune_examples(
-        task_inputs=[task],
+        ranking_requests=[_request(task)],
         train_pairs=pairs,
         settings=DenseFinetuneDataSettings(hard_negatives_per_positive=3),
     )
@@ -169,7 +184,7 @@ def test_dense_finetune_rejects_unknown_pair_node_id() -> None:
 
     with pytest.raises(ValueError, match="task_id=t1.*node_id=missing"):
         build_dense_finetune_examples(
-            task_inputs=[task],
+            ranking_requests=[_request(task)],
             train_pairs=[
                 TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive"),
                 TrainPairRecord(task_id="t1", node_id="missing", label=0, sample_type="hard_dense"),
@@ -185,8 +200,8 @@ def test_ir_evaluator_payload_uses_task_qualified_corpus_ids() -> None:
     ]
 
     payload = build_ir_evaluator_payload(
-        task_inputs=tasks,
-        task_labels=[_labels("t1", ["m0"]), _labels("t2", ["m0"])],
+        ranking_requests=[_request(task) for task in tasks],
+        labels=[_evidence_label(_labels("t1", ["m0"])), _evidence_label(_labels("t2", ["m0"]))],
         query_prefix="Q: ",
         passage_prefix="P: ",
     )

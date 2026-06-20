@@ -32,22 +32,18 @@ class TrainableMethodAdapter(Protocol):
 
 class PairBasedTrainingViewBuilder:  # implement TrainingViewBuilder
     def build_training_view(self, source_view: object) -> TrainingView:
-        pass
-
-
+        raise NotImplementedError
 class DenseFineTuneTrainingAdapter:  # implement TrainableMethodAdapter
     def train_method(
         self,
         training_views: Sequence[TrainingView],
         optional_graphs: Sequence[GraphArtifact],
     ) -> TrainArtifactContract:
-        pass
-
-
+        raise NotImplementedError
 class GraphRetrieverTrainingAdapter:  # implement TrainableMethodAdapter
     def train_method(
         self,
         training_views: Sequence[TrainingView],
         optional_graphs: Sequence[GraphArtifact],
     ) -> TrainArtifactContract:
-        pass
+        raise NotImplementedError

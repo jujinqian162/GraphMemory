@@ -15,8 +15,10 @@ from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from graph_memory.contracts.tasks import MemoryTaskInput
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.infrastructure.io import write_json_atomic
+from graph_memory.retrieval.requests import TemporalMemoryRankingRequest
 from graph_memory.retrieval.methods.memory_stream.contracts import (
     ImportanceArtifact,
     TaskImportanceRecord,
@@ -24,7 +26,7 @@ from graph_memory.retrieval.methods.memory_stream.contracts import (
 from graph_memory.validation import (
     ContractValidationError,
     validate_importance_artifact,
-    validate_memory_task_inputs,
+    validate_hotpotqa_ranking_records,
     validate_task_importance_record,
 )
 
@@ -80,7 +82,7 @@ def normalize_task_scores(scores: Mapping[str, int]) -> dict[str, int]:
 
 def clean_legacy_artifact(
     legacy_artifact: object,
-    task_inputs: Sequence[MemoryTaskInput],
+    task_inputs: Sequence[HotpotQARankingRecord],
     *,
     source_path: Path,
     source_sha256: str,
@@ -102,6 +104,7 @@ def clean_legacy_artifact(
             f"Invalid legacy importance artifact: task count mismatch expected={len(task_inputs)} observed={len(legacy_tasks)}."
         )
 
+    temporal_requests = _temporal_requests(task_inputs)
     output_records: list[TaskImportanceRecord] = []
     before_scores: list[int] = []
     after_scores: list[int] = []
@@ -109,8 +112,8 @@ def clean_legacy_artifact(
     narrow_range_tasks: list[str] = []
     score_vectors: dict[tuple[int, ...], list[str]] = {}
 
-    for index, (legacy_record, task_input) in enumerate(
-        zip(legacy_tasks, task_inputs, strict=True)
+    for index, (legacy_record, task_input, temporal_request) in enumerate(
+        zip(legacy_tasks, task_inputs, temporal_requests, strict=True)
     ):
         record = _require_mapping(
             legacy_record,
@@ -121,7 +124,7 @@ def clean_legacy_artifact(
             raise ContractValidationError(
                 f"Invalid legacy importance artifact: task order mismatch index={index} expected={task_input['task_id']} observed={record.get('task_id')}."
             )
-        validate_task_importance_record(record, task_input)
+        validate_task_importance_record(record, temporal_request)
         typed_record = cast(TaskImportanceRecord, record)
         raw_scores = typed_record["scores"]
         normalized_scores = normalize_task_scores(raw_scores)
@@ -148,7 +151,7 @@ def clean_legacy_artifact(
         "method": "memory_stream",
         "tasks": output_records,
     }
-    validate_importance_artifact(artifact, task_inputs)
+    validate_importance_artifact(artifact, temporal_requests)
     duplicate_vectors = [
         task_ids for task_ids in score_vectors.values() if len(task_ids) > 1
     ]
@@ -173,7 +176,7 @@ def clean_legacy_artifact(
         },
         "counts": {
             "tasks": len(task_inputs),
-            "memory_items": len(before_scores),
+            "candidate_sentences": len(before_scores),
             "constant_tasks": len(constant_tasks),
         },
         "validation": {
@@ -195,6 +198,11 @@ def clean_legacy_artifact(
         },
     }
     return artifact, summary
+
+
+def _temporal_requests(records: Sequence[HotpotQARankingRecord]) -> list[TemporalMemoryRankingRequest]:
+    projector = HotpotQAToTemporalMemoryRankingRequest()
+    return [projector.project(record, {}) for record in records]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> CleanImportanceArgs:
@@ -223,8 +231,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("--limit must be positive.")
 
     loaded_tasks = read_json_strict(args.tasks)
-    validate_memory_task_inputs(loaded_tasks)
-    all_tasks = cast(list[MemoryTaskInput], loaded_tasks)
+    validate_hotpotqa_ranking_records(loaded_tasks)
+    all_tasks = cast(list[HotpotQARankingRecord], loaded_tasks)
     task_inputs = all_tasks[: args.limit]
     legacy_artifact = read_json_strict(args.input)
     artifact, summary = clean_legacy_artifact(

@@ -31,20 +31,14 @@ class TaskViewValidator(Protocol):
 
 class DatasetTaskViewCatalog:  # implement TaskViewCatalog
     def list_view_kinds(self, dataset_id: DatasetId) -> Sequence[ViewKind]:
-        pass
-
+        raise NotImplementedError
     def get_task_view(self, dataset_id: DatasetId, task_id: TaskId, view_kind: ViewKind) -> TaskView:
-        pass
-
-
+        raise NotImplementedError
 class DatasetEvalViewCatalog:  # implement EvalViewCatalog
     def get_eval_view(self, dataset_id: DatasetId, task_id: TaskId) -> EvalLabelView:
-        pass
-
-
+        raise NotImplementedError
 class BoundaryOnlyTaskViewValidator:  # implement TaskViewValidator
     def validate_task_view(self, view: TaskView) -> None:
-        pass
-
+        raise NotImplementedError
     def validate_eval_view(self, view: EvalLabelView) -> None:
-        pass
+        raise NotImplementedError

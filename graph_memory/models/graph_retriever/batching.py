@@ -6,28 +6,28 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from graph_memory.contracts.common import TaskId, TrainPairSampleType
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.embeddings import DenseTaskEncodingRequest
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import (
     TextEmbeddingProvider,
     build_task_feature_groups,
 )
+from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
 from graph_memory.models.graph_retriever.internals.features import NodeFeatureBuilder
 from graph_memory.models.graph_retriever.internals.tensorization import (
     ArtifactEdgeWeightPolicy,
     EdgeTensorizer,
     UniformEdgeWeightPolicy,
 )
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.contracts.common import TaskId, TrainPairSampleType
-from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
-from graph_memory.contracts.training_pairs import TrainPairRecord
-from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
-from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
 from graph_memory.validation import (
     validate_graph_batch,
     validate_graphs,
-    validate_memory_task_inputs,
     validate_task_id_alignment,
     validate_training_batch,
 )
@@ -38,19 +38,12 @@ class TaskBatchInputs:
     """
     Already-joined artifacts needed to tensorize one task graph.
     张量化单个 task graph 所需的已 join artifact。
-
-    Fields / 字段:
-    - task_input: Input-visible task record.
-      task_input：retrieval 可见的 task 输入记录。
-    - graph: Graph artifact for the same task.
-      graph：同一 task 的 graph artifact。
-    - pairs: Optional supervised train pair rows for this task.
-      pairs：该 task 的可选监督 train pair 行。
     """
 
-    task_input: MemoryTaskInput
+    text_request: TextRankingRequest
     graph: MemoryGraph
     pairs: list[TrainPairRecord]
+    label: EvidenceLabel | None = None
 
 
 def build_edge_tensorizer(model_config: RgcnModelConfig) -> EdgeTensorizer: #TAG: Distribute
@@ -74,7 +67,7 @@ def build_edge_tensorizer(model_config: RgcnModelConfig) -> EdgeTensorizer: #TAG
 
 def build_training_batches(
     *,
-    task_inputs: list[MemoryTaskInput],
+    ranking_requests: list[TextRankingRequest],
     graphs: list[MemoryGraph],
     pairs: list[TrainPairRecord],
     model_config: RgcnModelConfig,
@@ -87,10 +80,9 @@ def build_training_batches(
     按 task graph 分组构造监督 TrainingBatch 对象。
     """
 
-    validate_memory_task_inputs(task_inputs)
-    inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-    validate_graphs(graphs, inputs_by_task_id)
-    validate_task_id_alignment("training batch graphs", set(inputs_by_task_id), {graph["task_id"] for graph in graphs})
+    requests_by_task_id = {request.task_id: request for request in ranking_requests}
+    validate_graphs(graphs, ranking_requests)
+    validate_task_id_alignment("training batch graphs", set(requests_by_task_id), {graph["task_id"] for graph in graphs})
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
     pairs_by_task_id: dict[TaskId, list[TrainPairRecord]] = defaultdict(list)
     for pair in pairs:
@@ -99,9 +91,9 @@ def build_training_batches(
         pairs_by_task_id[pair["task_id"]].append(pair)
 
     task_batches = [
-        TaskBatchInputs(task_input=task_input, graph=graphs_by_task_id[task_input["task_id"]], pairs=pairs_by_task_id[task_input["task_id"]])
-        for task_input in task_inputs
-        if pairs_by_task_id[task_input["task_id"]]
+        TaskBatchInputs(text_request=request, graph=graphs_by_task_id[request.task_id], pairs=pairs_by_task_id[request.task_id])
+        for request in ranking_requests
+        if pairs_by_task_id[request.task_id]
     ]
     return [
         _build_batch(
@@ -110,7 +102,6 @@ def build_training_batches(
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
             include_all_memory_nodes=False,
-            labels_by_task_id=None,
         )
         for start in range(0, len(task_batches), batch_size)
     ]
@@ -118,28 +109,32 @@ def build_training_batches(
 
 def build_full_ranking_batches(
     *,
-    task_inputs: list[MemoryTaskInput],
+    ranking_requests: list[TextRankingRequest],
     graphs: list[MemoryGraph],
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
-    labels: list[MemoryTaskLabels] | None = None,
+    labels: list[EvidenceLabel] | None = None,
 ) -> list[TrainingBatch]:
     """
     Build full-memory-node scoring batches for dev evaluation or retrieval.
     为 dev evaluation 或 retrieval 构造覆盖所有 memory node 的 scoring batch。
     """
 
-    validate_memory_task_inputs(task_inputs)
-    inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-    validate_graphs(graphs, inputs_by_task_id)
-    validate_task_id_alignment("full ranking graphs", set(inputs_by_task_id), {graph["task_id"] for graph in graphs})
+    requests_by_task_id = {request.task_id: request for request in ranking_requests}
+    validate_graphs(graphs, ranking_requests)
+    validate_task_id_alignment("full ranking graphs", set(requests_by_task_id), {graph["task_id"] for graph in graphs})
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
-    labels_by_task_id = {label["task_id"]: label for label in labels} if labels is not None else None
+    labels_by_task_id = {label.task_id: label for label in labels} if labels is not None else {}
     task_batches = [
-        TaskBatchInputs(task_input=task_input, graph=graphs_by_task_id[task_input["task_id"]], pairs=[])
-        for task_input in task_inputs
+        TaskBatchInputs(
+            text_request=request,
+            graph=graphs_by_task_id[request.task_id],
+            pairs=[],
+            label=labels_by_task_id.get(request.task_id),
+        )
+        for request in ranking_requests
     ]
     return [
         _build_batch(
@@ -148,7 +143,6 @@ def build_full_ranking_batches(
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
             include_all_memory_nodes=True,
-            labels_by_task_id=labels_by_task_id,
         )
         for start in range(0, len(task_batches), batch_size)
     ]
@@ -191,7 +185,6 @@ def _build_batch(
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     include_all_memory_nodes: bool,
-    labels_by_task_id: dict[str, MemoryTaskLabels] | None,
 ) -> TrainingBatch:
     edge_tensorizer = build_edge_tensorizer(model_config)
     feature_builder = NodeFeatureBuilder(model_config.feature_config)
@@ -214,8 +207,8 @@ def _build_batch(
 
     requests = [
         DenseTaskEncodingRequest(
-            task_input=task.task_input,
-            node_ids=tuple(node["id"] for node in task.graph["nodes"]),
+            ranking_request=task.text_request,
+            node_ids=tuple(str(node["id"]) for node in task.graph["nodes"]),
         )
         for task in tasks
     ]
@@ -227,8 +220,9 @@ def _build_batch(
 
     node_offset = 0
     for task, dense_features in zip(tasks, dense_features_by_task, strict=True):
-        task_id = task.task_input["task_id"]
-        node_ids = [node["id"] for node in task.graph["nodes"]]
+        text_request = task.text_request
+        task_id = text_request.task_id
+        node_ids = [str(node["id"]) for node in task.graph["nodes"]]
         local_index_by_node_id = {node_id: index for index, node_id in enumerate(node_ids)}
         if "q" not in local_index_by_node_id:
             raise ValueError(f"Graph task_id={task_id} is missing q node.")
@@ -253,16 +247,14 @@ def _build_batch(
 
         rows: list[TrainPairRecord]
         if include_all_memory_nodes:
-            gold_nodes: set[str] = (
-                set(labels_by_task_id[task_id]["gold_evidence_nodes"]) if labels_by_task_id is not None else set()
-            )
+            gold_nodes = set(task.label.gold_evidence_item_ids) if task.label is not None else set()
             rows = []
-            for memory_item in task.task_input["memory_items"]:
-                if memory_item["id"] in gold_nodes:
+            for candidate in text_request.candidates:
+                if candidate.item_id in gold_nodes:
                     rows.append(
                         {
                             "task_id": task_id,
-                            "node_id": memory_item["id"],
+                            "node_id": candidate.item_id,
                             "label": 1,
                             "sample_type": "positive",
                         }
@@ -271,7 +263,7 @@ def _build_batch(
                     rows.append(
                         {
                             "task_id": task_id,
-                            "node_id": memory_item["id"],
+                            "node_id": candidate.item_id,
                             "label": 0,
                             "sample_type": "easy_random",
                         }

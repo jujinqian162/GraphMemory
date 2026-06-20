@@ -18,7 +18,11 @@ from graph_memory.validation.model import (
     validate_training_batch,
 )
 from graph_memory.validation.ranking import validate_ranked_results
-from graph_memory.validation.tasks import validate_memory_task_inputs, validate_memory_task_labels, validate_no_label_fields
+from graph_memory.validation.tasks import (
+    validate_hotpotqa_label_records,
+    validate_hotpotqa_ranking_records,
+    validate_no_label_fields,
+)
 from graph_memory.validation.training_pairs import (
     validate_negative_sampling_config,
     validate_train_pair_build_summary,
@@ -31,9 +35,9 @@ __all__ = [
     "validate_graph_batch",
     "validate_graph_rerank_config",
     "validate_graphs",
+    "validate_hotpotqa_label_records",
+    "validate_hotpotqa_ranking_records",
     "validate_importance_artifact",
-    "validate_memory_task_inputs",
-    "validate_memory_task_labels",
     "validate_metric_rows",
     "validate_negative_sampling_config",
     "validate_no_label_fields",

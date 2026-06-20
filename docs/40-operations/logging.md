@@ -154,7 +154,7 @@ Use `DEBUG` for:
 Rules:
 
 - If debug output is large or structured, write a debug artifact instead of console logs.
-- Retrieval/debug logs must not print `gold_answer`, `gold_evidence_nodes`, `supporting_facts`, or `is_gold` fields.
+- Retrieval/debug logs must not print `gold_answer`, `gold_evidence_sentence_ids`, `supporting_facts`, or `is_gold` fields.
 - Evaluation debug may include gold labels because it is label-aware, but it must be clearly produced by evaluation.
 
 ## Places That Should Not Log

@@ -3,54 +3,75 @@ from typing import cast
 
 import pytest
 
+from graph_memory.contracts.graphs import GraphItemNode
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.validation import (
     ContractValidationError,
     validate_graphs,
-    validate_memory_task_inputs,
-    validate_memory_task_labels,
+    validate_hotpotqa_label_records,
+    validate_hotpotqa_ranking_records,
     validate_ranked_results,
 )
-from graph_memory.contracts.tasks import MemoryTaskInput
 
 
-def valid_task_inputs() -> list[MemoryTaskInput]:
+def valid_task_inputs() -> list[HotpotQARankingRecord]:
     return [
         {
             "task_id": "hotpot_ex1",
-            "query": "Where is the Eiffel Tower?",
-            "memory_items": [
+            "question": "Where is the Eiffel Tower?",
+            "candidate_sentences": [
                 {
-                    "id": "m0",
-                    "node_type": "document_sentence",
-                    "text": "The Eiffel Tower is in Paris.",
-                    "source": "Eiffel Tower",
-                    "sentence_id": 0,
+                    "sentence_id": "m0",
+                    "title": "Eiffel Tower",
+                    "sentence_index": 0,
                     "position": 0,
+                    "text": "The Eiffel Tower is in Paris.",
                 },
                 {
-                    "id": "m1",
-                    "node_type": "document_sentence",
-                    "text": "Paris is in France.",
-                    "source": "Paris",
-                    "sentence_id": 0,
+                    "sentence_id": "m1",
+                    "title": "Paris",
+                    "sentence_index": 0,
                     "position": 1,
+                    "text": "Paris is in France.",
                 },
             ],
         }
     ]
 
 
-def inputs_by_task_id() -> dict[str, MemoryTaskInput]:
+def _graph_nodes(record: HotpotQARankingRecord) -> list[GraphItemNode]:
+    return [
+        {
+            "id": sentence["sentence_id"],
+            "node_type": "graph_item",
+            "node_kind": "document_sentence",
+            "text": sentence["text"],
+            "source_ref": sentence["title"],
+            "group_key": f"document:{sentence['title']}",
+            "sequence_index": sentence["sentence_index"],
+            "metadata": {"title": sentence["title"], "position": sentence["position"]},
+        }
+        for sentence in record["candidate_sentences"]
+    ]
+
+
+def inputs_by_task_id() -> dict[str, HotpotQARankingRecord]:
     return {task_input["task_id"]: task_input for task_input in valid_task_inputs()}
 
+
+def ranking_requests() -> list[TextRankingRequest]:
+    projector = HotpotQAToTextRankingRequest()
+    return [projector.project(task_input) for task_input in valid_task_inputs()]
 
 def test_input_validation_rejects_label_leakage():
     task_inputs = valid_task_inputs()
     task_input = cast(dict[str, object], cast(object, task_inputs[0]))
-    task_input["gold_evidence_nodes"] = ["m0"]
+    task_input["gold_evidence_sentence_ids"] = ["m0"]
 
-    with pytest.raises(ContractValidationError, match="gold_evidence_nodes"):
-        validate_memory_task_inputs(task_inputs)
+    with pytest.raises(ContractValidationError, match="gold_evidence_sentence_ids"):
+        validate_hotpotqa_ranking_records(task_inputs)
 
 
 def test_label_validation_rejects_task_id_mismatch():
@@ -58,13 +79,13 @@ def test_label_validation_rejects_task_id_mismatch():
         {
             "task_id": "hotpot_missing",
             "gold_answer": "Paris",
-            "gold_evidence_nodes": ["m0"],
+            "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
         }
     ]
 
     with pytest.raises(ContractValidationError, match="hotpot_missing"):
-        validate_memory_task_labels(labels, inputs_by_task_id())
+        validate_hotpotqa_label_records(labels, inputs_by_task_id())
 
 
 def test_graph_validation_rejects_missing_edge_endpoint():
@@ -73,7 +94,7 @@ def test_graph_validation_rejects_missing_edge_endpoint():
             "task_id": "hotpot_ex1",
             "nodes": [
                 {"id": "q", "node_type": "question", "text": "Where is the Eiffel Tower?"},
-                *valid_task_inputs()[0]["memory_items"],
+                *_graph_nodes(valid_task_inputs()[0]),
             ],
             "edges": [
                 {
@@ -88,7 +109,7 @@ def test_graph_validation_rejects_missing_edge_endpoint():
     ]
 
     with pytest.raises(ContractValidationError, match="m9"):
-        validate_graphs(graphs, inputs_by_task_id())
+        validate_graphs(graphs, ranking_requests())
 
 
 def test_ranked_result_validation_rejects_duplicate_ranked_node():
@@ -107,7 +128,7 @@ def test_ranked_result_validation_rejects_duplicate_ranked_node():
     ]
 
     with pytest.raises(ContractValidationError, match="duplicate"):
-        validate_ranked_results(predictions, inputs_by_task_id())
+        validate_ranked_results(predictions, ranking_requests())
 
 
 def test_ranked_result_validation_rejects_non_finite_scores():
@@ -126,4 +147,4 @@ def test_ranked_result_validation_rejects_non_finite_scores():
     ]
 
     with pytest.raises(ContractValidationError, match="finite"):
-        validate_ranked_results(predictions, inputs_by_task_id())
+        validate_ranked_results(predictions, ranking_requests())

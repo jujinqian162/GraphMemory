@@ -23,7 +23,7 @@ from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.stages.retrieve import run_retrieve_stage
-from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_task_inputs
+from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_ranking_requests, retrieval_task_inputs
 
 
 def _write_dense_ft_metadata(model_dir: Path) -> None:
@@ -85,7 +85,7 @@ def test_dense_ft_builder_loads_typed_metadata_and_reuses_dense_retriever(tmp_pa
 
     built = Registry.retrieval.build(
         DenseFinetunedRetrievalSettings(top_k=2, checkpoint=checkpoint, device="cpu"),
-        FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs(), dense_encoder=FakeEncoder()),
+        FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests(), dense_encoder=FakeEncoder()),
     )
 
     assert isinstance(built.method, ScorePipelineMethod)
@@ -94,7 +94,7 @@ def test_dense_ft_builder_loads_typed_metadata_and_reuses_dense_retriever(tmp_pa
     assert built.method.retriever.config.query_prefix == "Q: "
     predictions = run_retrieval(
         retrieval_method=built.method,
-        task_inputs=retrieval_task_inputs(),
+        tasks=built.execution_tasks,
         top_k=2,
     )
     assert predictions[0]["method"] == "dense_ft"
@@ -116,5 +116,5 @@ def test_dense_ft_builder_reports_missing_metadata_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match=r"dense_ft_model_config\.json.*missing_model"):
         Registry.retrieval.build(
             DenseFinetunedRetrievalSettings(top_k=2, checkpoint=checkpoint, device="cpu"),
-            FlatRetrievalBuildPayload(task_inputs=retrieval_task_inputs(), dense_encoder=FakeEncoder()),
+            FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests(), dense_encoder=FakeEncoder()),
         )

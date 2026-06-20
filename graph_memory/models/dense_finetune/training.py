@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from graph_memory.contracts.tasks import MemoryTaskInput, MemoryTaskLabels
 from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.embeddings import load_sentence_transformer
 from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings, DenseFinetuneIREvaluatorPayload
 from graph_memory.models.dense_finetune.data import build_dense_finetune_examples, build_ir_evaluator_payload
@@ -310,10 +311,10 @@ class _SentenceTransformers27FitRunner:
 def train_dense_finetune(
     *,
     config: DenseFinetuneRunConfig,
-    train_task_inputs: Sequence[MemoryTaskInput],
+    train_requests: Sequence[TextRankingRequest],
     train_pairs: Sequence[TrainPairRecord],
-    dev_task_inputs: Sequence[MemoryTaskInput],
-    dev_labels: Sequence[MemoryTaskLabels],
+    dev_requests: Sequence[TextRankingRequest],
+    dev_labels: Sequence[EvidenceLabel],
     output_dir: Path,
     model_dir: Path,
     model_factory: DenseFinetuneModelFactory | None = None,
@@ -322,15 +323,15 @@ def train_dense_finetune(
     output_dir.mkdir(parents=True, exist_ok=True)
     model_dir.parent.mkdir(parents=True, exist_ok=True)
     examples = build_dense_finetune_examples(
-        task_inputs=train_task_inputs,
+        ranking_requests=train_requests,
         train_pairs=train_pairs,
         settings=config.data,
         query_prefix=config.query_prefix,
         passage_prefix=config.passage_prefix,
     )
     evaluator_payload = build_ir_evaluator_payload(
-        task_inputs=dev_task_inputs,
-        task_labels=dev_labels,
+        ranking_requests=dev_requests,
+        labels=dev_labels,
         query_prefix=config.query_prefix,
         passage_prefix=config.passage_prefix,
     )

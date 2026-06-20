@@ -45,64 +45,43 @@ class DatasetRegistry(Protocol):
 
 class HotpotQADatasetAdapter:  # implement DatasetAdapter
     def describe_dataset(self) -> DatasetDefinition:
-        pass
-
+        raise NotImplementedError
     def load_raw_records(self, source: RawDatasetSource, policy: SplitPolicy) -> DatasetRecordSet:
-        pass
-
+        raise NotImplementedError
     def describe_official_splits(self, source: RawDatasetSource) -> OfficialSplitMetadata:
-        pass
-
+        raise NotImplementedError
     def describe_assets(self, source: RawDatasetSource, policy: SplitPolicy) -> AssetManifest:
-        pass
-
+        raise NotImplementedError
     def build_task_views(self, records: DatasetRecordSet, policy: SplitPolicy) -> Sequence[TaskView]:
-        pass
-
+        raise NotImplementedError
     def build_eval_views(self, records: DatasetRecordSet, policy: SplitPolicy) -> Sequence[EvalLabelView]:
-        pass
-
-
+        raise NotImplementedError
 class LongMemEvalDatasetAdapter:  # implement DatasetAdapter
     def describe_dataset(self) -> DatasetDefinition:
-        pass
-
+        raise NotImplementedError
     def load_raw_records(self, source: RawDatasetSource, policy: SplitPolicy) -> DatasetRecordSet:
-        pass
-
+        raise NotImplementedError
     def describe_official_splits(self, source: RawDatasetSource) -> OfficialSplitMetadata:
-        pass
-
+        raise NotImplementedError
     def describe_assets(self, source: RawDatasetSource, policy: SplitPolicy) -> AssetManifest:
-        pass
-
+        raise NotImplementedError
     def build_task_views(self, records: DatasetRecordSet, policy: SplitPolicy) -> Sequence[TaskView]:
-        pass
-
+        raise NotImplementedError
     def build_eval_views(self, records: DatasetRecordSet, policy: SplitPolicy) -> Sequence[EvalLabelView]:
-        pass
-
-
+        raise NotImplementedError
 class TwoWikiDatasetAdapter:  # implement DatasetAdapter
     def describe_dataset(self) -> DatasetDefinition:
-        pass
-
+        raise NotImplementedError
     def load_raw_records(self, source: RawDatasetSource, policy: SplitPolicy) -> DatasetRecordSet:
-        pass
-
+        raise NotImplementedError
     def describe_official_splits(self, source: RawDatasetSource) -> OfficialSplitMetadata:
-        pass
-
+        raise NotImplementedError
     def describe_assets(self, source: RawDatasetSource, policy: SplitPolicy) -> AssetManifest:
-        pass
-
+        raise NotImplementedError
     def build_task_views(self, records: DatasetRecordSet, policy: SplitPolicy) -> Sequence[TaskView]:
-        pass
-
+        raise NotImplementedError
     def build_eval_views(self, records: DatasetRecordSet, policy: SplitPolicy) -> Sequence[EvalLabelView]:
-        pass
-
-
+        raise NotImplementedError
 class InMemoryDatasetRegistry:  # implement DatasetRegistry
     def __init__(self) -> None:
         self.adapters_by_dataset_id: dict[DatasetId, DatasetAdapter] = {}

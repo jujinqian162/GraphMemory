@@ -6,7 +6,8 @@ from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.contracts.tasks import MemoryTaskLabels
+from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
+from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.connectivity import (
     GraphConnectivity,
     connected_evidence_at,
@@ -24,6 +25,26 @@ from graph_memory.evaluation.tables import (
 )
 
 
+def _evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
+    return [
+        EvidenceLabel(
+            task_id=label["task_id"],
+            gold_answer=label["gold_answer"],
+            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        )
+        for label in labels
+    ]
+
+
+def _evaluation_request(
+    predictions: list[RankedResult],
+    labels: list[HotpotQALabelRecord],
+    graphs: list[MemoryGraph],
+) -> EvidenceEvaluationRequest:
+    return EvidenceEvaluationRequest(predictions=predictions, labels=_evidence_labels(labels), graphs=graphs)
+
+
 def test_evaluation_domain_modules_own_public_evaluation_logic() -> None:
     assert recall_at.__module__ == "graph_memory.evaluation.metrics"
     assert evidence_f1_at.__module__ == "graph_memory.evaluation.metrics"
@@ -38,7 +59,7 @@ def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> Non
     predictions, labels, graphs = _evaluation_fixture()
     graph = graphs[0]
     ranked_node_ids = [record["node_id"] for record in predictions[0]["ranked_nodes"]]
-    gold_nodes = set(labels[0]["gold_evidence_nodes"])
+    gold_nodes = set(labels[0]["gold_evidence_sentence_ids"])
 
     connectivity = GraphConnectivity.from_graph(graph, allowed_nodes={"q", "m0", "m1", "m2"})
 
@@ -51,7 +72,7 @@ def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> Non
     assert connected_evidence_at(ranked_node_ids, gold_nodes, graph, 3) == 1.0
     assert query_evidence_connectivity_at(ranked_node_ids, gold_nodes, graph, 10) == 1.0
 
-    rows = evaluate_results(predictions, labels, graphs)
+    rows = evaluate_results(_evaluation_request(predictions, labels, graphs))
 
     assert rows == [
         {
@@ -114,13 +135,13 @@ def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> Non
         ),
     )
 
-    assert build_failure_cases([failure_prediction], labels, graphs, top_k=3, limit=1) == [
+    assert build_failure_cases(_evaluation_request([failure_prediction], labels, graphs), top_k=3, limit=1) == [
         {
             "debug_type": "failure_case",
             "task_id": "hotpot_eval_1",
             "method": "bm25",
             "failure_type": "missing_full_support_at_3",
-            "gold_evidence_nodes": ["m0", "m3"],
+            "gold_evidence_item_ids": ["m0", "m3"],
             "retrieved_top_k": ["m0", "m1", "m2"],
             "missing_gold_nodes": ["m3"],
             "connected_gold_in_top_k": False,
@@ -145,7 +166,7 @@ def test_scripts_and_tests_import_evaluation_domain_modules_directly() -> None:
     assert forbidden_importers == []
 
 
-def _evaluation_fixture() -> tuple[list[RankedResult], list[MemoryTaskLabels], list[MemoryGraph]]:
+def _evaluation_fixture() -> tuple[list[RankedResult], list[HotpotQALabelRecord], list[MemoryGraph]]:
     predictions: list[RankedResult] = [
         {
             "task_id": "hotpot_eval_1",
@@ -167,11 +188,11 @@ def _evaluation_fixture() -> tuple[list[RankedResult], list[MemoryTaskLabels], l
             "input_tokens": 5,
         }
     ]
-    labels: list[MemoryTaskLabels] = [
+    labels: list[HotpotQALabelRecord] = [
         {
             "task_id": "hotpot_eval_1",
             "gold_answer": "Paris",
-            "gold_evidence_nodes": ["m0", "m3"],
+            "gold_evidence_sentence_ids": ["m0", "m3"],
             "gold_dependency_edges": [],
         }
     ]
@@ -182,35 +203,43 @@ def _evaluation_fixture() -> tuple[list[RankedResult], list[MemoryTaskLabels], l
                 {"id": "q", "node_type": "question", "text": "Which city?"},
                 {
                     "id": "m0",
-                    "node_type": "document_sentence",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
                     "text": "Evidence one.",
-                    "source": "A",
-                    "sentence_id": 0,
-                    "position": 0,
+                    "source_ref": "A",
+                    "group_key": "document:A",
+                    "sequence_index": 0,
+                    "metadata": {"title": "A", "position": 0},
                 },
                 {
                     "id": "m1",
-                    "node_type": "document_sentence",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
                     "text": "Distractor.",
-                    "source": "A",
-                    "sentence_id": 1,
-                    "position": 1,
+                    "source_ref": "A",
+                    "group_key": "document:A",
+                    "sequence_index": 1,
+                    "metadata": {"title": "A", "position": 1},
                 },
                 {
                     "id": "m2",
-                    "node_type": "document_sentence",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
                     "text": "Connector.",
-                    "source": "B",
-                    "sentence_id": 0,
-                    "position": 2,
+                    "source_ref": "B",
+                    "group_key": "document:B",
+                    "sequence_index": 0,
+                    "metadata": {"title": "B", "position": 2},
                 },
                 {
                     "id": "m3",
-                    "node_type": "document_sentence",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
                     "text": "Evidence two.",
-                    "source": "B",
-                    "sentence_id": 1,
-                    "position": 3,
+                    "source_ref": "B",
+                    "group_key": "document:B",
+                    "sequence_index": 1,
+                    "metadata": {"title": "B", "position": 3},
                 },
             ],
             "edges": [

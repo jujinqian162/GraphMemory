@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from graph_memory.config import CONFIG_LOADER
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
+from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.io import read_json, write_json
 from graph_memory.retrieval.methods.memory_stream.artifact import (
     importance_content_digest,
@@ -167,11 +169,11 @@ def test_phase1_cli_pipeline_writes_contract_artifacts(tmp_path):
 
     assert len(task_inputs) == len(labels) == len(graphs) == len(predictions) == 1
     assert predictions[0]["task_id"] == task_inputs[0]["task_id"] == labels[0]["task_id"]
-    assert len(predictions[0]["ranked_nodes"]) == len(task_inputs[0]["memory_items"])
+    assert len(predictions[0]["ranked_nodes"]) == len(task_inputs[0]["candidate_sentences"])
 
     input_and_graph_payload = json.dumps({"inputs": task_inputs, "graphs": graphs})
     assert "gold_answer" not in input_and_graph_payload
-    assert "gold_evidence_nodes" not in input_and_graph_payload
+    assert "gold_evidence_sentence_ids" not in input_and_graph_payload
     assert "supporting_facts" not in input_and_graph_payload
 
     assert "Method,Recall@2,Recall@5" in metrics_path.read_text(encoding="utf-8")
@@ -297,10 +299,10 @@ def test_tune_memory_stream_cli_writes_selected_config_and_sidecars(
             "tasks": [
                 {
                     "task_id": task_input["task_id"],
-                    "content_digest": importance_content_digest(task_input),
+                    "content_digest": importance_content_digest(HotpotQAToTemporalMemoryRankingRequest().project(task_input, {})),
                     "scores": {
-                        item["id"]: index + 1
-                        for index, item in enumerate(task_input["memory_items"])
+                        item["sentence_id"]: index + 1
+                        for index, item in enumerate(task_input["candidate_sentences"])
                     },
                 }
                 for task_input in task_inputs
@@ -639,44 +641,42 @@ def test_prepare_hotpotqa_drops_invalid_examples_before_sampling(tmp_path):
 
 
 def test_prepare_hotpotqa_materializes_importance_ordered_split(tmp_path):
-    task_a = {
+    task_a: HotpotQARankingRecord = {
         "task_id": "hotpot_a",
-        "query": "Where is A?",
-        "memory_items": [
+        "question": "Where is A?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
+                "sentence_id": "m0",
                 "text": "A is in Paris.",
-                "source": "A",
-                "sentence_id": 0,
+                "title": "A",
+                "sentence_index": 0,
                 "position": 0,
             }
         ],
     }
-    task_b = {
+    task_b: HotpotQARankingRecord = {
         "task_id": "hotpot_b",
-        "query": "Where is B?",
-        "memory_items": [
+        "question": "Where is B?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
+                "sentence_id": "m0",
                 "text": "B is in Berlin.",
-                "source": "B",
-                "sentence_id": 0,
+                "title": "B",
+                "sentence_index": 0,
                 "position": 0,
             }
         ],
     }
     labels = [
-        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []},
-        {"task_id": "hotpot_b", "gold_answer": "Berlin", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []},
+        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_sentence_ids": ["m0"], "gold_dependency_edges": []},
+        {"task_id": "hotpot_b", "gold_answer": "Berlin", "gold_evidence_sentence_ids": ["m0"], "gold_dependency_edges": []},
     ]
     importance = {
         "schema_version": 1,
         "method": "memory_stream",
         "tasks": [
-            {"task_id": "hotpot_b", "content_digest": importance_content_digest(task_b), "scores": {"m0": 10}},
-            {"task_id": "hotpot_a", "content_digest": importance_content_digest(task_a), "scores": {"m0": 1}},
+            {"task_id": "hotpot_b", "content_digest": importance_content_digest(HotpotQAToTemporalMemoryRankingRequest().project(task_b, {})), "scores": {"m0": 10}},
+            {"task_id": "hotpot_a", "content_digest": importance_content_digest(HotpotQAToTemporalMemoryRankingRequest().project(task_a, {})), "scores": {"m0": 1}},
         ],
     }
     canonical_inputs_path = tmp_path / "canonical.input.json"
@@ -717,43 +717,131 @@ def test_prepare_hotpotqa_materializes_importance_ordered_split(tmp_path):
     assert summary["counts"]["selected_examples"] == 1
 
 
-def test_prepare_hotpotqa_importance_split_fails_when_canonical_input_is_missing_task(tmp_path):
-    task_a = {
-        "task_id": "hotpot_a",
-        "query": "Where is A?",
-        "memory_items": [
+def test_prepare_hotpotqa_importance_split_projects_legacy_canonical_artifacts(tmp_path):
+    projected_task: HotpotQARankingRecord = {
+        "task_id": "hotpot_legacy",
+        "question": "Where is A?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
+                "sentence_id": "m0",
                 "text": "A is in Paris.",
-                "source": "A",
-                "sentence_id": 0,
+                "title": "A",
+                "sentence_index": 0,
                 "position": 0,
             }
         ],
     }
-    task_b = {
-        "task_id": "hotpot_b",
-        "query": "Where is B?",
-        "memory_items": [
-            {
-                "id": "m0",
-                "node_type": "document_sentence",
-                "text": "B is in Berlin.",
-                "source": "B",
-                "sentence_id": 0,
-                "position": 0,
-            }
-        ],
-    }
-    labels = [
-        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}
+    legacy_inputs = [
+        {
+            "task_id": "hotpot_legacy",
+            "query": "Where is A?",
+            "memory_items": [
+                {
+                    "id": "m0",
+                    "node_type": "document_sentence",
+                    "text": "A is in Paris.",
+                    "source": "A",
+                    "sentence_id": 0,
+                    "position": 0,
+                }
+            ],
+        }
+    ]
+    legacy_labels = [
+        {
+            "task_id": "hotpot_legacy",
+            "gold_answer": "Paris",
+            "gold_evidence_nodes": ["m0"],
+            "gold_dependency_edges": [],
+        }
     ]
     importance = {
         "schema_version": 1,
         "method": "memory_stream",
         "tasks": [
-            {"task_id": "hotpot_b", "content_digest": importance_content_digest(task_b), "scores": {"m0": 10}},
+            {
+                "task_id": "hotpot_legacy",
+                "content_digest": importance_content_digest(
+                    HotpotQAToTemporalMemoryRankingRequest().project(projected_task, {})
+                ),
+                "scores": {"m0": 10},
+            }
+        ],
+    }
+    canonical_inputs_path = tmp_path / "legacy.input.json"
+    canonical_labels_path = tmp_path / "legacy.labels.json"
+    importance_path = tmp_path / "importance.json"
+    output_input_path = tmp_path / "selected.input.json"
+    output_labels_path = tmp_path / "selected.labels.json"
+    write_json(canonical_inputs_path, legacy_inputs)
+    write_json(canonical_labels_path, legacy_labels)
+    write_json(importance_path, importance)
+
+    assert prepare_hotpotqa.main(
+        [
+            "--source",
+            "importance",
+            "--input",
+            str(canonical_inputs_path),
+            "--input_labels",
+            str(canonical_labels_path),
+            "--importance",
+            str(importance_path),
+            "--output_input",
+            str(output_input_path),
+            "--output_labels",
+            str(output_labels_path),
+            "--max_examples",
+            "1",
+        ]
+    ) == 0
+
+    assert read_json(output_input_path) == [projected_task]
+    assert read_json(output_labels_path) == [
+        {
+            "task_id": "hotpot_legacy",
+            "gold_answer": "Paris",
+            "gold_evidence_sentence_ids": ["m0"],
+            "gold_dependency_edges": [],
+        }
+    ]
+
+
+def test_prepare_hotpotqa_importance_split_fails_when_canonical_input_is_missing_task(tmp_path):
+    task_a: HotpotQARankingRecord = {
+        "task_id": "hotpot_a",
+        "question": "Where is A?",
+        "candidate_sentences": [
+            {
+                "sentence_id": "m0",
+                "text": "A is in Paris.",
+                "title": "A",
+                "sentence_index": 0,
+                "position": 0,
+            }
+        ],
+    }
+    task_b: HotpotQARankingRecord = {
+        "task_id": "hotpot_b",
+        "question": "Where is B?",
+        "candidate_sentences": [
+            {
+                "sentence_id": "m0",
+                "text": "B is in Berlin.",
+                "title": "B",
+                "sentence_index": 0,
+                "position": 0,
+            }
+        ],
+    }
+    labels = [
+        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_sentence_ids": ["m0"], "gold_dependency_edges": []}
+    ]
+    importance = {
+        "schema_version": 1,
+        "method": "memory_stream",
+        "tasks": [
+            {"task_id": "hotpot_b", "content_digest": importance_content_digest(HotpotQAToTemporalMemoryRankingRequest().project(task_b, {})), "scores": {"m0": 10}},
         ],
     }
     canonical_inputs_path = tmp_path / "canonical.input.json"
@@ -785,22 +873,21 @@ def test_prepare_hotpotqa_importance_split_fails_when_canonical_input_is_missing
 
 
 def test_prepare_hotpotqa_importance_split_rejects_stale_digest(tmp_path):
-    task_a = {
+    task_a: HotpotQARankingRecord = {
         "task_id": "hotpot_a",
-        "query": "Where is A?",
-        "memory_items": [
+        "question": "Where is A?",
+        "candidate_sentences": [
             {
-                "id": "m0",
-                "node_type": "document_sentence",
+                "sentence_id": "m0",
                 "text": "A is in Paris.",
-                "source": "A",
-                "sentence_id": 0,
+                "title": "A",
+                "sentence_index": 0,
                 "position": 0,
             }
         ],
     }
     labels = [
-        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_nodes": ["m0"], "gold_dependency_edges": []}
+        {"task_id": "hotpot_a", "gold_answer": "Paris", "gold_evidence_sentence_ids": ["m0"], "gold_dependency_edges": []}
     ]
     importance = {
         "schema_version": 1,

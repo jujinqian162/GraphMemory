@@ -33,7 +33,7 @@ scripts/prepare_hotpotqa.py
   -> graph_memory.datasets.splits.sample_split
   -> graph_memory.datasets.hotpotqa.parser.parse_hotpotqa_examples
   -> graph_memory.datasets.hotpotqa.converter.convert_hotpotqa_examples
-  -> graph_memory.validation task validators
+  -> graph_memory.validation.validate_hotpotqa_ranking_records / validate_hotpotqa_label_records
 
 scripts/build_graphs.py
   -> graph_memory.graphs.construction.builder.build_graphs
@@ -77,19 +77,19 @@ scripts/experiment.py
 
 | Abstraction | Location | What it does | Must not do | Tests |
 |---|---|---|---|---|
-| `MemoryTaskInput` | `graph_memory/contracts/tasks.py` | Input-visible query and memory sentence artifact shape. | Contain labels or answer text. | `tests/test_phase1_real_validation.py`, `tests/test_phase1_real_data_structures.py` |
-| `MemoryTaskLabels` | `graph_memory/contracts/tasks.py` | Gold answer and evidence labels for evaluation/tuning. | Feed graph construction or retrieval. | `tests/test_phase1_real_validation.py` |
-| `HotpotQAExample` / `HotpotQAConversionResult` | `graph_memory/datasets/hotpotqa/` | Typed raw HotpotQA parse result and named conversion output. | Expose raw `dict` records or tuple-packed outputs. | `tests/test_phase1_real_data_structures.py` |
-| `MemoryGraph` | `graph_memory/contracts/graphs.py` | Typed graph over `q` and memory sentence nodes. | Read label-only fields. | `tests/test_phase1_real_graphs.py` |
-| `GraphBuilder` | `graph_memory/graphs/construction/builder.py` | Applies ordered graph edge rules to input-visible task records. | Run retrieval or evaluation. | `tests/test_core_refactor_batch3_boundaries.py` |
+| `HotpotQARankingRecord` | `graph_memory/datasets/hotpotqa/records.py` | HotpotQA-owned prepared artifact with `question` and `candidate_sentences`. | Contain labels or answer text, or act as a universal task type for other datasets. | `tests/test_phase1_real_validation.py`, `tests/test_request_first_projection_boundaries.py` |
+| `HotpotQALabelRecord` | `graph_memory/datasets/hotpotqa/records.py` | HotpotQA-owned gold answer and supporting sentence labels. | Feed graph construction or retrieval directly. | `tests/test_phase1_real_validation.py`, `tests/test_request_first_projection_boundaries.py` |
+| `HotpotQAExample` / `HotpotQAConversionResult` | `graph_memory/datasets/hotpotqa/` | Typed raw HotpotQA parse result and named ranking/label conversion output. | Expose raw `dict` records or tuple-packed outputs. | `tests/test_phase1_real_data_structures.py` |
+| `MemoryGraph` | `graph_memory/contracts/graphs.py` | Typed graph over `q` and evidence candidate nodes. | Read label-only fields. | `tests/test_phase1_real_graphs.py` |
+| `GraphBuilder` | `graph_memory/graphs/construction/builder.py` | Applies ordered graph edge rules to `GraphBuildRequest`. | Run retrieval or evaluation. | `tests/test_core_refactor_batch3_boundaries.py` |
 | `RankedNode` | `graph_memory/retrieval/contracts.py` | Internal scored memory-node result. | Represent persisted JSON directly. | `tests/test_phase1_real_retrieval.py` |
 | `RankedResult` | `graph_memory/contracts/ranking.py` | Persisted ranked-result artifact shape. | Drop unselected memory nodes. | `tests/test_phase1_real_retrieval.py` |
 | `RetrieveStageConfig` | `graph_memory/registry/stage_configs.py` | Stage-level request for one complete retrieval run. | Carry unrelated method-family optional bags. | `tests/test_retrieval_domain_boundaries.py`, `tests/test_registry_stage_configs.py` |
-| `Retriever` | `graph_memory/retrieval/contracts.py` | Single-task complete ranking protocol. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
+| `SeedRanker` | `graph_memory/retrieval/contracts.py` | Single-request complete text ranking protocol over `TextRankingRequest`. | Compute metrics or read labels. | `tests/test_phase1_real_retrieval.py` |
 | `MethodDefinition` registry | `graph_memory/registry/methods.py` through `Registry.methods` | Single source for lifecycle, dependency sources, method config type, and train artifact shape. | Recreate capability booleans, method-specific projections, or duplicate method lists elsewhere. | `tests/test_method_registry.py`, `tests/test_experiment_runner.py` |
-| `RetrievalMethod` | `graph_memory/retrieval/contracts.py` | Internal boundary for a public method that emits final ranked nodes and retrieved edges. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py` |
-| `FlatRetrievalMethod` | `graph_memory/retrieval/methods/flat/method.py` | Wraps BM25 and dense seed retrievers for flat public methods. | Own graph-rerank score composition, labels, metrics, or file IO. | `tests/test_phase1_real_retrieval.py` |
-| `InitialScoreCache` | `graph_memory/retrieval/tuning/initial_scores.py` | Holds per-task seed scores for one tuning invocation. | Persist scores or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
+| `RetrievalMethod` | `graph_memory/retrieval/contracts.py` | Internal boundary for a public method that consumes its method-family request and emits ranked nodes plus trace. | Force every future baseline to be a weighted sum. | `tests/test_phase1_real_retrieval.py` |
+| `FlatRetrievalMethod` | `graph_memory/retrieval/methods/flat/method.py` | Wraps BM25 and dense seed rankers for flat public methods. | Own graph-rerank score composition, labels, metrics, or file IO. | `tests/test_phase1_real_retrieval.py` |
+| `InitialScoreCache` | `graph_memory/retrieval/tuning/seed_scores.py` | Holds per-task seed scores for one tuning invocation. | Persist scores or become an artifact contract. | `tests/test_phase1_real_retrieval.py` |
 | Graph-rerank components | `graph_memory/retrieval/methods/graph_rerank/` | Candidate expansion, score components, normalization, config, and method adapter. | Select experiment workflow stages or read labels. | `tests/test_phase1_real_retrieval.py` |
 | `GraphRerankConfig` | `graph_memory/retrieval/methods/graph_rerank/config.py` | Graph score propagation config; rejects deprecated `type_weights`. | Treat `query_overlap` as a neighbor type weight. | `tests/test_phase1_real_retrieval.py` |
 | Train-pair builder | `graph_memory/training_pairs/builder.py` | Produces deterministic positive/negative train-pair artifacts. | Depend on trainable model internals. | `tests/test_phase2_rgcn_pairs.py` |
@@ -118,14 +118,14 @@ scripts/experiment.py
 ## Review Checklist
 
 - Input artifacts contain no label-only fields.
-- Graph construction reads only `*_memory_tasks.input.json` fields.
+- Graph construction reads only `GraphBuildRequest` fields projected from HotpotQA ranking records.
 - Retrieval methods return complete rankings over every memory node.
 - Graph-rerank components consume explicit seed scores and graph structure.
 - Graph-rerank tuning reuses seed-retriever scores across candidate configs without writing a persistent score-cache artifact.
 - Graph-rerank configs use `neighbor_type_weights`; old `type_weights` artifacts must be converted before reuse.
 - Evaluation reads labels from label artifacts only.
 - Dev tuning and test evaluation are separate.
-- Trainable retrieval inference reads task inputs, graphs, and checkpoint only.
+- Trainable retrieval inference reads ranking records, graphs, and checkpoint only.
 - Every script writes a run summary when output paths are known.
 - Experiment-runner paths stay under `runs/<experiment_name>/`.
 - `scripts/experiment.py plan` renders explicit low-level commands instead of hiding artifact contracts; use `--no-cache` to render the full selected plan when the default cache-aware prefix pruning would hide completed commands.
@@ -135,16 +135,16 @@ scripts/experiment.py
 
 ## Test And Verification
 
-Use repository-local Python on this Windows host:
+Run `uv` verification outside the Codex filesystem sandbox on this Windows host:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests -q --basetemp C:\tmp\graph-memory-core-refactor -p no:cacheprovider
+uv run pytest tests -q
 uv run basedpyright --outputjson --level error
 uv run ruff check
 openspec validate --all --strict
 ```
 
-If `uv run` cannot access the local uv cache, use the repository `.venv` for pytest and retry `uv` commands with the appropriate local permissions.
+Do not work around `uv` cache or pytest ACL failures with repository-local cache or basetemp paths; rerun `uv` commands outside the sandbox with the normal user cache.
 
 Architecture and import boundaries are covered by:
 
@@ -163,6 +163,6 @@ tests/test_trainable_graph_domain_boundaries.py
 - Add a new graph reranker by keeping the boundary `initial_scores + graph + config -> complete ranking` and adding graph-rerank pieces under `graph_memory/retrieval/methods/graph_rerank/`.
 - Add GraphRAG, MemGPT-style, or trainable graph methods as separate `RetrievalMethod` implementations if their core behavior is traversal, hierarchy selection, or learned message passing rather than a weighted score sum.
 - Add graph ablations by extending `GraphBuildConfig` or adding named graph-transform functions before retrieval.
-- Add a new dataset converter by producing the same `MemoryTaskInput` and `MemoryTaskLabels` artifacts.
+- Add a new dataset converter by producing dataset-owned records plus projectors to `TextRankingRequest`, `GraphBuildRequest`, `GraphRankingRequest`, `TemporalMemoryRankingRequest`, or `EvidenceEvaluationRequest` as needed.
 - Add new metrics by introducing pure metric primitives first, then adding aggregate columns in `evaluate_results` and table split helpers.
 - Add new experiment defaults under `configs/experiments/`; keep tuning grids under `configs/search_spaces/` and curated result configs under `configs/published/`.
