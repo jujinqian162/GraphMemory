@@ -7,19 +7,17 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from graph_memory.datasets.selection import DatasetId, graph_build_requests_for_dataset, validate_ranking_records_for_dataset
 from graph_memory.graphs.config import GraphBuildConfig
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToGraphBuildRequest
 from graph_memory.graphs.construction.builder import build_graphs
 from graph_memory.graphs.statistics import graph_statistics
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
-from graph_memory.validation import (
-    validate_graphs,
-    validate_hotpotqa_ranking_records,
-)
+from graph_memory.validation import validate_graphs
 
 LOGGER = logging.getLogger("build_graphs")
 
@@ -28,6 +26,7 @@ LOGGER = logging.getLogger("build_graphs")
 class BuildGraphsArgs:
     input: str
     output: str
+    dataset: DatasetId
     max_query_overlap: int
     max_entity_neighbors: int
     max_bridge_edges: int
@@ -50,6 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         use_spacy=args.use_spacy,
     )
     effective_config = {
+        "dataset": args.dataset,
         "max_query_overlap": config.max_query_overlap,
         "max_entity_neighbors": config.max_entity_neighbors,
         "max_bridge_edges": config.max_bridge_edges,
@@ -60,11 +60,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         ranking_records = read_json(args.input)
-        validate_hotpotqa_ranking_records(ranking_records)
-        LOGGER.info("read HotpotQA ranking records: %s", len(ranking_records))
+        validate_ranking_records_for_dataset(args.dataset, ranking_records)
+        LOGGER.info("read %s ranking records: %s", args.dataset, len(ranking_records))
 
-        projector = HotpotQAToGraphBuildRequest()
-        graph_requests = [projector.project(record) for record in ranking_records]
+        graph_requests = graph_build_requests_for_dataset(args.dataset, ranking_records)
         graphs = build_graphs(graph_requests, config)
         validate_graphs(graphs, graph_requests)
         stats = graph_statistics(graphs, graph_config=effective_config)
@@ -115,8 +114,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build typed graphs from HotpotQA ranking records.")
-    parser.add_argument("--input", required=True, help="Path to HotpotQA ranking record JSON.")
+    parser = argparse.ArgumentParser(description="Build typed graphs from dataset ranking records.")
+    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki"), default="hotpotqa")
+    parser.add_argument("--input", required=True, help="Path to dataset ranking record JSON.")
     parser.add_argument("--output", required=True, help="Path to write *_graphs.json.")
     parser.add_argument("--max_query_overlap", type=int, default=20)
     parser.add_argument("--max_entity_neighbors", type=int, default=10)
@@ -130,6 +130,7 @@ def parse_args(argv: Sequence[str] | None = None) -> BuildGraphsArgs:
     return BuildGraphsArgs(
         input=namespace.input,
         output=namespace.output,
+        dataset=cast(DatasetId, namespace.dataset),
         max_query_overlap=namespace.max_query_overlap,
         max_entity_neighbors=namespace.max_entity_neighbors,
         max_bridge_edges=namespace.max_bridge_edges,

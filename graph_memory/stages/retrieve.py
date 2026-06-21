@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest, HotpotQAToTextRankingRequest
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
+from graph_memory.datasets.selection import temporal_memory_requests_for_dataset, text_ranking_requests_for_dataset
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
@@ -39,19 +38,18 @@ class RetrieveStageResult:
     predictions: list[RankedResult]
     provenance: RetrievalProvenance
 
-
 def run_retrieve_stage(
     config: RetrieveStageConfig,
     *,
-    task_inputs: list[HotpotQARankingRecord],
+    task_inputs: Sequence[object],
     graphs: list[MemoryGraph] | None,
     selected_config: GraphRerankConfig | MemoryStreamScoringConfig | Mapping[str, object] | None = None,
     importance_artifact: ImportanceArtifact | None = None,
     importance_sha256: str | None = None,
     dense_encoder: SentenceEncoder | None = None,
 ) -> RetrieveStageResult:
-    ranking_requests = _text_requests(task_inputs)
-    temporal_requests = _temporal_requests(task_inputs)
+    ranking_requests = _text_requests(config, task_inputs)
+    temporal_requests = _temporal_requests(config, task_inputs)
     graph_list = graphs or []
     built = Registry.retrieval.build(
         config.job,
@@ -72,7 +70,6 @@ def run_retrieve_stage(
         top_k=config.job.top_k,
     )
     return RetrieveStageResult(predictions=predictions, provenance=built.provenance)
-
 
 def _build_payload(
     config: RetrieveStageConfig,
@@ -112,17 +109,11 @@ def _build_payload(
         )
     raise ValueError(f"Unsupported retrieval job config: {type(job).__name__}")
 
+def _text_requests(config: RetrieveStageConfig, task_inputs: Sequence[object]) -> list[TextRankingRequest]:
+    return text_ranking_requests_for_dataset(config.dataset, task_inputs)
 
-def _text_requests(task_inputs: list[HotpotQARankingRecord]) -> list[TextRankingRequest]:
-    projector = HotpotQAToTextRankingRequest()
-    return [projector.project(record) for record in task_inputs]
-
-
-def _temporal_requests(task_inputs: list[HotpotQARankingRecord]) -> list[TemporalMemoryRankingRequest]:
-    projector = HotpotQAToTemporalMemoryRankingRequest()
-    return [projector.project(record, {}) for record in task_inputs]
-
-
+def _temporal_requests(config: RetrieveStageConfig, task_inputs: Sequence[object]) -> list[TemporalMemoryRankingRequest]:
+    return temporal_memory_requests_for_dataset(config.dataset, task_inputs)
 
 def _selected_memory_stream_scoring_config(
     selected_config: GraphRerankConfig | MemoryStreamScoringConfig | Mapping[str, object] | None,
@@ -137,7 +128,6 @@ def _selected_memory_stream_scoring_config(
         f"Memory Stream selected config must be MemoryStreamScoringConfig or mapping, got {type(selected_config).__name__}."
     )
 
-
 def _selected_graph_rerank_config(
     selected_config: GraphRerankConfig | MemoryStreamScoringConfig | Mapping[str, object] | None,
 ) -> GraphRerankConfig | Mapping[str, object] | None:
@@ -146,7 +136,6 @@ def _selected_graph_rerank_config(
     raise ValueError(
         f"Graph rerank selected config must be GraphRerankConfig or mapping, got {type(selected_config).__name__}."
     )
-
 
 def _require_memory_stream_importance_artifact(
     config: RetrieveStageConfig,
@@ -157,13 +146,11 @@ def _require_memory_stream_importance_artifact(
     importance_path = _require_memory_stream_importance_path(config)
     raise ValueError(f"Memory Stream retrieval requires importance artifact: {importance_path}")
 
-
 def _require_memory_stream_importance_path(config: RetrieveStageConfig) -> Path:
     importance_path = config.io.importance
     if importance_path is None:
         raise ValueError("Memory Stream retrieve stage requires RetrieveIO.importance.")
     return importance_path
-
 
 def _require_memory_stream_importance_sha256(
     config: RetrieveStageConfig,

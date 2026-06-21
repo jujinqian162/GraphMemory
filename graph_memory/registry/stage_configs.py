@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Literal, TypeAlias
 
 from graph_memory.config.patches import ConfigPatch, deep_merge_patch
 from graph_memory.contracts.common import JsonValue
+from graph_memory.datasets.selection import DatasetId
 from graph_memory.registry.ids import StageId
 from graph_memory.registry.method_configs import TrainableMethodConfig
 from graph_memory.registry.method_configs import (
@@ -69,6 +70,7 @@ class PairBuildJobSettings:
 class PairBuildStageConfig:
     io: PairBuildIO
     job: PairBuildJobSettings
+    dataset: DatasetId = "hotpotqa"
 
     io_type: ClassVar[type[PairBuildIO]] = PairBuildIO
 
@@ -87,6 +89,7 @@ class RetrieveIO:
 class RetrieveStageConfig:
     io: RetrieveIO
     job: RetrievalJobSettings
+    dataset: DatasetId = "hotpotqa"
 
     io_type: ClassVar[type[RetrieveIO]] = RetrieveIO
 
@@ -124,6 +127,7 @@ class RgcnTrainStageConfig:
     method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER]
     io: RgcnTrainIO
     job: RgcnMethodSettings
+    dataset: DatasetId = "hotpotqa"
 
     io_type: ClassVar[type[RgcnTrainIO]] = RgcnTrainIO
 
@@ -133,6 +137,7 @@ class DenseFinetuneTrainStageConfig:
     method: Literal[RetrievalMethodId.DENSE_FT]
     io: DenseFinetuneTrainIO
     job: DenseFinetuneMethodSettings
+    dataset: DatasetId = "hotpotqa"
 
     io_type: ClassVar[type[DenseFinetuneTrainIO]] = DenseFinetuneTrainIO
 
@@ -153,6 +158,7 @@ class EvaluateIO:
 class EvaluateStageConfig:
     io: EvaluateIO
     failure_case_limit: int = 0
+    dataset: DatasetId = "hotpotqa"
 
     io_type: ClassVar[type[EvaluateIO]] = EvaluateIO
 

@@ -258,5 +258,5 @@ def test_training_registry_builds_exact_trainers() -> None:
 
 
 def test_stage_config_roots_are_explicit() -> None:
-    assert [field.name for field in fields(RetrieveStageConfig)] == ["io", "job"]
-    assert [field.name for field in fields(RgcnTrainStageConfig)] == ["method", "io", "job"]
+    assert [field.name for field in fields(RetrieveStageConfig)] == ["io", "job", "dataset"]
+    assert [field.name for field in fields(RgcnTrainStageConfig)] == ["method", "io", "job", "dataset"]

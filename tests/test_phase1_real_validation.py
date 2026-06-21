@@ -131,6 +131,23 @@ def test_ranked_result_validation_rejects_duplicate_ranked_node():
         validate_ranked_results(predictions, ranking_requests())
 
 
+def test_ranked_result_validation_rejects_path_metric_capability_metadata():
+    predictions = [
+        {
+            "task_id": "hotpot_ex1",
+            "method": "bm25",
+            "ranked_nodes": [{"node_id": "m0", "score": 2.0}, {"node_id": "m1", "score": 1.0}],
+            "retrieved_subgraph": {"nodes": ["m0", "m1"], "edges": []},
+            "latency_ms": 1.0,
+            "input_tokens": 0,
+            "metadata": {"path_metrics_supported": True},
+        }
+    ]
+
+    with pytest.raises(ContractValidationError, match="method registry"):
+        validate_ranked_results(predictions, ranking_requests())
+
+
 def test_ranked_result_validation_rejects_non_finite_scores():
     predictions = [
         {

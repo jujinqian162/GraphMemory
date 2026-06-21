@@ -64,6 +64,20 @@ def test_tuning_capability_is_orthogonal_to_retrieval_lifecycle() -> None:
     assert dense.tuning is None
 
 
+def test_path_metric_capability_is_declared_by_method_registry() -> None:
+    supported = {
+        method
+        for method in Registry.methods.list_ids()
+        if Registry.methods.supports_path_metrics(method)
+    }
+
+    assert supported == {
+        RetrievalMethodId.BM25_GRAPH_RERANK,
+        RetrievalMethodId.DENSE_GRAPH_RERANK,
+        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+    }
+
+
 def test_method_definitions_do_not_expose_capability_booleans_or_builder_ids() -> None:
     retired_attributes = {
         "builder_id",

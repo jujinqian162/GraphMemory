@@ -22,6 +22,8 @@ from graph_memory.validation.tasks import (
     validate_hotpotqa_label_records,
     validate_hotpotqa_ranking_records,
     validate_no_label_fields,
+    validate_twowiki_label_records,
+    validate_twowiki_ranking_records,
 )
 from graph_memory.validation.training_pairs import (
     validate_negative_sampling_config,
@@ -44,6 +46,8 @@ __all__ = [
     "validate_ranked_results",
     "validate_task_id_alignment",
     "validate_task_importance_record",
+    "validate_twowiki_label_records",
+    "validate_twowiki_ranking_records",
     "validate_train_pair_build_summary",
     "validate_train_pairs",
     "validate_rgcn_checkpoint_metadata",

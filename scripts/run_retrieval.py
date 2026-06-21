@@ -13,8 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.common import JsonObject, JsonValue
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset, validate_ranking_records_for_dataset
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
@@ -36,13 +35,9 @@ from graph_memory.retrieval.methods.memory_stream.config import (
 )
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.stages.retrieve import run_retrieve_stage
-from graph_memory.validation import (
-    validate_hotpotqa_ranking_records,
-    validate_ranked_results,
-)
+from graph_memory.validation import validate_ranked_results
 
 LOGGER = logging.getLogger("run_retrieval")
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     config = CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
@@ -64,8 +59,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         task_inputs = read_json(config.io.tasks)
-        validate_hotpotqa_ranking_records(task_inputs)
-        text_requests = _text_requests(cast(list[HotpotQARankingRecord], task_inputs))
+        validate_ranking_records_for_dataset(config.dataset, task_inputs)
+        text_requests = _text_requests(config, cast(list[object], task_inputs))
         importance_artifact, importance_sha256 = _load_memory_stream_importance_if_required(config)
         graphs = read_json(config.io.graphs) if config.io.graphs is not None else []
         result = run_retrieve_stage(
@@ -123,14 +118,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_run_summary(summary_path, summary)
         raise
 
-
-
-def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
-    projector = HotpotQAToTextRankingRequest()
-    return [projector.project(record) for record in records]
+def _text_requests(config: RetrieveStageConfig, records: Sequence[object]) -> list[TextRankingRequest]:
+    return text_ranking_requests_for_dataset(config.dataset, records)
 
 SelectedConfig = GraphRerankConfig | MemoryStreamScoringConfig
-
 
 def _read_selected_config(config: RetrieveStageConfig) -> SelectedConfig | None:
     path = config.io.selected_config
@@ -146,7 +137,6 @@ def _read_selected_config(config: RetrieveStageConfig) -> SelectedConfig | None:
     raise ValueError(
         f"Retrieval method={config.job.method.value} does not accept selected_config."
     )
-
 
 def _load_memory_stream_importance_if_required(
     config: RetrieveStageConfig,
@@ -164,7 +154,6 @@ def _load_memory_stream_importance_if_required(
         raise ValueError(f"Memory Stream importance artifact must be a JSON object: {importance_path}")
     return cast(ImportanceArtifact, cast(object, artifact)), hashlib.sha256(raw_bytes).hexdigest()
 
-
 def _effective_config(
     config: RetrieveStageConfig,
     selected_config: SelectedConfig | None,
@@ -172,6 +161,7 @@ def _effective_config(
     provenance: RetrievalProvenance | None,
 ) -> JsonObject:
     return {
+        "dataset": config.dataset,
         "method": config.job.method.value,
         "top_k": config.job.top_k,
         "job": cast(JsonObject, CONFIG_LOADER.to_json(config.job)),
@@ -184,7 +174,6 @@ def _effective_config(
         "selected_config": _selected_config_json(selected_config),
         "provenance": None if provenance is None else cast(JsonObject, CONFIG_LOADER.to_json(provenance)),
     }
-
 
 def _selected_config_json(selected_config: SelectedConfig | None) -> JsonValue:
     if selected_config is None:

@@ -102,6 +102,13 @@ class MethodRegistry:
             if self.definitions[method].lifecycle is lifecycle
         )
 
+    def supports_path_metrics(self, method: str | RetrievalMethodId) -> bool:
+        definition = self.get(method)
+        return (
+            definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
+            and definition.lifecycle in {RetrievalLifecycle.GRAPH_RERANK, RetrievalLifecycle.RGCN_TRAINABLE}
+        )
+
 
 def build_method_registry() -> MethodRegistry:
     no_dependencies = RetrievalDependencySpec(

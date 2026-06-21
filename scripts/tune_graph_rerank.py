@@ -4,34 +4,35 @@ import argparse
 import logging
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
-from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord, HotpotQARankingRecord
-from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.datasets.selection import (
+    DatasetId,
+    evidence_labels_for_dataset,
+    text_ranking_requests_for_dataset,
+    validate_label_records_for_dataset,
+    validate_ranking_records_for_dataset,
+)
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.retrieval.requests import DenseRuntime, TextRankingRequest
+from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
-from graph_memory.validation import (
-    validate_graphs,
-    validate_hotpotqa_ranking_records,
-    validate_hotpotqa_label_records,
-)
+from graph_memory.validation import validate_graphs
 
 LOGGER = logging.getLogger("tune_graph_rerank")
 
 
 @dataclass(frozen=True)
 class TuneGraphRerankArgs:
+    dataset: DatasetId
     method: str
     tasks: str
     labels: str
@@ -54,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary_path = output_config_path.with_name(f"{output_config_path.stem}.run_summary.json")
     candidates_path = output_config_path.with_name(f"{output_config_path.stem}.candidates.json")
     effective_config = {
+        "dataset": args.dataset,
         "method": args.method,
         "encoder_model": args.encoder_model,
         "query_prefix": args.query_prefix,
@@ -71,14 +73,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
 
     try:
-        task_inputs = read_json(args.tasks)
-        labels = read_json(args.labels)
+        task_inputs = cast(list[object], read_json(args.tasks))
+        labels = cast(list[object], read_json(args.labels))
         graphs = read_json(args.graphs)
-        validate_hotpotqa_ranking_records(task_inputs)
-        inputs_by_task_id = {task_input["task_id"]: task_input for task_input in task_inputs}
-        validate_hotpotqa_label_records(labels, inputs_by_task_id)
-        ranking_requests = _text_requests(cast(list[HotpotQARankingRecord], task_inputs))
-        evidence_labels = _evidence_labels(cast(list[HotpotQALabelRecord], labels))
+        validate_ranking_records_for_dataset(args.dataset, task_inputs)
+        inputs_by_task_id = {str(task_input["task_id"]): task_input for task_input in cast(list[Mapping[str, object]], task_inputs)}
+        validate_label_records_for_dataset(args.dataset, labels, inputs_by_task_id)
+        ranking_requests = text_ranking_requests_for_dataset(args.dataset, task_inputs)
+        evidence_labels = evidence_labels_for_dataset(args.dataset, labels)
         validate_graphs(graphs, ranking_requests)
 
         grid = (
@@ -141,31 +143,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise
 
 
-def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
-    projector = HotpotQAToTextRankingRequest()
-    return [projector.project(record) for record in records]
-
-
-def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabel]:
-    return [
-        EvidenceLabel(
-            task_id=label["task_id"],
-            gold_answer=label["gold_answer"],
-            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple(_dependency_edge(edge) for edge in label["gold_dependency_edges"]),
-        )
-        for label in labels
-    ]
-
-
-def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
-    if len(edge) != 2:
-        raise ValueError(f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}.")
-    return edge[0], edge[1]
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank parameters on dev labels.")
+    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki"), default="hotpotqa")
     parser.add_argument(
         "--method",
         required=True,
@@ -189,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: Sequence[str] | None = None) -> TuneGraphRerankArgs:
     namespace = build_parser().parse_args(argv)
     return TuneGraphRerankArgs(
+        dataset=cast(DatasetId, namespace.dataset),
         method=namespace.method,
         tasks=namespace.tasks,
         labels=namespace.labels,

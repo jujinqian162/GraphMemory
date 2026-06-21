@@ -8,7 +8,9 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import FailureCase, MetricRow, MetricTableRow, TaskMetricRow
 from graph_memory.evaluation.connectivity import connected_evidence_at, query_evidence_connectivity_at
 from graph_memory.evaluation.metrics import evidence_f1_at, full_support_at, mrr, recall_at
+from graph_memory.evaluation.path_metrics import edge_recall_at, path_recall_at
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest
+from graph_memory.registry.methods import build_method_registry
 from graph_memory.validation.common import ContractValidationError, validate_task_id_alignment
 from graph_memory.validation.metrics import validate_evidence_metric_rows
 
@@ -29,6 +31,7 @@ EVIDENCE_METRIC_COLUMNS = [
     "Edge Recall@10",
     "Retrieval Latency / Query",
 ]
+METHOD_REGISTRY = build_method_registry()
 
 
 class MetricSuite(Protocol):
@@ -63,6 +66,9 @@ class EvidenceMetricSuite:
                 f"Invalid evaluation input: expected one method per file, got methods={sorted(methods)}."
             )
         method = next(iter(methods)) if methods else ""
+        path_metrics_supported = _path_metrics_supported(method)
+        path_recall_values: list[float] = []
+        edge_recall_values: list[float] = []
 
         per_task_rows: list[TaskMetricRow] = []
         for prediction in request.predictions:
@@ -72,6 +78,10 @@ class EvidenceMetricSuite:
             graph = graphs_by_task_id[task_id]
             gold_nodes = set(label.gold_evidence_item_ids)
             _validate_gold_nodes_exist(task_id, gold_nodes, graph)
+            if path_metrics_supported and label.gold_dependency_edges:
+                gold_dependency_edges = set(label.gold_dependency_edges)
+                path_recall_values.append(path_recall_at(prediction["retrieved_subgraph"], gold_dependency_edges))
+                edge_recall_values.append(edge_recall_at(prediction["retrieved_subgraph"], gold_dependency_edges))
             per_task_rows.append(
                 {
                     "Recall@2": recall_at(ranked_node_ids, gold_nodes, 2),
@@ -137,6 +147,8 @@ class EvidenceMetricSuite:
             "Avg Retrieved Edges",
         ]:
             aggregate_row[column] = _mean(row[column] for row in per_task_rows)
+        aggregate_row["Path Recall@10"] = _mean_optional(path_recall_values)
+        aggregate_row["Edge Recall@10"] = _mean_optional(edge_recall_values)
         return [aggregate_row]
 
     def validate_metric_rows(self, rows: object) -> None:
@@ -201,5 +213,18 @@ def _mean(values: Iterable[float]) -> float:
         return 0.0
     return sum(materialized) / len(materialized)
 
+
+def _path_metrics_supported(method: str) -> bool:
+    try:
+        return METHOD_REGISTRY.supports_path_metrics(method)
+    except ValueError:
+        return False
+
+
+def _mean_optional(values: Iterable[float]) -> float | str:
+    materialized = list(values)
+    if not materialized:
+        return "N/A"
+    return sum(materialized) / len(materialized)
 
 __all__ = ["EVIDENCE_METRIC_COLUMNS", "EvidenceMetricSuite", "MetricSuite", "evidence_metric_suite"]

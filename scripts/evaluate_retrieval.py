@@ -28,6 +28,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_path = config.io.output
     summary_path = output_path.with_name(f"{output_path.stem}.run_summary.json")
     effective_config = {
+        "dataset": config.dataset,
         "failure_case_limit": config.failure_case_limit,
         "failure_cases_output": str(config.io.failure_cases_output) if config.io.failure_cases_output is not None else None,
     }

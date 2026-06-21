@@ -92,6 +92,7 @@ def validate_ranked_results(predictions: object, expected_candidates_by_task_id:
 
         _required_finite_number(prediction, "latency_ms", "ranked result", task_id, minimum=0.0)
         _required_int(prediction, "input_tokens", "ranked result", task_id, minimum=0)
+        _validate_metadata(prediction.get("metadata"), task_id)
         _validate_retrieved_subgraph(prediction.get("retrieved_subgraph"), expected_node_ids, task_id)
 
 
@@ -145,5 +146,16 @@ def _validate_retrieved_subgraph(value: Any, valid_node_ids: set[str], task_id: 
         edge_node_ids = subgraph_node_ids | {"q"}
         _validate_graph_edge(edge, edge_node_ids, task_id)
 
+
+def _validate_metadata(value: Any, task_id: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ContractValidationError(f"Invalid ranked results: task_id={task_id} metadata must be an object.")
+    if "path_metrics_supported" in value:
+        raise ContractValidationError(
+            f"Invalid ranked results: task_id={task_id} metadata.path_metrics_supported is not supported; "
+            "path metric capability is declared by the method registry."
+        )
 
 __all__ = ["expected_candidate_ids_from_requests", "validate_ranked_results"]

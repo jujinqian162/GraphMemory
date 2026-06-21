@@ -97,7 +97,10 @@ def _prepare_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
     output_path = Path(path)
     split_config = manifest["effective_config"]["splits"][split]
     source = split_config["source"]
+    dataset = _dataset_id(manifest)
     if source == "importance":
+        if dataset != "hotpotqa":
+            raise ValueError('split source "importance" is only supported for dataset hotpotqa.')
         importance_path = _memory_stream_importance_path(manifest, "memory_stream")
         if importance_path is None:
             raise ValueError('split source "importance" requires a Memory Stream importance artifact path.')
@@ -123,7 +126,7 @@ def _prepare_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
         stage=StageId.PREPARE.value,
         path=path,
         summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
-        script="prepare_hotpotqa.py",
+        script=_prepare_script_name(dataset),
         expected_inputs=expected_inputs,
         expected_outputs={
             "inputs": artifacts["input"],
@@ -138,6 +141,7 @@ def _prepare_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
 def _graph_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
     path = manifest["artifacts"]["graphs"][split]
     output_path = Path(path)
+    expected_config = {"dataset": _dataset_id(manifest), **manifest["effective_config"]["graph"]}
     return _summary_status(
         stage=StageId.GRAPHS.value,
         path=path,
@@ -145,7 +149,7 @@ def _graph_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
         script="build_graphs.py",
         expected_inputs={"tasks": manifest["artifacts"]["inputs"][split]["input"]},
         expected_outputs={"graphs": path},
-        expected_config=manifest["effective_config"]["graph"],
+        expected_config=expected_config,
         split=split,
     )
 
@@ -153,6 +157,7 @@ def _graph_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
 def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
     learned = manifest["artifacts"]["learned"][method]
     method_config = manifest["effective_config"]["resolved_method_configs"][method]
+    expected_config = {"dataset": _dataset_id(manifest), **dict(method_config.get("pairs", {}))}
     return _summary_status(
         stage=StageId.PAIRS.value,
         path=learned["train_pairs"],
@@ -167,7 +172,7 @@ def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
             "pairs": learned["train_pairs"],
             "summary": learned["train_pair_summary"],
         },
-        expected_config=dict(method_config.get("pairs", {})),
+        expected_config=expected_config,
         method=method,
     )
 
@@ -198,7 +203,7 @@ def _train_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
             "best_checkpoint": learned["best_checkpoint"],
             "metrics": learned["train_metrics"],
         },
-        expected_config={"method": method},
+        expected_config={"dataset": _dataset_id(manifest), "method": method},
         artifact_kind=train_artifact.kind,
         method=method,
     )
@@ -233,6 +238,7 @@ def _graph_rerank_tune_status(
     output_path: Path,
 ) -> dict[str, str]:
     expected_config: dict[str, object] = {
+        "dataset": _dataset_id(manifest),
         "method": method,
         "top_k": manifest["effective_config"]["top_k"],
         "grid_config": str(manifest["effective_config"]["search_spaces"]["graph_rerank"]),
@@ -308,7 +314,7 @@ def _evaluate_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
             "metrics": path,
             "failure_cases": manifest["artifacts"]["failure_cases"][method],
         },
-        expected_config={"failure_case_limit": 50},
+        expected_config={"dataset": _dataset_id(manifest), "failure_case_limit": 50},
         method=method,
     )
 
@@ -425,6 +431,7 @@ def _retrieval_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         and _same_path(summary.get("inputs", {}).get("tasks"), expected_tasks)
         and _same_path(summary.get("outputs", {}).get("predictions"), path)
         and summary.get("effective_config", {}).get("method") == method
+        and summary.get("effective_config", {}).get("dataset") == _dataset_id(manifest)
         and summary.get("effective_config", {}).get("top_k") == expected_top_k
     ):
         row["state"] = ArtifactState.COMPLETE.value
@@ -455,6 +462,21 @@ def _status_key(row: dict[str, str]) -> str:
 
 def _same_path(left: object, right: str | Path) -> bool:
     return isinstance(left, str) and Path(left) == Path(right)
+
+
+def _dataset_id(manifest: Mapping[str, Any]) -> str:
+    dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
+    if dataset not in {"hotpotqa", "twowiki"}:
+        raise ValueError(f"Unsupported workflow dataset: {dataset}")
+    return dataset
+
+
+def _prepare_script_name(dataset: str) -> str:
+    if dataset == "hotpotqa":
+        return "prepare_hotpotqa.py"
+    if dataset == "twowiki":
+        return "prepare_2wiki.py"
+    raise ValueError(f"Unsupported workflow dataset: {dataset}")
 
 
 def _summary_section_matches(section: object, expected: Mapping[str, object], *, path_values: bool) -> bool:

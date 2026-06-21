@@ -12,6 +12,9 @@ ValidationRecords: TypeAlias = list[ValidationRecord]
 ValidationRecordMap: TypeAlias = dict[str, ValidationRecord]
 
 FORBIDDEN_LABEL_FIELDS: set[str] = {
+    "answer_id",
+    "evidences",
+    "evidences_id",
     "gold_answer",
     "gold_evidence_item_ids",
     "gold_dependency_edges",

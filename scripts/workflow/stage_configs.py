@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from typing_extensions import assert_never
 
 from graph_memory.config import CONFIG_LOADER
+from graph_memory.datasets.selection import DatasetId
 from graph_memory.io import write_json
 from graph_memory.registry import Registry
 from graph_memory.registry.method_configs import (
@@ -154,6 +155,7 @@ def _pair_stage_config(
     learned = manifest["artifacts"]["learned"][method]
     pairs = method_config.pairs
     return PairBuildStageConfig(
+        dataset=_dataset_id(manifest),
         io=PairBuildIO(
             tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
             labels=Path(manifest["artifacts"]["inputs"]["train"]["labels"]),
@@ -184,6 +186,7 @@ def _train_stage_config(
     learned = manifest["artifacts"]["learned"][method]
     if isinstance(method_config, RgcnMethodConfig):
         return RgcnTrainStageConfig(
+            dataset=_dataset_id(manifest),
             method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
             io=RgcnTrainIO(
                 train_tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
@@ -209,6 +212,7 @@ def _train_stage_config(
         )
     if isinstance(method_config, DenseFinetuneMethodConfig):
         return DenseFinetuneTrainStageConfig(
+            dataset=_dataset_id(manifest),
             method=RetrievalMethodId.DENSE_FT,
             io=DenseFinetuneTrainIO(
                 train_tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
@@ -248,6 +252,7 @@ def _retrieve_stage_config(
         else None
     )
     return RetrieveStageConfig(
+        dataset=_dataset_id(manifest),
         io=RetrieveIO(
             tasks=Path(manifest["artifacts"]["inputs"]["test"]["input"]),
             graphs=graph_path,
@@ -358,6 +363,7 @@ def _retrieval_job(
 
 def _evaluate_stage_config(manifest: dict[str, Any], method: str) -> EvaluateStageConfig:
     return EvaluateStageConfig(
+        dataset=_dataset_id(manifest),
         io=EvaluateIO(
             predictions=Path(manifest["artifacts"]["predictions"][method]),
             labels=Path(manifest["artifacts"]["inputs"]["test"]["labels"]),
@@ -377,6 +383,13 @@ def _memory_stream_importance_path(manifest: Mapping[str, Any], method: str) -> 
     if configured is not None:
         return Path(str(configured))
     return Path("data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json")
+
+
+def _dataset_id(manifest: Mapping[str, Any]) -> DatasetId:
+    dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
+    if dataset not in {"hotpotqa", "twowiki"}:
+        raise ValueError(f"Unsupported workflow dataset: {dataset}")
+    return cast(DatasetId, dataset)
 
 
 def _experiment_encoder(manifest: Mapping[str, Any]) -> DenseEncoderSettings:

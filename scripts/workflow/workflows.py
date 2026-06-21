@@ -162,11 +162,14 @@ DENSE_FT_WORKFLOW = WorkflowSpec(
 def build_prepare_commands(manifest: dict[str, Any]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     config = manifest["effective_config"]
+    dataset = _dataset_id(manifest)
     for split in ("train", "dev", "test"):
         split_config = config["splits"][split]
         raw_source = split_config["source"]
         artifacts = manifest["artifacts"]["inputs"][split]
         if raw_source == "importance":
+            if dataset != "hotpotqa":
+                raise ValueError('split source "importance" is only supported for dataset hotpotqa.')
             if "memory_stream" not in manifest.get("selected_methods", []):
                 raise ValueError('split source "importance" requires selected method memory_stream.')
             importance_path = _memory_stream_importance_path(manifest, "memory_stream")
@@ -197,7 +200,7 @@ def build_prepare_commands(manifest: dict[str, Any]) -> list[StageCommand]:
         else:
             argv = [
                 sys.executable,
-                "scripts/prepare_hotpotqa.py",
+                _prepare_script(dataset),
                 "--input",
                 str(config["raw"][raw_source]),
                 "--output_input",
@@ -226,10 +229,13 @@ def build_prepare_commands(manifest: dict[str, Any]) -> list[StageCommand]:
 def build_graph_commands(manifest: dict[str, Any]) -> list[StageCommand]:
     commands: list[StageCommand] = []
     graph_config = manifest["effective_config"]["graph"]
+    dataset = _dataset_id(manifest)
     for split in ("train", "dev", "test"):
         argv = [
             sys.executable,
             "scripts/build_graphs.py",
+            "--dataset",
+            dataset,
             "--input",
             manifest["artifacts"]["inputs"][split]["input"],
             "--output",
@@ -293,6 +299,8 @@ def _graph_rerank_tune_argv(
     return [
         sys.executable,
         "scripts/tune_graph_rerank.py",
+        "--dataset",
+        _dataset_id(manifest),
         "--method",
         method,
         "--tasks",
@@ -422,3 +430,18 @@ def _stage_config_command(
         method=method,
         argv=[sys.executable, script, "--config", config_path],
     )
+
+
+def _dataset_id(manifest: dict[str, Any]) -> str:
+    dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
+    if dataset not in {"hotpotqa", "twowiki"}:
+        raise ValueError(f"Unsupported workflow dataset: {dataset}")
+    return dataset
+
+
+def _prepare_script(dataset: str) -> str:
+    if dataset == "hotpotqa":
+        return "scripts/prepare_hotpotqa.py"
+    if dataset == "twowiki":
+        return "scripts/prepare_2wiki.py"
+    raise ValueError(f"Unsupported workflow dataset: {dataset}")
