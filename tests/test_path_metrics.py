@@ -50,6 +50,13 @@ def test_evaluation_keeps_flat_methods_path_metrics_na_even_with_gold_edges() ->
     assert rows[0]["Edge Recall@10"] == "N/A"
 
 
+def test_evaluation_keeps_dense_ft_path_metrics_na_for_twowiki_gold_edges() -> None:
+    rows = evaluate_results(_request(method="dense_ft", retrieved_edges=[]))
+
+    assert rows[0]["Path Recall@10"] == "N/A"
+    assert rows[0]["Edge Recall@10"] == "N/A"
+
+
 def test_evaluation_uses_registry_capability_not_prediction_metadata_override() -> None:
     rows = evaluate_results(
         _request(
@@ -75,6 +82,35 @@ def test_evaluation_computes_path_metrics_for_graph_aware_methods() -> None:
     )
 
     assert rows[0]["Path Recall@10"] == 1.0
+    assert rows[0]["Edge Recall@10"] == 0.0
+
+
+def test_evaluation_computes_numeric_path_metrics_for_rgcn_with_twowiki_gold_edges() -> None:
+    rows = evaluate_results(
+        _request(
+            method="dense_rgcn_graph_retriever",
+            retrieved_edges=[
+                {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 1.0, "directed": True},
+                {"source": "m1", "target": "m2", "edge_type": "bridge", "weight": 1.0, "directed": True},
+            ],
+        )
+    )
+
+    assert isinstance(rows[0]["Path Recall@10"], float)
+    assert isinstance(rows[0]["Edge Recall@10"], float)
+
+
+def test_evaluation_counts_rgcn_missing_twowiki_path_as_zero() -> None:
+    rows = evaluate_results(
+        _request(
+            method="dense_rgcn_graph_retriever",
+            retrieved_edges=[
+                {"source": "m1", "target": "m2", "edge_type": "bridge", "weight": 1.0, "directed": True},
+            ],
+        )
+    )
+
+    assert rows[0]["Path Recall@10"] == 0.0
     assert rows[0]["Edge Recall@10"] == 0.0
 
 

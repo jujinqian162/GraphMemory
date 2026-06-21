@@ -9,6 +9,11 @@ from scripts.workflow.planner import build_stage_plan
 from scripts.workflow.types import StageId
 
 
+DENSE_FT = "dense_ft"
+RGCN = "dense_rgcn_graph_retriever"
+TRAINABLE_METHODS = (DENSE_FT, RGCN)
+
+
 def _twowiki_workflow_config() -> dict[str, Any]:
     return {
         "dataset": "twowiki",
@@ -117,6 +122,54 @@ def test_named_twowiki_tiny_config_initializes_dataset_workflow(tmp_path: Path) 
         and command.argv[command.argv.index("--dataset") + 1] == "twowiki"
         for command in commands
     )
+
+
+def test_named_twowiki_tiny_config_exposes_trainable_methods() -> None:
+    config = load_experiment_config("2wiki_tiny")
+
+    assert set(TRAINABLE_METHODS).issubset(set(config["methods"]))
+    assert config["method_configs"] == {
+        RGCN: "configs/methods/dense_rgcn_graph_retriever.json",
+        DENSE_FT: "configs/methods/dense_ft.json",
+    }
+
+
+def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_boundaries(
+    tmp_path: Path,
+) -> None:
+    config = load_experiment_config("2wiki_tiny")
+
+    manifest = initialize_experiment(
+        "2wiki-tiny-trainable",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=list(TRAINABLE_METHODS),
+        force=True,
+    )
+
+    assert manifest["selected_methods"] == list(TRAINABLE_METHODS)
+    for method in TRAINABLE_METHODS:
+        for stage in ("pairs", "train", "retrieve", "evaluate"):
+            stage_config = read_json(manifest["stage_configs"][stage][method])
+            assert stage_config["dataset"] == "twowiki"
+
+    dense_ft_train = read_json(manifest["stage_configs"]["train"][DENSE_FT])
+    dense_ft_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT])
+    rgcn_train = read_json(manifest["stage_configs"]["train"][RGCN])
+    rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][RGCN])
+
+    assert dense_ft_train["job"]["trainer"]["device"] == "cuda"
+    assert dense_ft_retrieve["job"]["device"] == "cuda"
+    assert dense_ft_retrieve["io"]["graphs"] is None
+    assert "train_graphs" not in dense_ft_train["io"]
+    assert "dev_graphs" not in dense_ft_train["io"]
+
+    assert rgcn_train["job"]["trainer"]["device"] == "cuda"
+    assert rgcn_retrieve["job"]["device"] == "cuda"
+    assert isinstance(rgcn_train["io"]["train_graphs"], str)
+    assert isinstance(rgcn_train["io"]["dev_graphs"], str)
+    assert isinstance(rgcn_retrieve["io"]["graphs"], str)
 
 
 def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tmp_path: Path) -> None:

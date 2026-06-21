@@ -18,8 +18,14 @@
   "methods": [
     "bm25",
     "dense",
-    "dense_graph_rerank"
+    "dense_graph_rerank",
+    "dense_rgcn_graph_retriever",
+    "dense_ft"
   ],
+  "method_configs": {
+    "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+    "dense_ft": "configs/methods/dense_ft.json"
+  },
   "profiles": {
     "smoke": {
       "dev_examples": 5,

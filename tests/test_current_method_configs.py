@@ -51,7 +51,7 @@ def test_repository_dense_ft_method_config_loads_as_current_typed_config() -> No
     assert config.pairs.hard_bm25_per_positive == 2
     assert config.train.trainer.train_batch_size == 1
     assert config.train.trainer.eval_batch_size == 4
-    assert config.train.trainer.device == "cpu"
+    assert config.train.trainer.device == "cuda"
 
 
 @pytest.mark.parametrize(
