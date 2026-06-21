@@ -29,5 +29,5 @@
 - [x] 4.3 Run `uv run python scripts/experiment.py plan 2wiki_trainable_smoke --config configs/experiments/2wiki_tiny.json --profile smoke --methods dense_ft,dense_rgcn_graph_retriever --force --no-cache`.
 - [x] 4.4 Run `uv run python scripts/experiment.py run 2wiki_trainable_smoke --config configs/experiments/2wiki_tiny.json --profile smoke --methods dense_ft,dense_rgcn_graph_retriever --force`.
 - [x] 4.5 Run `uv run python scripts/experiment.py status 2wiki_trainable_smoke` and verify predictions plus `main_results.csv`, `path_results.csv`, and `efficiency_results.csv` exist.
-- [ ] 4.6 Run static and repository-level gates appropriate for this change, including `uv run pytest -q`, `uv run ruff check .`, `uv run basedpyright`, `uv run python -m compileall graph_memory scripts tests`, and `git diff --check`.
+- [x] 4.6 Run static and repository-level gates appropriate for this change, including `uv run pytest -q`, `uv run ruff check .`, `uv run basedpyright`, `uv run python -m compileall graph_memory scripts tests`, and `git diff --check`.
 - [x] 4.7 Run `openspec validate adapt-twowiki-trainable-methods --strict`.
