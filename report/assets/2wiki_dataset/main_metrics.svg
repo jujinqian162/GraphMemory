@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="560" viewBox="0 0 1080 560">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="90" y="34" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">Main Retrieval Metrics</text>
+<line x1="90" x2="1050" y1="410.0" y2="410.0" stroke="#E5E7EB"/>
+<text x="78" y="414.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.00</text>
+<line x1="90" x2="1050" y1="325.0" y2="325.0" stroke="#E5E7EB"/>
+<text x="78" y="329.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.25</text>
+<line x1="90" x2="1050" y1="240.0" y2="240.0" stroke="#E5E7EB"/>
+<text x="78" y="244.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.50</text>
+<line x1="90" x2="1050" y1="155.0" y2="155.0" stroke="#E5E7EB"/>
+<text x="78" y="159.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.75</text>
+<line x1="90" x2="1050" y1="70.0" y2="70.0" stroke="#E5E7EB"/>
+<text x="78" y="74.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">1.00</text>
+<text x="170.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Recall@2</text>
+<rect x="107.5" y="297.6" width="17.6" height="112.4" fill="#6B7280" rx="2"/>
+<rect x="129.0" y="301.9" width="17.6" height="108.1" fill="#8B5CF6" rx="2"/>
+<rect x="150.5" y="227.0" width="17.6" height="183.0" fill="#2563EB" rx="2"/>
+<rect x="171.9" y="235.8" width="17.6" height="174.2" fill="#14B8A6" rx="2"/>
+<rect x="193.4" y="171.3" width="17.6" height="238.7" fill="#F97316" rx="2"/>
+<rect x="214.9" y="159.8" width="17.6" height="250.2" fill="#DC2626" rx="2"/>
+<text x="330.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Recall@5</text>
+<rect x="267.5" y="232.1" width="17.6" height="177.9" fill="#6B7280" rx="2"/>
+<rect x="289.0" y="223.1" width="17.6" height="186.9" fill="#8B5CF6" rx="2"/>
+<rect x="310.5" y="179.6" width="17.6" height="230.4" fill="#2563EB" rx="2"/>
+<rect x="331.9" y="178.6" width="17.6" height="231.4" fill="#14B8A6" rx="2"/>
+<rect x="353.4" y="97.6" width="17.6" height="312.4" fill="#F97316" rx="2"/>
+<text x="362.2" y="92.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.919</text>
+<rect x="374.9" y="90.1" width="17.6" height="319.9" fill="#DC2626" rx="2"/>
+<text x="383.7" y="85.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.941</text>
+<text x="490.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Recall@10</text>
+<rect x="427.5" y="179.7" width="17.6" height="230.3" fill="#6B7280" rx="2"/>
+<rect x="449.0" y="160.3" width="17.6" height="249.7" fill="#8B5CF6" rx="2"/>
+<rect x="470.5" y="139.6" width="17.6" height="270.4" fill="#2563EB" rx="2"/>
+<rect x="491.9" y="132.8" width="17.6" height="277.2" fill="#14B8A6" rx="2"/>
+<text x="500.7" y="127.8" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.815</text>
+<rect x="513.4" y="76.3" width="17.6" height="333.7" fill="#F97316" rx="2"/>
+<text x="522.2" y="71.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.981</text>
+<rect x="534.9" y="77.8" width="17.6" height="332.2" fill="#DC2626" rx="2"/>
+<text x="543.7" y="72.8" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.977</text>
+<text x="650.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Full Support@5</text>
+<rect x="587.5" y="347.2" width="17.6" height="62.8" fill="#6B7280" rx="2"/>
+<rect x="609.0" y="332.8" width="17.6" height="77.2" fill="#8B5CF6" rx="2"/>
+<rect x="630.5" y="286.7" width="17.6" height="123.3" fill="#2563EB" rx="2"/>
+<rect x="651.9" y="282.1" width="17.6" height="127.9" fill="#14B8A6" rx="2"/>
+<rect x="673.4" y="133.1" width="17.6" height="276.9" fill="#F97316" rx="2"/>
+<text x="682.2" y="128.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.814</text>
+<rect x="694.9" y="108.2" width="17.6" height="301.8" fill="#DC2626" rx="2"/>
+<text x="703.7" y="103.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.888</text>
+<text x="810.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Full Support@10</text>
+<rect x="747.5" y="286.8" width="17.6" height="123.2" fill="#6B7280" rx="2"/>
+<rect x="769.0" y="249.5" width="17.6" height="160.5" fill="#8B5CF6" rx="2"/>
+<rect x="790.5" y="220.1" width="17.6" height="189.9" fill="#2563EB" rx="2"/>
+<rect x="811.9" y="204.4" width="17.6" height="205.6" fill="#14B8A6" rx="2"/>
+<rect x="833.4" y="83.1" width="17.6" height="326.9" fill="#F97316" rx="2"/>
+<text x="842.2" y="78.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.961</text>
+<rect x="854.9" y="85.0" width="17.6" height="325.0" fill="#DC2626" rx="2"/>
+<text x="863.7" y="80.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.956</text>
+<text x="970.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">MRR</text>
+<rect x="907.5" y="185.8" width="17.6" height="224.2" fill="#6B7280" rx="2"/>
+<rect x="929.0" y="197.9" width="17.6" height="212.1" fill="#8B5CF6" rx="2"/>
+<rect x="950.5" y="116.5" width="17.6" height="293.5" fill="#2563EB" rx="2"/>
+<text x="959.3" y="111.5" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.863</text>
+<rect x="971.9" y="114.0" width="17.6" height="296.0" fill="#14B8A6" rx="2"/>
+<text x="980.7" y="109.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.871</text>
+<rect x="993.4" y="88.9" width="17.6" height="321.1" fill="#F97316" rx="2"/>
+<text x="1002.2" y="83.9" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.944</text>
+<rect x="1014.9" y="84.6" width="17.6" height="325.4" fill="#DC2626" rx="2"/>
+<text x="1023.7" y="79.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#374151">0.957</text>
+<rect x="90" y="490" width="14" height="14" fill="#6B7280" rx="2"/>
+<text x="112" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">BM25</text>
+<rect x="390" y="490" width="14" height="14" fill="#8B5CF6" rx="2"/>
+<text x="412" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">BM25 + Graph</text>
+<rect x="690" y="490" width="14" height="14" fill="#2563EB" rx="2"/>
+<text x="712" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense</text>
+<rect x="90" y="518" width="14" height="14" fill="#14B8A6" rx="2"/>
+<text x="112" y="530" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense + Graph</text>
+<rect x="390" y="518" width="14" height="14" fill="#F97316" rx="2"/>
+<text x="412" y="530" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense-FT</text>
+<rect x="690" y="518" width="14" height="14" fill="#DC2626" rx="2"/>
+<text x="712" y="530" font-family="Arial, sans-serif" font-size="13" fill="#111827">Trainable Graph Retriever</text>
+</svg>

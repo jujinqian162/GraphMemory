@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="430" viewBox="0 0 980 430">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="260" y="34" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">End-to-End Retrieval Time per Query</text>
+<text x="246" y="97.6" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#111827">BM25</text>
+<rect x="260" y="79.5" width="18.0" height="25.2" fill="#6B7280" rx="3"/>
+<text x="286.0" y="97.6" font-family="Arial, sans-serif" font-size="12" fill="#374151">1.85 ms</text>
+<text x="246" y="150.1" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#111827">BM25 + Graph</text>
+<rect x="260" y="131.9" width="44.4" height="25.2" fill="#8B5CF6" rx="3"/>
+<text x="312.4" y="150.1" font-family="Arial, sans-serif" font-size="12" fill="#374151">4.57 ms</text>
+<text x="246" y="202.6" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense</text>
+<rect x="260" y="184.4" width="253.3" height="25.2" fill="#2563EB" rx="3"/>
+<text x="521.3" y="202.6" font-family="Arial, sans-serif" font-size="12" fill="#374151">26.08 ms</text>
+<text x="246" y="255.1" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense + Graph</text>
+<rect x="260" y="236.9" width="272.0" height="25.2" fill="#14B8A6" rx="3"/>
+<text x="540.0" y="255.1" font-family="Arial, sans-serif" font-size="12" fill="#374151">28.00 ms</text>
+<text x="246" y="307.6" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense-FT</text>
+<rect x="260" y="289.4" width="250.9" height="25.2" fill="#F97316" rx="3"/>
+<text x="518.9" y="307.6" font-family="Arial, sans-serif" font-size="12" fill="#374151">25.83 ms</text>
+<text x="246" y="360.1" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#111827">Trainable Graph Retriever</text>
+<rect x="260" y="341.9" width="650.0" height="25.2" fill="#DC2626" rx="3"/>
+<text x="918.0" y="360.1" font-family="Arial, sans-serif" font-size="12" fill="#374151">66.92 ms</text>
+</svg>
