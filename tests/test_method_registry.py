@@ -47,6 +47,20 @@ def test_dense_ft_method_definition_declares_model_directory() -> None:
     assert definition.train_artifact.kind is ArtifactKind.DIRECTORY
 
 
+def test_fast_graphrag_method_definition_is_graph_backed_without_tuning() -> None:
+    definition = Registry.methods.get(RetrievalMethodId.FAST_GRAPHRAG)
+
+    assert definition.lifecycle is RetrievalLifecycle.FAST_GRAPHRAG
+    assert definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
+    assert definition.dependencies.selected_config is SelectedConfigSource.NONE
+    assert definition.dependencies.model is ModelSource.NONE
+    assert definition.dependencies.encoder is EncoderSource.EXPERIMENT_CONFIG
+    assert definition.method_config_type is None
+    assert definition.train_artifact is None
+    assert definition.seed_method is RetrievalMethodId.DENSE
+    assert definition.tuning is None
+
+
 def test_registry_lists_graph_rerank_methods_by_lifecycle() -> None:
     assert Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK) == (
         RetrievalMethodId.BM25_GRAPH_RERANK,
@@ -74,6 +88,7 @@ def test_path_metric_capability_is_declared_by_method_registry() -> None:
     assert supported == {
         RetrievalMethodId.BM25_GRAPH_RERANK,
         RetrievalMethodId.DENSE_GRAPH_RERANK,
+        RetrievalMethodId.FAST_GRAPHRAG,
         RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
     }
 

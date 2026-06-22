@@ -14,6 +14,8 @@ from graph_memory.registry.retrieval import (
     CheckpointGraphRetrievalSettings,
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
+    FastGraphRAGBuildPayload,
+    FastGraphRAGRetrievalSettings,
     FlatRetrievalBuildPayload,
     GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
@@ -99,6 +101,12 @@ def _build_payload(
             ranking_requests=ranking_requests,
             graphs=graphs,
             graph_config=_selected_graph_rerank_config(selected_config),
+            dense_encoder=dense_encoder,
+        )
+    if isinstance(job, FastGraphRAGRetrievalSettings):
+        return FastGraphRAGBuildPayload(
+            ranking_requests=ranking_requests,
+            graphs=graphs,
             dense_encoder=dense_encoder,
         )
     if isinstance(job, CheckpointGraphRetrievalSettings):

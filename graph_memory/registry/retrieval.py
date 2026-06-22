@@ -26,6 +26,7 @@ class RetrievalMethodId(StrEnum):
     DENSE = "dense"
     MEMORY_STREAM = "memory_stream"
     DENSE_FT = "dense_ft"
+    FAST_GRAPHRAG = "fast_graphrag"
     BM25_GRAPH_RERANK = "bm25_graph_rerank"
     DENSE_GRAPH_RERANK = "dense_graph_rerank"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
@@ -50,6 +51,19 @@ class DenseRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
     method: Literal[RetrievalMethodId.DENSE] = RetrievalMethodId.DENSE
+
+
+@dataclass(frozen=True)
+class FastGraphRAGRetrievalSettings:
+    top_k: int
+    encoder: DenseEncoderSettings
+    ppr_damping: float = 0.85
+    ppr_max_iterations: int = 100
+    ppr_tolerance: float = 1e-8
+    lambda_entity: float = 1.0
+    lambda_relation: float = 1.0
+    lambda_dense_fallback: float = 0.05
+    method: Literal[RetrievalMethodId.FAST_GRAPHRAG] = RetrievalMethodId.FAST_GRAPHRAG
 
 
 @dataclass(frozen=True)
@@ -121,6 +135,7 @@ class DenseFinetunedRetrievalSettings:
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
+    | FastGraphRAGRetrievalSettings
     | MemoryStreamRetrievalSettings
     | GraphRerankRetrievalSettings
     | CheckpointGraphRetrievalSettings
@@ -181,6 +196,13 @@ class GraphRerankBuildPayload:
 
 
 @dataclass(frozen=True)
+class FastGraphRAGBuildPayload:
+    ranking_requests: list[TextRankingRequest]
+    graphs: list[MemoryGraph]
+    dense_encoder: "SentenceEncoder | None" = None
+
+
+@dataclass(frozen=True)
 class CheckpointGraphBuildPayload:
     ranking_requests: list[TextRankingRequest]
     graphs: list[MemoryGraph]
@@ -225,6 +247,8 @@ __all__ = [
     "DenseEncoderSettings",
     "DenseFinetunedRetrievalSettings",
     "DenseRetrievalSettings",
+    "FastGraphRAGBuildPayload",
+    "FastGraphRAGRetrievalSettings",
     "FlatRetrievalBuildPayload",
     "GraphRerankBuildPayload",
     "GraphRerankRetrievalSettings",

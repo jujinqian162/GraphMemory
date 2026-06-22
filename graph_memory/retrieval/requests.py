@@ -63,7 +63,44 @@ class TemporalMemoryRankingRequest:
     metadata: Mapping[str, JsonValue]
 
 
-RankingMethodRequest: TypeAlias = TextRankingRequest | GraphRankingRequest | TemporalMemoryRankingRequest
+@dataclass(frozen=True)
+class FastGraphRAGEntity:
+    entity_id: str
+    name: str
+    normalized_name: str
+    entity_type: str
+    description: str
+    candidate_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FastGraphRAGRelation:
+    relation_id: str
+    source_entity_id: str
+    target_entity_id: str
+    description: str
+    candidate_ids: tuple[str, ...]
+    weight: float = 1.0
+
+
+@dataclass(frozen=True)
+class FastGraphRAGKnowledgeGraph:
+    entities: tuple[FastGraphRAGEntity, ...]
+    relations: tuple[FastGraphRAGRelation, ...]
+
+
+@dataclass(frozen=True)
+class FastGraphRAGRequest:
+    task_id: TaskId
+    query_text: str
+    candidates: Sequence[TextCandidate]
+    candidate_graph: MemoryGraph
+    knowledge_graph: FastGraphRAGKnowledgeGraph
+
+
+RankingMethodRequest: TypeAlias = (
+    TextRankingRequest | GraphRankingRequest | TemporalMemoryRankingRequest | FastGraphRAGRequest
+)
 
 
 @dataclass(frozen=True)
@@ -75,6 +112,10 @@ class DenseRuntime:
 __all__ = [
     "DenseConfigLike",
     "DenseRuntime",
+    "FastGraphRAGEntity",
+    "FastGraphRAGKnowledgeGraph",
+    "FastGraphRAGRelation",
+    "FastGraphRAGRequest",
     "GraphRankingRequest",
     "RankingMethodRequest",
     "TemporalMemoryRankingRequest",

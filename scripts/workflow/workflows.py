@@ -68,6 +68,22 @@ TUNED_STATELESS_RETRIEVAL_WORKFLOW = WorkflowSpec(
     ),
 )
 
+GRAPH_BACKED_RETRIEVAL_WORKFLOW = WorkflowSpec(
+    identifier=WorkflowId.GRAPH_BACKED_RETRIEVAL,
+    steps=(
+        _PREPARE,
+        _GRAPHS,
+        WorkflowStepSpec(
+            stage=StageId.RETRIEVE,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.GRAPHS),
+            outputs=(ArtifactRole.PREDICTIONS,),
+            command_adapter="scripts/run_retrieval.py",
+        ),
+        _EVALUATE,
+        _AGGREGATE,
+    ),
+)
+
 GRAPH_RERANK_WORKFLOW = WorkflowSpec(
     identifier=WorkflowId.GRAPH_RERANK,
     steps=(

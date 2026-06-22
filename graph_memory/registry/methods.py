@@ -10,6 +10,7 @@ from graph_memory.registry.retrieval import (
     CheckpointGraphRetrievalSettings,
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
+    FastGraphRAGRetrievalSettings,
     GraphRerankRetrievalSettings,
     MemoryStreamRetrievalSettings,
     RetrievalMethodId,
@@ -19,6 +20,7 @@ from graph_memory.registry.retrieval import (
 class RetrievalLifecycle(StrEnum):
     STATELESS = "stateless"
     GRAPH_RERANK = "graph_rerank"
+    FAST_GRAPHRAG = "fast_graphrag"
     RGCN_TRAINABLE = "rgcn_trainable"
     DENSE_FINETUNE = "dense_finetune"
 
@@ -106,7 +108,12 @@ class MethodRegistry:
         definition = self.get(method)
         return (
             definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
-            and definition.lifecycle in {RetrievalLifecycle.GRAPH_RERANK, RetrievalLifecycle.RGCN_TRAINABLE}
+            and definition.lifecycle
+            in {
+                RetrievalLifecycle.GRAPH_RERANK,
+                RetrievalLifecycle.FAST_GRAPHRAG,
+                RetrievalLifecycle.RGCN_TRAINABLE,
+            }
         )
 
 
@@ -183,6 +190,20 @@ def build_method_registry() -> MethodRegistry:
             train_artifact=None,
             seed_method=RetrievalMethodId.DENSE,
             tuning=TuningKind.GRAPH_RERANK,
+        ),
+        MethodDefinition(
+            identifier=RetrievalMethodId.FAST_GRAPHRAG,
+            lifecycle=RetrievalLifecycle.FAST_GRAPHRAG,
+            retrieval_settings_type=FastGraphRAGRetrievalSettings,
+            dependencies=RetrievalDependencySpec(
+                graphs=GraphInputSource.GRAPH_ARTIFACT,
+                selected_config=SelectedConfigSource.NONE,
+                model=ModelSource.NONE,
+                encoder=EncoderSource.EXPERIMENT_CONFIG,
+            ),
+            method_config_type=None,
+            train_artifact=None,
+            seed_method=RetrievalMethodId.DENSE,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,

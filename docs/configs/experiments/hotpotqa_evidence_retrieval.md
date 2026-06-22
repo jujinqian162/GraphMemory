@@ -230,6 +230,7 @@ split 语义：
 - `dense`
 - `bm25_graph_rerank`
 - `dense_graph_rerank`
+- `fast_graphrag`
 - `dense_rgcn_graph_retriever`
 - `dense_ft`
 

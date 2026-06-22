@@ -26,7 +26,7 @@ Initialize a quick run. Methods with a tuning adapter get a dev-only tune stage 
 python scripts/experiment.py init quick_valid_100 `
   --config configs/experiments/hotpotqa_evidence_retrieval.json `
   --profile quick `
-  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft `
+  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,fast_graphrag,dense_rgcn_graph_retriever,dense_ft `
   --force
 ```
 

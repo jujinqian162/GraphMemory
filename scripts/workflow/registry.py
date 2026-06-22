@@ -15,6 +15,7 @@ from scripts.workflow.types import (
 )
 from scripts.workflow.workflows import (
     DENSE_FT_WORKFLOW,
+    GRAPH_BACKED_RETRIEVAL_WORKFLOW,
     GRAPH_RERANK_WORKFLOW,
     RGCN_WORKFLOW,
     STATELESS_RETRIEVAL_WORKFLOW,
@@ -35,6 +36,7 @@ WORKFLOW_BY_CAPABILITY: dict[
         RetrievalLifecycle.GRAPH_RERANK,
         TuningKind.GRAPH_RERANK,
     ): GRAPH_RERANK_WORKFLOW,
+    (RetrievalLifecycle.FAST_GRAPHRAG, None): GRAPH_BACKED_RETRIEVAL_WORKFLOW,
     (RetrievalLifecycle.RGCN_TRAINABLE, None): RGCN_WORKFLOW,
     (RetrievalLifecycle.DENSE_FINETUNE, None): DENSE_FT_WORKFLOW,
 }

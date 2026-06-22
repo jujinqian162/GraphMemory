@@ -189,6 +189,7 @@ def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tm
         "dense",
         "bm25_graph_rerank",
         "dense_graph_rerank",
+        "fast_graphrag",
         "dense_rgcn_graph_retriever",
         "dense_ft",
     ]

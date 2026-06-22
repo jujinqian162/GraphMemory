@@ -15,6 +15,8 @@ from graph_memory.registry.retrieval import (
     DenseEncoderSettings,
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
+    FastGraphRAGBuildPayload,
+    FastGraphRAGRetrievalSettings,
     FlatRetrievalBuildPayload,
     GraphRerankBuildPayload,
     GraphRerankRetrievalSettings,
@@ -34,6 +36,8 @@ from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
+    FastGraphRAGKnowledgeGraph,
+    FastGraphRAGRequest,
     GraphRankingRequest,
     TemporalMemoryRankingRequest,
     TextRankingRequest,
@@ -65,6 +69,10 @@ def build_retrieval_registry() -> RetrievalRegistry:
             MemoryStreamRetrievalSettings: RetrievalBuilderSpec(
                 MemoryStreamRetrievalSettings,
                 lambda settings, deps: _build_memory_stream(cast(MemoryStreamRetrievalSettings, settings), deps),
+            ),
+            FastGraphRAGRetrievalSettings: RetrievalBuilderSpec(
+                FastGraphRAGRetrievalSettings,
+                lambda settings, deps: _build_fast_graphrag(cast(FastGraphRAGRetrievalSettings, settings), deps),
             ),
             GraphRerankRetrievalSettings: RetrievalBuilderSpec(
                 GraphRerankRetrievalSettings,
@@ -152,6 +160,46 @@ def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: objec
             schema_version=1,
         ),
         execution_tasks=_memory_stream_execution_tasks(build_payload.temporal_requests, importance_by_task_id),
+    )
+
+
+def _build_fast_graphrag(settings: FastGraphRAGRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
+    from graph_memory.retrieval.methods.fast_graphrag.index import build_fast_graphrag_knowledge_graph
+    from graph_memory.retrieval.methods.fast_graphrag.method import (
+        DenseFastGraphRAGScorer,
+        FastGraphRAGConfig,
+        FastGraphRAGMethod,
+    )
+    from graph_memory.retrieval.methods.fast_graphrag.scoring import FastGraphRAGScoringConfig
+
+    build_payload = _require_payload(payload, FastGraphRAGBuildPayload, method=settings.method.value)
+    graph_index = _validated_graph_index(settings.method.value, build_payload.ranking_requests, build_payload.graphs)
+    method = FastGraphRAGMethod(
+        name=settings.method.value,
+        config=FastGraphRAGConfig(
+            ppr_damping=settings.ppr_damping,
+            ppr_max_iterations=settings.ppr_max_iterations,
+            ppr_tolerance=settings.ppr_tolerance,
+            scoring=FastGraphRAGScoringConfig(
+                lambda_entity=settings.lambda_entity,
+                lambda_relation=settings.lambda_relation,
+                lambda_dense_fallback=settings.lambda_dense_fallback,
+            ),
+        ),
+        dense_ranker=DenseFastGraphRAGScorer(
+            config=settings.encoder,
+            encoder=build_payload.dense_encoder,
+        ),
+    )
+    return _built(
+        method,
+        method=settings.method,
+        encoder=settings.encoder,
+        execution_tasks=_fast_graphrag_execution_tasks(
+            build_payload.ranking_requests,
+            graph_index,
+            build_fast_graphrag_knowledge_graph,
+        ),
     )
 
 
@@ -398,6 +446,25 @@ def _graph_execution_tasks(
             initial_scores=initial_scores_for_request(request),
         )
         tasks.append(RetrievalExecutionTask(text_request=request, method_request=graph_request))
+    return tasks
+
+
+def _fast_graphrag_execution_tasks(
+    ranking_requests: list[TextRankingRequest],
+    graph_index: GraphIndex,
+    knowledge_graph_builder: Callable[[TextRankingRequest, MemoryGraph], FastGraphRAGKnowledgeGraph],
+) -> list[RetrievalExecutionTask]:
+    tasks: list[RetrievalExecutionTask] = []
+    for request in ranking_requests:
+        graph = graph_index.get_required(request.task_id)
+        method_request = FastGraphRAGRequest(
+            task_id=request.task_id,
+            query_text=request.query_text,
+            candidates=request.candidates,
+            candidate_graph=graph,
+            knowledge_graph=knowledge_graph_builder(request, graph),
+        )
+        tasks.append(RetrievalExecutionTask(text_request=request, method_request=method_request))
     return tasks
 
 

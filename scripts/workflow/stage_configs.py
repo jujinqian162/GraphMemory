@@ -28,6 +28,7 @@ from graph_memory.registry.retrieval import (
     DenseEncoderSettings,
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
+    FastGraphRAGRetrievalSettings,
     GraphRerankRetrievalSettings,
     GraphRerankSettings,
     MemoryStreamRetrievalSettings,
@@ -310,6 +311,11 @@ def _retrieval_job(
                 ),
             ),
             capped_test_count=int(manifest["effective_config"]["splits"]["test"]["max_examples"]),
+        )
+    if method_id is RetrievalMethodId.FAST_GRAPHRAG:
+        return FastGraphRAGRetrievalSettings(
+            top_k=top_k,
+            encoder=_experiment_encoder(manifest),
         )
     if method_id is RetrievalMethodId.BM25_GRAPH_RERANK:
         seed_method = definition.seed_method

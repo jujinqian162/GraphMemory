@@ -19,6 +19,7 @@ from graph_memory.registry.method_configs import (
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     DenseEncoderSettings,
+    FastGraphRAGRetrievalSettings,
     MemoryStreamRetrievalSettings,
     RetrievalMethodId,
 )
@@ -163,6 +164,30 @@ def test_memory_stream_retrieve_config_round_trips_importance_and_cap(tmp_path: 
                     recency_decay=0.95,
                 ),
                 capped_test_count=1000,
+            ),
+        ),
+    )
+
+
+def test_fast_graphrag_retrieve_config_round_trips_graphs_and_encoder(tmp_path: Path) -> None:
+    _assert_config_round_trip(
+        tmp_path / "retrieve-fast-graphrag.json",
+        Registry.configs.RETRIEVE,
+        RetrieveStageConfig(
+            io=RetrieveIO(
+                tasks=tmp_path / "tasks.json",
+                graphs=tmp_path / "graphs.json",
+                output=tmp_path / "fast_graphrag.predictions.json",
+                summary=tmp_path / "fast_graphrag.run_summary.json",
+            ),
+            job=FastGraphRAGRetrievalSettings(
+                top_k=7,
+                encoder=DenseEncoderSettings(
+                    model_name="fake-e5",
+                    query_prefix="query: ",
+                    passage_prefix="passage: ",
+                    batch_size=8,
+                ),
             ),
         ),
     )

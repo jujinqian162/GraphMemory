@@ -59,6 +59,7 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
     assert {workflow.value for workflow in WorkflowId} == {
         "stateless_retrieval",
         "tuned_stateless_retrieval",
+        "graph_backed_retrieval",
         "graph_rerank",
         "rgcn_trainable_retrieval",
         "dense_finetune_retrieval",
@@ -98,6 +99,21 @@ assert str(StageId.PREPARE) == "prepare"
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_fast_graphrag_workflow_is_graph_backed_without_tuning() -> None:
+    workflow = get_workflow("fast_graphrag")
+
+    assert workflow.identifier is WorkflowId.GRAPH_BACKED_RETRIEVAL
+    assert [step.stage for step in workflow.steps] == [
+        StageId.PREPARE,
+        StageId.GRAPHS,
+        StageId.RETRIEVE,
+        StageId.EVALUATE,
+        StageId.AGGREGATE,
+    ]
+    retrieve_step = workflow.steps[2]
+    assert retrieve_step.inputs == (ArtifactRole.INPUTS, ArtifactRole.GRAPHS)
 
 
 def test_rgcn_ablation_suite_exposes_current_patch_paths() -> None:

@@ -32,6 +32,7 @@ RETRIEVAL_METHOD_IDS = {
     "dense",
     "memory_stream",
     "dense_ft",
+    "fast_graphrag",
     "bm25_graph_rerank",
     "dense_graph_rerank",
     "dense_rgcn_graph_retriever",

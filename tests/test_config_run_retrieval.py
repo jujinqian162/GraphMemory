@@ -6,12 +6,17 @@ from pathlib import Path
 from graph_memory.config import CONFIG_LOADER
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
 from graph_memory.io import read_json, write_json
-from graph_memory.registry.retrieval import Bm25RetrievalSettings, DenseEncoderSettings, MemoryStreamRetrievalSettings
+from graph_memory.registry.retrieval import (
+    Bm25RetrievalSettings,
+    DenseEncoderSettings,
+    FastGraphRAGRetrievalSettings,
+    MemoryStreamRetrievalSettings,
+)
 from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
 from graph_memory.retrieval.methods.memory_stream.artifact import importance_content_digest
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from scripts import run_retrieval
-from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_task_inputs
+from tests.test_phase1_real_retrieval import FakeEncoder, retrieval_graphs, retrieval_task_inputs
 
 
 def test_run_retrieval_script_loads_complete_stage_config_and_preserves_io(tmp_path: Path) -> None:
@@ -55,6 +60,55 @@ def test_run_retrieval_script_uses_config_loader_stage_runner_and_runtime_proven
     assert "_encoder_settings" not in source
     assert "_checkpoint_path" not in source
     assert "_device" not in source
+
+
+def test_run_retrieval_script_runs_fast_graphrag_with_graph_inputs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "graph_memory.retrieval.methods.flat.dense.load_sentence_transformer",
+        lambda _model_name: FakeEncoder(),
+    )
+    tasks_path = tmp_path / "tasks.json"
+    graphs_path = tmp_path / "graphs.json"
+    output_path = tmp_path / "fast_graphrag.predictions.json"
+    summary_path = tmp_path / "fast_graphrag.run_summary.json"
+    config_path = tmp_path / "retrieve-fast-graphrag.json"
+    write_json(tasks_path, retrieval_task_inputs())
+    write_json(graphs_path, retrieval_graphs())
+    write_json(
+        config_path,
+        CONFIG_LOADER.to_json(
+            RetrieveStageConfig(
+                io=RetrieveIO(
+                    tasks=tasks_path,
+                    graphs=graphs_path,
+                    output=output_path,
+                    summary=summary_path,
+                ),
+                job=FastGraphRAGRetrievalSettings(
+                    top_k=2,
+                    encoder=DenseEncoderSettings(
+                        model_name="fake-model",
+                        query_prefix="query: ",
+                        passage_prefix="passage: ",
+                        batch_size=8,
+                    ),
+                ),
+            )
+        ),
+    )
+
+    exit_code = run_retrieval.main(["--config", str(config_path)])
+    predictions = read_json(output_path)
+    summary = read_json(summary_path)
+
+    assert exit_code == 0
+    assert predictions[0]["method"] == "fast_graphrag"
+    assert len(predictions[0]["ranked_nodes"]) == len(retrieval_task_inputs()[0]["candidate_sentences"])
+    assert summary["effective_config"]["method"] == "fast_graphrag"
+    assert summary["effective_config"]["provenance"]["encoder"]["model_name"] == "fake-model"
 
 
 def test_run_retrieval_script_serializes_memory_stream_provenance_and_settings(
