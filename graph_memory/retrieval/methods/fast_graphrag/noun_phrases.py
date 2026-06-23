@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGExtractionConfig
+from graph_memory.retrieval.methods.fast_graphrag.official_nltk import (
+    OFFICIAL_EN_STOP_WORDS,
+    OfficialRegexEnglishExtractor,
+)
 
 NounPhraseSource = Literal["regex_english", "spacy_noun_chunk", "spacy_entity"]
 
@@ -52,7 +56,7 @@ _BOUNDARY_WORDS = _INTERNAL_STOPWORDS | frozenset(
         "repeats",
     }
 )
-_DEFAULT_EXCLUDE_NOUNS = frozenset({"example", "examples", "item", "items", "thing", "things"})
+_DEFAULT_EXCLUDE_NOUNS = frozenset(noun.casefold() for noun in OFFICIAL_EN_STOP_WORDS)
 
 
 @dataclass(frozen=True)
@@ -66,23 +70,19 @@ def extract_regex_english_noun_phrases(
     text: str,
     config: FastGraphRAGExtractionConfig,
 ) -> tuple[NounPhrase, ...]:
+    extractor = OfficialRegexEnglishExtractor(config)
     phrases: list[NounPhrase] = []
-    seen: set[str] = set()
-    for segment in _content_token_segments(text):
-        for start in range(len(segment)):
-            max_end = min(len(segment), start + 4)
-            min_end = start + 1 if len(segment) == 1 else start + 2
-            for end in range(max_end, min_end - 1, -1):
-                words = segment[start:end]
-                if len(words) == 1 and not _allows_single_token(words[0]):
-                    continue
-                _append_phrase(
-                    phrases,
-                    seen,
-                    " ".join(word.text for word in words),
-                    source="regex_english",
-                    config=config,
-                )
+    for phrase in extractor.extract(text):
+        normalized = normalize_noun_phrase_text(phrase, delimiter=config.word_delimiter)
+        if not normalized:
+            continue
+        phrases.append(
+            NounPhrase(
+                text=phrase,
+                normalized_text=normalized,
+                source="regex_english",
+            )
+        )
     return tuple(phrases)
 
 

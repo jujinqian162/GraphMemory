@@ -9,9 +9,6 @@ FORBIDDEN_PATTERNS = (
     "prompt",
     "completion",
     "chat",
-    "domain",
-    "example_queries",
-    "entity_types",
     "community_report",
     "summarize",
 )

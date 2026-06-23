@@ -3,6 +3,10 @@ from __future__ import annotations
 import pytest
 
 from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.retrieval.methods.fast_graphrag.config import (
+    FastGraphRAGConfig,
+    FastGraphRAGExtractionConfig,
+)
 from graph_memory.retrieval.methods.fast_graphrag.index import build_fast_graphrag_knowledge_graph
 from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 from graph_memory.validation import ContractValidationError
@@ -163,4 +167,145 @@ def test_build_fast_graphrag_kg_aggregates_cooccurring_entity_pairs_across_text_
     ]
     assert len(matching) == 1
     assert matching[0].candidate_ids == ("m0", "m1")
-    assert matching[0].weight == 1.0
+    assert matching[0].weight > 0.0
+
+
+def test_build_fast_graphrag_kg_uses_pmi_when_normalizing_edge_weights() -> None:
+    request = TextRankingRequest(
+        task_id="task-1",
+        query_text="Richmond census",
+        candidates=(
+            TextCandidate("m0", "Richmond census-designated place in Maine.", {"position": 0}),
+            TextCandidate("m1", "Richmond population census result.", {"position": 1}),
+            TextCandidate("m2", "Maine river town.", {"position": 2}),
+        ),
+    )
+    graph: MemoryGraph = {
+        "task_id": "task-1",
+        "nodes": [
+            {"id": "q", "node_type": "question", "text": request.query_text},
+            {
+                "id": "m0",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[0].text,
+            },
+            {
+                "id": "m1",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[1].text,
+            },
+            {
+                "id": "m2",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[2].text,
+            },
+        ],
+        "edges": [],
+    }
+
+    kg = build_fast_graphrag_knowledge_graph(
+        request,
+        graph,
+        config=FastGraphRAGConfig(),
+    )
+
+    weights = [relation.weight for relation in kg.relations]
+    assert weights
+    assert any(weight != 1.0 for weight in weights)
+
+
+def test_build_fast_graphrag_kg_can_keep_raw_cooccurrence_count_weights() -> None:
+    request = TextRankingRequest(
+        task_id="task-1",
+        query_text="Who approved nuclear energy policy?",
+        candidates=(
+            TextCandidate(
+                item_id="m0",
+                text="The prime minister approved nuclear energy policy.",
+                metadata={"position": 0},
+            ),
+            TextCandidate(
+                item_id="m1",
+                text="The prime minister defended nuclear energy policy.",
+                metadata={"position": 1},
+            ),
+        ),
+    )
+    graph: MemoryGraph = {
+        "task_id": "task-1",
+        "nodes": [
+            {"id": "q", "node_type": "question", "text": request.query_text},
+            {
+                "id": "m0",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[0].text,
+            },
+            {
+                "id": "m1",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[1].text,
+            },
+        ],
+        "edges": [],
+    }
+    config = FastGraphRAGConfig(
+        extraction=FastGraphRAGExtractionConfig(normalize_edge_weights=False)
+    )
+
+    kg = build_fast_graphrag_knowledge_graph(request, graph, config=config)
+
+    matching = [
+        relation
+        for relation in kg.relations
+        if {relation.source_entity_id, relation.target_entity_id}
+        == {"e:prime-minister", "e:nuclear-energy-policy"}
+    ]
+    assert matching[0].weight == 2.0
+
+
+def test_fast_graphrag_entities_preserve_official_title_frequency_and_empty_description() -> None:
+    request = TextRankingRequest(
+        task_id="task-1",
+        query_text="Richmond census",
+        candidates=(
+            TextCandidate("m0", "Richmond census-designated place in Maine.", {"position": 0}),
+            TextCandidate("m1", "Richmond population census result.", {"position": 1}),
+        ),
+    )
+    graph: MemoryGraph = {
+        "task_id": "task-1",
+        "nodes": [
+            {"id": "q", "node_type": "question", "text": request.query_text},
+            {
+                "id": "m0",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[0].text,
+            },
+            {
+                "id": "m1",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": request.candidates[1].text,
+            },
+        ],
+        "edges": [],
+    }
+
+    kg = build_fast_graphrag_knowledge_graph(request, graph, config=FastGraphRAGConfig())
+
+    noun_entities = [
+        entity
+        for entity in kg.entities
+        if entity.entity_type in {"noun_phrase", "NOUN PHRASE"}
+    ]
+    assert noun_entities
+    assert all(entity.entity_type == "NOUN PHRASE" for entity in noun_entities)
+    assert all(entity.description == "" for entity in noun_entities)
+    assert all(entity.name == entity.name.upper() for entity in noun_entities)
+    assert all(entity.candidate_ids for entity in noun_entities)

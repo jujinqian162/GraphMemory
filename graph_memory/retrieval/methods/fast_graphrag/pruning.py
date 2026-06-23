@@ -12,9 +12,6 @@ def prune_knowledge_graph(
     kg: FastGraphRAGKnowledgeGraph,
     config: FastGraphRAGPruningConfig,
 ) -> FastGraphRAGKnowledgeGraph:
-    if config.remove_ego_nodes:
-        raise ValueError("FastGraphRAG pruning cannot remove ego node entries because this KG has no ego node.")
-
     kept_entity_ids = _entity_ids_after_node_filters(kg, config)
     relations = tuple(
         relation
@@ -32,28 +29,48 @@ def _entity_ids_after_node_filters(
     kg: FastGraphRAGKnowledgeGraph,
     config: FastGraphRAGPruningConfig,
 ) -> set[str]:
-    freq_by_id = {entity.entity_id: len(set(entity.candidate_ids)) for entity in kg.entities}
+    degree_by_id = _degree_by_entity_id(kg)
+    removed_entity_ids: set[str] = set()
+
+    if config.remove_ego_nodes and degree_by_id:
+        ego_entity_id = max(degree_by_id, key=lambda entity_id: degree_by_id[entity_id])
+        removed_entity_ids.add(ego_entity_id)
+
+    max_degree = _std_ceiling(degree_by_id.values(), config.max_node_degree_std)
+    for entity_id, degree in degree_by_id.items():
+        if degree < config.min_node_degree:
+            removed_entity_ids.add(entity_id)
+        if max_degree is not None and degree > max_degree:
+            removed_entity_ids.add(entity_id)
+
+    remaining_entities = tuple(
+        entity for entity in kg.entities if entity.entity_id not in removed_entity_ids
+    )
+    freq_by_id = {
+        entity.entity_id: len(set(entity.candidate_ids))
+        for entity in remaining_entities
+    }
+    max_freq = _std_ceiling(freq_by_id.values(), config.max_node_freq_std)
+    for entity in remaining_entities:
+        freq = freq_by_id[entity.entity_id]
+        if freq < config.min_node_freq:
+            removed_entity_ids.add(entity.entity_id)
+        if max_freq is not None and freq > max_freq:
+            removed_entity_ids.add(entity.entity_id)
+
+    return {
+        entity.entity_id
+        for entity in kg.entities
+        if entity.entity_id not in removed_entity_ids
+    }
+
+
+def _degree_by_entity_id(kg: FastGraphRAGKnowledgeGraph) -> dict[str, int]:
     degree_by_id = {entity.entity_id: 0 for entity in kg.entities}
     for relation in kg.relations:
         degree_by_id[relation.source_entity_id] = degree_by_id.get(relation.source_entity_id, 0) + 1
         degree_by_id[relation.target_entity_id] = degree_by_id.get(relation.target_entity_id, 0) + 1
-
-    max_freq = _std_ceiling(freq_by_id.values(), config.max_node_freq_std)
-    max_degree = _std_ceiling(degree_by_id.values(), config.max_node_degree_std)
-    kept: set[str] = set()
-    for entity in kg.entities:
-        freq = freq_by_id[entity.entity_id]
-        degree = degree_by_id.get(entity.entity_id, 0)
-        if freq < config.min_node_freq:
-            continue
-        if degree < config.min_node_degree:
-            continue
-        if max_freq is not None and freq > max_freq:
-            continue
-        if max_degree is not None and degree > max_degree:
-            continue
-        kept.add(entity.entity_id)
-    return kept
+    return degree_by_id
 
 
 def _std_ceiling(values: Iterable[int], factor: float | None) -> float | None:

@@ -5,6 +5,7 @@ from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGConfig
+from graph_memory.retrieval.methods.fast_graphrag.edge_weights import pmi_edge_weight
 from graph_memory.retrieval.methods.fast_graphrag.nlp import (
     EntityCatalog,
     EntityMention,
@@ -33,16 +34,15 @@ def build_fast_graphrag_knowledge_graph(
     catalog = build_entity_catalog(request.candidates, config=method_config.extraction)
     mentions = extract_candidate_mentions(request.candidates, config=method_config.extraction)
     alias_owner = _catalog_alias_owner(catalog)
-    entity_name_by_id = {entity.entity_id: entity.name for entity in catalog.entities}
     entities = tuple(
         sorted(
             (
                 FastGraphRAGEntity(
                     entity_id=entity.entity_id,
-                    name=entity.name,
+                    name=entity.name.upper() if entity.entity_type == "noun_phrase" else entity.name,
                     normalized_name=entity.normalized_name,
-                    entity_type=entity.entity_type,
-                    description=entity.description,
+                    entity_type="NOUN PHRASE" if entity.entity_type == "noun_phrase" else entity.entity_type,
+                    description="" if entity.entity_type == "noun_phrase" else entity.description,
                     candidate_ids=entity.candidate_ids,
                 )
                 for entity in catalog.entities
@@ -50,10 +50,16 @@ def build_fast_graphrag_knowledge_graph(
             key=lambda entity: entity.entity_id,
         )
     )
+    entity_name_by_id = {entity.entity_id: entity.name for entity in entities}
+    entity_frequency_by_id = {
+        entity.entity_id: len(entity.candidate_ids)
+        for entity in entities
+    }
     relations = _relations_from_mentions(
         mentions,
         alias_owner,
         entity_name_by_id,
+        entity_frequency_by_id,
         normalize_edge_weights=method_config.extraction.normalize_edge_weights,
     )
     raw_kg = FastGraphRAGKnowledgeGraph(entities=entities, relations=relations)
@@ -116,6 +122,7 @@ def _relations_from_mentions(
     mentions: Sequence[EntityMention],
     alias_owner: dict[str, str],
     entity_name_by_id: dict[str, str],
+    entity_frequency_by_id: dict[str, int],
     *,
     normalize_edge_weights: bool,
 ) -> tuple[FastGraphRAGRelation, ...]:
@@ -136,13 +143,20 @@ def _relations_from_mentions(
                 first_id, second_id = sorted((source_id, target_id))
                 candidate_ids_by_pair.setdefault((first_id, second_id), set()).add(candidate_id)
 
-    max_count = max((len(candidate_ids) for candidate_ids in candidate_ids_by_pair.values()), default=0)
+    total_edge_weights = sum(len(candidate_ids) for candidate_ids in candidate_ids_by_pair.values())
+    total_frequency_occurrences = sum(entity_frequency_by_id.values())
     relations: list[FastGraphRAGRelation] = []
     for (source_id, target_id), candidate_ids in sorted(candidate_ids_by_pair.items()):
         count = len(candidate_ids)
         weight = float(count)
-        if normalize_edge_weights and max_count > 0:
-            weight = weight / max_count
+        if normalize_edge_weights:
+            weight = pmi_edge_weight(
+                edge_count=count,
+                total_edge_weights=total_edge_weights,
+                source_frequency=entity_frequency_by_id.get(source_id, 0),
+                target_frequency=entity_frequency_by_id.get(target_id, 0),
+                total_frequency_occurrences=total_frequency_occurrences,
+            )
         source_name = entity_name_by_id.get(source_id, source_id)
         target_name = entity_name_by_id.get(target_id, target_id)
         relations.append(
@@ -162,4 +176,35 @@ def _canonical_entity_id(mention: EntityMention, alias_owner: dict[str, str]) ->
     return alias_owner.get(mention.normalized_name, mention.entity_id)
 
 
-__all__ = ["build_fast_graphrag_knowledge_graph"]
+def official_noun_graph_snapshot(
+    kg: FastGraphRAGKnowledgeGraph,
+) -> dict[str, list[dict[str, object]]]:
+    entities: list[dict[str, object]] = [
+        {
+            "title": entity.name,
+            "frequency": len(entity.candidate_ids),
+            "text_unit_ids": list(entity.candidate_ids),
+            "type": entity.entity_type,
+            "description": entity.description,
+        }
+        for entity in kg.entities
+    ]
+    name_by_id = _entity_name_by_id(kg)
+    relationships: list[dict[str, object]] = [
+        {
+            "source": name_by_id.get(relation.source_entity_id, relation.source_entity_id),
+            "target": name_by_id.get(relation.target_entity_id, relation.target_entity_id),
+            "weight": relation.weight,
+            "text_unit_ids": list(relation.candidate_ids),
+            "description": relation.description,
+        }
+        for relation in kg.relations
+    ]
+    return {"entities": entities, "relationships": relationships}
+
+
+def _entity_name_by_id(kg: FastGraphRAGKnowledgeGraph) -> dict[str, str]:
+    return {entity.entity_id: entity.name for entity in kg.entities}
+
+
+__all__ = ["build_fast_graphrag_knowledge_graph", "official_noun_graph_snapshot"]

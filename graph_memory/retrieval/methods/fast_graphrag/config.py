@@ -7,8 +7,14 @@ from typing import Literal
 FastGraphRAGExtractorType = Literal["regex_english", "syntactic_parser", "cfg"]
 
 
-def _empty_noun_phrase_grammars() -> Mapping[str, str]:
-    return {}
+def _official_noun_phrase_grammars() -> Mapping[str, str]:
+    return {
+        "PROPN,PROPN": "PROPN",
+        "NOUN,NOUN": "NOUNS",
+        "NOUNS,NOUN": "NOUNS",
+        "ADJ,ADJ": "ADJ",
+        "ADJ,NOUN": "NOUNS",
+    }
 
 
 @dataclass(frozen=True)
@@ -19,10 +25,10 @@ class FastGraphRAGExtractionConfig:
     word_delimiter: str = " "
     include_named_entities: bool = True
     exclude_nouns: tuple[str, ...] | None = None
-    exclude_entity_tags: tuple[str, ...] = ()
-    exclude_pos_tags: tuple[str, ...] = ()
-    noun_phrase_tags: tuple[str, ...] = ()
-    noun_phrase_grammars: Mapping[str, str] = field(default_factory=_empty_noun_phrase_grammars)
+    exclude_entity_tags: tuple[str, ...] = ("DATE",)
+    exclude_pos_tags: tuple[str, ...] = ("DET", "PRON", "INTJ", "X")
+    noun_phrase_tags: tuple[str, ...] = ("PROPN", "NOUNS")
+    noun_phrase_grammars: Mapping[str, str] = field(default_factory=_official_noun_phrase_grammars)
     model_name: str = "en_core_web_md"
 
 
@@ -30,9 +36,9 @@ class FastGraphRAGExtractionConfig:
 class FastGraphRAGPruningConfig:
     min_node_freq: int = 1
     max_node_freq_std: float | None = None
-    min_node_degree: int = 0
+    min_node_degree: int = 1
     max_node_degree_std: float | None = None
-    min_edge_weight_pct: float = 0.0
+    min_edge_weight_pct: float = 40.0
     remove_ego_nodes: bool = False
     lcc_only: bool = False
 

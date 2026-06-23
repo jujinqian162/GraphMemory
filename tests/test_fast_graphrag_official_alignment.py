@@ -57,7 +57,7 @@ def test_syntactic_parser_uses_supplied_spacy_noun_chunks_without_model_download
         def __init__(self, text: str) -> None:
             self.text = text
             self.label_ = "NP"
-            self.root = type("Root", (), {"pos_": "NOUN", "tag_": "NN"})()
+            self.root = type("Root", (), {"pos_": "NOUN", "tag_": "NOUNS"})()
 
     class FakeDoc:
         noun_chunks = [FakeSpan("prime minister"), FakeSpan("nuclear energy policy")]

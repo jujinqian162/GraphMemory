@@ -27,6 +27,7 @@ from graph_memory.retrieval.methods.fast_graphrag.config import (
     FastGraphRAGExtractionConfig,
     FastGraphRAGPruningConfig,
 )
+from graph_memory.retrieval.methods.fast_graphrag.official_nltk import OFFICIAL_EN_STOP_WORDS
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.registry.specs import StageConfigSpec
 from graph_memory.registry.stage_configs import (
@@ -197,9 +198,41 @@ def test_fast_graphrag_retrieve_config_round_trips_graphs_and_encoder(tmp_path: 
     assert isinstance(expected.job, FastGraphRAGRetrievalSettings)
     assert expected.job.extraction.extractor_type == "regex_english"
     assert expected.job.extraction.normalize_edge_weights is True
+    assert expected.job.extraction.max_word_length == 15
+    assert expected.job.extraction.word_delimiter == " "
+    assert expected.job.extraction.include_named_entities is True
     assert expected.job.extraction.exclude_nouns is None
+    assert expected.job.extraction.exclude_entity_tags == ("DATE",)
+    assert expected.job.extraction.exclude_pos_tags == ("DET", "PRON", "INTJ", "X")
+    assert expected.job.extraction.noun_phrase_tags == ("PROPN", "NOUNS")
+    assert expected.job.extraction.noun_phrase_grammars == {
+        "PROPN,PROPN": "PROPN",
+        "NOUN,NOUN": "NOUNS",
+        "NOUNS,NOUN": "NOUNS",
+        "ADJ,ADJ": "ADJ",
+        "ADJ,NOUN": "NOUNS",
+    }
+    assert tuple(noun.casefold() for noun in OFFICIAL_EN_STOP_WORDS) == (
+        "stuff",
+        "thing",
+        "things",
+        "bunch",
+        "bit",
+        "bits",
+        "people",
+        "person",
+        "okay",
+        "hey",
+        "hi",
+        "hello",
+        "laughter",
+        "oh",
+    )
     assert expected.job.pruning.min_node_freq == 1
-    assert expected.job.pruning.min_edge_weight_pct == 0.0
+    assert expected.job.pruning.min_node_degree == 1
+    assert expected.job.pruning.min_edge_weight_pct == 40.0
+    assert expected.job.pruning.remove_ego_nodes is False
+    assert expected.job.pruning.lcc_only is False
 
     _assert_config_round_trip(
         tmp_path / "retrieve-fast-graphrag.json",
