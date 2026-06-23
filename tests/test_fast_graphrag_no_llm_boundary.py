@@ -12,6 +12,8 @@ FORBIDDEN_PATTERNS = (
     "domain",
     "example_queries",
     "entity_types",
+    "community_report",
+    "summarize",
 )
 
 

@@ -5,7 +5,8 @@ from collections.abc import Mapping, Sequence
 import pytest
 
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.retrieval.methods.fast_graphrag.method import FastGraphRAGConfig, FastGraphRAGMethod
+from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGConfig
+from graph_memory.retrieval.methods.fast_graphrag.method import FastGraphRAGMethod
 from graph_memory.retrieval.requests import (
     FastGraphRAGEntity,
     FastGraphRAGKnowledgeGraph,
@@ -59,6 +60,22 @@ def test_fast_graphrag_method_rejects_non_fast_graphrag_request() -> None:
 
     with pytest.raises(TypeError, match="FastGraphRAGRequest"):
         method.rank_task(TextRankingRequest(task_id="x", query_text="q", candidates=()), top_k=1)
+
+
+def test_fast_graphrag_query_linked_entities_override_dense_noise() -> None:
+    request = fast_graphrag_fixture_request()
+    method = FastGraphRAGMethod(
+        name="fast_graphrag",
+        config=FastGraphRAGConfig(query_link_seed_score=1.0, dense_entity_seed_weight=0.1),
+        dense_ranker=FakeDenseSeedRanker(
+            entity_scores={"e:changed-it": 0.0, "e:nicki-minaj": 0.1},
+            candidate_scores={"m0": 0.0, "m1": 0.0, "m2": 0.9},
+        ),
+    )
+
+    result = method.rank_task(request, top_k=2)
+
+    assert result.ranked_nodes[0].node_id in {"m0", "m1"}
 
 
 def fast_graphrag_fixture_request() -> FastGraphRAGRequest:

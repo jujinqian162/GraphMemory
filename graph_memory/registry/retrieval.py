@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.registry.ids import StrEnum
+from graph_memory.retrieval.methods.fast_graphrag.config import (
+    FastGraphRAGExtractionConfig,
+    FastGraphRAGPruningConfig,
+    FastGraphRAGScoringConfig,
+)
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextRankingRequest
@@ -57,12 +62,16 @@ class DenseRetrievalSettings:
 class FastGraphRAGRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
+    extraction: FastGraphRAGExtractionConfig = field(default_factory=FastGraphRAGExtractionConfig)
+    pruning: FastGraphRAGPruningConfig = field(default_factory=FastGraphRAGPruningConfig)
+    scoring: FastGraphRAGScoringConfig = field(default_factory=FastGraphRAGScoringConfig)
+    entity_seed_top_k: int = 32
+    query_link_seed_score: float = 1.0
+    dense_entity_seed_weight: float = 1.0
+    lexical_substring_match_score: float = 0.5
     ppr_damping: float = 0.85
     ppr_max_iterations: int = 100
     ppr_tolerance: float = 1e-8
-    lambda_entity: float = 1.0
-    lambda_relation: float = 1.0
-    lambda_dense_fallback: float = 0.05
     method: Literal[RetrievalMethodId.FAST_GRAPHRAG] = RetrievalMethodId.FAST_GRAPHRAG
 
 

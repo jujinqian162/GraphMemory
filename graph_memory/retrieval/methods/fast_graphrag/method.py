@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
-from graph_memory.retrieval.methods.fast_graphrag.nlp import normalize_entity_text
+from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGConfig
+from graph_memory.retrieval.methods.fast_graphrag.nlp import (
+    CatalogEntity,
+    EntityCatalog,
+    link_query_entities,
+    normalize_entity_text,
+)
 from graph_memory.retrieval.methods.fast_graphrag.pagerank import personalized_pagerank
-from graph_memory.retrieval.methods.fast_graphrag.scoring import FastGraphRAGScoringConfig, score_candidates
+from graph_memory.retrieval.methods.fast_graphrag.scoring import score_candidates
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
     FastGraphRAGEntity,
@@ -34,7 +40,7 @@ class FastGraphRAGDenseScorer(Protocol):
 
 class DenseFastGraphRAGScorer:
     def __init__(self, *, config: DenseConfigLike, encoder: "SentenceEncoder | None" = None) -> None:
-        self._ranker = DenseTaskRetriever(config=config, encoder=encoder)
+        self._ranker: DenseTaskRetriever = DenseTaskRetriever(config=config, encoder=encoder)
 
     def score_entities(self, query_text: str, entities: Sequence[FastGraphRAGEntity]) -> Mapping[str, float]:
         request = TextRankingRequest(
@@ -61,16 +67,6 @@ class DenseFastGraphRAGScorer:
 
 
 @dataclass(frozen=True)
-class FastGraphRAGConfig:
-    ppr_damping: float = 0.85
-    ppr_max_iterations: int = 100
-    ppr_tolerance: float = 1e-8
-    lexical_exact_match_score: float = 1.0
-    lexical_substring_match_score: float = 0.5
-    scoring: FastGraphRAGScoringConfig = field(default_factory=FastGraphRAGScoringConfig)
-
-
-@dataclass(frozen=True)
 class FastGraphRAGMethod:
     name: str
     config: FastGraphRAGConfig
@@ -80,9 +76,13 @@ class FastGraphRAGMethod:
         if not isinstance(request, FastGraphRAGRequest):
             raise TypeError(f"{self.name} requires FastGraphRAGRequest, got {type(request).__name__}.")
 
-        dense_entity_scores = self.dense_ranker.score_entities(request.query_text, request.knowledge_graph.entities)
+        dense_entity_scores = _top_dense_entity_scores(
+            self.dense_ranker.score_entities(request.query_text, request.knowledge_graph.entities),
+            top_k=self.config.entity_seed_top_k,
+        )
+        query_link_scores = _query_linked_entity_seed_scores(request, self.config)
         lexical_scores = _lexical_entity_seed_scores(request, self.config)
-        seed_scores = _merge_seed_scores(lexical_scores, dense_entity_scores)
+        seed_scores = _merge_seed_scores(query_link_scores, lexical_scores, dense_entity_scores, self.config)
         entity_scores = personalized_pagerank(
             _entity_adjacency(request),
             seed_scores,
@@ -107,7 +107,7 @@ class FastGraphRAGMethod:
 
 
 def _entity_adjacency(request: FastGraphRAGRequest) -> dict[str, dict[str, float]]:
-    adjacency = {
+    adjacency: dict[str, dict[str, float]] = {
         entity.entity_id: {}
         for entity in request.knowledge_graph.entities
     }
@@ -118,8 +118,10 @@ def _entity_adjacency(request: FastGraphRAGRequest) -> dict[str, dict[str, float
 
 
 def _add_weight(adjacency: dict[str, dict[str, float]], source_id: str, target_id: str, weight: float) -> None:
-    adjacency.setdefault(source_id, {})
-    adjacency.setdefault(target_id, {})
+    if source_id not in adjacency:
+        adjacency[source_id] = {}
+    if target_id not in adjacency:
+        adjacency[target_id] = {}
     adjacency[source_id][target_id] = adjacency[source_id].get(target_id, 0.0) + weight
 
 
@@ -132,13 +134,40 @@ def _lexical_entity_seed_scores(
     for entity in request.knowledge_graph.entities:
         entity_score = 0.0
         for alias in _entity_aliases(entity):
-            if query_norm == alias:
-                entity_score = max(entity_score, config.lexical_exact_match_score)
-            elif _contains_words(query_norm, alias):
+            if query_norm == alias or _contains_words(query_norm, alias):
                 entity_score = max(entity_score, config.lexical_substring_match_score)
         if entity_score > 0.0:
             scores[entity.entity_id] = entity_score
     return scores
+
+
+def _query_linked_entity_seed_scores(
+    request: FastGraphRAGRequest,
+    config: FastGraphRAGConfig,
+) -> dict[str, float]:
+    return {
+        entity.entity_id: config.query_link_seed_score
+        for entity in link_query_entities(request.query_text, _catalog_from_kg(request))
+    }
+
+
+def _catalog_from_kg(request: FastGraphRAGRequest) -> EntityCatalog:
+    entities: list[CatalogEntity] = []
+    for entity in request.knowledge_graph.entities:
+        aliases = _entity_aliases(entity)
+        entities.append(
+            CatalogEntity(
+                entity_id=entity.entity_id,
+                name=entity.name,
+                normalized_name=entity.normalized_name,
+                entity_type=entity.entity_type,
+                description=entity.description,
+                candidate_ids=entity.candidate_ids,
+                aliases=aliases,
+                normalized_aliases=aliases,
+            )
+        )
+    return EntityCatalog(entities=tuple(sorted(entities, key=lambda entity: entity.entity_id)))
 
 
 def _entity_aliases(entity: FastGraphRAGEntity) -> tuple[str, ...]:
@@ -154,13 +183,27 @@ def _contains_words(text: str, needle: str) -> bool:
 
 
 def _merge_seed_scores(
+    query_link_scores: Mapping[str, float],
     lexical_scores: Mapping[str, float],
     dense_scores: Mapping[str, float],
+    config: FastGraphRAGConfig,
 ) -> dict[str, float]:
-    entity_ids = set(lexical_scores) | set(dense_scores)
+    scores: dict[str, float] = {}
+    for entity_id, score in query_link_scores.items():
+        scores[entity_id] = scores.get(entity_id, 0.0) + float(score)
+    for entity_id, score in lexical_scores.items():
+        scores[entity_id] = scores.get(entity_id, 0.0) + float(score)
+    for entity_id, score in dense_scores.items():
+        scores[entity_id] = scores.get(entity_id, 0.0) + config.dense_entity_seed_weight * float(score)
+    return scores
+
+
+def _top_dense_entity_scores(scores: Mapping[str, float], *, top_k: int) -> dict[str, float]:
+    if top_k <= 0:
+        return {}
     return {
-        entity_id: max(float(lexical_scores.get(entity_id, 0.0)), float(dense_scores.get(entity_id, 0.0)))
-        for entity_id in entity_ids
+        entity_id: float(score)
+        for entity_id, score in sorted(scores.items(), key=lambda item: (-float(item[1]), item[0]))[:top_k]
     }
 
 

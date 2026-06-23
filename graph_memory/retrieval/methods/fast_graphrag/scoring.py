@@ -1,16 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 
+from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGScoringConfig
 from graph_memory.retrieval.requests import FastGraphRAGKnowledgeGraph, TextCandidate
-
-
-@dataclass(frozen=True)
-class FastGraphRAGScoringConfig:
-    lambda_entity: float = 1.0
-    lambda_relation: float = 1.0
-    lambda_dense_fallback: float = 0.05
 
 
 def score_relations(
@@ -38,15 +31,28 @@ def score_candidates(
         candidate.item_id: config.lambda_dense_fallback * float(dense_fallback_scores.get(candidate.item_id, 0.0))
         for candidate in candidates
     }
+    entity_contributions: dict[str, list[float]] = {candidate.item_id: [] for candidate in candidates}
     for entity in kg.entities:
-        contribution = config.lambda_entity * float(entity_scores.get(entity.entity_id, 0.0))
+        contribution = float(entity_scores.get(entity.entity_id, 0.0))
         for candidate_id in entity.candidate_ids:
-            scores[candidate_id] = scores.get(candidate_id, 0.0) + contribution
+            entity_contributions.setdefault(candidate_id, []).append(contribution)
+    for candidate_id, contributions in entity_contributions.items():
+        scores[candidate_id] = scores.get(candidate_id, 0.0) + config.lambda_entity * _average(contributions)
+
+    relation_contributions: dict[str, list[float]] = {candidate.item_id: [] for candidate in candidates}
     for relation in kg.relations:
-        contribution = config.lambda_relation * relation_scores.get(relation.relation_id, 0.0)
+        contribution = relation_scores.get(relation.relation_id, 0.0)
         for candidate_id in relation.candidate_ids:
-            scores[candidate_id] = scores.get(candidate_id, 0.0) + contribution
+            relation_contributions.setdefault(candidate_id, []).append(contribution)
+    for candidate_id, contributions in relation_contributions.items():
+        scores[candidate_id] = scores.get(candidate_id, 0.0) + config.lambda_relation * _average(contributions)
     return scores
+
+
+def _average(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    return sum(values) / len(values)
 
 
 __all__ = ["FastGraphRAGScoringConfig", "score_candidates", "score_relations"]

@@ -3,42 +3,35 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGExtractionConfig
+from graph_memory.retrieval.methods.fast_graphrag.noun_phrases import (
+    NounPhrase,
+    default_exclude_nouns,
+    extract_regex_english_noun_phrases,
+    extract_spacy_noun_phrases,
+    internal_stopwords,
+)
 from graph_memory.retrieval.requests import TextCandidate
 
-MentionSource = Literal["title", "source_ref", "title_prefix", "capitalized_phrase", "alias"]
+MentionSource = Literal[
+    "title",
+    "source_ref",
+    "title_prefix",
+    "capitalized_phrase",
+    "alias",
+    "noun_phrase",
+    "spacy_noun_chunk",
+    "spacy_entity",
+]
 
 _CAPITALIZED_TOKEN = r"[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?"
 _CAPITALIZED_SPAN_RE = re.compile(rf"\b{_CAPITALIZED_TOKEN}(?:\s+(?:and|of|the|de|van|{_CAPITALIZED_TOKEN}))*")
 _TITLE_PREFIX_RE = re.compile(r"^\s*(?P<title>[A-Z][^:]{1,80})\s*:\s+\S")
 _PARENTHETICAL_SUFFIX_RE = re.compile(r"^(?P<base>.+?)\s*\([^)]*\)\s*$")
-_STOPWORDS = frozenset(
-    {
-        "a",
-        "an",
-        "and",
-        "are",
-        "as",
-        "at",
-        "by",
-        "for",
-        "from",
-        "in",
-        "is",
-        "of",
-        "on",
-        "or",
-        "the",
-        "to",
-        "was",
-        "were",
-        "who",
-        "which",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -88,7 +81,13 @@ def title_aliases(title: str) -> tuple[str, ...]:
     return _unique_texts(aliases)
 
 
-def extract_candidate_mentions(candidates: Sequence[TextCandidate]) -> tuple[EntityMention, ...]:
+def extract_candidate_mentions(
+    candidates: Sequence[TextCandidate],
+    *,
+    config: FastGraphRAGExtractionConfig | None = None,
+    nlp: Callable[[str], object] | None = None,
+) -> tuple[EntityMention, ...]:
+    extraction = config or FastGraphRAGExtractionConfig()
     mentions: list[EntityMention] = []
     seen: set[tuple[str, str, str, MentionSource]] = set()
     for candidate in candidates:
@@ -97,33 +96,48 @@ def extract_candidate_mentions(candidates: Sequence[TextCandidate]) -> tuple[Ent
         for alias in title_aliases(title):
             source: MentionSource = "title" if alias == title else "alias"
             entity_id = title_entity_id or _entity_id(alias)
-            _append_mention(mentions, seen, candidate, alias, source, entity_id=entity_id)
+            _append_mention(mentions, seen, candidate, alias, source, config=extraction, entity_id=entity_id)
 
         source_ref = _metadata_text(candidate.metadata, "source_ref")
         if source_ref:
-            _append_mention(mentions, seen, candidate, source_ref, "source_ref")
+            _append_mention(mentions, seen, candidate, source_ref, "source_ref", config=extraction)
 
         title_prefix = _visible_title_prefix(candidate.text)
         if title_prefix:
-            _append_mention(mentions, seen, candidate, title_prefix, "title_prefix")
+            _append_mention(mentions, seen, candidate, title_prefix, "title_prefix", config=extraction)
 
         title_norms = {normalize_entity_text(alias) for alias in title_aliases(title)}
-        for span in _capitalized_spans(candidate.text):
+        for span in _capitalized_spans(candidate.text, extraction):
             if normalize_entity_text(span) in title_norms:
                 continue
-            _append_mention(mentions, seen, candidate, span, "capitalized_phrase")
+            _append_mention(mentions, seen, candidate, span, "capitalized_phrase", config=extraction)
+
+        for phrase in _noun_phrases(candidate.text, extraction, nlp):
+            _append_mention(
+                mentions,
+                seen,
+                candidate,
+                phrase.text,
+                _mention_source_from_phrase(phrase),
+                config=extraction,
+            )
     return tuple(mentions)
 
 
-def build_entity_catalog(candidates: Sequence[TextCandidate]) -> EntityCatalog:
-    extracted_mentions = extract_candidate_mentions(candidates)
+def build_entity_catalog(
+    candidates: Sequence[TextCandidate],
+    *,
+    config: FastGraphRAGExtractionConfig | None = None,
+    nlp: Callable[[str], object] | None = None,
+) -> EntityCatalog:
+    extracted_mentions = extract_candidate_mentions(candidates, config=config, nlp=nlp)
     alias_owner = _unique_alias_owners(extracted_mentions)
     grouped: dict[str, list[EntityMention]] = {}
     for mention in extracted_mentions:
         entity_id = alias_owner.get(mention.normalized_name, mention.entity_id)
         grouped.setdefault(entity_id, []).append(mention)
 
-    entities = []
+    entities: list[CatalogEntity] = []
     for entity_id, mentions in grouped.items():
         preferred = min(mentions, key=_mention_preference)
         aliases = _unique_texts(mention.name for mention in mentions)
@@ -173,11 +187,12 @@ def _append_mention(
     name: str,
     source: MentionSource,
     *,
+    config: FastGraphRAGExtractionConfig,
     entity_id: str | None = None,
 ) -> None:
-    name = name.strip()
+    name = " ".join(name.strip().split())
     normalized = normalize_entity_text(name)
-    if not normalized or normalized in _STOPWORDS:
+    if not _mention_allowed(normalized, config):
         return
     entity_id = entity_id or _entity_id(name)
     key = (entity_id, candidate.item_id, normalized, source)
@@ -196,15 +211,48 @@ def _append_mention(
     )
 
 
-def _capitalized_spans(text: str) -> tuple[str, ...]:
-    spans = []
+def _mention_allowed(normalized: str, config: FastGraphRAGExtractionConfig) -> bool:
+    if not normalized:
+        return False
+    words = normalized.split()
+    if not words or all(word in internal_stopwords() for word in words):
+        return False
+    if any(len(word) > config.max_word_length for word in words):
+        return False
+    return normalized not in _excluded_normalized_names(config)
+
+
+def _excluded_normalized_names(config: FastGraphRAGExtractionConfig) -> frozenset[str]:
+    if config.exclude_nouns is None:
+        return default_exclude_nouns()
+    return frozenset(normalize_entity_text(noun) for noun in config.exclude_nouns if noun)
+
+
+def _capitalized_spans(text: str, config: FastGraphRAGExtractionConfig) -> tuple[str, ...]:
+    spans: list[str] = []
     for match in _CAPITALIZED_SPAN_RE.finditer(text):
         span = " ".join(match.group(0).split())
         normalized = normalize_entity_text(span)
-        if not normalized or normalized in _STOPWORDS:
+        if not _mention_allowed(normalized, config):
             continue
         spans.append(span)
     return _unique_texts(spans)
+
+
+def _noun_phrases(
+    text: str,
+    config: FastGraphRAGExtractionConfig,
+    nlp: Callable[[str], object] | None,
+) -> tuple[NounPhrase, ...]:
+    if config.extractor_type == "regex_english":
+        return extract_regex_english_noun_phrases(text, config)
+    return extract_spacy_noun_phrases(text, config, nlp)
+
+
+def _mention_source_from_phrase(phrase: NounPhrase) -> MentionSource:
+    if phrase.source == "regex_english":
+        return "noun_phrase"
+    return phrase.source
 
 
 def _entity_id(text: str) -> str:
@@ -224,6 +272,10 @@ def _entity_type(source: MentionSource) -> str:
         return "title_prefix"
     if source == "alias":
         return "alias"
+    if source in {"noun_phrase", "spacy_noun_chunk"}:
+        return "noun_phrase"
+    if source == "spacy_entity":
+        return "named_entity"
     return "mention"
 
 
@@ -234,6 +286,9 @@ def _mention_preference(mention: EntityMention) -> tuple[int, str]:
         "alias": 2,
         "title_prefix": 3,
         "capitalized_phrase": 4,
+        "spacy_entity": 5,
+        "spacy_noun_chunk": 6,
+        "noun_phrase": 7,
     }[mention.source]
     return (priority, mention.name)
 

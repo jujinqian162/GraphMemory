@@ -23,6 +23,10 @@ from graph_memory.registry.retrieval import (
     MemoryStreamRetrievalSettings,
     RetrievalMethodId,
 )
+from graph_memory.retrieval.methods.fast_graphrag.config import (
+    FastGraphRAGExtractionConfig,
+    FastGraphRAGPruningConfig,
+)
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.registry.specs import StageConfigSpec
 from graph_memory.registry.stage_configs import (
@@ -170,26 +174,37 @@ def test_memory_stream_retrieve_config_round_trips_importance_and_cap(tmp_path: 
 
 
 def test_fast_graphrag_retrieve_config_round_trips_graphs_and_encoder(tmp_path: Path) -> None:
+    expected = RetrieveStageConfig(
+        io=RetrieveIO(
+            tasks=tmp_path / "tasks.json",
+            graphs=tmp_path / "graphs.json",
+            output=tmp_path / "fast_graphrag.predictions.json",
+            summary=tmp_path / "fast_graphrag.run_summary.json",
+        ),
+        job=FastGraphRAGRetrievalSettings(
+            top_k=7,
+            encoder=DenseEncoderSettings(
+                model_name="fake-e5",
+                query_prefix="query: ",
+                passage_prefix="passage: ",
+                batch_size=8,
+            ),
+            extraction=FastGraphRAGExtractionConfig(),
+            pruning=FastGraphRAGPruningConfig(),
+        ),
+    )
+
+    assert isinstance(expected.job, FastGraphRAGRetrievalSettings)
+    assert expected.job.extraction.extractor_type == "regex_english"
+    assert expected.job.extraction.normalize_edge_weights is True
+    assert expected.job.extraction.exclude_nouns is None
+    assert expected.job.pruning.min_node_freq == 1
+    assert expected.job.pruning.min_edge_weight_pct == 0.0
+
     _assert_config_round_trip(
         tmp_path / "retrieve-fast-graphrag.json",
         Registry.configs.RETRIEVE,
-        RetrieveStageConfig(
-            io=RetrieveIO(
-                tasks=tmp_path / "tasks.json",
-                graphs=tmp_path / "graphs.json",
-                output=tmp_path / "fast_graphrag.predictions.json",
-                summary=tmp_path / "fast_graphrag.run_summary.json",
-            ),
-            job=FastGraphRAGRetrievalSettings(
-                top_k=7,
-                encoder=DenseEncoderSettings(
-                    model_name="fake-e5",
-                    query_prefix="query: ",
-                    passage_prefix="passage: ",
-                    batch_size=8,
-                ),
-            ),
-        ),
+        expected,
     )
 
 

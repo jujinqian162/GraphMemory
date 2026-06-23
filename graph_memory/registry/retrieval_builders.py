@@ -34,6 +34,7 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
+from graph_memory.retrieval.methods.fast_graphrag.config import FastGraphRAGConfig
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
     FastGraphRAGKnowledgeGraph,
@@ -167,25 +168,26 @@ def _build_fast_graphrag(settings: FastGraphRAGRetrievalSettings, payload: objec
     from graph_memory.retrieval.methods.fast_graphrag.index import build_fast_graphrag_knowledge_graph
     from graph_memory.retrieval.methods.fast_graphrag.method import (
         DenseFastGraphRAGScorer,
-        FastGraphRAGConfig,
         FastGraphRAGMethod,
     )
-    from graph_memory.retrieval.methods.fast_graphrag.scoring import FastGraphRAGScoringConfig
 
     build_payload = _require_payload(payload, FastGraphRAGBuildPayload, method=settings.method.value)
     graph_index = _validated_graph_index(settings.method.value, build_payload.ranking_requests, build_payload.graphs)
+    method_config = FastGraphRAGConfig(
+        extraction=settings.extraction,
+        pruning=settings.pruning,
+        scoring=settings.scoring,
+        entity_seed_top_k=settings.entity_seed_top_k,
+        query_link_seed_score=settings.query_link_seed_score,
+        dense_entity_seed_weight=settings.dense_entity_seed_weight,
+        lexical_substring_match_score=settings.lexical_substring_match_score,
+        ppr_damping=settings.ppr_damping,
+        ppr_max_iterations=settings.ppr_max_iterations,
+        ppr_tolerance=settings.ppr_tolerance,
+    )
     method = FastGraphRAGMethod(
         name=settings.method.value,
-        config=FastGraphRAGConfig(
-            ppr_damping=settings.ppr_damping,
-            ppr_max_iterations=settings.ppr_max_iterations,
-            ppr_tolerance=settings.ppr_tolerance,
-            scoring=FastGraphRAGScoringConfig(
-                lambda_entity=settings.lambda_entity,
-                lambda_relation=settings.lambda_relation,
-                lambda_dense_fallback=settings.lambda_dense_fallback,
-            ),
-        ),
+        config=method_config,
         dense_ranker=DenseFastGraphRAGScorer(
             config=settings.encoder,
             encoder=build_payload.dense_encoder,
@@ -199,6 +201,7 @@ def _build_fast_graphrag(settings: FastGraphRAGRetrievalSettings, payload: objec
             build_payload.ranking_requests,
             graph_index,
             build_fast_graphrag_knowledge_graph,
+            method_config,
         ),
     )
 
@@ -452,7 +455,8 @@ def _graph_execution_tasks(
 def _fast_graphrag_execution_tasks(
     ranking_requests: list[TextRankingRequest],
     graph_index: GraphIndex,
-    knowledge_graph_builder: Callable[[TextRankingRequest, MemoryGraph], FastGraphRAGKnowledgeGraph],
+    knowledge_graph_builder: Callable[..., FastGraphRAGKnowledgeGraph],
+    config: FastGraphRAGConfig,
 ) -> list[RetrievalExecutionTask]:
     tasks: list[RetrievalExecutionTask] = []
     for request in ranking_requests:
@@ -462,7 +466,7 @@ def _fast_graphrag_execution_tasks(
             query_text=request.query_text,
             candidates=request.candidates,
             candidate_graph=graph,
-            knowledge_graph=knowledge_graph_builder(request, graph),
+            knowledge_graph=knowledge_graph_builder(request, graph, config=config),
         )
         tasks.append(RetrievalExecutionTask(text_request=request, method_request=method_request))
     return tasks
