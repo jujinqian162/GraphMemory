@@ -140,4 +140,5 @@ def test_canonical_trainable_method_configs_exist() -> None:
     config_root = REPO_ROOT / "configs" / "methods"
 
     assert (config_root / "dense_rgcn_graph_retriever.json").is_file()
+    assert (config_root / "dense_ft_rgcn_graph_retriever.json").is_file()
     assert (config_root / "dense_ft.json").is_file()

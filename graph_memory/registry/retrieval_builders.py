@@ -208,6 +208,7 @@ def _build_checkpoint_graph(settings: CheckpointGraphRetrievalSettings, payload:
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         device=settings.device,
+        expected_method=settings.method.value,
     )
     return _built(
         method,

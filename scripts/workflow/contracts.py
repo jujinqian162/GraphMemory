@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from graph_memory.config.converter import ConfigConverter
-from graph_memory.registry import Registry
+from scripts.workflow.stage_configs import expand_train_dependency_methods
 
 
 @dataclass(frozen=True)
@@ -34,14 +34,10 @@ def validate_current_manifest(value: object) -> None:
         extra = sorted(actual_stage_mappings - required_stage_mappings)
         raise ValueError(f"Manifest stage_configs mismatch: missing={missing}, extra={extra}")
     selected_methods = set(manifest.selected_methods)
-    trainable_methods = {
-        method
-        for method in selected_methods
-        if Registry.methods.get(method).train_artifact is not None
-    }
+    train_execution_methods = set(expand_train_dependency_methods(manifest.selected_methods))
     expected_methods_by_stage = {
-        "pairs": trainable_methods,
-        "train": trainable_methods,
+        "pairs": train_execution_methods,
+        "train": train_execution_methods,
         "retrieve": selected_methods,
         "evaluate": selected_methods,
     }

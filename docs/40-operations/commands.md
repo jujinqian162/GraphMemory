@@ -26,7 +26,7 @@ Initialize a quick run. Methods with a tuning adapter get a dev-only tune stage 
 python scripts/experiment.py init quick_valid_100 `
   --config configs/experiments/hotpotqa_evidence_retrieval.json `
   --profile quick `
-  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft `
+  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever `
   --force
 ```
 
@@ -37,7 +37,7 @@ python scripts/experiment.py plan quick_valid_100 `
   --run-root runs `
   --from pairs `
   --to evaluate `
-  --methods dense_rgcn_graph_retriever,dense_ft
+  --methods dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
 ```
 
 Run a trainable path:
@@ -45,7 +45,7 @@ Run a trainable path:
 ```powershell
 python scripts/experiment.py run quick_valid_100 `
   --run-root runs `
-  --methods dense_rgcn_graph_retriever,dense_ft
+  --methods dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
 ```
 
 Render the full selected plan instead of cache-pruned work:
@@ -76,6 +76,7 @@ Current trainable method configs live under:
 ```text
 configs/methods/dense_rgcn_graph_retriever.json
 configs/methods/dense_ft.json
+configs/methods/dense_ft_rgcn_graph_retriever.json
 ```
 
 Experiment configs reference them through `method_configs`. Field documentation:
@@ -83,6 +84,7 @@ Experiment configs reference them through `method_configs`. Field documentation:
 ```text
 docs/configs/methods/dense_rgcn_graph_retriever.md
 docs/configs/methods/dense_ft.md
+docs/configs/methods/dense_ft_rgcn_graph_retriever.md
 ```
 
 ## R-GCN Ablations
@@ -131,6 +133,8 @@ python scripts/train_method.py `
 python scripts/run_retrieval.py `
   --config runs/quick_valid_100/config/stages/retrieve.dense_rgcn_graph_retriever.json
 ```
+
+For `dense_ft_rgcn_graph_retriever`, the workflow compiler also writes and runs the `dense_ft` train dependency before R-GCN training. The low-level R-GCN train stage receives the Dense-FT model directory through `io.seed_checkpoint`; do not bypass that by hand-editing a checkpoint path unless you are debugging a generated stage config.
 
 ```powershell
 python scripts/evaluate_retrieval.py `

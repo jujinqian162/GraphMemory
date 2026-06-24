@@ -11,7 +11,8 @@ from scripts.workflow.types import StageId
 
 DENSE_FT = "dense_ft"
 RGCN = "dense_rgcn_graph_retriever"
-TRAINABLE_METHODS = (DENSE_FT, RGCN)
+DENSE_FT_SEEDED_RGCN = "dense_ft_rgcn_graph_retriever"
+TRAINABLE_METHODS = (DENSE_FT, RGCN, DENSE_FT_SEEDED_RGCN)
 
 
 def _twowiki_workflow_config() -> dict[str, Any]:
@@ -131,6 +132,7 @@ def test_named_twowiki_tiny_config_exposes_trainable_methods() -> None:
     assert config["method_configs"] == {
         RGCN: "configs/methods/dense_rgcn_graph_retriever.json",
         DENSE_FT: "configs/methods/dense_ft.json",
+        DENSE_FT_SEEDED_RGCN: "configs/methods/dense_ft_rgcn_graph_retriever.json",
     }
 
 
@@ -158,6 +160,8 @@ def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_b
     dense_ft_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT])
     rgcn_train = read_json(manifest["stage_configs"]["train"][RGCN])
     rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][RGCN])
+    seeded_rgcn_train = read_json(manifest["stage_configs"]["train"][DENSE_FT_SEEDED_RGCN])
+    seeded_rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT_SEEDED_RGCN])
 
     assert dense_ft_train["job"]["trainer"]["device"] == "cuda"
     assert dense_ft_retrieve["job"]["device"] == "cuda"
@@ -170,6 +174,10 @@ def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_b
     assert isinstance(rgcn_train["io"]["train_graphs"], str)
     assert isinstance(rgcn_train["io"]["dev_graphs"], str)
     assert isinstance(rgcn_retrieve["io"]["graphs"], str)
+    assert seeded_rgcn_train["job"]["trainer"]["device"] == "cuda"
+    assert seeded_rgcn_retrieve["job"]["device"] == "cuda"
+    assert Path(seeded_rgcn_train["io"]["seed_checkpoint"]) == Path(dense_ft_train["io"]["model_dir"])
+    assert isinstance(seeded_rgcn_retrieve["io"]["graphs"], str)
 
 
 def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tmp_path: Path) -> None:
@@ -191,6 +199,7 @@ def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tm
         "dense_graph_rerank",
         "dense_rgcn_graph_retriever",
         "dense_ft",
+        "dense_ft_rgcn_graph_retriever",
     ]
     assert manifest["effective_config"]["splits"]["test"] == {
         "source": "dev",
@@ -211,3 +220,6 @@ def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tm
         "dense_rgcn_graph_retriever"
     )
     assert manifest["effective_config"]["resolved_method_configs"]["dense_ft"]["method"] == "dense_ft"
+    assert manifest["effective_config"]["resolved_method_configs"]["dense_ft_rgcn_graph_retriever"]["method"] == (
+        "dense_ft_rgcn_graph_retriever"
+    )

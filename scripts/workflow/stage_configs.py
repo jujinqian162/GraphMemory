@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from typing_extensions import assert_never
 
@@ -53,6 +53,56 @@ from graph_memory.registry.stage_configs import (
 )
 
 
+RgcnTrainMethodId: TypeAlias = Literal[
+    RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+    RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+]
+DenseFtTrainMethodId: TypeAlias = Literal[RetrievalMethodId.DENSE_FT]
+
+
+def _rgcn_train_method_id(method: str) -> RgcnTrainMethodId:
+    method_id = RetrievalMethodId(method)
+    if method_id not in {
+        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+    }:
+        raise ValueError(f"R-GCN train stage received non-R-GCN method: {method}")
+    return cast(RgcnTrainMethodId, method_id)
+
+
+def _dense_ft_train_method_id(method: str) -> DenseFtTrainMethodId:
+    method_id = RetrievalMethodId(method)
+    if method_id is not RetrievalMethodId.DENSE_FT:
+        raise ValueError(f"Dense-FT train stage received non-Dense-FT method: {method}")
+    return RetrievalMethodId.DENSE_FT
+
+
+def expand_train_dependency_methods(selected_methods: Sequence[str]) -> list[str]:
+    ordered: list[str] = []
+    visited: set[RetrievalMethodId] = set()
+    visiting: set[RetrievalMethodId] = set()
+
+    def visit(method: str) -> None:
+        method_id = RetrievalMethodId(method)
+        if method_id in visited:
+            return
+        if method_id in visiting:
+            cycle = " -> ".join(item.value for item in (*visiting, method_id))
+            raise ValueError(f"Train dependency cycle detected: {cycle}")
+        visiting.add(method_id)
+        definition = Registry.methods.get(method_id)
+        for dependency in definition.train_dependencies:
+            visit(dependency.value)
+        visiting.remove(method_id)
+        visited.add(method_id)
+        if definition.train_artifact is not None:
+            ordered.append(method_id.value)
+
+    for method in selected_methods:
+        visit(method)
+    return ordered
+
+
 def load_trainable_method_configs(
     effective_config: Mapping[str, Any],
     selected_methods: Sequence[str],
@@ -62,7 +112,7 @@ def load_trainable_method_configs(
         raise ValueError("Experiment config method_configs must be an object.")
     profile = str(effective_config["profile"])
     loaded: dict[str, TrainableMethodConfig] = {}
-    for method in selected_methods:
+    for method in expand_train_dependency_methods(selected_methods):
         definition = Registry.methods.get(method)
         if definition.method_config_type is None:
             continue
@@ -97,9 +147,23 @@ def write_main_stage_configs(
         "evaluate": {},
     }
     root = Path(manifest["paths"]["run_dir"]) / "config" / "stages"
+    for method in expand_train_dependency_methods(manifest["selected_methods"]):
+        method_config = method_configs.get(method)
+        if method_config is None:
+            raise ValueError(f"Trainable method={method} requires a loaded method config.")
+        for stage, config in {
+            "pairs": _pair_stage_config(manifest, method, method_config),
+            "train": _train_stage_config(manifest, method, method_config),
+        }.items():
+            path = root / stage / f"{method}.json"
+            _write_stage_config(path, config)
+            stage_paths[stage][method] = path.as_posix()
     for method in manifest["selected_methods"]:
-        configs = _build_method_stage_configs(manifest, method, method_configs.get(method))
-        for stage, config in configs.items():
+        method_config = method_configs.get(method)
+        for stage, config in {
+            "retrieve": _retrieve_stage_config(manifest, method, method_config),
+            "evaluate": _evaluate_stage_config(manifest, method),
+        }.items():
             path = root / stage / f"{method}.json"
             _write_stage_config(path, config)
             stage_paths[stage][method] = path.as_posix()
@@ -185,9 +249,10 @@ def _train_stage_config(
 ) -> TrainStageConfig:
     learned = manifest["artifacts"]["learned"][method]
     if isinstance(method_config, RgcnMethodConfig):
+        method_id = _rgcn_train_method_id(method)
         return RgcnTrainStageConfig(
             dataset=_dataset_id(manifest),
-            method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+            method=method_id,
             io=RgcnTrainIO(
                 train_tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
                 train_labels=Path(manifest["artifacts"]["inputs"]["train"]["labels"]),
@@ -200,8 +265,10 @@ def _train_stage_config(
                 checkpoint_dir=Path(learned["best_checkpoint"]).parent,
                 metrics=Path(learned["train_metrics"]),
                 run_summary=Path(learned["train_run_summary"]),
+                seed_checkpoint=_rgcn_seed_checkpoint(manifest, method),
             ),
             job=RgcnMethodSettings(
+                method=method_id,
                 encoder=method_config.encoder,
                 model=method_config.train.model,
                 trainer=method_config.train.trainer,
@@ -213,7 +280,7 @@ def _train_stage_config(
     if isinstance(method_config, DenseFinetuneMethodConfig):
         return DenseFinetuneTrainStageConfig(
             dataset=_dataset_id(manifest),
-            method=RetrievalMethodId.DENSE_FT,
+            method=_dense_ft_train_method_id(method),
             io=DenseFinetuneTrainIO(
                 train_tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
                 train_labels=Path(manifest["artifacts"]["inputs"]["train"]["labels"]),
@@ -233,6 +300,13 @@ def _train_stage_config(
             ),
         )
     assert_never(method_config)
+
+
+def _rgcn_seed_checkpoint(manifest: Mapping[str, Any], method: str) -> Path | None:
+    definition = Registry.methods.get(method)
+    if definition.seed_method is not RetrievalMethodId.DENSE_FT:
+        return None
+    return Path(manifest["artifacts"]["learned"][RetrievalMethodId.DENSE_FT.value]["best_checkpoint"])
 
 
 def _retrieve_stage_config(
@@ -347,6 +421,7 @@ def _retrieval_job(
             top_k=top_k,
             checkpoint=checkpoint,
             device=method_config.train.trainer.device,
+            method=_rgcn_train_method_id(method),
         )
     if definition.dependencies.model is ModelSource.MODEL_DIRECTORY:
         if not isinstance(method_config, DenseFinetuneMethodConfig):
@@ -452,6 +527,7 @@ def _variant_manifest(
 
 
 __all__ = [
+    "expand_train_dependency_methods",
     "load_trainable_method_configs",
     "write_main_stage_configs",
     "write_variant_stage_configs",

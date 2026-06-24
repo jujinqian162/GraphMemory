@@ -98,6 +98,7 @@ def test_edge_view_ablation_model_configs_remove_exactly_one_visible_edge_type()
 
     for ablation_name, expected in expected_enabled_edge_types.items():
         config = default_model_config(
+            method_name="dense_rgcn_graph_retriever",
             encoder_model="fake-encoder",
             encoder_dim=4,
             query_prefix="query: ",

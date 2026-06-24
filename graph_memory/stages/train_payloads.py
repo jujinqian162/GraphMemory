@@ -29,6 +29,7 @@ class RgcnTrainPayload:
     dev_labels: list[EvidenceLabel]
     dev_graphs: list[MemoryGraph]
     train_labels: list[EvidenceLabel] | None = None
+    seed_checkpoint: Path | None = None
     dependencies: TrainDependencies | None = None
 
 

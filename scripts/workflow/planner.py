@@ -8,6 +8,7 @@ from typing import Any
 
 from graph_memory.registry import Registry
 from scripts.workflow.registry import get_workflow, validate_workflow_registry
+from scripts.workflow.stage_configs import expand_train_dependency_methods
 from scripts.workflow.types import StageCommand, StageId, VariantSpec, WorkflowSpec
 from scripts.workflow.workflows import (
     build_aggregate_command,
@@ -124,12 +125,13 @@ def _ordinary_stage_plan(
         commands.extend(build_prepare_commands(manifest))
     if StageId.GRAPHS.value in selected_stages:
         commands.extend(build_graph_commands(manifest))
+    train_execution_methods = expand_train_dependency_methods(methods)
     if StageId.PAIRS.value in selected_stages:
-        commands.extend(build_pair_commands(manifest, _methods_with_stage(methods, StageId.PAIRS)))
+        commands.extend(build_pair_commands(manifest, _methods_with_stage(train_execution_methods, StageId.PAIRS)))
     if StageId.TUNE.value in selected_stages:
         commands.extend(build_tune_commands(manifest, _methods_with_stage(methods, StageId.TUNE)))
     if StageId.TRAIN.value in selected_stages:
-        commands.extend(build_train_commands(manifest, _methods_with_stage(methods, StageId.TRAIN)))
+        commands.extend(build_train_commands(manifest, _methods_with_stage(train_execution_methods, StageId.TRAIN)))
     if StageId.RETRIEVE.value in selected_stages:
         commands.extend(build_retrieve_commands(manifest, methods))
     if StageId.EVALUATE.value in selected_stages:
@@ -344,11 +346,12 @@ def _validate_stage_dependencies(
                 f"Missing: {missing_paths}"
             )
 
-    trainable_methods = _methods_with_stage(selected_methods, StageId.TRAIN)
+    train_execution_methods = _methods_with_stage(expand_train_dependency_methods(selected_methods), StageId.TRAIN)
+    selected_trainable_methods = _methods_with_stage(selected_methods, StageId.TRAIN)
     if StageId.TRAIN.value in selected_stages and StageId.PAIRS.value not in selected_stages:
         missing_pairs = [
             method
-            for method in trainable_methods
+            for method in train_execution_methods
             if not Path(manifest["artifacts"]["learned"][method]["train_pairs"]).exists()
         ]
         if missing_pairs:
@@ -362,7 +365,7 @@ def _validate_stage_dependencies(
     if StageId.RETRIEVE.value in selected_stages and StageId.TRAIN.value not in selected_stages:
         missing_checkpoints = [
             method
-            for method in trainable_methods
+            for method in selected_trainable_methods
             if not Path(manifest["artifacts"]["learned"][method]["best_checkpoint"]).exists()
         ]
         if missing_checkpoints:

@@ -21,6 +21,7 @@ from scripts.workflow.registry import (
     get_variant_spec,
 )
 from scripts.workflow.stage_configs import (
+    expand_train_dependency_methods,
     load_trainable_method_configs,
     write_main_stage_configs,
     write_variant_stage_configs,
@@ -349,9 +350,7 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
         for split in ("train", "dev", "test")
     }
     learned = {}
-    for method in methods:
-        if not _method_has_stage(method, StageId.TRAIN):
-            continue
+    for method in expand_train_dependency_methods(methods):
         main = build_main_method_artifacts(run_dir, method)
         learned[method] = {
             "train_pairs": main[ArtifactRole.TRAIN_PAIRS],

@@ -5,6 +5,7 @@ from graph_memory.models.graph_retriever.config.records import NodeFeatureConfig
 
 def default_model_config(
     *,
+    method_name: str,
     encoder_model: str,
     encoder_dim: int,
     query_prefix: str,
@@ -48,7 +49,7 @@ def default_model_config(
         feature_config = NodeFeatureConfig(node_feature_names=("is_question_node",), scorer_feature_names=())
 
     return RgcnModelConfig(
-        method_name="dense_rgcn_graph_retriever",
+        method_name=method_name,
         encoder_model=encoder_model,
         encoder_dim=encoder_dim,
         query_prefix=query_prefix,

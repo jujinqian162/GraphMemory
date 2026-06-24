@@ -100,6 +100,7 @@ class CheckpointGraphRetrieverLoader:
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
         device: str | torch.device = "cpu",
+        expected_method: str = "dense_rgcn_graph_retriever",
     ) -> GraphRetrieverInference:
         """
         Load a trainable graph retriever inference runtime from `best.pt`.
@@ -108,7 +109,7 @@ class CheckpointGraphRetrieverLoader:
 
         checkpoint = load_rgcn_checkpoint(
             checkpoint_path,
-            expected_method="dense_rgcn_graph_retriever",
+            expected_method=expected_method,
             map_location=device,
         )
         model = self.model_factory.build(checkpoint.model_config).to(device)

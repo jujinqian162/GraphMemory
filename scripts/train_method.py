@@ -134,6 +134,7 @@ def _load_payload(config: TrainStageConfig, *, dependencies: TrainDependencies |
             dev_requests=_text_requests(config, dev_records),
             dev_labels=_evidence_labels(config, cast(list[object], read_json(config.io.dev_labels))),
             dev_graphs=cast(list[MemoryGraph], read_json(config.io.dev_graphs)),
+            seed_checkpoint=config.io.seed_checkpoint,
             dependencies=dependencies,
         )
     if isinstance(config, DenseFinetuneTrainStageConfig):
@@ -210,6 +211,8 @@ def _input_paths(config: TrainStageConfig) -> JsonObject:
         inputs["dev_graphs"] = str(config.io.dev_graphs)
         if config.io.train_labels is None:
             inputs.pop("train_labels")
+        if config.io.seed_checkpoint is not None:
+            inputs["seed_checkpoint"] = str(config.io.seed_checkpoint)
     elif isinstance(config, DenseFinetuneTrainStageConfig):
         pass
     else:

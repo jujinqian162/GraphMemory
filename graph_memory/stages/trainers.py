@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from graph_memory.models.dense_finetune.training import (
@@ -10,6 +11,7 @@ from graph_memory.models.dense_finetune.training import (
 )
 from graph_memory.registry.conversions import rgcn_training_config_from_trainer_settings
 from graph_memory.registry.method_configs import DenseFinetuneMethodSettings, RgcnMethodSettings
+from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import DenseFinetuneTrainPayload, RgcnTrainPayload, TrainDependencies, TrainPayload
 
 if TYPE_CHECKING:
@@ -26,13 +28,15 @@ class RgcnGraphRetrieverTrainer:
 
         if not isinstance(payload, RgcnTrainPayload):
             raise TypeError(f"R-GCN trainer expected RgcnTrainPayload, got {type(payload).__name__}.")
-        deps = payload.dependencies or _build_rgcn_dependencies(self.settings)
+        encoder_settings = _effective_rgcn_encoder_settings(self.settings, payload.seed_checkpoint)
+        deps = payload.dependencies or _build_rgcn_dependencies(encoder_settings)
         model_config = default_model_config(
-            encoder_model=self.settings.encoder.model_name,
+            method_name=self.settings.method.value,
+            encoder_model=encoder_settings.model_name,
             encoder_dim=deps.text_embedding_provider.embedding_dim,
-            query_prefix=self.settings.encoder.query_prefix,
-            passage_prefix=self.settings.encoder.passage_prefix,
-            encoder_batch_size=self.settings.encoder.batch_size,
+            query_prefix=encoder_settings.query_prefix,
+            passage_prefix=encoder_settings.passage_prefix,
+            encoder_batch_size=encoder_settings.batch_size,
             hidden_dim=self.settings.model.hidden_dim,
             num_layers=self.settings.model.num_layers,
             dropout=self.settings.model.dropout,
@@ -80,14 +84,31 @@ class DenseFinetuneMethodTrainer:
         )
 
 
-def _build_rgcn_dependencies(settings: RgcnMethodSettings) -> TrainDependencies:
+def _effective_rgcn_encoder_settings(
+    settings: RgcnMethodSettings,
+    seed_checkpoint: Path | None,
+) -> DenseEncoderSettings:
+    if seed_checkpoint is None:
+        return settings.encoder
+    from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
+
+    metadata = load_dense_ft_model_metadata(seed_checkpoint)
+    return DenseEncoderSettings(
+        model_name=str(seed_checkpoint),
+        query_prefix=metadata.query_prefix,
+        passage_prefix=metadata.passage_prefix,
+        batch_size=metadata.batch_size,
+    )
+
+
+def _build_rgcn_dependencies(encoder_settings: DenseEncoderSettings) -> TrainDependencies:
     from graph_memory.models.graph_retriever.text_embeddings import DenseGraphFeatureProvider
 
     text_embedding_provider = DenseGraphFeatureProvider(
-        model_name=settings.encoder.model_name,
-        query_prefix=settings.encoder.query_prefix,
-        passage_prefix=settings.encoder.passage_prefix,
-        batch_size=settings.encoder.batch_size,
+        model_name=encoder_settings.model_name,
+        query_prefix=encoder_settings.query_prefix,
+        passage_prefix=encoder_settings.passage_prefix,
+        batch_size=encoder_settings.batch_size,
     )
     return TrainDependencies(
         text_embedding_provider=text_embedding_provider,

@@ -63,7 +63,10 @@ class RgcnMethodSettings:
     pairs: RgcnPairSamplingSettings = field(default_factory=RgcnPairSamplingSettings)
     reporting: TrainingReportingSettings = field(default_factory=TrainingReportingSettings)
     selection: ModelSelectionSettings = field(default_factory=ModelSelectionSettings)
-    method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER] = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
+    method: Literal[
+        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+    ] = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
 
 
 @dataclass(frozen=True)
@@ -92,7 +95,10 @@ class DenseFinetuneTrainSettings:
 
 @dataclass(frozen=True)
 class RgcnMethodConfig:
-    method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER]
+    method: Literal[
+        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+    ]
     encoder: DenseEncoderSettings
     pairs: RgcnPairSamplingSettings
     train: RgcnTrainSettings

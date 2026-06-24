@@ -35,6 +35,26 @@ def test_repository_rgcn_method_config_loads_as_current_typed_config() -> None:
     assert config.train.trainer.epochs == 1
 
 
+def test_repository_dense_ft_seeded_rgcn_method_config_loads_as_current_typed_config() -> None:
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAINABLE_METHOD,
+        [
+            "--config",
+            str(REPO_ROOT / "configs" / "methods" / "dense_ft_rgcn_graph_retriever.json"),
+            "--profile",
+            "smoke",
+        ],
+    )
+
+    assert isinstance(config, RgcnMethodConfig)
+    assert config.method.value == "dense_ft_rgcn_graph_retriever"
+    assert config.encoder.model_name == "models/intfloat-e5-base-v2"
+    assert config.pairs.easy_random_per_positive == 1
+    assert config.train.model.hidden_dim == 32
+    assert config.train.trainer.batch_size == 1
+    assert config.train.trainer.epochs == 1
+
+
 def test_repository_dense_ft_method_config_loads_as_current_typed_config() -> None:
     config = CONFIG_LOADER.load(
         Registry.configs.TRAINABLE_METHOD,

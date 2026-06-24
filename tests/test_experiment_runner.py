@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from graph_memory.io import read_json
+from graph_memory.io import read_json, write_json
 from scripts.workflow import (
     build_stage_plan,
     format_commands,
@@ -18,6 +18,7 @@ import scripts.experiment as experiment_script
 from scripts.workflow.types import StageId
 
 TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
+DENSE_FT_SEEDED_RGCN_METHOD = "dense_ft_rgcn_graph_retriever"
 DENSE_FT_METHOD = "dense_ft"
 
 
@@ -44,6 +45,75 @@ def test_initialize_experiment_resolves_method_configs_and_stage_configs(tmp_pat
             stage_path = Path(manifest["stage_configs"][stage][method])
             assert stage_path.is_file()
             assert isinstance(read_json(stage_path), dict)
+
+
+def _config_with_seeded_rgcn_method_config(tmp_path: Path) -> dict[str, object]:
+    config = load_experiment_config()
+    method_config = read_json(Path("configs/methods/dense_rgcn_graph_retriever.json"))
+    if not isinstance(method_config, dict):
+        raise AssertionError("R-GCN method config fixture must be an object.")
+    method_config["method"] = DENSE_FT_SEEDED_RGCN_METHOD
+    method_config_path = tmp_path / "dense_ft_rgcn_graph_retriever.json"
+    write_json(method_config_path, method_config)
+    config["method_configs"] = {
+        **config.get("method_configs", {}),
+        DENSE_FT_SEEDED_RGCN_METHOD: method_config_path.as_posix(),
+    }
+    return config
+
+
+def test_seeded_rgcn_plan_orders_dense_ft_dependency_before_rgcn(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "seeded-rgcn-plan",
+        config=_config_with_seeded_rgcn_method_config(tmp_path),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=[DENSE_FT_SEEDED_RGCN_METHOD],
+        force=True,
+    )
+
+    commands = build_stage_plan(
+        manifest,
+        from_stage="pairs",
+        to_stage="evaluate",
+        methods=[DENSE_FT_SEEDED_RGCN_METHOD],
+    )
+
+    assert [(command.stage, command.method) for command in commands] == [
+        (StageId.PAIRS, DENSE_FT_METHOD),
+        (StageId.PAIRS, DENSE_FT_SEEDED_RGCN_METHOD),
+        (StageId.TRAIN, DENSE_FT_METHOD),
+        (StageId.TRAIN, DENSE_FT_SEEDED_RGCN_METHOD),
+        (StageId.RETRIEVE, DENSE_FT_SEEDED_RGCN_METHOD),
+        (StageId.EVALUATE, DENSE_FT_SEEDED_RGCN_METHOD),
+    ]
+    rendered = format_commands(commands, color=False)
+    assert "scripts/build_train_pairs.py" in rendered
+    assert "scripts/train_method.py" in rendered
+    assert "scripts/run_retrieval.py" in rendered
+    assert "scripts/evaluate_retrieval.py" in rendered
+
+
+def test_seeded_rgcn_from_train_requires_dense_ft_train_pairs(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "seeded-rgcn-resume",
+        config=_config_with_seeded_rgcn_method_config(tmp_path),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=[DENSE_FT_SEEDED_RGCN_METHOD],
+        force=True,
+    )
+    seeded_pairs = Path(manifest["artifacts"]["learned"][DENSE_FT_SEEDED_RGCN_METHOD]["train_pairs"])
+    seeded_pairs.parent.mkdir(parents=True, exist_ok=True)
+    seeded_pairs.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dense_ft.*train.pairs.json"):
+        build_stage_plan(
+            manifest,
+            from_stage="train",
+            to_stage="train",
+            methods=[DENSE_FT_SEEDED_RGCN_METHOD],
+        )
 
 
 def test_stage_plan_uses_stage_config_commands_for_trainable_methods(tmp_path: Path) -> None:

@@ -29,6 +29,7 @@ class RetrievalMethodId(StrEnum):
     BM25_GRAPH_RERANK = "bm25_graph_rerank"
     DENSE_GRAPH_RERANK = "dense_graph_rerank"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
+    DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,10 @@ class CheckpointGraphRetrievalSettings:
     top_k: int
     checkpoint: Path
     device: str
-    method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER] = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
+    method: Literal[
+        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+    ] = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
 
 
 @dataclass(frozen=True)

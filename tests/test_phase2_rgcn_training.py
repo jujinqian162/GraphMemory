@@ -1,12 +1,19 @@
 import json
 import inspect
+from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 import torch
 
 from graph_memory.models.graph_retriever.batching import build_training_batches
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint, save_rgcn_checkpoint
+from graph_memory.models.dense_finetune.metadata import (
+    DenseFinetuneModelMetadata,
+    DenseFinetuneSelectionMetadata,
+    write_dense_ft_model_metadata,
+)
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.internals.features import (
@@ -550,6 +557,129 @@ def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: P
     assert run_summary["effective_config"]["model_config"]["hidden_dim"] == 8
     assert run_summary["effective_config"]["training_config"]["epochs"] == 1
     assert run_summary["effective_config"]["training_config"]["batch_size"] == 1
+
+
+def test_rgcn_trainer_preserves_dense_ft_seeded_method_identity() -> None:
+    settings = RgcnMethodSettings(
+        method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        encoder=DenseEncoderSettings(
+            model_name="fake-encoder",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
+        ),
+        model=RgcnModelSettings(hidden_dim=8, num_layers=1, dropout=0.0),
+        trainer=RgcnTrainerSettings(epochs=1, batch_size=1, learning_rate=0.01, device="cpu"),
+    )
+
+    result = cast(
+        RgcnTrainingResult,
+        Registry.training.build(settings).train(
+            RgcnTrainPayload(
+                train_requests=tiny_ranking_requests(),
+                train_labels=evidence_labels(tiny_labels()),
+                train_graphs=tiny_graphs(),
+                train_pairs=tiny_pairs(),
+                dev_requests=tiny_ranking_requests(),
+                dev_labels=evidence_labels(tiny_labels()),
+                dev_graphs=tiny_graphs(),
+                dependencies=TrainDependencies(
+                    text_embedding_provider=FakeTextEmbeddingProvider(),
+                    seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+                ),
+            )
+        ),
+    )
+
+    assert result.model_config.method_name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+
+
+def test_rgcn_trainer_uses_dense_ft_seed_checkpoint_metadata(tmp_path: Path) -> None:
+    seed_checkpoint = tmp_path / "dense_ft" / "checkpoints" / "best_model"
+    write_dense_ft_model_metadata(
+        model_dir=seed_checkpoint,
+        metadata=DenseFinetuneModelMetadata(
+            base_model="base-e5",
+            query_prefix="seed query: ",
+            passage_prefix="seed passage: ",
+            batch_size=11,
+            device="cpu",
+            selection=DenseFinetuneSelectionMetadata(
+                selected_metric="dev_full_support_at_5",
+                higher_is_better=True,
+            ),
+        ),
+    )
+    settings = RgcnMethodSettings(
+        method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        encoder=DenseEncoderSettings(
+            model_name="unseeded-e5",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
+        ),
+        model=RgcnModelSettings(hidden_dim=8, num_layers=1, dropout=0.0),
+        trainer=RgcnTrainerSettings(epochs=1, batch_size=1, learning_rate=0.01, device="cpu"),
+    )
+
+    result = cast(
+        RgcnTrainingResult,
+        Registry.training.build(settings).train(
+            RgcnTrainPayload(
+                train_requests=tiny_ranking_requests(),
+                train_labels=evidence_labels(tiny_labels()),
+                train_graphs=tiny_graphs(),
+                train_pairs=tiny_pairs(),
+                dev_requests=tiny_ranking_requests(),
+                dev_labels=evidence_labels(tiny_labels()),
+                dev_graphs=tiny_graphs(),
+                seed_checkpoint=seed_checkpoint,
+                dependencies=TrainDependencies(
+                    text_embedding_provider=FakeTextEmbeddingProvider(),
+                    seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+                ),
+            )
+        ),
+    )
+
+    assert result.model_config.method_name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    assert result.model_config.encoder_model == str(seed_checkpoint)
+    assert result.model_config.query_prefix == "seed query: "
+    assert result.model_config.passage_prefix == "seed passage: "
+    assert result.model_config.encoder_batch_size == 11
+
+
+def test_dense_ft_seeded_rgcn_checkpoint_validates_selected_method(tmp_path: Path) -> None:
+    model_config = replace(
+        tiny_model_config(),
+        method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
+    )
+    model = build_model_from_config(model_config)
+    checkpoint_path = tmp_path / "best.pt"
+
+    save_rgcn_checkpoint(
+        checkpoint_path,
+        method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
+        model=model,
+        optimizer_state_dict={},
+        scheduler_state_dict={},
+        epoch=1,
+        global_step=1,
+        best_dev_metric=1.0,
+        model_config=model_config,
+        training_config=tiny_training_config(),
+    )
+
+    checkpoint = load_rgcn_checkpoint(
+        checkpoint_path,
+        expected_method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
+    )
+    assert checkpoint.model_config.method_name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    with pytest.raises(ContractValidationError, match="expected_method=dense_rgcn_graph_retriever"):
+        load_rgcn_checkpoint(
+            checkpoint_path,
+            expected_method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
+        )
 
 
 def test_training_registry_builds_trainer_from_settings_type() -> None:

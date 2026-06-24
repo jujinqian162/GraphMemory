@@ -20,7 +20,8 @@
     "bm25_graph_rerank",
     "dense_graph_rerank",
     "dense_rgcn_graph_retriever",
-    "dense_ft"
+    "dense_ft",
+    "dense_ft_rgcn_graph_retriever"
   ],
   "profiles": {
     "full": {
@@ -71,6 +72,7 @@
   "task": "evidence_retrieval",
   "method_configs": {
     "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
-    "dense_ft": "configs/methods/dense_ft.json"
+    "dense_ft": "configs/methods/dense_ft.json",
+    "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
   }
 }

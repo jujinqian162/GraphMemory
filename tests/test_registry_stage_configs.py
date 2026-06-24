@@ -218,6 +218,42 @@ def test_train_config_union_round_trips_rgcn_and_dense_ft(tmp_path: Path) -> Non
         assert CONFIG_LOADER.load(Registry.configs.TRAIN, ["--config", str(path)]) == expected
 
 
+def test_rgcn_train_config_accepts_dense_ft_seeded_method(tmp_path: Path) -> None:
+    encoder = DenseEncoderSettings(
+        model_name="fake-e5",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        batch_size=8,
+    )
+    config = RgcnTrainStageConfig(
+        method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        io=RgcnTrainIO(
+            train_tasks=tmp_path / "train.input.json",
+            train_labels=tmp_path / "train.labels.json",
+            train_graphs=tmp_path / "train.graphs.json",
+            train_pairs=tmp_path / "train.pairs.json",
+            dev_tasks=tmp_path / "dev.input.json",
+            dev_labels=tmp_path / "dev.labels.json",
+            dev_graphs=tmp_path / "dev.graphs.json",
+            output_dir=tmp_path / "seeded-rgcn",
+            checkpoint_dir=tmp_path / "seeded-rgcn" / "checkpoints",
+            metrics=tmp_path / "seeded-rgcn" / "train_metrics.jsonl",
+            run_summary=tmp_path / "seeded-rgcn" / "train_run_summary.json",
+        ),
+        job=RgcnMethodSettings(
+            method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+            encoder=encoder,
+            model=RgcnModelSettings(hidden_dim=8, num_layers=1, dropout=0.0),
+            trainer=RgcnTrainerSettings(device="cpu"),
+        ),
+    )
+
+    path = tmp_path / "dense-ft-seeded-rgcn.json"
+    _write_config(path, config)
+
+    assert CONFIG_LOADER.load(Registry.configs.TRAIN, ["--config", str(path)]) == config
+
+
 def test_stage_config_unknown_fields_are_rejected(tmp_path: Path) -> None:
     path = tmp_path / "retrieve.json"
     write_json(

@@ -30,12 +30,14 @@ class TrainableGraphRetrievalMethod:
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
         device: str | torch.device = "cpu",
+        expected_method: str = "dense_rgcn_graph_retriever",
     ) -> "TrainableGraphRetrievalMethod":
         inference = CheckpointGraphRetrieverLoader().load(
             checkpoint_path,
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
             device=device,
+            expected_method=expected_method,
         )
         return cls(name=inference.name, inference=inference)
 

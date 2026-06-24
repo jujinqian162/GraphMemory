@@ -79,6 +79,7 @@ class MethodDefinition:
     train_artifact: TrainArtifactSpec | None
     seed_method: RetrievalMethodId | None = None
     tuning: TuningKind | None = None
+    train_dependencies: tuple[RetrievalMethodId, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -197,6 +198,21 @@ def build_method_registry() -> MethodRegistry:
             method_config_type=RgcnMethodConfig,
             train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
             seed_method=RetrievalMethodId.DENSE,
+        ),
+        MethodDefinition(
+            identifier=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+            lifecycle=RetrievalLifecycle.RGCN_TRAINABLE,
+            retrieval_settings_type=CheckpointGraphRetrievalSettings,
+            dependencies=RetrievalDependencySpec(
+                graphs=GraphInputSource.GRAPH_ARTIFACT,
+                selected_config=SelectedConfigSource.NONE,
+                model=ModelSource.CHECKPOINT_FILE,
+                encoder=EncoderSource.CHECKPOINT_METADATA,
+            ),
+            method_config_type=RgcnMethodConfig,
+            train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
+            seed_method=RetrievalMethodId.DENSE_FT,
+            train_dependencies=(RetrievalMethodId.DENSE_FT,),
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_FT,

@@ -1,8 +1,8 @@
 # Execution-Provenance Graph Memory
 
-Current scope: HotpotQA evidence-tracing retrieval with flat baselines, graph reranking, Dense-FT, and a trainable R-GCN graph retriever.
+Current scope: HotpotQA evidence-tracing retrieval with flat baselines, graph reranking, Dense-FT, a trainable R-GCN graph retriever, and a Dense-FT-seeded R-GCN retriever.
 
-The runnable HotpotQA stack includes leakage-safe data preparation, typed graph construction, BM25, frozen dense retrieval, BM25- and dense-seeded graph reranking, Dense-FT, and checkpoint-backed `dense_rgcn_graph_retriever` training and retrieval. R-GCN edge/model ablations and unified result aggregation are implemented. Trainable methods use strict current-only method configs, stage configs, manifests, checkpoints, and model metadata; old trainable artifacts are not migrated.
+The runnable HotpotQA stack includes leakage-safe data preparation, typed graph construction, BM25, frozen dense retrieval, BM25- and dense-seeded graph reranking, Dense-FT, checkpoint-backed `dense_rgcn_graph_retriever` training and retrieval, and `dense_ft_rgcn_graph_retriever` training seeded from the Dense-FT checkpoint. R-GCN edge/model ablations and unified result aggregation are implemented. Trainable methods use strict current-only method configs, stage configs, manifests, checkpoints, and model metadata; old trainable artifacts are not migrated.
 
 The original Phase 2 paper matrix is not complete yet. Memory Stream and GraphRAG-style baselines are still missing, and HotpotQA does not provide gold dependency paths, so `Path Recall@10` and `Edge Recall@10` remain `N/A`. MemGPT-style memory, answer generation, 2WikiMultiHopQA, MuSiQue, and tool-trajectory provenance experiments remain later work.
 
@@ -31,7 +31,7 @@ uv run pytest tests -q
 Use the experiment runner for normal runs:
 
 ```powershell
-python scripts/experiment.py init quick_valid_100 --profile quick --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft
+python scripts/experiment.py init quick_valid_100 --profile quick --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
 python scripts/experiment.py plan quick_valid_100
 python scripts/experiment.py run quick_valid_100
 python scripts/experiment.py status quick_valid_100

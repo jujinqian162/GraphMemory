@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from graph_memory.io import read_json, write_json
 from scripts.workflow.contracts import validate_current_manifest
 from scripts.workflow.manifest import initialize_experiment, load_experiment_config
 from scripts.workflow.workflows import (
@@ -16,6 +17,7 @@ from scripts.workflow.workflows import (
 
 
 RGCN = "dense_rgcn_graph_retriever"
+DENSE_FT_SEEDED_RGCN = "dense_ft_rgcn_graph_retriever"
 DENSE_FT = "dense_ft"
 
 
@@ -46,6 +48,46 @@ def test_initialize_writes_current_manifest_and_complete_stage_configs(tmp_path:
     ]
     assert all(command.argv[2] == "--config" for command in commands)
     assert all(len(command.argv) == 4 for command in commands)
+
+
+def _config_with_seeded_rgcn_method_config(tmp_path: Path) -> dict[str, object]:
+    config = load_experiment_config()
+    method_config = read_json(Path("configs/methods/dense_rgcn_graph_retriever.json"))
+    if not isinstance(method_config, dict):
+        raise AssertionError("R-GCN method config fixture must be an object.")
+    method_config["method"] = DENSE_FT_SEEDED_RGCN
+    method_config_path = tmp_path / "dense_ft_rgcn_graph_retriever.json"
+    write_json(method_config_path, method_config)
+    config["method_configs"] = {
+        **config.get("method_configs", {}),
+        DENSE_FT_SEEDED_RGCN: method_config_path.as_posix(),
+    }
+    return config
+
+
+def test_seeded_rgcn_manifest_adds_dense_ft_train_dependency_without_public_outputs(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "seeded-rgcn",
+        config=_config_with_seeded_rgcn_method_config(tmp_path),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=[DENSE_FT_SEEDED_RGCN],
+        force=True,
+    )
+
+    assert manifest["selected_methods"] == [DENSE_FT_SEEDED_RGCN]
+    assert set(manifest["artifacts"]["learned"]) == {DENSE_FT, DENSE_FT_SEEDED_RGCN}
+    assert DENSE_FT not in manifest["artifacts"]["predictions"]
+    assert DENSE_FT not in manifest["artifacts"]["metrics"]
+    assert DENSE_FT not in manifest["artifacts"]["failure_cases"]
+    assert set(manifest["stage_configs"]["pairs"]) == {DENSE_FT, DENSE_FT_SEEDED_RGCN}
+    assert set(manifest["stage_configs"]["train"]) == {DENSE_FT, DENSE_FT_SEEDED_RGCN}
+    assert set(manifest["stage_configs"]["retrieve"]) == {DENSE_FT_SEEDED_RGCN}
+    assert set(manifest["stage_configs"]["evaluate"]) == {DENSE_FT_SEEDED_RGCN}
+
+    seeded_train = read_json(Path(manifest["stage_configs"]["train"][DENSE_FT_SEEDED_RGCN]))
+    assert isinstance(seeded_train, dict)
+    assert Path(seeded_train["io"]["seed_checkpoint"]) == Path(manifest["artifacts"]["learned"][DENSE_FT]["best_checkpoint"])
 
 
 def test_missing_stage_config_fails_before_command_creation(tmp_path: Path) -> None:

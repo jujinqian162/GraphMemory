@@ -107,6 +107,7 @@ class RgcnTrainIO:
     checkpoint_dir: Path
     metrics: Path
     run_summary: Path
+    seed_checkpoint: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -124,7 +125,10 @@ class DenseFinetuneTrainIO:
 
 @dataclass(frozen=True)
 class RgcnTrainStageConfig:
-    method: Literal[RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER]
+    method: Literal[
+        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+    ]
     io: RgcnTrainIO
     job: RgcnMethodSettings
     dataset: DatasetId = "hotpotqa"

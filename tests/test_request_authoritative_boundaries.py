@@ -187,6 +187,7 @@ def test_rgcn_inference_uses_request_graph_for_tensorization(monkeypatch: pytest
         name="dense_rgcn_graph_retriever",
         model=torch.nn.Identity(),
         model_config=default_model_config(
+            method_name="dense_rgcn_graph_retriever",
             encoder_model="fake-encoder",
             encoder_dim=4,
             query_prefix="query: ",

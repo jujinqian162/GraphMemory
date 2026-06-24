@@ -12,6 +12,9 @@ docs/configs/experiments/hotpotqa_evidence_retrieval.md
 
 configs/methods/dense_rgcn_graph_retriever.json
 docs/configs/methods/dense_rgcn_graph_retriever.md
+
+configs/methods/dense_ft_rgcn_graph_retriever.json
+docs/configs/methods/dense_ft_rgcn_graph_retriever.md
 ```
 
 如果新增一个正式配置文件，应同时新增对应的 `docs/configs/.../*.md`，并在本页登记。
@@ -25,6 +28,7 @@ docs/configs/methods/dense_rgcn_graph_retriever.md
 | `configs/experiments/hotpotqa_rgcn_ablation_selected.json` | `experiments/hotpotqa_rgcn_ablation_selected.md` | 服务器上运行选定 R-GCN variants 的 ablation 配置。 |
 | `configs/methods/dense_rgcn_graph_retriever.json` | `methods/dense_rgcn_graph_retriever.md` | R-GCN trainable graph retriever 的当前方法配置。 |
 | `configs/methods/dense_ft.json` | `methods/dense_ft.md` | Dense-FT trainable retriever 的当前方法配置。 |
+| `configs/methods/dense_ft_rgcn_graph_retriever.json` | `methods/dense_ft_rgcn_graph_retriever.md` | 使用 Dense-FT checkpoint 作为 encoder seed 的 R-GCN trainable graph retriever 当前方法配置。 |
 | `configs/search_spaces/graph_rerank.json` | `search_spaces/graph_rerank.md` | BM25/dense graph rerank 的 tuning search space。 |
 
 ## 维护原则
