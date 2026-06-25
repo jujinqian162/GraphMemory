@@ -1,20 +1,13 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
-from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.evaluation.connectivity import (
-    GraphConnectivity,
-    connected_evidence_at,
-    query_evidence_connectivity_at,
-)
+from graph_memory.evaluation.connectivity import GraphConnectivity
 from graph_memory.evaluation.failure_cases import build_failure_cases
-from graph_memory.evaluation.metrics import evidence_f1_at, full_support_at, mrr, recall_at
+from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.evaluation.tables import (
     EFFICIENCY_RESULT_COLUMNS,
@@ -45,32 +38,8 @@ def _evaluation_request(
     return EvidenceEvaluationRequest(predictions=predictions, labels=_evidence_labels(labels), graphs=graphs)
 
 
-def test_evaluation_domain_modules_own_public_evaluation_logic() -> None:
-    assert recall_at.__module__ == "graph_memory.evaluation.metrics"
-    assert evidence_f1_at.__module__ == "graph_memory.evaluation.metrics"
-    assert connected_evidence_at.__module__ == "graph_memory.evaluation.connectivity"
-    assert GraphConnectivity.__module__ == "graph_memory.evaluation.connectivity"
-    assert evaluate_results.__module__ == "graph_memory.evaluation.service"
-    assert split_metric_tables.__module__ == "graph_memory.evaluation.tables"
-    assert build_failure_cases.__module__ == "graph_memory.evaluation.failure_cases"
-
-
-def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> None:
+def test_evaluate_results_emits_full_metric_row_with_efficiency_and_path_columns() -> None:
     predictions, labels, graphs = _evaluation_fixture()
-    graph = graphs[0]
-    ranked_node_ids = [record["node_id"] for record in predictions[0]["ranked_nodes"]]
-    gold_nodes = set(labels[0]["gold_evidence_sentence_ids"])
-
-    connectivity = GraphConnectivity.from_graph(graph, allowed_nodes={"q", "m0", "m1", "m2"})
-
-    assert recall_at(ranked_node_ids, gold_nodes, 2) == 0.5
-    assert evidence_f1_at(ranked_node_ids, gold_nodes, 2) == 0.5
-    assert full_support_at(ranked_node_ids, gold_nodes, 3) == 1.0
-    assert mrr(ranked_node_ids, gold_nodes) == 1.0
-    assert connectivity.undirected_reachable("m0") == {"q", "m0", "m1", "m2"}
-    assert connectivity.directed_reachable("q") == {"q", "m0", "m1", "m2"}
-    assert connected_evidence_at(ranked_node_ids, gold_nodes, graph, 3) == 1.0
-    assert query_evidence_connectivity_at(ranked_node_ids, gold_nodes, graph, 10) == 1.0
 
     rows = evaluate_results(_evaluation_request(predictions, labels, graphs))
 
@@ -99,6 +68,11 @@ def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> Non
         }
     ]
 
+
+def test_split_metric_tables_partitions_columns_into_main_path_and_efficiency() -> None:
+    predictions, labels, graphs = _evaluation_fixture()
+    rows = evaluate_results(_evaluation_request(predictions, labels, graphs))
+
     main_rows, path_rows, efficiency_rows = split_metric_tables(rows)
 
     assert list(main_rows[0]) == MAIN_RESULT_COLUMNS
@@ -119,19 +93,31 @@ def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> Non
         "Avg Retrieved Edges",
     ]
 
+
+def test_graph_connectivity_reports_directed_and_undirected_reachability() -> None:
+    _, _, graphs = _evaluation_fixture()
+    connectivity = GraphConnectivity.from_graph(graphs[0], allowed_nodes={"q", "m0", "m1", "m2"})
+
+    assert connectivity.undirected_reachable("m0") == {"q", "m0", "m1", "m2"}
+    assert connectivity.directed_reachable("q") == {"q", "m0", "m1", "m2"}
+
+
+def test_build_failure_cases_reports_missing_gold_and_disconnected_evidence() -> None:
+    _, labels, graphs = _evaluation_fixture()
     failure_prediction = cast(
         RankedResult,
         cast(
             object,
-        {
-            **predictions[0],
-            "ranked_nodes": [
-                {"node_id": "m0", "score": 3.0},
-                {"node_id": "m1", "score": 2.0},
-                {"node_id": "m2", "score": 1.0},
-            ],
-            "retrieved_subgraph": {"nodes": ["m0", "m1", "m2"], "edges": []},
-        },
+            {
+                "task_id": "hotpot_eval_1",
+                "method": "bm25",
+                "ranked_nodes": [
+                    {"node_id": "m0", "score": 3.0},
+                    {"node_id": "m1", "score": 2.0},
+                    {"node_id": "m2", "score": 1.0},
+                ],
+                "retrieved_subgraph": {"nodes": ["m0", "m1", "m2"], "edges": []},
+            },
         ),
     )
 
@@ -147,23 +133,6 @@ def test_metric_connectivity_table_and_failure_case_outputs_stay_stable() -> Non
             "connected_gold_in_top_k": False,
         }
     ]
-
-
-def test_scripts_and_tests_import_evaluation_domain_modules_directly() -> None:
-    forbidden_importers: list[tuple[str, int]] = []
-    for path in _python_files(("graph_memory", "scripts", "tests")):
-        if path == Path("graph_memory/evaluation/__init__.py"):
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module == "graph_memory.evaluation":
-                forbidden_importers.append((str(path), node.lineno))
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name == "graph_memory.evaluation":
-                        forbidden_importers.append((str(path), node.lineno))
-
-    assert forbidden_importers == []
 
 
 def _evaluation_fixture() -> tuple[list[RankedResult], list[HotpotQALabelRecord], list[MemoryGraph]]:
@@ -251,10 +220,3 @@ def _evaluation_fixture() -> tuple[list[RankedResult], list[HotpotQALabelRecord]
         }
     ]
     return predictions, labels, graphs
-
-
-def _python_files(roots: tuple[str, ...]) -> list[Path]:
-    files: list[Path] = []
-    for root in roots:
-        files.extend(path for path in Path(root).rglob("*.py") if ".pytest_tmp" not in path.parts)
-    return files

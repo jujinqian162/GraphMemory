@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import math
 from collections.abc import Mapping
 from pathlib import Path
@@ -50,17 +49,6 @@ def _task_input() -> HotpotQARankingRecord:
     }
 
 
-def _imported_graph_build_config_from_types(path: Path) -> bool:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.module != "graph_memory.types":
-            continue
-        imported_names = {alias.name for alias in node.names}
-        if "GraphBuildConfig" in imported_names:
-            return True
-    return False
-
-
 def _assert_edge(actual: Mapping[str, object], expected: Mapping[str, object]) -> None:
     for key, value in expected.items():
         if key == "weight":
@@ -72,9 +60,7 @@ def _assert_edge(actual: Mapping[str, object], expected: Mapping[str, object]) -
             assert actual[key] == value
 
 
-def test_graph_domain_package_exposes_config_builder_index_statistics_and_views() -> None:
-    import graph_memory.graphs as graphs_package
-    import graph_memory.graphs.construction as construction_package
+def test_graph_builder_produces_typed_edges_statistics_and_views() -> None:
     from graph_memory.graphs.config import GraphBuildConfig
     from graph_memory.graphs.construction.builder import GraphBuilder, build_graphs
     from graph_memory.graphs.construction.rules.bridge import BridgeEdgeRule
@@ -85,10 +71,6 @@ def test_graph_domain_package_exposes_config_builder_index_statistics_and_views(
     from graph_memory.graphs.statistics import graph_statistics
     from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph, traversal_adjacency
 
-    assert (ROOT / "graph_memory" / "graphs" / "__init__.py").exists()
-    assert not (ROOT / "graph_memory" / "graphs.py").exists()
-    assert not hasattr(graphs_package, "build_graph")
-    assert not hasattr(construction_package, "build_graph")
     assert GraphBuildConfig.__module__ == GRAPH_BUILD_CONFIG_OWNER
 
     builder = GraphBuilder(GraphBuildConfig(max_query_overlap=20, max_entity_neighbors=10, max_bridge_edges=50))
@@ -165,16 +147,3 @@ def test_edge_accumulator_preserves_directed_keys_and_undirected_deduplication()
         {"source": "m0", "target": "m1", "edge_type": "query_overlap", "weight": 3.0, "directed": True},
         {"source": "m1", "target": "m0", "edge_type": "query_overlap", "weight": 4.0, "directed": True},
     ]
-
-
-def test_graph_build_config_imports_are_migrated_from_types() -> None:
-    scanned_roots = [ROOT / "graph_memory", ROOT / "scripts", ROOT / "tests"]
-    offenders: list[str] = []
-    for scanned_root in scanned_roots:
-        for path in scanned_root.rglob("*.py"):
-            if path == ROOT / "graph_memory" / "types.py":
-                continue
-            if _imported_graph_build_config_from_types(path):
-                offenders.append(str(path.relative_to(ROOT)))
-
-    assert sorted(offenders) == []

@@ -3,6 +3,8 @@ from typing import TypeAlias
 import pytest
 
 from graph_memory.datasets.hotpotqa import HotpotQAConversionResult, convert_hotpotqa_examples, parse_hotpotqa_examples
+from graph_memory.datasets.hotpotqa.compatibility import combined_hotpotqa_records
+from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
 from graph_memory.datasets.splits import sample_split
 
 RawHotpotQARecord: TypeAlias = dict[str, object]
@@ -51,6 +53,24 @@ def test_convert_hotpotqa_requires_raw_id():
 
     with pytest.raises(ValueError, match="_id"):
         parse_hotpotqa_examples([raw])
+
+
+def test_parse_hotpotqa_rejects_non_text_sentence():
+    malformed = {**hotpot_raw_example(), "context": [["Ada Lovelace", ["ok", 3]]], "_id": "abc123"}
+
+    with pytest.raises(ValueError, match="must be text"):
+        parse_hotpotqa_example(malformed)
+
+
+def test_combined_hotpotqa_records_joins_ranking_and_label_by_task():
+    parsed = parse_hotpotqa_examples([hotpot_raw_example()])
+    conversion = convert_hotpotqa_examples(parsed)
+    ranking_record = conversion.ranking_records[0]
+    label_record = conversion.label_records[0]
+
+    assert combined_hotpotqa_records([ranking_record], [label_record]) == [
+        {**ranking_record, **label_record}
+    ]
 
 
 def test_convert_hotpotqa_fails_when_supporting_fact_cannot_map():
