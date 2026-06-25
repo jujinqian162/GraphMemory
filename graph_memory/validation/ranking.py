@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.validation.common import (
     ContractValidationError,
@@ -27,15 +28,7 @@ RANKED_RESULT_FIELDS = {
 }
 RANKED_NODE_FIELDS = {"node_id", "score"}
 RETRIEVED_SUBGRAPH_FIELDS = {"nodes", "edges"}
-RETRIEVAL_METHOD_IDS = {
-    "bm25",
-    "dense",
-    "memory_stream",
-    "dense_ft",
-    "bm25_graph_rerank",
-    "dense_graph_rerank",
-    "dense_rgcn_graph_retriever",
-}
+RETRIEVAL_METHOD_IDS = {member.value for member in RetrievalMethodId}
 
 
 def validate_ranked_results(predictions: object, expected_candidates_by_task_id: object) -> None:
