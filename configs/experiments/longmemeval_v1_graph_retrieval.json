@@ -1,0 +1,65 @@
+{
+  "dataset": "longmemeval",
+  "default_profile": "quick",
+  "enable_ablation": false,
+  "defaults": {
+    "dense_encoder": "models/intfloat-e5-base-v2",
+    "passage_prefix": "passage: ",
+    "query_prefix": "query: ",
+    "seed": 13,
+    "top_k": 10
+  },
+  "graph": {
+    "max_bridge_edges": 50,
+    "max_entity_neighbors": 10,
+    "max_query_overlap": 20,
+    "use_spacy": false
+  },
+  "methods": [
+    "bm25",
+    "dense",
+    "memory_stream",
+    "bm25_graph_rerank",
+    "dense_graph_rerank"
+  ],
+  "profiles": {
+    "smoke": {
+      "train_examples": 1,
+      "dev_examples": 1,
+      "test_examples": 1
+    },
+    "quick": {
+      "train_examples": 50,
+      "dev_examples": 50,
+      "test_examples": 50
+    },
+    "full": {
+      "train_examples": 300,
+      "dev_examples": 100,
+      "test_examples": 70
+    }
+  },
+  "raw": {
+    "cleaned_s": "data/longmemeval/raw/longmemeval_s_cleaned.json"
+  },
+  "recipe": "longmemeval_v1_graph_retrieval",
+  "search_spaces": {
+    "graph_rerank": "configs/search_spaces/graph_rerank.json",
+    "memory_stream": "configs/search_spaces/memory_stream.json"
+  },
+  "split_offsets": {
+    "train": 0,
+    "dev": 300,
+    "test": 400
+  },
+  "split_sources": {
+    "train": "cleaned_s",
+    "dev": "cleaned_s",
+    "test": "cleaned_s"
+  },
+  "task": "long_memory_retrieval",
+  "memory_stream_relevance_weight": 1.0,
+  "memory_stream_recency_weight": 0.1,
+  "memory_stream_importance_weight": 0.0,
+  "memory_stream_recency_decay": 0.99
+}

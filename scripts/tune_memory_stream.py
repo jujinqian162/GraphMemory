@@ -12,11 +12,20 @@ from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.common import JsonValue
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest, HotpotQAToTextRankingRequest
-from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.datasets.selection import (
+    DatasetId,
+    evidence_labels_for_dataset,
+    temporal_memory_requests_for_dataset,
+    text_ranking_requests_for_dataset,
+    validate_label_records_for_dataset,
+    validate_ranking_records_for_dataset,
+)
+from graph_memory.evaluation.suites import (
+    evidence_metric_suite,
+    longmemeval_metric_suite,
+)
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import (
     build_run_summary,
@@ -28,28 +37,34 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.methods.memory_stream.contracts import (
     ImportanceArtifact,
 )
-from graph_memory.retrieval.requests import DenseRuntime, TemporalMemoryRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.tuning import (
     memory_stream_grid_from_record,
     tune_memory_stream,
 )
+from graph_memory.retrieval.tuning.memory_stream import MemoryStreamMetricSuite
+from graph_memory.retrieval.tuning.selection import (
+    MetricSelectionKey,
+    longmemeval_retrieval_candidate_key,
+    retrieval_candidate_key,
+)
 from graph_memory.validation import (
     select_importance_records,
     validate_graphs,
-    validate_hotpotqa_ranking_records,
-    validate_hotpotqa_label_records,
 )
 
 LOGGER = logging.getLogger("tune_memory_stream")
 DEFAULT_GRID_CONFIG = "configs/search_spaces/memory_stream.json"
+DATASET_CHOICES: tuple[DatasetId, ...] = ("hotpotqa", "twowiki", "longmemeval")
 
 
 @dataclass(frozen=True)
 class TuneMemoryStreamArgs:
+    dataset: DatasetId
     tasks: str
     labels: str
     graphs: str
-    importance: str
+    importance: str | None
     output_config: str
     encoder_model: str
     query_prefix: str
@@ -80,6 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         passage_prefix=args.passage_prefix,
     )
     effective_config: dict[str, JsonValue] = {
+        "dataset": args.dataset,
         "encoder_model": args.encoder_model,
         "query_prefix": args.query_prefix,
         "passage_prefix": args.passage_prefix,
@@ -101,31 +117,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
 
     try:
-        task_inputs = cast(list[HotpotQARankingRecord], read_json(args.tasks))
-        labels = cast(list[HotpotQALabelRecord], read_json(args.labels))
+        task_inputs = cast(list[object], read_json(args.tasks))
+        labels = cast(list[object], read_json(args.labels))
         graphs = cast(list[MemoryGraph], read_json(args.graphs))
-        importance_bytes = Path(args.importance).read_bytes()
-        importance_sha256 = hashlib.sha256(importance_bytes).hexdigest()
-        importance_artifact = cast(
-            ImportanceArtifact,
-            read_json(args.importance),
-        )
+        importance_artifact, importance_sha256 = _load_importance_artifact(args.importance)
         grid = memory_stream_grid_from_record(
             cast(Mapping[str, object], read_json(args.grid_config))
         )
 
-        validate_hotpotqa_ranking_records(task_inputs)
-        inputs_by_task_id = {
-            task_input["task_id"]: task_input for task_input in task_inputs
-        }
-        validate_hotpotqa_label_records(labels, inputs_by_task_id)
-        ranking_requests = _text_requests(task_inputs)
-        temporal_requests = _temporal_requests(task_inputs)
-        evidence_labels = _evidence_labels(labels)
+        validate_ranking_records_for_dataset(args.dataset, task_inputs)
+        inputs_by_task_id = _records_by_task_id(task_inputs)
+        validate_label_records_for_dataset(args.dataset, labels, inputs_by_task_id)
+        ranking_requests = text_ranking_requests_for_dataset(args.dataset, task_inputs)
+        temporal_requests = temporal_memory_requests_for_dataset(args.dataset, task_inputs)
+        evidence_labels = evidence_labels_for_dataset(args.dataset, labels)
         validate_graphs(graphs, ranking_requests)
-        _ = select_importance_records(importance_artifact, temporal_requests)
+        if importance_artifact is not None:
+            _ = select_importance_records(importance_artifact, temporal_requests)
+            effective_config["importance_sha256"] = cast(JsonValue, importance_sha256)
 
-        effective_config["importance_sha256"] = importance_sha256
+        metric_suite, selection_key = _memory_stream_tuning_targets(args.dataset)
+
         selected_config, candidate_rows = tune_memory_stream(
             temporal_requests=temporal_requests,
             labels=evidence_labels,
@@ -134,6 +146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             grid=grid,
             top_k=args.top_k,
             dense_runtime=DenseRuntime(config=dense_config),
+            metric_suite=metric_suite,
+            selection_key=selection_key,
         )
         write_json(output_config_path, selected_config)
         write_json(candidates_path, candidate_rows)
@@ -183,32 +197,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise
 
 
-def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
-    projector = HotpotQAToTextRankingRequest()
-    return [projector.project(record) for record in records]
+
+def _memory_stream_tuning_targets(dataset: DatasetId) -> tuple[MemoryStreamMetricSuite, MetricSelectionKey]:
+    if dataset == "longmemeval":
+        return longmemeval_metric_suite(), longmemeval_retrieval_candidate_key
+    return evidence_metric_suite(), retrieval_candidate_key
 
 
-def _temporal_requests(records: Sequence[HotpotQARankingRecord]) -> list[TemporalMemoryRankingRequest]:
-    projector = HotpotQAToTemporalMemoryRankingRequest()
-    return [projector.project(record, {}) for record in records]
+def _load_importance_artifact(path: str | None) -> tuple[ImportanceArtifact | None, str | None]:
+    if path is None:
+        return None, None
+    importance_path = Path(path)
+    importance_bytes = importance_path.read_bytes()
+    return cast(ImportanceArtifact, read_json(importance_path)), hashlib.sha256(importance_bytes).hexdigest()
 
 
-def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabel]:
-    return [
-        EvidenceLabel(
-            task_id=label["task_id"],
-            gold_answer=label["gold_answer"],
-            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple(_dependency_edge(edge) for edge in label["gold_dependency_edges"]),
-        )
-        for label in labels
-    ]
-
-
-def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
-    if len(edge) != 2:
-        raise ValueError(f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}.")
-    return edge[0], edge[1]
+def _records_by_task_id(records: Sequence[object]) -> dict[str, object]:
+    records_by_task_id: dict[str, object] = {}
+    for index, record in enumerate(records):
+        if not isinstance(record, Mapping):
+            raise ValueError(f"Ranking record index={index} must be an object.")
+        task_id = record.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            raise ValueError(f"Ranking record index={index} must contain a non-empty task_id.")
+        records_by_task_id[task_id] = record
+    return records_by_task_id
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -216,14 +229,20 @@ def build_parser() -> argparse.ArgumentParser:
         description="Tune Memory Stream scoring parameters on dev labels."
     )
     _ = parser.add_argument(
+        "--dataset",
+        choices=DATASET_CHOICES,
+        default="hotpotqa",
+        help="Prepared dataset contract used by tasks and labels.",
+    )
+    _ = parser.add_argument(
         "--tasks",
         required=True,
-        help="Path to dev HotpotQA ranking record JSON.",
+        help="Path to dev ranking record JSON.",
     )
     _ = parser.add_argument(
         "--labels",
         required=True,
-        help="Path to dev HotpotQA label record JSON.",
+        help="Path to dev label record JSON.",
     )
     _ = parser.add_argument(
         "--graphs",
@@ -232,8 +251,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _ = parser.add_argument(
         "--importance",
-        required=True,
-        help="Path to the aligned cleaned importance artifact.",
+        default=None,
+        help="Optional path to an aligned Memory Stream importance artifact.",
     )
     _ = parser.add_argument(
         "--output_config",
@@ -254,10 +273,11 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: Sequence[str] | None = None) -> TuneMemoryStreamArgs:
     namespace = build_parser().parse_args(argv)
     return TuneMemoryStreamArgs(
+        dataset=cast(DatasetId, namespace.dataset),
         tasks=cast(str, namespace.tasks),
         labels=cast(str, namespace.labels),
         graphs=cast(str, namespace.graphs),
-        importance=cast(str, namespace.importance),
+        importance=cast(str | None, namespace.importance),
         output_config=cast(str, namespace.output_config),
         encoder_model=cast(str, namespace.encoder_model),
         query_prefix=cast(str, namespace.query_prefix),

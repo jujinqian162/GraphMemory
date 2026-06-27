@@ -25,10 +25,15 @@ def test_memory_stream_tuning_parser_contract_is_frozen() -> None:
     import scripts.tune_memory_stream as tune_memory_stream
 
     assert _parser_contract(tune_memory_stream.build_parser()) == {
+        "dataset": _store(
+            "--dataset",
+            default="hotpotqa",
+            choices=("hotpotqa", "twowiki", "longmemeval"),
+        ),
         "tasks": _store("--tasks", required=True),
         "labels": _store("--labels", required=True),
         "graphs": _store("--graphs", required=True),
-        "importance": _store("--importance", required=True),
+        "importance": _store("--importance"),
         "output_config": _store("--output_config", required=True),
         "encoder_model": _store(
             "--encoder_model",

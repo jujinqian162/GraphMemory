@@ -12,6 +12,13 @@ from graph_memory.datasets.hotpotqa.projectors import (
     HotpotQAToTextRankingRequest,
 )
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord, HotpotQARankingRecord
+from graph_memory.datasets.longmemeval.projectors import (
+    LongMemEvalToEvidenceEvaluationRequest,
+    LongMemEvalToGraphBuildRequest,
+    LongMemEvalToTemporalMemoryRankingRequest,
+    LongMemEvalToTextRankingRequest,
+)
+from graph_memory.datasets.longmemeval.records import LongMemEvalLabelRecord, LongMemEvalRankingRecord
 from graph_memory.datasets.twowiki.projectors import (
     TwoWikiToEvidenceEvaluationRequest,
     TwoWikiToGraphBuildRequest,
@@ -25,11 +32,13 @@ from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextRa
 from graph_memory.validation import (
     validate_hotpotqa_label_records,
     validate_hotpotqa_ranking_records,
+    validate_longmemeval_label_records,
+    validate_longmemeval_ranking_records,
     validate_twowiki_label_records,
     validate_twowiki_ranking_records,
 )
 
-DatasetId = Literal["hotpotqa", "twowiki"]
+DatasetId = Literal["hotpotqa", "twowiki", "longmemeval"]
 
 
 def validate_ranking_records_for_dataset(dataset: DatasetId, records: object) -> None:
@@ -38,6 +47,9 @@ def validate_ranking_records_for_dataset(dataset: DatasetId, records: object) ->
         return
     if dataset == "twowiki":
         validate_twowiki_ranking_records(records)
+        return
+    if dataset == "longmemeval":
+        validate_longmemeval_ranking_records(records)
         return
     _unsupported_dataset(dataset)
 
@@ -49,6 +61,9 @@ def validate_label_records_for_dataset(dataset: DatasetId, labels: object, recor
     if dataset == "twowiki":
         validate_twowiki_label_records(labels, records_by_task_id)
         return
+    if dataset == "longmemeval":
+        validate_longmemeval_label_records(labels, records_by_task_id)
+        return
     _unsupported_dataset(dataset)
 
 
@@ -59,6 +74,9 @@ def text_ranking_requests_for_dataset(dataset: DatasetId, records: Sequence[obje
     if dataset == "twowiki":
         projector = TwoWikiToTextRankingRequest()
         return [projector.project(cast(TwoWikiRankingRecord, record)) for record in records]
+    if dataset == "longmemeval":
+        projector = LongMemEvalToTextRankingRequest()
+        return [projector.project(cast(LongMemEvalRankingRecord, record)) for record in records]
     _unsupported_dataset(dataset)
 
 
@@ -74,6 +92,9 @@ def temporal_memory_requests_for_dataset(
     if dataset == "twowiki":
         projector = TwoWikiToTemporalMemoryRankingRequest()
         return [projector.project(cast(TwoWikiRankingRecord, record), importance) for record in records]
+    if dataset == "longmemeval":
+        projector = LongMemEvalToTemporalMemoryRankingRequest()
+        return [projector.project(cast(LongMemEvalRankingRecord, record), importance) for record in records]
     _unsupported_dataset(dataset)
 
 
@@ -84,6 +105,9 @@ def graph_build_requests_for_dataset(dataset: DatasetId, records: Sequence[objec
     if dataset == "twowiki":
         projector = TwoWikiToGraphBuildRequest()
         return [projector.project(cast(TwoWikiRankingRecord, record)) for record in records]
+    if dataset == "longmemeval":
+        projector = LongMemEvalToGraphBuildRequest()
+        return [projector.project(cast(LongMemEvalRankingRecord, record)) for record in records]
     _unsupported_dataset(dataset)
 
 
@@ -104,6 +128,12 @@ def evidence_evaluation_request_for_dataset(
         return TwoWikiToEvidenceEvaluationRequest().project(
             predictions=predictions,
             labels=cast(Sequence[TwoWikiLabelRecord], labels),
+            graphs=graphs,
+        )
+    if dataset == "longmemeval":
+        return LongMemEvalToEvidenceEvaluationRequest().project(
+            predictions=predictions,
+            labels=cast(Sequence[LongMemEvalLabelRecord], labels),
             graphs=graphs,
         )
     _unsupported_dataset(dataset)

@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.config import CONFIG_LOADER
-from graph_memory.evaluation.tables import WIDE_METRIC_COLUMNS
+from graph_memory.evaluation.tables import metric_columns_for_rows
 from graph_memory.io import read_json, write_csv, write_jsonl
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
@@ -52,7 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             graphs=graphs,
         )
         validate_metric_rows(result.metric_rows)
-        write_csv(config.io.output, result.metric_rows, WIDE_METRIC_COLUMNS)
+        _, _, _, metric_columns = metric_columns_for_rows(result.metric_rows)
+        write_csv(config.io.output, result.metric_rows, metric_columns)
 
         if config.io.failure_cases_output is not None:
             write_jsonl(config.io.failure_cases_output, result.failure_cases)

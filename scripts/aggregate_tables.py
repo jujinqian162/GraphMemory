@@ -12,9 +12,7 @@ from typing import cast
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.evaluation.tables import (
-    EFFICIENCY_RESULT_COLUMNS,
-    MAIN_RESULT_COLUMNS,
-    PATH_RESULT_COLUMNS,
+    metric_columns_for_rows,
     split_metric_tables,
 )
 from graph_memory.contracts.common import JsonValue
@@ -76,9 +74,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         for metric_file in metric_files:
             rows.extend(cast(list[MetricRow], read_csv(metric_file)))
         main_rows, path_rows, efficiency_rows = split_metric_tables(rows)
-        write_csv(args.output_main, main_rows, MAIN_RESULT_COLUMNS)
-        write_csv(args.output_path, path_rows, PATH_RESULT_COLUMNS)
-        write_csv(args.output_efficiency, efficiency_rows, EFFICIENCY_RESULT_COLUMNS)
+        main_columns, path_columns, efficiency_columns, _ = metric_columns_for_rows(rows)
+        write_csv(args.output_main, main_rows, main_columns)
+        write_csv(args.output_path, path_rows, path_columns)
+        write_csv(args.output_efficiency, efficiency_rows, efficiency_columns)
         ablation_rows = (
             _indexed_ablation_rows(args.ablation_index, args.ablation_selections)
             if args.ablation_index is not None

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
+from typing import Protocol, cast
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.evaluation.service import evaluate_results
+from graph_memory.evaluation.suites import evidence_metric_suite
 from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.execution.results import assemble_ranked_result
@@ -27,9 +29,13 @@ from graph_memory.retrieval.methods.memory_stream.scoring import (
     rank_memory_stream_scores,
     score_memory_stream,
 )
-from graph_memory.retrieval.requests import DenseRuntime, TemporalMemoryRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    DenseRuntime,
+    TemporalMemoryRankingRequest,
+    TextRankingRequest,
+)
 from graph_memory.retrieval.tuning.seed_scores import precompute_seed_score_cache
-from graph_memory.retrieval.tuning.selection import retrieval_candidate_key
+from graph_memory.retrieval.tuning.selection import MetricSelectionKey, retrieval_candidate_key
 from graph_memory.tuning.grid_search import GridSearchRunner
 from graph_memory.validation import (
     select_importance_records,
@@ -39,6 +45,10 @@ from graph_memory.validation import (
 
 class MemoryStreamTuningCandidateRow(MetricRow):
     config: MemoryStreamScoringConfigRecord
+
+
+class MemoryStreamMetricSuite(Protocol):
+    def evaluate(self, request: EvidenceEvaluationRequest) -> list[MetricRow]: ...
 
 
 @dataclass(frozen=True)
@@ -51,8 +61,9 @@ class MemoryStreamSignalCache:
 def precompute_memory_stream_signal_cache(
     *,
     temporal_requests: list[TemporalMemoryRankingRequest],
-    importance_artifact: ImportanceArtifact,
+    importance_artifact: ImportanceArtifact | None,
     dense_runtime: DenseRuntime,
+    require_complete_request_importance: bool = False,
 ) -> MemoryStreamSignalCache:
     text_requests = [_text_request_from_temporal(request) for request in temporal_requests]
     seed_cache = precompute_seed_score_cache(
@@ -60,14 +71,11 @@ def precompute_memory_stream_signal_cache(
         ranking_requests=text_requests,
         dense_runtime=dense_runtime,
     )
-    importance_records = select_importance_records(importance_artifact, temporal_requests)
-    importance_by_task_id = {
-        record["task_id"]: {
-            node_id: float(score)
-            for node_id, score in record["scores"].items()
-        }
-        for record in importance_records
-    }
+    importance_by_task_id = _importance_by_task_id(
+        temporal_requests=temporal_requests,
+        importance_artifact=importance_artifact,
+        require_complete_request_importance=require_complete_request_importance,
+    )
 
     normalized_relevance: dict[str, dict[str, float]] = {}
     normalized_importance: dict[str, dict[str, float]] = {}
@@ -154,18 +162,27 @@ def tune_memory_stream(
     temporal_requests: list[TemporalMemoryRankingRequest],
     labels: list[EvidenceLabel],
     graphs: list[MemoryGraph],
-    importance_artifact: ImportanceArtifact,
+    importance_artifact: ImportanceArtifact | None,
     grid: list[MemoryStreamScoringConfig],
     top_k: int = 10,
     dense_runtime: DenseRuntime | None = None,
+    metric_suite: MemoryStreamMetricSuite | None = None,
+    selection_key: MetricSelectionKey | None = None,
 ) -> tuple[
     MemoryStreamScoringConfigRecord,
     list[MemoryStreamTuningCandidateRow],
 ]:
+    effective_metric_suite = metric_suite or evidence_metric_suite()
+    effective_selection_key = selection_key or retrieval_candidate_key
+
     signal_cache = precompute_memory_stream_signal_cache(
         temporal_requests=temporal_requests,
         importance_artifact=importance_artifact,
         dense_runtime=dense_runtime or DenseRuntime(config=DenseConfig()),
+        require_complete_request_importance=(
+            importance_artifact is None
+            and any(config.importance_weight > 0.0 for config in grid)
+        ),
     )
 
     def evaluate_candidate(
@@ -177,7 +194,12 @@ def tune_memory_stream(
             top_k=top_k,
             scoring=scoring,
         )
-        metric_rows = evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=labels, graphs=graphs))
+        metric_rows = cast(
+            list[MetricRow],
+            effective_metric_suite.evaluate(
+                EvidenceEvaluationRequest(predictions=predictions, labels=labels, graphs=graphs)
+            ),
+        )
         if len(metric_rows) != 1:
             raise ValueError(
                 "Expected one aggregate metric row per tuning candidate."
@@ -190,8 +212,8 @@ def tune_memory_stream(
     result = GridSearchRunner[
         MemoryStreamScoringConfig,
         MemoryStreamTuningCandidateRow,
-        tuple[float, float, float, float],
-    ](selection_key=retrieval_candidate_key).run(
+        tuple[float, ...],
+    ](selection_key=effective_selection_key).run(
         grid,
         evaluate_candidate,
     )
@@ -199,11 +221,76 @@ def tune_memory_stream(
     return result.selected.evaluation["config"], candidate_rows
 
 
+def _importance_by_task_id(
+    *,
+    temporal_requests: list[TemporalMemoryRankingRequest],
+    importance_artifact: ImportanceArtifact | None,
+    require_complete_request_importance: bool,
+) -> dict[str, dict[str, float]]:
+    if importance_artifact is not None:
+        importance_records = select_importance_records(importance_artifact, temporal_requests)
+        return {
+            record["task_id"]: {
+                node_id: float(score)
+                for node_id, score in record["scores"].items()
+            }
+            for record in importance_records
+        }
+    return {
+        request.task_id: _request_importance_scores(
+            request,
+            require_complete=require_complete_request_importance,
+        )
+        for request in temporal_requests
+    }
+
+
+def _request_importance_scores(
+    request: TemporalMemoryRankingRequest,
+    *,
+    require_complete: bool,
+) -> dict[str, float]:
+    candidate_ids = {candidate.item_id for candidate in request.candidates}
+    observed_ids = set(request.importance_by_item_id)
+    extra = sorted(observed_ids - candidate_ids)
+    if extra:
+        raise ValueError(
+            f"Memory Stream request task_id={request.task_id} has importance for unknown items: {extra}."
+        )
+    missing = sorted(candidate_ids - observed_ids)
+    if require_complete and missing:
+        raise ValueError(
+            "Memory Stream request "
+            f"task_id={request.task_id} missing importance scores for items: {missing}."
+        )
+
+    scores: dict[str, float] = {}
+    for item_id in sorted(candidate_ids):
+        raw_score = request.importance_by_item_id.get(item_id, 0.0)
+        if isinstance(raw_score, bool):
+            raise ValueError(
+                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be numeric."
+            )
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be numeric."
+            ) from error
+        if not math.isfinite(score):
+            raise ValueError(
+                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be finite."
+            )
+        scores[item_id] = score
+    return scores
+
+
 def _text_request_from_temporal(request: TemporalMemoryRankingRequest) -> TextRankingRequest:
     return TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
 
 
 __all__ = [
+    "MemoryStreamMetricSuite",
     "MemoryStreamSignalCache",
     "MemoryStreamTuningCandidateRow",
     "precompute_memory_stream_signal_cache",

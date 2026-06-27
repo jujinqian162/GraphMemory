@@ -14,6 +14,7 @@ class EvidenceLabel:
     gold_answer: str
     gold_evidence_item_ids: tuple[NodeId, ...]
     gold_dependency_edges: tuple[tuple[NodeId, NodeId], ...]
+    gold_session_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

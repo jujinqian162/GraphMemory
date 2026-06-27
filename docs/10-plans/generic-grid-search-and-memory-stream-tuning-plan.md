@@ -7,6 +7,8 @@
 
 **状态：** 已按本计划实施。Task 1-9 已完成，最终验证记录见对应提交与运行日志。
 
+**Current note:** `scripts/tune_memory_stream.py` is now dataset-aware. LongMemEval V1 workflows pass `--dataset longmemeval` and do not pass `--importance` unless a non-gold external artifact is explicitly configured; when no artifact is supplied, tuning uses request-owned importance maps and phase-1 LongMemEval configs fix `importance_weight` to `0.0`.
+
 **目标：** 抽取一个不感知 Graph Rerank、Memory Stream、检索任务或指标名称的
 通用 Grid Search 内核；让 Graph Rerank 和 Memory Stream 分别通过明确的
 method-specific adapter 构建候选、复用昂贵信号、评估候选并序列化最终配置。

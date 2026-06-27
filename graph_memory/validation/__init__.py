@@ -21,6 +21,8 @@ from graph_memory.validation.ranking import validate_ranked_results
 from graph_memory.validation.tasks import (
     validate_hotpotqa_label_records,
     validate_hotpotqa_ranking_records,
+    validate_longmemeval_label_records,
+    validate_longmemeval_ranking_records,
     validate_no_label_fields,
     validate_twowiki_label_records,
     validate_twowiki_ranking_records,
@@ -40,6 +42,8 @@ __all__ = [
     "validate_hotpotqa_label_records",
     "validate_hotpotqa_ranking_records",
     "validate_importance_artifact",
+    "validate_longmemeval_label_records",
+    "validate_longmemeval_ranking_records",
     "validate_metric_rows",
     "validate_negative_sampling_config",
     "validate_no_label_fields",

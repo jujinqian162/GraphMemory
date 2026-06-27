@@ -115,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build typed graphs from dataset ranking records.")
-    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki"), default="hotpotqa")
+    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki", "longmemeval"), default="hotpotqa")
     parser.add_argument("--input", required=True, help="Path to dataset ranking record JSON.")
     parser.add_argument("--output", required=True, help="Path to write *_graphs.json.")
     parser.add_argument("--max_query_overlap", type=int, default=20)

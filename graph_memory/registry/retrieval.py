@@ -169,11 +169,11 @@ class FlatRetrievalBuildPayload:
 @dataclass(frozen=True)
 class MemoryStreamBuildPayload:
     temporal_requests: list[TemporalMemoryRankingRequest]
-    importance_artifact: "ImportanceArtifact"
-    importance_path: Path
-    importance_sha256: str
     scoring_config: MemoryStreamScoringConfig | None = None
     dense_encoder: "SentenceEncoder | None" = None
+    importance_artifact: "ImportanceArtifact | None" = None
+    importance_path: Path | None = None
+    importance_sha256: str | None = None
 
 
 @dataclass(frozen=True)

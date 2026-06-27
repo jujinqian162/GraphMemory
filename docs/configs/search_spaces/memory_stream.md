@@ -26,10 +26,12 @@ Each field is required and must be a non-empty array:
 |---|---|
 | `relevance_weight` | Weight for dense seed relevance scores. |
 | `recency_weight` | Weight for pseudo-recency scores. |
-| `importance_weight` | Weight for cleaned Memory Stream importance scores. |
+| `importance_weight` | Weight for Memory Stream importance scores. LongMemEval phase 1 fixes this to `0.0` unless a non-gold external artifact is explicitly configured. |
 | `recency_decay` | Decay used to compute pseudo-recency before normalization. |
 
 All weights must be finite and non-negative. At least one of `relevance_weight`, `recency_weight`, and `importance_weight` must be positive for every candidate. `recency_decay` must satisfy `0 < recency_decay <= 1.0`.
+
+When `--importance` is omitted, Memory Stream tuning uses the importance maps already present in `TemporalMemoryRankingRequest`. If any candidate config has `importance_weight > 0.0`, every temporal request must cover every candidate with non-gold importance. LongMemEval V1 phase-1 configs therefore keep `importance_weight` fixed to `0.0`.
 
 ## Fixed Fields
 

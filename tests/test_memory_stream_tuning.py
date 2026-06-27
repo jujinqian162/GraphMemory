@@ -8,7 +8,9 @@ import pytest
 import graph_memory.retrieval.tuning.memory_stream as memory_stream_tuning
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord, HotpotQARankingRecord
+from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.evaluation.suites import longmemeval_metric_suite
 from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
@@ -20,7 +22,12 @@ from graph_memory.retrieval.methods.memory_stream.config import (
 )
 from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
 from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
-from graph_memory.retrieval.requests import DenseRuntime, TemporalMemoryRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    DenseRuntime,
+    TemporalMemoryRankingRequest,
+    TextCandidate,
+    TextRankingRequest,
+)
 from graph_memory.retrieval.tuning.memory_stream import (
     MemoryStreamSignalCache,
     run_memory_stream_from_signal_cache,
@@ -29,6 +36,7 @@ from graph_memory.retrieval.tuning.memory_stream import (
 from graph_memory.retrieval.tuning.memory_stream_grid import (
     memory_stream_grid_from_record,
 )
+from graph_memory.retrieval.tuning.selection import longmemeval_retrieval_candidate_key
 from tests.test_phase1_real_retrieval import (
     CountingFakeEncoder,
     retrieval_graphs,
@@ -180,6 +188,119 @@ def test_memory_stream_tuning_computes_dense_seed_once_for_all_candidates() -> N
         }
         for config in grid
     ]
+
+
+
+def test_memory_stream_tuning_uses_request_importance_without_artifact() -> None:
+    encoder = CountingFakeEncoder()
+    temporal_requests = _temporal_requests(retrieval_task_inputs())
+    grid = [
+        MemoryStreamScoringConfig(
+            relevance_weight=1.0,
+            recency_weight=0.1,
+            importance_weight=0.0,
+            recency_decay=0.99,
+        )
+    ]
+
+    selected, candidate_rows = tune_memory_stream(
+        temporal_requests=temporal_requests,
+        labels=_evidence_labels(retrieval_task_labels()),
+        graphs=retrieval_graphs(),
+        importance_artifact=None,
+        grid=grid,
+        top_k=2,
+        dense_runtime=DenseRuntime(
+            config=DenseConfig(model_name="fake"),
+            encoder=encoder,
+        ),
+    )
+
+    assert encoder.encode_calls == 1
+    assert selected["importance_weight"] == 0.0
+    assert candidate_rows[0]["config"]["importance_weight"] == 0.0
+
+
+def test_memory_stream_tuning_can_use_longmemeval_metric_suite() -> None:
+    temporal_requests = [
+        TemporalMemoryRankingRequest(
+            task_id="longmem_q1",
+            query_text="Where did I say I would visit in Paris?",
+            candidates=(
+                TextCandidate(
+                    item_id="m0",
+                    text="I will visit Paris.",
+                    metadata={"position": 0, "session_id": "s1"},
+                ),
+                TextCandidate(
+                    item_id="m1",
+                    text="I bought groceries.",
+                    metadata={"position": 1, "session_id": "s2"},
+                ),
+            ),
+            importance_by_item_id={},
+            metadata={"position_by_item_id": {"m0": 0, "m1": 1}},
+        )
+    ]
+    graphs: list[MemoryGraph] = [
+        {
+            "task_id": "longmem_q1",
+            "nodes": [
+                {"id": "q", "node_type": "question", "text": "Where?"},
+                {
+                    "id": "m0",
+                    "node_type": "graph_item",
+                    "node_kind": "conversation_turn",
+                    "text": "I will visit Paris.",
+                    "metadata": {"session_id": "s1"},
+                },
+                {
+                    "id": "m1",
+                    "node_type": "graph_item",
+                    "node_kind": "conversation_turn",
+                    "text": "I bought groceries.",
+                    "metadata": {"session_id": "s2"},
+                },
+            ],
+            "edges": [],
+        }
+    ]
+
+    selected, candidate_rows = tune_memory_stream(
+        temporal_requests=temporal_requests,
+        labels=[
+            EvidenceLabel(
+                task_id="longmem_q1",
+                gold_answer="Paris.",
+                gold_evidence_item_ids=("m0",),
+                gold_dependency_edges=(),
+                gold_session_ids=("s1",),
+            )
+        ],
+        graphs=graphs,
+        importance_artifact=None,
+        grid=[
+            MemoryStreamScoringConfig(
+                relevance_weight=1.0,
+                recency_weight=0.0,
+                importance_weight=0.0,
+                recency_decay=0.99,
+            )
+        ],
+        top_k=2,
+        dense_runtime=DenseRuntime(
+            config=DenseConfig(model_name="fake"),
+            encoder=CountingFakeEncoder(),
+        ),
+        metric_suite=longmemeval_metric_suite(),
+        selection_key=longmemeval_retrieval_candidate_key,
+    )
+
+    assert selected["importance_weight"] == 0.0
+    assert candidate_rows[0].get("Turn Recall@5") == 1.0
+    assert candidate_rows[0].get("Session Recall@5") == 1.0
+    assert "Recall@5" not in candidate_rows[0]
+    assert "Connected Evidence Recall@10" not in candidate_rows[0]
 
 
 def test_memory_stream_tuning_uses_retrieval_selection_key(

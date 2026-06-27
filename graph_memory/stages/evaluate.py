@@ -6,7 +6,7 @@ from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import FailureCase, MetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
-from graph_memory.evaluation.suites import evidence_metric_suite
+from graph_memory.evaluation.suites import evidence_metric_suite, longmemeval_metric_suite
 from graph_memory.registry.stage_configs import EvaluateStageConfig
 
 
@@ -29,7 +29,7 @@ def run_evaluate_stage(
         labels=labels,
         graphs=graphs,
     )
-    suite = evidence_metric_suite()
+    suite = longmemeval_metric_suite() if config.dataset == "longmemeval" else evidence_metric_suite()
     metric_rows = suite.evaluate(request)
     failure_cases = suite.build_failure_cases(
         request,

@@ -212,3 +212,40 @@ def test_memory_stream_builder_selects_current_task_importance_and_records_prove
         sha256="abc123",
         schema_version=1,
     )
+
+
+def test_memory_stream_builder_uses_request_importance_without_external_artifact() -> None:
+    from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextCandidate
+
+    request = TemporalMemoryRankingRequest(
+        task_id="longmem_q1",
+        query_text="Where did I say I planned to meet Alex?",
+        candidates=(
+            TextCandidate(item_id="m0", text="Meet Alex at the library.", metadata={"position": 0}),
+            TextCandidate(item_id="m1", text="A distractor memory.", metadata={"position": 1}),
+        ),
+        importance_by_item_id={"m0": 0.0, "m1": 0.0},
+        metadata={"position_by_item_id": {"m0": 0, "m1": 1}},
+    )
+
+    built = Registry.retrieval.build(
+        MemoryStreamRetrievalSettings(
+            top_k=2,
+            encoder=DenseEncoderSettings(model_name="fake-model", query_prefix="query: ", passage_prefix="passage: "),
+            scoring=MemoryStreamScoringConfig(
+                relevance_weight=1.0,
+                recency_weight=0.1,
+                importance_weight=0.0,
+            ),
+        ),
+        MemoryStreamBuildPayload(
+            temporal_requests=[request],
+            dense_encoder=FakeEncoder(),
+        ),
+    )
+
+    assert isinstance(built.method, MemoryStreamMethod)
+    assert built.provenance.importance is None
+    method_request = built.execution_tasks[0].method_request
+    assert isinstance(method_request, TemporalMemoryRankingRequest)
+    assert method_request.importance_by_item_id == {"m0": 0.0, "m1": 0.0}

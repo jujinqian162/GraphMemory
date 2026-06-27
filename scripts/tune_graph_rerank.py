@@ -145,7 +145,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank parameters on dev labels.")
-    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki"), default="hotpotqa")
+    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki", "longmemeval"), default="hotpotqa")
     parser.add_argument(
         "--method",
         required=True,

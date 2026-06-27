@@ -457,12 +457,15 @@ def _memory_stream_importance_path(manifest: Mapping[str, Any], method: str) -> 
     configured = manifest["effective_config"].get("memory_stream_importance_path")
     if configured is not None:
         return Path(str(configured))
+    dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
+    if dataset == "longmemeval":
+        return None
     return Path("data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json")
 
 
 def _dataset_id(manifest: Mapping[str, Any]) -> DatasetId:
     dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
-    if dataset not in {"hotpotqa", "twowiki"}:
+    if dataset not in {"hotpotqa", "twowiki", "longmemeval"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return cast(DatasetId, dataset)
 

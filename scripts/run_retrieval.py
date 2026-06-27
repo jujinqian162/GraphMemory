@@ -145,7 +145,7 @@ def _load_memory_stream_importance_if_required(
         return None, None
     importance_path = config.io.importance
     if importance_path is None:
-        raise ValueError("Memory Stream retrieval requires an importance artifact path.")
+        return None, None
     if not importance_path.is_file():
         raise ValueError(f"Memory Stream importance artifact not found: {importance_path}")
     raw_bytes = importance_path.read_bytes()
@@ -153,6 +153,7 @@ def _load_memory_stream_importance_if_required(
     if not isinstance(artifact, dict):
         raise ValueError(f"Memory Stream importance artifact must be a JSON object: {importance_path}")
     return cast(ImportanceArtifact, cast(object, artifact)), hashlib.sha256(raw_bytes).hexdigest()
+
 
 def _effective_config(
     config: RetrieveStageConfig,

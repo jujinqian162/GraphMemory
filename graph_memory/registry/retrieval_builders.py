@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
@@ -43,6 +44,7 @@ from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
+from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
 from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
 from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
@@ -132,7 +134,8 @@ def _build_dense(settings: DenseRetrievalSettings, payload: object) -> BuiltRetr
 
 def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: object) -> BuiltRetrievalMethod:
     build_payload = _require_payload(payload, MemoryStreamBuildPayload, method=settings.method.value)
-    importance_by_task_id = _select_importance_records_for_memory_stream(settings, build_payload)
+    scoring = build_payload.scoring_config or settings.scoring
+    importance_by_task_id = _importance_records_for_memory_stream(scoring, build_payload)
     dense_seed_ranker = _build_seed_retriever(
         SeedRetrievalSettings(method=RetrievalMethodId.DENSE, encoder=settings.encoder),
         SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
@@ -142,27 +145,92 @@ def _build_memory_stream(settings: MemoryStreamRetrievalSettings, payload: objec
             name=settings.method.value,
             dense_seed_ranker=dense_seed_ranker,
             importance_by_task_id=importance_by_task_id,
-            scoring=build_payload.scoring_config or settings.scoring,
+            scoring=scoring,
         ),
         method=settings.method,
         encoder=settings.encoder,
-        importance=ImportanceArtifactProvenance(
-            path=build_payload.importance_path,
-            sha256=build_payload.importance_sha256,
-            schema_version=1,
-        ),
+        importance=_importance_provenance(build_payload),
         execution_tasks=_memory_stream_execution_tasks(build_payload.temporal_requests, importance_by_task_id),
     )
 
 
-def _select_importance_records_for_memory_stream(
-    settings: MemoryStreamRetrievalSettings,
+def _importance_records_for_memory_stream(
+    scoring: MemoryStreamScoringConfig,
     payload: MemoryStreamBuildPayload,
 ) -> Mapping[str, TaskImportanceRecord]:
-    """Select and validate current-task importance before method construction."""
-    _ = settings
-    selected_records = select_importance_records(payload.importance_artifact, payload.temporal_requests)
-    return {record["task_id"]: record for record in selected_records}
+    """Select external importance or adapt request-owned importance signals."""
+    if payload.importance_artifact is not None:
+        selected_records = select_importance_records(payload.importance_artifact, payload.temporal_requests)
+        return {record["task_id"]: record for record in selected_records}
+    return _request_importance_records_for_memory_stream(scoring, payload.temporal_requests)
+
+
+def _request_importance_records_for_memory_stream(
+    scoring: MemoryStreamScoringConfig,
+    temporal_requests: list[TemporalMemoryRankingRequest],
+) -> Mapping[str, TaskImportanceRecord]:
+    records: dict[str, TaskImportanceRecord] = {}
+    for request in temporal_requests:
+        scores = _request_importance_scores(scoring, request)
+        records[request.task_id] = cast(
+            TaskImportanceRecord,
+            cast(
+                object,
+                {
+                    "task_id": request.task_id,
+                    "content_digest": "",
+                    "scores": scores,
+                },
+            ),
+        )
+    return records
+
+
+def _request_importance_scores(
+    scoring: MemoryStreamScoringConfig,
+    request: TemporalMemoryRankingRequest,
+) -> dict[str, float]:
+    candidate_ids = {candidate.item_id for candidate in request.candidates}
+    observed_ids = set(request.importance_by_item_id)
+    extra = sorted(observed_ids - candidate_ids)
+    if extra:
+        raise ValueError(
+            f"Memory Stream request task_id={request.task_id} has importance for unknown items: {extra}."
+        )
+    missing = sorted(candidate_ids - observed_ids)
+    if missing and scoring.importance_weight > 0.0:
+        raise ValueError(
+            "Memory Stream request "
+            f"task_id={request.task_id} missing importance scores for items: {missing}."
+        )
+    scores: dict[str, float] = {}
+    for item_id in sorted(candidate_ids):
+        raw_score = request.importance_by_item_id.get(item_id, 0.0)
+        if isinstance(raw_score, bool):
+            raise ValueError(
+                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be numeric."
+            )
+        score = float(raw_score)
+        if not math.isfinite(score):
+            raise ValueError(
+                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be finite."
+            )
+        scores[item_id] = score
+    return scores
+
+
+def _importance_provenance(payload: MemoryStreamBuildPayload) -> ImportanceArtifactProvenance | None:
+    if payload.importance_artifact is None:
+        return None
+    if payload.importance_path is None:
+        raise ValueError("Memory Stream external importance requires importance_path.")
+    if payload.importance_sha256 is None:
+        raise ValueError("Memory Stream external importance requires importance_sha256.")
+    return ImportanceArtifactProvenance(
+        path=payload.importance_path,
+        sha256=payload.importance_sha256,
+        schema_version=1,
+    )
 
 
 def _build_graph_rerank(settings: GraphRerankRetrievalSettings, payload: object) -> BuiltRetrievalMethod:

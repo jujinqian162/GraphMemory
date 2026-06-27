@@ -88,11 +88,11 @@ def _build_payload(
     if isinstance(job, MemoryStreamRetrievalSettings):
         return MemoryStreamBuildPayload(
             temporal_requests=temporal_requests,
-            importance_artifact=_require_memory_stream_importance_artifact(config, importance_artifact),
-            importance_path=_require_memory_stream_importance_path(config),
-            importance_sha256=_require_memory_stream_importance_sha256(config, importance_sha256),
             scoring_config=_selected_memory_stream_scoring_config(selected_config),
             dense_encoder=dense_encoder,
+            importance_artifact=importance_artifact,
+            importance_path=config.io.importance,
+            importance_sha256=importance_sha256,
         )
     if isinstance(job, GraphRerankRetrievalSettings):
         return GraphRerankBuildPayload(

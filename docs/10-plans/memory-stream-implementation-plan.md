@@ -1,4 +1,5 @@
 # Memory Stream Implementation Plan
+> Status: Retired HotpotQA-specific design. The active Memory Stream target is LongMemEval V1; HotpotQA sidecar importance is retained only as historical context and explicit legacy input, not as the default active experiment path.
 
 ## Goal
 

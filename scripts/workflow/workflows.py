@@ -323,19 +323,17 @@ def _memory_stream_tune_argv(
     method: str,
 ) -> list[str]:
     importance_path = _memory_stream_importance_path(manifest, method)
-    if importance_path is None:
-        raise ValueError("Memory Stream tuning requires an importance artifact path.")
-    return [
+    argv = [
         sys.executable,
         "scripts/tune_memory_stream.py",
+        "--dataset",
+        _dataset_id(manifest),
         "--tasks",
         manifest["artifacts"]["inputs"]["dev"]["input"],
         "--labels",
         manifest["artifacts"]["inputs"]["dev"]["labels"],
         "--graphs",
         manifest["artifacts"]["graphs"]["dev"],
-        "--importance",
-        str(importance_path),
         "--output_config",
         manifest["artifacts"]["tuned"][method],
         "--top_k",
@@ -343,7 +341,9 @@ def _memory_stream_tune_argv(
         "--grid_config",
         str(manifest["effective_config"]["search_spaces"]["memory_stream"]),
     ]
-
+    if importance_path is not None:
+        argv.extend(["--importance", str(importance_path)])
+    return argv
 
 def build_retrieve_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
     return [
@@ -434,7 +434,7 @@ def _stage_config_command(
 
 def _dataset_id(manifest: dict[str, Any]) -> str:
     dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
-    if dataset not in {"hotpotqa", "twowiki"}:
+    if dataset not in {"hotpotqa", "twowiki", "longmemeval"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return dataset
 
@@ -444,4 +444,6 @@ def _prepare_script(dataset: str) -> str:
         return "scripts/prepare_hotpotqa.py"
     if dataset == "twowiki":
         return "scripts/prepare_2wiki.py"
+    if dataset == "longmemeval":
+        return "scripts/prepare_longmemeval.py"
     raise ValueError(f"Unsupported workflow dataset: {dataset}")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TypeAlias, TypedDict
 
+from typing_extensions import NotRequired
+
 from graph_memory.contracts.common import MethodName, NodeId, TaskId
 
 MetricValue: TypeAlias = str | float
@@ -17,6 +19,12 @@ MetricRow = TypedDict(
         "Evidence F1@10": float,
         "Full Support@5": float,
         "Full Support@10": float,
+        "Turn Recall@5": NotRequired[float],
+        "Turn Recall@10": NotRequired[float],
+        "Full Turn Support@10": NotRequired[float],
+        "Session Recall@5": NotRequired[float],
+        "Session Recall@10": NotRequired[float],
+        "Full Session Support@10": NotRequired[float],
         "MRR": float,
         "Connected Evidence Recall@5": float,
         "Connected Evidence Recall@10": float,
@@ -45,6 +53,12 @@ TaskMetricRow = TypedDict(
         "Evidence F1@10": float,
         "Full Support@5": float,
         "Full Support@10": float,
+        "Turn Recall@5": NotRequired[float],
+        "Turn Recall@10": NotRequired[float],
+        "Full Turn Support@10": NotRequired[float],
+        "Session Recall@5": NotRequired[float],
+        "Session Recall@10": NotRequired[float],
+        "Full Session Support@10": NotRequired[float],
         "MRR": float,
         "Connected Evidence Recall@5": float,
         "Connected Evidence Recall@10": float,
@@ -57,13 +71,16 @@ TaskMetricRow = TypedDict(
 )
 
 
-class FailureCase(TypedDict):
+class FailureCase(TypedDict, total=False):
     debug_type: str
     task_id: TaskId
     method: MethodName
     failure_type: str
     gold_evidence_item_ids: list[NodeId]
+    gold_support_item_ids: list[NodeId]
+    gold_support_session_ids: list[str]
     retrieved_top_k: list[NodeId]
+    retrieved_sessions_top_k: list[str]
     missing_gold_nodes: list[NodeId]
     connected_gold_in_top_k: bool
 

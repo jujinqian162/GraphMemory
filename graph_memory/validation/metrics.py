@@ -29,12 +29,50 @@ METRIC_COLUMNS = [
     "Retrieval Latency / Query",
 ]
 
+LONGMEMEVAL_METRIC_COLUMNS = [
+    "Method",
+    "Turn Recall@5",
+    "Turn Recall@10",
+    "Full Turn Support@10",
+    "Session Recall@5",
+    "Session Recall@10",
+    "Full Session Support@10",
+    "MRR",
+    "Path Recall@10",
+    "Edge Recall@10",
+    "Retrieval Latency / Query",
+    "Memory Size",
+    "Avg Retrieved Nodes",
+    "Avg Retrieved Edges",
+]
+
+LONGMEMEVAL_RATIO_COLUMNS = {
+    "Turn Recall@5",
+    "Turn Recall@10",
+    "Full Turn Support@10",
+    "Session Recall@5",
+    "Session Recall@10",
+    "Full Session Support@10",
+    "MRR",
+}
+
+LONGMEMEVAL_NON_NEGATIVE_COLUMNS = {
+    "Retrieval Latency / Query",
+    "Memory Size",
+    "Avg Retrieved Nodes",
+    "Avg Retrieved Edges",
+}
+
 
 def validate_metric_rows(rows: object, *, metric_suite: MetricRowValidator | None = None) -> None:
     if metric_suite is not None:
         metric_suite.validate_metric_rows(rows)
         return
-    validate_evidence_metric_rows(rows)
+    materialized = _require_record_list(rows, "metric rows")
+    if materialized and isinstance(materialized[0], dict) and "Turn Recall@5" in materialized[0]:
+        validate_longmemeval_metric_rows(materialized)
+        return
+    validate_evidence_metric_rows(materialized)
 
 
 def validate_evidence_metric_rows(rows: object) -> None:
@@ -61,6 +99,31 @@ def validate_evidence_metric_rows(rows: object) -> None:
                 raise ContractValidationError(f"Invalid metric rows: column={column} must be in [0.0, 1.0].")
 
 
+def validate_longmemeval_metric_rows(rows: object) -> None:
+    rows = _require_record_list(rows, "metric rows")
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ContractValidationError("Invalid metric rows: row is not an object.")
+        missing = [column for column in LONGMEMEVAL_METRIC_COLUMNS if column not in row]
+        if missing:
+            raise ContractValidationError(f"Invalid metric rows: missing columns={missing}.")
+        for column in LONGMEMEVAL_METRIC_COLUMNS:
+            if column == "Method":
+                continue
+            if column in {"Path Recall@10", "Edge Recall@10"}:
+                _validate_optional_metric_value(row[column], column)
+                continue
+            value = float(row[column])
+            if not math.isfinite(value):
+                raise ContractValidationError(f"Invalid metric rows: column={column} must be finite.")
+            if column in LONGMEMEVAL_RATIO_COLUMNS:
+                if value < 0.0 or value > 1.0:
+                    raise ContractValidationError(f"Invalid metric rows: column={column} must be in [0.0, 1.0].")
+                continue
+            if column in LONGMEMEVAL_NON_NEGATIVE_COLUMNS and value < 0.0:
+                raise ContractValidationError(f"Invalid metric rows: column={column} must be non-negative.")
+
+
 def _validate_optional_metric_value(value: object, column: str) -> None:
     if value == "N/A":
         return
@@ -70,4 +133,12 @@ def _validate_optional_metric_value(value: object, column: str) -> None:
     if not math.isfinite(numeric) or numeric < 0.0 or numeric > 1.0:
         raise ContractValidationError(f"Invalid metric rows: column={column} must be N/A or in [0.0, 1.0].")
 
-__all__ = ["METRIC_COLUMNS", "MetricRowValidator", "validate_evidence_metric_rows", "validate_metric_rows"]
+
+__all__ = [
+    "METRIC_COLUMNS",
+    "LONGMEMEVAL_METRIC_COLUMNS",
+    "MetricRowValidator",
+    "validate_evidence_metric_rows",
+    "validate_longmemeval_metric_rows",
+    "validate_metric_rows",
+]
