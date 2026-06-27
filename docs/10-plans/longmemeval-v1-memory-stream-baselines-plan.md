@@ -489,10 +489,10 @@ trainable results use repository-defined deterministic split, not an official Lo
 
 ### 6.6 Experiment configs and docs
 
-- Create `configs/experiments/longmemeval_v1_memory_retrieval.json`
+- Create `configs/experiments/longmemeval_v1_retrieval.json`
   - 第一阶段只包含 `bm25`、`dense`、`memory_stream`。
 
-- Create `configs/experiments/longmemeval_v1_graph_retrieval.json`
+- Create `configs/experiments/longmemeval_v1_retrieval.json`
   - 第二阶段包含 `bm25`、`dense`、`memory_stream`、`bm25_graph_rerank`、`dense_graph_rerank`。
 
 - Create or later add `configs/experiments/longmemeval_v1_trainable_retrieval.json`
@@ -1164,8 +1164,8 @@ Do not add or validate the first-stage config until Task 5 and Task 6 have remov
 
 **Files:**
 
-- Create: `configs/experiments/longmemeval_v1_memory_retrieval.json`
-- Create: `configs/experiments/longmemeval_v1_graph_retrieval.json`
+- Create: `configs/experiments/longmemeval_v1_retrieval.json`
+- Create: `configs/experiments/longmemeval_v1_retrieval.json`
 - Optionally later create: `configs/experiments/longmemeval_v1_trainable_retrieval.json`
 - Test: `tests/test_current_manifest_contract.py`
 - Test: `tests/test_workflow_orchestration.py`
@@ -1217,7 +1217,7 @@ Target:
   "raw": {
     "cleaned_s": "data/longmemeval/raw/longmemeval_s_cleaned.json"
   },
-  "recipe": "longmemeval_v1_memory_retrieval",
+  "recipe": "longmemeval_v1_retrieval",
   "search_spaces": {
     "memory_stream": "configs/search_spaces/memory_stream.json"
   },
@@ -1239,7 +1239,7 @@ Target:
 }
 ```
 
-Counts should be adjusted after inspecting the downloaded cleaned file and after applying the abstention skip rule. The important contract is deterministic non-overlapping offsets over repository-defined splits; this is not an official LongMemEval train/dev/test protocol.
+The downloaded `longmemeval_s_cleaned.json` contains 500 raw examples; current parser/validator keeps 440 valid retrieval examples and drops 60 invalid/abstention-style examples. `full` and `cloud-full` therefore use 300 train / 100 dev / 40 test with offsets 0 / 300 / 400 to cover all valid examples without overlap. This is a repository-defined split, not an official LongMemEval train/dev/test protocol.
 
 - [x] **Step 7.2: Add graph config**
 
@@ -1258,7 +1258,7 @@ Same as first-stage config, but methods include:
 - [x] **Step 7.3: Validate manifest initialization**
 
 ```powershell
-uv run python scripts/experiment.py init longmem-smoke --config longmemeval_v1_memory_retrieval --profile smoke --force
+uv run python scripts/experiment.py init longmem-smoke --config longmemeval_v1_retrieval --profile smoke --force
 uv run python scripts/experiment.py status longmem-smoke
 ```
 
@@ -1387,11 +1387,11 @@ Expected: all pass.
 
 - [ ] **Step 10.2: Run smoke workflow**
 
-Local raw file note: not run in this implementation pass because `data/longmemeval/raw/longmemeval_s_cleaned.json` is not present on this machine. `experiment.py init` and `experiment.py status` were verified against `longmemeval_v1_memory_retrieval` using a temporary run root under `C:\tmp`.
+Earlier implementation pass note: real smoke was initially blocked because `data/longmemeval/raw/longmemeval_s_cleaned.json` was not present. After the file was downloaded locally, the canonical config was updated with `cloud-full` counts based on 440 valid prepared examples.
 
 ```powershell
 uv run python scripts/experiment.py run longmem-v1-smoke `
-  --config longmemeval_v1_memory_retrieval `
+  --config longmemeval_v1_retrieval `
   --profile smoke `
   --force
 ```

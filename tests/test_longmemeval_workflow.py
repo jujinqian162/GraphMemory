@@ -39,7 +39,7 @@ def _longmemeval_workflow_config() -> dict[str, Any]:
         "raw": {
             "cleaned_s": "data/longmemeval/raw/longmemeval_s_cleaned.json",
         },
-        "recipe": "longmemeval_v1_memory_retrieval",
+        "recipe": "longmemeval_v1_retrieval",
         "split_offsets": {
             "dev": 1,
             "test": 2,
@@ -148,6 +148,7 @@ def test_longmemeval_memory_stream_stage_config_does_not_default_to_hotpotqa_imp
         "recency_decay": 0.99,
     }
 
+
 def test_longmemeval_memory_stream_tune_command_uses_dataset_without_hotpotqa_importance(tmp_path: Path) -> None:
     config = _longmemeval_workflow_config()
     config["methods"] = ["memory_stream"]
@@ -177,22 +178,26 @@ def test_longmemeval_memory_stream_tune_command_uses_dataset_without_hotpotqa_im
     assert "--importance" not in tune_command.argv
     assert "data/hotpotqa/processed/memory_stream" not in str(tune_command.argv)
 
+
 def test_active_experiment_configs_route_memory_stream_to_longmemeval_only() -> None:
     recipes = {row["name"]: row for row in list_recipe_specs()}
 
     assert "hotpotqa_memory_stream" not in recipes
-    assert "longmemeval_v1_memory_retrieval" in recipes
-    assert "longmemeval_v1_graph_retrieval" in recipes
+    assert "longmemeval_v1_memory_retrieval" not in recipes
+    assert "longmemeval_v1_graph_retrieval" not in recipes
+    assert "longmemeval_v1_retrieval" in recipes
     for row in recipes.values():
         if row["dataset"] in {"hotpotqa", "twowiki"}:
             assert "memory_stream" not in row["methods"]
-    assert "memory_stream" in recipes["longmemeval_v1_memory_retrieval"]["methods"]
+    assert recipes["longmemeval_v1_retrieval"]["methods"] == (
+        "bm25, dense, memory_stream, bm25_graph_rerank, dense_graph_rerank"
+    )
 
 
-def test_longmemeval_memory_retrieval_config_initializes_without_hotpotqa_importance(tmp_path: Path) -> None:
+def test_longmemeval_retrieval_config_initializes_without_hotpotqa_importance(tmp_path: Path) -> None:
     manifest = initialize_experiment(
         "longmemeval-active-memory-config",
-        config=load_experiment_config("longmemeval_v1_memory_retrieval"),
+        config=load_experiment_config("longmemeval_v1_retrieval"),
         run_root=tmp_path,
         profile="smoke",
         methods=["memory_stream"],
@@ -218,3 +223,31 @@ def test_longmemeval_memory_retrieval_config_initializes_without_hotpotqa_import
     tune_status = next(row for row in status_rows if row["stage"] == "tune")
     assert tune_status["state"] == "missing"
     assert "data/hotpotqa/processed/memory_stream" not in rendered
+
+def test_longmemeval_retrieval_config_supports_method_subset_override(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "longmemeval-method-subset",
+        config=load_experiment_config("longmemeval_v1_retrieval"),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["bm25", "dense", "memory_stream"],
+        force=True,
+    )
+
+    assert manifest["selected_methods"] == ["bm25", "dense", "memory_stream"]
+    assert set(manifest["artifacts"]["predictions"]) == {"bm25", "dense", "memory_stream"}
+
+
+def test_longmemeval_retrieval_config_has_cloud_full_profile_for_all_valid_cleaned_s_examples() -> None:
+    config = load_experiment_config("longmemeval_v1_retrieval")
+
+    assert config["profiles"]["cloud-full"] == {
+        "train_examples": 300,
+        "dev_examples": 100,
+        "test_examples": 40,
+    }
+    assert config["split_offsets"] == {
+        "train": 0,
+        "dev": 300,
+        "test": 400,
+    }

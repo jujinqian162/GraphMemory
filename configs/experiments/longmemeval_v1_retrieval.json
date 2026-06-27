@@ -36,13 +36,18 @@
     "full": {
       "train_examples": 300,
       "dev_examples": 100,
-      "test_examples": 70
+      "test_examples": 40
+    },
+    "cloud-full": {
+      "train_examples": 300,
+      "dev_examples": 100,
+      "test_examples": 40
     }
   },
   "raw": {
     "cleaned_s": "data/longmemeval/raw/longmemeval_s_cleaned.json"
   },
-  "recipe": "longmemeval_v1_graph_retrieval",
+  "recipe": "longmemeval_v1_retrieval",
   "search_spaces": {
     "graph_rerank": "configs/search_spaces/graph_rerank.json",
     "memory_stream": "configs/search_spaces/memory_stream.json"
