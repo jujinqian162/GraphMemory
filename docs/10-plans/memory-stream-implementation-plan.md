@@ -5,7 +5,7 @@
 
 实现可复现的 `memory_stream` Phase 2 baseline：读取已经完成的人工
 importance 标注，经严格匹配和 task 内等级秩归一化后，与 dense relevance
-和 position-derived pseudo-recency 组合排序。
+和 request-owned recency 组合排序。该 retired HotpotQA 设计中的 position-derived pseudo-recency 只保留为 legacy path；当前 LongMemEval path 使用真实时间 recency。
 
 ## Data Preparation
 
@@ -91,8 +91,8 @@ score = (
 
 按 `(-score, node_id)` 排序。默认权重为
 `relevance_weight=1.0`、`recency_weight=0.0`、
-`importance_weight=0.01`。由于 HotpotQA 没有真实时间信息，position-derived
-pseudo-recency 默认禁用；`recency_decay=0.99` 仅在显式启用 recency 时生效。
+`importance_weight=0.01`。由于 HotpotQA 没有真实时间信息，legacy position-derived
+pseudo-recency 默认禁用；当前 LongMemEval request 使用 `question_datetime` 和 `datetime_by_item_id`，以最新可见时间作为 anchor 做 real-time day decay。
 
 ## Remaining Tasks
 

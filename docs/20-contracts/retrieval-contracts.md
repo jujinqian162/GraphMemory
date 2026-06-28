@@ -71,7 +71,7 @@ Current request layers:
 | `RetrieveStageConfig` | Stage-level request for one complete retrieval run. |
 | `TextRankingRequest` | Consumer-side query text plus candidate text items for flat text rankers and text seed providers. |
 | `GraphRankingRequest` | Query, candidates, graph artifact, and explicit initial scores for graph-aware rankers. |
-| `TemporalMemoryRankingRequest` | Query, candidate items, importance scores, and recency/position metadata for Memory Stream. |
+| `TemporalMemoryRankingRequest` | Query, candidate items, importance scores, and request-owned recency metadata for Memory Stream. LongMemEval uses real-time recency metadata; legacy requests may still provide position metadata. |
 
 Current runtime objects:
 

@@ -3,8 +3,7 @@
 ## Why
 
 The Phase 2 baseline matrix requires a simplified Memory Stream method using
-`relevance + recency + importance`. HotpotQA supplies sentence order rather
-than real timestamps, so recency is an explicit position-derived signal.
+`relevance + recency + importance`. LongMemEval supplies real session/question timestamps, so the active temporal baseline uses request-owned real-time recency. Legacy HotpotQA requests may still use position-derived pseudo-recency when no real-time mode is declared.
 
 Importance labels already exist as an externally produced legacy artifact.
 The repository needs deterministic cleaning, matching, normalization, and
@@ -16,7 +15,7 @@ read-only retrieval consumption, not an LLM annotation runtime.
   canonical dev prefix and emit a compact schema-versioned artifact.
 - Normalize unique score levels inside each task while preserving rank and ties.
 - Keep strict task-id, content-digest, and node-coverage validation.
-- Add Memory Stream retrieval using normalized relevance, pseudo-recency, and
+- Add Memory Stream retrieval using normalized relevance, request-owned recency, and
   the cleaned importance sidecar.
 - Load the cleaned sidecar once before timed retrieval, validate the requested
   task subset, and inject indexed scores into the method.

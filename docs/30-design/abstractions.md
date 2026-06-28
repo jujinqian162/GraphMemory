@@ -228,7 +228,7 @@ Retrieval methods use thin adapters around this runner. The shared retrieval sel
 Purpose:
 
 ```text
-relevance, pseudo-recency, and importance weights for Memory Stream scoring
+relevance, request-owned recency, and importance weights for Memory Stream scoring
 ```
 
 Rules:

@@ -1,16 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: Memory Stream combines relevance, pseudo-recency, and importance
-The system SHALL rank every memory item with a weighted sum of normalized dense relevance, normalized position-derived pseudo-recency, and normalized offline importance.
+### Requirement: Memory Stream combines relevance, request-owned recency, and importance
+The system SHALL rank every memory item with a weighted sum of normalized dense relevance, normalized request-owned recency, and normalized offline importance.
 
 #### Scenario: Raw signals are computed deterministically
 - **WHEN** a task is ranked
-- **THEN** dense cosine score supplies relevance, `recency_decay ** (max_position - position)` supplies pseudo-recency, and the validated sidecar integer supplies importance
+- **THEN** dense cosine score supplies relevance, `recency_decay ** age_days` from the latest visible temporal anchor supplies real-time LongMemEval recency when `recency_mode=real_time`, legacy position requests use `recency_decay ** (max_position - position)`, and the validated sidecar integer supplies importance
 
 #### Scenario: Conservative default weights protect dense relevance
 - **WHEN** the default Memory Stream settings are used
-- **THEN** relevance has weight 1.0, pseudo-recency has weight 0.0, and importance has weight 0.01
-- **AND** pseudo-recency is inactive unless explicitly assigned a positive weight
+- **THEN** relevance has weight 1.0, recency has weight 0.0, and importance has weight 0.01
+- **AND** recency is inactive unless explicitly assigned a positive weight
 
 #### Scenario: Constant signal has no ranking effect
 - **WHEN** all memory items have the same raw value for one signal

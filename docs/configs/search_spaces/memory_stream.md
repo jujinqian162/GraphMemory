@@ -25,9 +25,9 @@ Each field is required and must be a non-empty array:
 | Field | Meaning |
 |---|---|
 | `relevance_weight` | Weight for dense seed relevance scores. |
-| `recency_weight` | Weight for pseudo-recency scores. |
+| `recency_weight` | Weight for request-owned recency scores. LongMemEval uses latest-visible real-time day decay; legacy position requests use pseudo-recency. |
 | `importance_weight` | Weight for Memory Stream importance scores. LongMemEval phase 1 fixes this to `0.0` unless a non-gold external artifact is explicitly configured. |
-| `recency_decay` | Decay used to compute pseudo-recency before normalization. |
+| `recency_decay` | Decay used before recency normalization: per day for `recency_mode=real_time`, per position step for legacy position recency. |
 
 All weights must be finite and non-negative. At least one of `relevance_weight`, `recency_weight`, and `importance_weight` must be positive for every candidate. `recency_decay` must satisfy `0 < recency_decay <= 1.0`.
 
@@ -40,13 +40,13 @@ There is no special code path for fixed fields. Use a single-element array:
 ```json
 {
   "relevance_weight": [1.0],
-  "recency_weight": [0.0],
-  "importance_weight": [0.0, 0.01, 0.05, 0.1],
+  "recency_weight": [0.0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0],
+  "importance_weight": [0.0],
   "recency_decay": [0.99]
 }
 ```
 
-This searches only `importance_weight`; the other fields are fixed by configuration.
+This LongMemEval phase-1 shape searches `recency_weight` over real-time temporal requests; the other fields are fixed by configuration.
 
 ## Boundary
 

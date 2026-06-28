@@ -270,28 +270,26 @@ candidate_items[i].global_position == i
 
 ### 3.4 Recency 定义
 
-Memory Stream 的 LongMemEval recency 第一版使用 candidate 在 cleaned haystack 中的相对顺序：
+Memory Stream 的 LongMemEval recency 使用真实 session 时间，而不是 cleaned haystack 中的相对位置。Temporal request 必须显式带上：
 
 ```python
-recency_raw = recency_decay ** (max_position - global_position)
+metadata = {
+    "recency_mode": "real_time",
+    "question_datetime": record["question_datetime"],
+    "datetime_by_item_id": {item_id: session_datetime, ...},
+    "position_by_item_id": {item_id: global_position, ...},  # retained for stable IDs/debug only
+}
 ```
 
-如果 `question_date` 和 `haystack_dates` 可稳定解析，metadata 同时保留 session-level 时间差：
+scoring 对 `recency_mode="real_time"` 使用最新可见时间锚点的天级时间差。因为 LongMemEval 的 haystack 可能包含晚于 `question_datetime` 的候选，anchor 取 `max(question_datetime, datetime_by_item_id.values())`：
 
 ```python
-seconds_before_question = question_timestamp - session_timestamp
+recency_anchor = max(question_datetime, *datetime_by_item_id.values())
+age_days = (recency_anchor - item_datetime).total_seconds() / 86400
+recency_raw = recency_decay ** age_days
 ```
 
-但第一版 scoring 仍用 position-based recency，原因是它与现有 `pseudo_recency_scores()` 兼容，且不会被 timestamp timezone/format 问题阻塞。正式报告中应称为 order-based recency，不要声称已经实现 real-time decay。
-
-后续如果要用 real-time decay，应单独扩展：
-
-```python
-recency_raw = exp(-seconds_before_question / half_life_seconds)
-```
-
-这不是第一阶段目标。
-
+`position_by_item_id` 仍保留在 request metadata 中，用于稳定 artifact/debug 和兼容旧 HotpotQA/2Wiki position request；LongMemEval 不再把 position 作为 recency 主信号。若 real-time request 缺少 `question_datetime`、`datetime_by_item_id`，或时间格式不可解析，retriever 应 fail fast，而不是静默回退到 position-based pseudo-recency。
 ## 4. Baseline 可行性分层
 
 | Method | 第一阶段适配 | 工程量 | 可行性判断 | 说明 |
@@ -301,11 +299,11 @@ recency_raw = exp(-seconds_before_question / half_life_seconds)
 | `memory_stream` | 是 | 中 | 高 | 需要 LongMemEval temporal projector 和去 HotpotQA sidecar。 |
 | `bm25_graph_rerank` | 第二阶段 | 中 | 中高 | 需要 LongMemEval graph projection 和 graph-rerank tuning dataset 化。 |
 | `dense_graph_rerank` | 第二阶段 | 中 | 中高 | 推荐作为 graph baseline。 |
-| `dense_ft` | 第三阶段 | 中偏高 | 中 | 取决于训练 split 是否足够可信。 |
-| `dense_rgcn_graph_retriever` | 第三阶段之后 | 高 | 中低 | 要先证明 graph semantics 和 train pairs 合理。 |
-| `dense_ft_rgcn_graph_retriever` | 最后 | 高 | 低到中 | 依赖 Dense-FT 和 R-GCN 两条链稳定。 |
+| `dense_ft` | 第三阶段已开始 | 中偏高 | 中 | active config 先暴露 workflow/config；结果使用仓库定义 split。 |
+| `dense_rgcn_graph_retriever` | 第三阶段已开始 | 高 | 中低 | 复用现有 graph/train-pair/R-GCN workflow，仍需实际训练验证。 |
+| `dense_ft_rgcn_graph_retriever` | 第三阶段已开始 | 高 | 低到中 | workflow-owned Dense-FT seed dependency 已进入 config。 |
 
-第一轮不建议同时承诺所有 trainable baseline。先把 LongMemEval dataset、BM25、Dense、Memory Stream 跑通，确认指标和 workflow contract，再扩展 graph / trainable 方法。
+第一轮已经完成 LongMemEval dataset、BM25、Dense、Memory Stream 和 graph rerank 的 workflow 接入；当前继续把 trainable baseline 暴露到 active config。trainable 结果必须明确使用 repository-defined deterministic split，不应描述成官方 LongMemEval training protocol。
 
 ## 5. 目标调用流
 
@@ -329,7 +327,7 @@ retrieve: dense
 retrieve: memory_stream
   -> TemporalMemoryRankingRequest
   -> relevance from dense seed ranker
-  -> recency from position_by_item_id
+  -> recency from latest visible real-time temporal anchor
   -> importance from request-owned neutral or non-gold scores
 
 evaluate
@@ -489,14 +487,10 @@ trainable results use repository-defined deterministic split, not an official Lo
 
 ### 6.6 Experiment configs and docs
 
-- Create `configs/experiments/longmemeval_v1_retrieval.json`
-  - 第一阶段只包含 `bm25`、`dense`、`memory_stream`。
-
-- Create `configs/experiments/longmemeval_v1_retrieval.json`
-  - 第二阶段包含 `bm25`、`dense`、`memory_stream`、`bm25_graph_rerank`、`dense_graph_rerank`。
-
-- Create or later add `configs/experiments/longmemeval_v1_trainable_retrieval.json`
-  - 第三阶段再包含 `dense_ft` 和 R-GCN methods。
+- Create/update `configs/experiments/longmemeval_v1_retrieval.json`
+  - 第一阶段包含 `bm25`、`dense`、`memory_stream`。
+  - 第二阶段加入 `bm25_graph_rerank`、`dense_graph_rerank`。
+  - 第三阶段在同一 canonical config 中加入 `dense_ft`、`dense_rgcn_graph_retriever`、`dense_ft_rgcn_graph_retriever`，并通过 `method_configs` 指向现有 trainable method configs。
 
 - Modify or remove `configs/experiments/hotpotqa_memory_stream.json`
   - 新方向下它不应继续作为 active experiment recipe。
@@ -1164,9 +1158,7 @@ Do not add or validate the first-stage config until Task 5 and Task 6 have remov
 
 **Files:**
 
-- Create: `configs/experiments/longmemeval_v1_retrieval.json`
-- Create: `configs/experiments/longmemeval_v1_retrieval.json`
-- Optionally later create: `configs/experiments/longmemeval_v1_trainable_retrieval.json`
+- Create/update: `configs/experiments/longmemeval_v1_retrieval.json`
 - Test: `tests/test_current_manifest_contract.py`
 - Test: `tests/test_workflow_orchestration.py`
 
@@ -1195,8 +1187,18 @@ Target:
   "methods": [
     "bm25",
     "dense",
-    "memory_stream"
+    "memory_stream",
+    "bm25_graph_rerank",
+    "dense_graph_rerank",
+    "dense_ft",
+    "dense_rgcn_graph_retriever",
+    "dense_ft_rgcn_graph_retriever"
   ],
+  "method_configs": {
+    "dense_ft": "configs/methods/dense_ft.json",
+    "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+    "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
+  },
   "profiles": {
     "smoke": {
       "train_examples": 1,
@@ -1211,7 +1213,12 @@ Target:
     "full": {
       "train_examples": 300,
       "dev_examples": 100,
-      "test_examples": 70
+      "test_examples": 40
+    },
+    "cloud-full": {
+      "train_examples": 300,
+      "dev_examples": 100,
+      "test_examples": 40
     }
   },
   "raw": {
@@ -1241,19 +1248,9 @@ Target:
 
 The downloaded `longmemeval_s_cleaned.json` contains 500 raw examples; current parser/validator keeps 440 valid retrieval examples and drops 60 invalid/abstention-style examples. `full` and `cloud-full` therefore use 300 train / 100 dev / 40 test with offsets 0 / 300 / 400 to cover all valid examples without overlap. This is a repository-defined split, not an official LongMemEval train/dev/test protocol.
 
-- [x] **Step 7.2: Add graph config**
+- [x] **Step 7.2: Add graph and trainable methods to the canonical config**
 
-Same as first-stage config, but methods include:
-
-```json
-[
-  "bm25",
-  "dense",
-  "memory_stream",
-  "bm25_graph_rerank",
-  "dense_graph_rerank"
-]
-```
+The active config now keeps graph rerank and trainable baselines in one canonical method list. Runtime `--method` / `--methods` selection controls subsets; do not split LongMemEval into near-duplicate experiment configs just to separate trainable methods.
 
 - [x] **Step 7.3: Validate manifest initialization**
 
@@ -1447,19 +1444,19 @@ Before implementation is considered complete:
 These are the main decisions to approve before implementation:
 
 1. Candidate 粒度是否确定为 turn/message，而不是 session？
-2. 第一阶段 Memory Stream 是否接受 `importance_weight=0.0`，只比较 dense relevance + order-based recency？
+2. 第一阶段 Memory Stream 是否接受 `importance_weight=0.0`，只比较 dense relevance + real-time recency？
 3. 是否删除 `configs/experiments/hotpotqa_memory_stream.json`，还是移到 retired docs？
 4. 第一阶段是否允许 smoke 临时复用 evidence suite，但正式结果必须实现 LongMemEval-specific metric suite？
-5. Dense-FT/R-GCN 是否明确放到第三阶段，不进入第一阶段验收范围？
+5. Dense-FT/R-GCN 是否作为第三阶段进入 active config，但结果报告仍标注 repository-defined split？
 
 我的建议是：
 
 ```text
 1. turn/message
-2. yes, importance_weight=0.0 for phase 1 and describe recency as order-based
+2. yes, importance_weight=0.0 for phase 1 and describe recency as latest-visible real-time day-decay
 3. delete active config or move to retired docs
 4. smoke can temporarily reuse evidence suite; reportable results require LongMemEval suite
-5. yes, trainable baselines are phase 3
+5. yes, expose trainable baselines in the active canonical config and keep result claims tied to the repository-defined split
 ```
 
 

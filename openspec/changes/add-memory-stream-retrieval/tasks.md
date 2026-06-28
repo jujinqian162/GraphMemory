@@ -13,7 +13,7 @@
 ## 2. Memory Stream Retrieval
 
 - [ ] 2.1 Add method tests with a fake dense seed ranker for relevance,
-  position-derived pseudo-recency, cleaned importance, complete-node output,
+  request-owned recency, cleaned importance, complete-node output,
   constant signals, weighted sums, and node-id tie-breaks.
 - [ ] 2.2 Add a Memory Stream-owned task-local min-max normalizer that maps
   constant signals to `0.0`.

@@ -2,7 +2,7 @@
 
 ## Context
 
-The baseline uses dense relevance, pseudo-recency from item position, and
+The baseline uses dense relevance, request-owned recency, and
 offline importance. Existing importance scores were produced manually in
 multiple batches and exhibit scorer-scale drift. Retrieval needs a stable
 consumer artifact without obsolete model-generation machinery.
@@ -71,7 +71,7 @@ it together with an existing dense seed ranker into `MemoryStreamMethod`.
 The method performs no path or JSON IO. For each task it:
 
 1. Calls the injected dense seed ranker for raw relevance over all nodes.
-2. Computes `recency_decay ** (max_position - position)`.
+2. Computes request-owned recency: `recency_decay ** age_days` from the latest visible temporal anchor for `recency_mode=real_time`, or `recency_decay ** (max_position - position)` for legacy position requests.
 3. Looks up the validated cleaned importance score by task and node id.
 4. Min-max normalizes each signal independently within the task.
 5. Applies non-negative weights and sorts by `(-score, node_id)`.

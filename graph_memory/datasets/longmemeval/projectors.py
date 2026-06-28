@@ -100,6 +100,8 @@ class LongMemEvalToTemporalMemoryRankingRequest:
                 for item in record["candidate_items"]
             },
             metadata={
+                "recency_mode": "real_time",
+                "question_datetime": record["question_datetime"],
                 "position_by_item_id": {
                     item["item_id"]: item["global_position"]
                     for item in record["candidate_items"]

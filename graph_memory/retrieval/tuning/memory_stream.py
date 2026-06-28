@@ -25,7 +25,7 @@ from graph_memory.retrieval.methods.memory_stream.scoring import (
     RawMemoryStreamSignals,
     normalize_memory_stream_signals,
     normalize_task_signal,
-    pseudo_recency_scores,
+    memory_stream_recency_scores,
     rank_memory_stream_scores,
     score_memory_stream,
 )
@@ -120,11 +120,15 @@ def run_memory_stream_from_signal_cache(
             ) from error
 
         started = time.perf_counter()
-        recency = normalize_task_signal(
-            pseudo_recency_scores(
-                request,
-                decay=scoring.recency_decay,
+        recency = (
+            normalize_task_signal(
+                memory_stream_recency_scores(
+                    request,
+                    decay=scoring.recency_decay,
+                )
             )
+            if scoring.recency_weight > 0.0
+            else {}
         )
         scores = score_memory_stream(
             NormalizedMemoryStreamSignals(

@@ -10,6 +10,11 @@ from scripts.workflow.planner import build_stage_plan
 from scripts.workflow.status import inspect_experiment_status
 from scripts.workflow.types import StageId
 
+DENSE_FT = "dense_ft"
+RGCN = "dense_rgcn_graph_retriever"
+DENSE_FT_SEEDED_RGCN = "dense_ft_rgcn_graph_retriever"
+TRAINABLE_METHODS = (DENSE_FT, RGCN, DENSE_FT_SEEDED_RGCN)
+
 
 def _longmemeval_workflow_config() -> dict[str, Any]:
     return {
@@ -190,7 +195,8 @@ def test_active_experiment_configs_route_memory_stream_to_longmemeval_only() -> 
         if row["dataset"] in {"hotpotqa", "twowiki"}:
             assert "memory_stream" not in row["methods"]
     assert recipes["longmemeval_v1_retrieval"]["methods"] == (
-        "bm25, dense, memory_stream, bm25_graph_rerank, dense_graph_rerank"
+        "bm25, dense, memory_stream, bm25_graph_rerank, dense_graph_rerank, "
+        "dense_ft, dense_rgcn_graph_retriever, dense_ft_rgcn_graph_retriever"
     )
 
 
@@ -224,6 +230,19 @@ def test_longmemeval_retrieval_config_initializes_without_hotpotqa_importance(tm
     assert tune_status["state"] == "missing"
     assert "data/hotpotqa/processed/memory_stream" not in rendered
 
+
+def test_longmemeval_memory_stream_search_space_tunes_recency_not_importance() -> None:
+    config = load_experiment_config("longmemeval_v1_retrieval")
+    search_space_path = Path(str(config["search_spaces"]["memory_stream"]))
+    search_space = read_json(search_space_path)
+
+    assert search_space["importance_weight"] == [0.0]
+    recency_weights = [float(value) for value in search_space["recency_weight"]]
+    assert 0.0 in recency_weights
+    assert float(config["memory_stream_recency_weight"]) in recency_weights
+    assert max(recency_weights) >= 0.5
+
+
 def test_longmemeval_retrieval_config_supports_method_subset_override(tmp_path: Path) -> None:
     manifest = initialize_experiment(
         "longmemeval-method-subset",
@@ -236,6 +255,58 @@ def test_longmemeval_retrieval_config_supports_method_subset_override(tmp_path: 
 
     assert manifest["selected_methods"] == ["bm25", "dense", "memory_stream"]
     assert set(manifest["artifacts"]["predictions"]) == {"bm25", "dense", "memory_stream"}
+
+
+def test_longmemeval_retrieval_config_exposes_trainable_methods() -> None:
+    config = load_experiment_config("longmemeval_v1_retrieval")
+
+    assert set(TRAINABLE_METHODS).issubset(set(config["methods"]))
+    assert config["method_configs"] == {
+        RGCN: "configs/methods/dense_rgcn_graph_retriever.json",
+        DENSE_FT: "configs/methods/dense_ft.json",
+        DENSE_FT_SEEDED_RGCN: "configs/methods/dense_ft_rgcn_graph_retriever.json",
+    }
+
+
+def test_longmemeval_trainable_stage_configs_use_dataset_and_dependencies(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "longmemeval-trainable",
+        config=load_experiment_config("longmemeval_v1_retrieval"),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=list(TRAINABLE_METHODS),
+        force=True,
+    )
+
+    assert manifest["selected_methods"] == list(TRAINABLE_METHODS)
+    for method in TRAINABLE_METHODS:
+        for stage in ("pairs", "train", "retrieve", "evaluate"):
+            stage_config = read_json(manifest["stage_configs"][stage][method])
+            assert stage_config["dataset"] == "longmemeval"
+
+    dense_ft_train = read_json(manifest["stage_configs"]["train"][DENSE_FT])
+    dense_ft_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT])
+    rgcn_train = read_json(manifest["stage_configs"]["train"][RGCN])
+    rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][RGCN])
+    seeded_rgcn_train = read_json(manifest["stage_configs"]["train"][DENSE_FT_SEEDED_RGCN])
+    seeded_rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT_SEEDED_RGCN])
+
+    assert dense_ft_train["job"]["trainer"]["device"] == "cuda"
+    assert dense_ft_retrieve["job"]["device"] == "cuda"
+    assert dense_ft_retrieve["io"]["graphs"] is None
+    assert "train_graphs" not in dense_ft_train["io"]
+    assert "dev_graphs" not in dense_ft_train["io"]
+
+    assert rgcn_train["job"]["trainer"]["device"] == "cuda"
+    assert rgcn_retrieve["job"]["device"] == "cuda"
+    assert isinstance(rgcn_train["io"]["train_graphs"], str)
+    assert isinstance(rgcn_train["io"]["dev_graphs"], str)
+    assert isinstance(rgcn_retrieve["io"]["graphs"], str)
+
+    assert seeded_rgcn_train["job"]["trainer"]["device"] == "cuda"
+    assert seeded_rgcn_retrieve["job"]["device"] == "cuda"
+    assert Path(seeded_rgcn_train["io"]["seed_checkpoint"]) == Path(dense_ft_train["io"]["model_dir"])
+    assert isinstance(seeded_rgcn_retrieve["io"]["graphs"], str)
 
 
 def test_longmemeval_retrieval_config_has_cloud_full_profile_for_all_valid_cleaned_s_examples() -> None:

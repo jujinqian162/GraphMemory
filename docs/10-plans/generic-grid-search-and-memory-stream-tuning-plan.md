@@ -421,8 +421,8 @@ configs/search_spaces/memory_stream.json
 ```json
 {
   "relevance_weight": [1.0],
-  "recency_weight": [0.0],
-  "importance_weight": [0.0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0],
+  "recency_weight": [0.0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0],
+  "importance_weight": [0.0],
   "recency_decay": [0.99]
 }
 ```

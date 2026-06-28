@@ -20,8 +20,16 @@
     "dense",
     "memory_stream",
     "bm25_graph_rerank",
-    "dense_graph_rerank"
+    "dense_graph_rerank",
+    "dense_ft",
+    "dense_rgcn_graph_retriever",
+    "dense_ft_rgcn_graph_retriever"
   ],
+  "method_configs": {
+    "dense_ft": "configs/methods/dense_ft.json",
+    "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+    "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
+  },
   "profiles": {
     "smoke": {
       "train_examples": 1,

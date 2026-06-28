@@ -90,13 +90,19 @@ def test_longmemeval_text_projection_outputs_retriever_request_only() -> None:
     assert request.candidates[0].metadata["position"] == 0
 
 
-def test_longmemeval_temporal_projection_uses_order_signals_and_zero_importance() -> None:
+def test_longmemeval_temporal_projection_uses_real_time_recency_and_zero_importance() -> None:
     request = LongMemEvalToTemporalMemoryRankingRequest().project(_ranking_record())
 
     assert request.importance_by_item_id == {"m0": 0.0, "m1": 0.0}
+    assert request.metadata["recency_mode"] == "real_time"
+    assert request.metadata["question_datetime"] == "2024-01-10T12:00:00"
     assert request.metadata["position_by_item_id"] == {"m0": 0, "m1": 1}
     assert request.metadata["session_order_by_item_id"] == {"m0": 0, "m1": 0}
     assert request.metadata["turn_index_by_item_id"] == {"m0": 0, "m1": 1}
+    assert request.metadata["datetime_by_item_id"] == {
+        "m0": "2024-01-01T09:00:00",
+        "m1": "2024-01-01T09:00:00",
+    }
 
 
 def test_longmemeval_graph_projection_uses_session_local_sequence_index() -> None:

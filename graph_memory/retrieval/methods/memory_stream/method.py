@@ -10,7 +10,7 @@ from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanc
 from graph_memory.retrieval.methods.memory_stream.scoring import (
     RawMemoryStreamSignals,
     normalize_memory_stream_signals,
-    pseudo_recency_scores,
+    memory_stream_recency_scores,
     rank_memory_stream_scores,
     score_memory_stream,
 )
@@ -31,7 +31,7 @@ class MemoryStreamMethod:
         raw_signals = RawMemoryStreamSignals(
             relevance_by_node_id=self._dense_relevance_by_node_id(request),
             recency_by_node_id=(
-                pseudo_recency_scores(request, decay=self.scoring.recency_decay)
+                memory_stream_recency_scores(request, decay=self.scoring.recency_decay)
                 if self.scoring.recency_weight > 0.0
                 else {}
             ),
