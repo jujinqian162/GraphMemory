@@ -1195,7 +1195,7 @@ Target:
     "dense_ft_rgcn_graph_retriever"
   ],
   "method_configs": {
-    "dense_ft": "configs/methods/dense_ft.json",
+    "dense_ft": "configs/methods/longmemeval_dense_ft.json",
     "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
     "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
   },

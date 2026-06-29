@@ -28,6 +28,7 @@ docs/configs/methods/dense_ft_rgcn_graph_retriever.md
 | `configs/experiments/hotpotqa_rgcn_ablation_selected.json` | `experiments/hotpotqa_rgcn_ablation_selected.md` | 服务器上运行选定 R-GCN variants 的 ablation 配置。 |
 | `configs/methods/dense_rgcn_graph_retriever.json` | `methods/dense_rgcn_graph_retriever.md` | R-GCN trainable graph retriever 的当前方法配置。 |
 | `configs/methods/dense_ft.json` | `methods/dense_ft.md` | Dense-FT trainable retriever 的当前方法配置。 |
+| `configs/methods/longmemeval_dense_ft.json` | `methods/longmemeval_dense_ft.md` | LongMemEval 长上下文 Dense-FT trainable retriever 的方法配置，降低 full/cloud-full 训练 batch。 |
 | `configs/methods/dense_ft_rgcn_graph_retriever.json` | `methods/dense_ft_rgcn_graph_retriever.md` | 使用 Dense-FT checkpoint 作为 encoder seed 的 R-GCN trainable graph retriever 当前方法配置。 |
 | `configs/search_spaces/graph_rerank.json` | `search_spaces/graph_rerank.md` | BM25/dense graph rerank 的 tuning search space。 |
 
