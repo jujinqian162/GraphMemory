@@ -15,6 +15,8 @@ RGCN = "dense_rgcn_graph_retriever"
 DENSE_FT_SEEDED_RGCN = "dense_ft_rgcn_graph_retriever"
 TRAINABLE_METHODS = (DENSE_FT, RGCN, DENSE_FT_SEEDED_RGCN)
 LONGMEMEVAL_DENSE_FT_CONFIG = "configs/methods/longmemeval_dense_ft.json"
+LONGMEMEVAL_RGCN_CONFIG = "configs/methods/longmemeval_dense_rgcn_graph_retriever.json"
+LONGMEMEVAL_DENSE_FT_RGCN_CONFIG = "configs/methods/longmemeval_dense_ft_rgcn_graph_retriever.json"
 
 
 def _longmemeval_workflow_config() -> dict[str, Any]:
@@ -263,9 +265,9 @@ def test_longmemeval_retrieval_config_exposes_trainable_methods() -> None:
 
     assert set(TRAINABLE_METHODS).issubset(set(config["methods"]))
     assert config["method_configs"] == {
-        RGCN: "configs/methods/dense_rgcn_graph_retriever.json",
+        RGCN: LONGMEMEVAL_RGCN_CONFIG,
         DENSE_FT: LONGMEMEVAL_DENSE_FT_CONFIG,
-        DENSE_FT_SEEDED_RGCN: "configs/methods/dense_ft_rgcn_graph_retriever.json",
+        DENSE_FT_SEEDED_RGCN: LONGMEMEVAL_DENSE_FT_RGCN_CONFIG,
     }
 
 
@@ -282,10 +284,30 @@ def test_longmemeval_cloud_full_dense_ft_uses_long_context_batch_size(tmp_path: 
     resolved_dense_ft = manifest["effective_config"]["resolved_method_configs"][DENSE_FT]
     train_config = read_json(manifest["stage_configs"]["train"][DENSE_FT])
 
-    assert resolved_dense_ft["train"]["trainer"]["train_batch_size"] == 16
-    assert resolved_dense_ft["train"]["trainer"]["eval_batch_size"] == 64
-    assert train_config["job"]["trainer"]["train_batch_size"] == 16
-    assert train_config["job"]["trainer"]["eval_batch_size"] == 64
+    assert resolved_dense_ft["train"]["trainer"]["train_batch_size"] == 8
+    assert resolved_dense_ft["train"]["trainer"]["eval_batch_size"] == 32
+    assert train_config["job"]["trainer"]["train_batch_size"] == 8
+    assert train_config["job"]["trainer"]["eval_batch_size"] == 32
+
+
+def test_longmemeval_cloud_full_rgcn_configs_use_smaller_batch_and_more_epochs(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "longmemeval-rgcn-cloud-full",
+        config=load_experiment_config("longmemeval_v1_retrieval"),
+        run_root=tmp_path,
+        profile="cloud-full",
+        methods=[RGCN, DENSE_FT_SEEDED_RGCN],
+        force=True,
+    )
+
+    for method in (RGCN, DENSE_FT_SEEDED_RGCN):
+        resolved_method = manifest["effective_config"]["resolved_method_configs"][method]
+        train_config = read_json(manifest["stage_configs"]["train"][method])
+
+        assert resolved_method["train"]["trainer"]["batch_size"] == 8
+        assert resolved_method["train"]["trainer"]["epochs"] == 15
+        assert train_config["job"]["trainer"]["batch_size"] == 8
+        assert train_config["job"]["trainer"]["epochs"] == 15
 
 
 def test_longmemeval_trainable_stage_configs_use_dataset_and_dependencies(tmp_path: Path) -> None:

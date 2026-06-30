@@ -8,7 +8,7 @@
 
 - `method` 仍固定为 `dense_ft`，所以 workflow、manifest、artifact 目录和检索方法名不变。
 - `quick` 和 `smoke` profile 与通用 Dense-FT 配置保持同等语义。
-- `full` 和 `cloud-full` 使用 `train_batch_size: 16`、`eval_batch_size: 64`、`epochs: 2`。
+- `full` 和 `cloud-full` 使用 `train_batch_size: 8`、`eval_batch_size: 32`、`epochs: 2`。
 - LongMemEval active experiment config 通过 `method_configs.dense_ft` 引用本文件；HotpotQA 和 2Wiki 继续使用通用 `configs/methods/dense_ft.json`。
 
 ## 使用位置

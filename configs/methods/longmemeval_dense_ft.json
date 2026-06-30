@@ -49,8 +49,8 @@
     "full": {
       "train": {
         "trainer": {
-          "train_batch_size": 16,
-          "eval_batch_size": 64,
+          "train_batch_size": 8,
+          "eval_batch_size": 32,
           "epochs": 2
         }
       }
@@ -59,8 +59,8 @@
     "cloud-full": {
       "train": {
         "trainer": {
-          "train_batch_size": 16,
-          "eval_batch_size": 64,
+          "train_batch_size": 8,
+          "eval_batch_size": 32,
           "epochs": 2
         }
       }

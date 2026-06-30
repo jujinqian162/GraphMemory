@@ -27,8 +27,8 @@
   ],
   "method_configs": {
     "dense_ft": "configs/methods/longmemeval_dense_ft.json",
-    "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
-    "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
+    "dense_rgcn_graph_retriever": "configs/methods/longmemeval_dense_rgcn_graph_retriever.json",
+    "dense_ft_rgcn_graph_retriever": "configs/methods/longmemeval_dense_ft_rgcn_graph_retriever.json"
   },
   "profiles": {
     "smoke": {
