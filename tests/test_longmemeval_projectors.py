@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
+from graph_memory.retrieval.requests import RealTimeRecencySpec
 from graph_memory.datasets.longmemeval import (
     LongMemEvalLabelRecord,
     LongMemEvalRankingRecord,
@@ -100,6 +101,12 @@ def test_longmemeval_temporal_projection_uses_real_time_recency_and_zero_importa
     assert request.metadata["session_order_by_item_id"] == {"m0": 0, "m1": 0}
     assert request.metadata["turn_index_by_item_id"] == {"m0": 0, "m1": 1}
     assert request.metadata["datetime_by_item_id"] == {
+        "m0": "2024-01-01T09:00:00",
+        "m1": "2024-01-01T09:00:00",
+    }
+    assert isinstance(request.recency, RealTimeRecencySpec)
+    assert request.recency.question_datetime == "2024-01-10T12:00:00"
+    assert request.recency.datetime_by_item_id == {
         "m0": "2024-01-01T09:00:00",
         "m1": "2024-01-01T09:00:00",
     }

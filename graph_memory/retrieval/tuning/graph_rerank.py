@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Protocol, cast
+
 from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.metrics import SuiteMetricRow
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.evaluation.service import evaluate_results
+from graph_memory.evaluation.suites import evidence_metric_suite
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.registry.retrieval import RetrievalMethodId
@@ -14,8 +18,15 @@ from graph_memory.retrieval.tuning.seed_scores import (
     precompute_seed_score_cache,
     run_graph_rerank_from_seed_score_cache,
 )
-from graph_memory.retrieval.tuning.selection import retrieval_candidate_key
+from graph_memory.retrieval.tuning.selection import MetricSelectionKey, retrieval_candidate_key
 from graph_memory.tuning.grid_search import GridSearchRunner
+
+
+class GraphRerankMetricSuite(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    def evaluate(self, request: EvidenceEvaluationRequest) -> Sequence[SuiteMetricRow]: ...
 
 
 def tune_graph_rerank(
@@ -27,7 +38,12 @@ def tune_graph_rerank(
     grid: list[GraphRerankConfig] | None = None,
     top_k: int = 10,
     dense_runtime: DenseRuntime | None = None,
+    metric_suite: GraphRerankMetricSuite | None = None,
+    selection_key: MetricSelectionKey | None = None,
 ) -> tuple[GraphRerankConfigRecord, list[TuningCandidateRow]]:
+    effective_metric_suite = metric_suite or evidence_metric_suite()
+    effective_selection_key = selection_key or retrieval_candidate_key
+
     graph_rerank_methods = {
         method_id.value
         for method_id in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
@@ -54,16 +70,20 @@ def tune_graph_rerank(
             top_k=top_k,
             graph_config=config,
         )
-        metric_rows = evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=labels, graphs=graphs))
+        metric_rows = list(
+            effective_metric_suite.evaluate(
+                EvidenceEvaluationRequest(predictions=predictions, labels=labels, graphs=graphs)
+            )
+        )
         if len(metric_rows) != 1:
             raise ValueError("Expected one aggregate metric row per tuning candidate.")
-        return {**metric_rows[0], "config": config_dict}
+        return cast(TuningCandidateRow, cast(object, {**metric_rows[0], "config": config_dict}))
 
     result = GridSearchRunner[
         GraphRerankConfig,
         TuningCandidateRow,
-        tuple[float, float, float, float],
-    ](selection_key=retrieval_candidate_key).run(
+        tuple[float, ...],
+    ](selection_key=effective_selection_key).run(
         grid or graph_rerank_grid(),
         evaluate_candidate,
     )

@@ -27,7 +27,7 @@ from graph_memory.retrieval.methods.memory_stream.scoring import (
     score_memory_stream,
 )
 from graph_memory.registry.retrieval import DenseEncoderSettings, MemoryStreamRetrievalSettings
-from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextCandidate, TextRankingRequest
+from graph_memory.retrieval.requests import RealTimeRecencySpec, TemporalMemoryRankingRequest, TextCandidate, TextRankingRequest
 
 
 def _task_input() -> HotpotQARankingRecord:
@@ -132,6 +132,36 @@ def test_rank_memory_stream_scores_breaks_ties_by_node_id() -> None:
     ]
 
 
+def test_memory_stream_real_time_recency_uses_typed_request_data_without_metadata() -> None:
+    request = TemporalMemoryRankingRequest(
+        task_id="longmem_q1",
+        query_text="What did I discuss recently?",
+        candidates=(
+            TextCandidate(item_id="m_old", text="Older memory.", metadata={}),
+            TextCandidate(item_id="m_recent", text="Recent memory.", metadata={}),
+        ),
+        importance_by_item_id={},
+        recency=RealTimeRecencySpec(
+            question_datetime="2024-01-10T12:00:00",
+            datetime_by_item_id={
+                "m_old": "2024-01-08T12:00:00",
+                "m_recent": "2024-01-09T12:00:00",
+            },
+        ),
+        metadata={
+            "recency_mode": "position",
+            "position_by_item_id": {"m_old": 0, "m_recent": 1},
+        },
+    )
+
+    scores = memory_stream_scoring.memory_stream_recency_scores(request, decay=0.5)
+
+    assert scores == {
+        "m_old": pytest.approx(0.25),
+        "m_recent": pytest.approx(0.5),
+    }
+
+
 def test_memory_stream_real_time_recency_uses_candidate_datetimes_not_positions() -> None:
     request = TemporalMemoryRankingRequest(
         task_id="longmem_q1",
@@ -141,6 +171,13 @@ def test_memory_stream_real_time_recency_uses_candidate_datetimes_not_positions(
             TextCandidate(item_id="m_recent", text="Recent memory.", metadata={}),
         ),
         importance_by_item_id={},
+        recency=RealTimeRecencySpec(
+            question_datetime="2024-01-10T12:00:00",
+            datetime_by_item_id={
+                "m_old": "2024-01-08T12:00:00",
+                "m_recent": "2024-01-09T12:00:00",
+            },
+        ),
         metadata={
             "recency_mode": "real_time",
             "question_datetime": "2024-01-10T12:00:00",
@@ -166,6 +203,10 @@ def test_memory_stream_real_time_recency_accepts_longmemeval_raw_datetime_format
         query_text="What did I discuss yesterday?",
         candidates=(TextCandidate(item_id="m0", text="Memory.", metadata={}),),
         importance_by_item_id={},
+        recency=RealTimeRecencySpec(
+            question_datetime="2023/05/30 (Tue) 23:40",
+            datetime_by_item_id={"m0": "2023/05/29 (Mon) 23:40"},
+        ),
         metadata={
             "recency_mode": "real_time",
             "question_datetime": "2023/05/30 (Tue) 23:40",
@@ -187,6 +228,13 @@ def test_memory_stream_real_time_recency_anchors_to_latest_visible_datetime() ->
             TextCandidate(item_id="m_latest", text="Latest visible memory.", metadata={}),
         ),
         importance_by_item_id={},
+        recency=RealTimeRecencySpec(
+            question_datetime="2024-01-10T12:00:00",
+            datetime_by_item_id={
+                "m_future": "2024-01-11T12:00:00",
+                "m_latest": "2024-01-12T12:00:00",
+            },
+        ),
         metadata={
             "recency_mode": "real_time",
             "question_datetime": "2024-01-10T12:00:00",
@@ -211,6 +259,10 @@ def test_memory_stream_real_time_recency_requires_question_datetime() -> None:
         query_text="What did I discuss recently?",
         candidates=(TextCandidate(item_id="m0", text="Memory.", metadata={}),),
         importance_by_item_id={},
+        recency=RealTimeRecencySpec(
+            question_datetime="",
+            datetime_by_item_id={"m0": "2024-01-09T12:00:00"},
+        ),
         metadata={
             "recency_mode": "real_time",
             "datetime_by_item_id": {"m0": "2024-01-09T12:00:00"},

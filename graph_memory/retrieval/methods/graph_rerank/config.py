@@ -3,9 +3,9 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import TypeAlias, TypedDict
 
-from graph_memory.contracts.metrics import MetricRow
+from graph_memory.contracts.metrics import EvidenceMetricRow, LongMemEvalMetricRow
 from graph_memory.contracts.ranking import RetrievedSubgraph
 from graph_memory.retrieval.contracts import RankedNode
 
@@ -47,8 +47,15 @@ class GraphRerankConfigRecord(TypedDict):
     neighbor_type_weights: dict[str, float]
 
 
-class TuningCandidateRow(MetricRow):
+class EvidenceGraphRerankTuningCandidateRow(EvidenceMetricRow):
     config: GraphRerankConfigRecord
+
+
+class LongMemEvalGraphRerankTuningCandidateRow(LongMemEvalMetricRow):
+    config: GraphRerankConfigRecord
+
+
+TuningCandidateRow: TypeAlias = EvidenceGraphRerankTuningCandidateRow | LongMemEvalGraphRerankTuningCandidateRow
 
 
 GRAPH_RERANK_CONFIG_FIELDS: frozenset[str] = frozenset(

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from graph_memory.contracts.common import NodeId
 from graph_memory.contracts.errors import ContractValidationError
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
-from graph_memory.retrieval.requests import TemporalMemoryRankingRequest
+from graph_memory.retrieval.requests import PositionRecencySpec, RealTimeRecencySpec, TemporalMemoryRankingRequest
 
 SECONDS_PER_DAY = 86_400.0
 _WEEKDAY_MARKER = re.compile(r"\s+\([A-Za-z]{3}\)")
@@ -58,18 +58,13 @@ def memory_stream_recency_scores(
     *,
     decay: float,
 ) -> dict[NodeId, float]:
-    """Compute the request-owned recency signal for Memory Stream."""
-    raw_mode = request.metadata.get("recency_mode")
-    if raw_mode is None or raw_mode == "position":
+    """Compute the typed request-owned recency signal for Memory Stream."""
+    if isinstance(request.recency, PositionRecencySpec):
         return pseudo_recency_scores(request, decay=decay)
-    if raw_mode == "real_time":
+    if isinstance(request.recency, RealTimeRecencySpec):
         return real_time_recency_scores(request, decay=decay)
-    if not isinstance(raw_mode, str):
-        raise ContractValidationError(
-            f"Invalid temporal memory request: task_id={request.task_id} recency_mode must be a string."
-        )
     raise ContractValidationError(
-        f"Invalid temporal memory request: task_id={request.task_id} unsupported recency_mode={raw_mode!r}."
+        f"Invalid temporal memory request: task_id={request.task_id} requires a supported recency spec."
     )
 
 
@@ -95,7 +90,12 @@ def real_time_recency_scores(
     decay: float,
 ) -> dict[NodeId, float]:
     """Compute decay ** age_days against the latest visible temporal anchor."""
-    raw_question_datetime = request.metadata.get("question_datetime")
+    spec = request.recency
+    if not isinstance(spec, RealTimeRecencySpec):
+        raise ContractValidationError(
+            f"Invalid temporal memory request: task_id={request.task_id} requires real-time recency spec."
+        )
+    raw_question_datetime = spec.question_datetime
     if not isinstance(raw_question_datetime, str) or not raw_question_datetime:
         raise ContractValidationError(
             "Invalid temporal memory request: "
@@ -107,7 +107,7 @@ def real_time_recency_scores(
         field_name="question_datetime",
     )
 
-    datetime_by_item_id = _datetime_by_item_id(request)
+    datetime_by_item_id = _datetime_by_item_id(request, spec)
     recency_anchor = max([question_datetime, *datetime_by_item_id.values()])
     return {
         item_id: decay ** _age_days(
@@ -146,10 +146,15 @@ def rank_memory_stream_scores(score_by_node_id: Mapping[NodeId, float]) -> list[
 
 
 def _position_by_item_id(request: TemporalMemoryRankingRequest) -> dict[NodeId, int]:
-    raw_positions = request.metadata.get("position_by_item_id")
+    spec = request.recency
+    if not isinstance(spec, PositionRecencySpec):
+        raise ContractValidationError(
+            f"Invalid temporal memory request: task_id={request.task_id} requires position recency spec."
+        )
+    raw_positions = spec.position_by_item_id
     if not isinstance(raw_positions, Mapping):
         raise ContractValidationError(
-            f"Invalid temporal memory request: task_id={request.task_id} missing position_by_item_id metadata."
+            f"Invalid temporal memory request: task_id={request.task_id} position_by_item_id must be a mapping."
         )
     expected_ids = {candidate.item_id for candidate in request.candidates}
     positions: dict[NodeId, int] = {}
@@ -172,12 +177,12 @@ def _position_by_item_id(request: TemporalMemoryRankingRequest) -> dict[NodeId, 
     return positions
 
 
-def _datetime_by_item_id(request: TemporalMemoryRankingRequest) -> dict[NodeId, datetime]:
-    raw_datetimes = request.metadata.get("datetime_by_item_id")
+def _datetime_by_item_id(request: TemporalMemoryRankingRequest, spec: RealTimeRecencySpec) -> dict[NodeId, datetime]:
+    raw_datetimes = spec.datetime_by_item_id
     if not isinstance(raw_datetimes, Mapping):
         raise ContractValidationError(
             "Invalid temporal memory request: "
-            f"task_id={request.task_id} real_time recency requires datetime_by_item_id metadata."
+            f"task_id={request.task_id} real_time recency requires datetime_by_item_id."
         )
     expected_ids = {candidate.item_id for candidate in request.candidates}
     datetimes: dict[NodeId, datetime] = {}

@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TypeAlias, TypedDict
-
-from typing_extensions import NotRequired
 
 from graph_memory.contracts.common import MethodName, NodeId, TaskId
 
 MetricValue: TypeAlias = str | float
 
-MetricRow = TypedDict(
-    "MetricRow",
+
+@dataclass(frozen=True)
+class MetricTableSchema:
+    name: str
+    main_columns: tuple[str, ...]
+    path_columns: tuple[str, ...]
+    efficiency_columns: tuple[str, ...]
+    wide_columns: tuple[str, ...]
+
+
+EvidenceMetricRow = TypedDict(
+    "EvidenceMetricRow",
     {
         "Method": str,
         "Recall@2": float,
@@ -19,12 +28,6 @@ MetricRow = TypedDict(
         "Evidence F1@10": float,
         "Full Support@5": float,
         "Full Support@10": float,
-        "Turn Recall@5": NotRequired[float],
-        "Turn Recall@10": NotRequired[float],
-        "Full Turn Support@10": NotRequired[float],
-        "Session Recall@5": NotRequired[float],
-        "Session Recall@10": NotRequired[float],
-        "Full Session Support@10": NotRequired[float],
         "MRR": float,
         "Connected Evidence Recall@5": float,
         "Connected Evidence Recall@10": float,
@@ -40,6 +43,28 @@ MetricRow = TypedDict(
     },
 )
 
+LongMemEvalMetricRow = TypedDict(
+    "LongMemEvalMetricRow",
+    {
+        "Method": str,
+        "Turn Recall@5": float,
+        "Turn Recall@10": float,
+        "Full Turn Support@10": float,
+        "Session Recall@5": float,
+        "Session Recall@10": float,
+        "Full Session Support@10": float,
+        "MRR": float,
+        "Path Recall@10": MetricValue,
+        "Edge Recall@10": MetricValue,
+        "Retrieval Latency / Query": float,
+        "Memory Size": float,
+        "Avg Retrieved Nodes": float,
+        "Avg Retrieved Edges": float,
+    },
+)
+
+MetricRow: TypeAlias = EvidenceMetricRow
+SuiteMetricRow: TypeAlias = EvidenceMetricRow | LongMemEvalMetricRow
 MetricTableRow: TypeAlias = dict[str, MetricValue]
 MetricSuiteRow: TypeAlias = dict[str, MetricValue]
 
@@ -53,12 +78,6 @@ TaskMetricRow = TypedDict(
         "Evidence F1@10": float,
         "Full Support@5": float,
         "Full Support@10": float,
-        "Turn Recall@5": NotRequired[float],
-        "Turn Recall@10": NotRequired[float],
-        "Full Turn Support@10": NotRequired[float],
-        "Session Recall@5": NotRequired[float],
-        "Session Recall@10": NotRequired[float],
-        "Full Session Support@10": NotRequired[float],
         "MRR": float,
         "Connected Evidence Recall@5": float,
         "Connected Evidence Recall@10": float,
@@ -85,4 +104,15 @@ class FailureCase(TypedDict, total=False):
     connected_gold_in_top_k: bool
 
 
-__all__ = ["FailureCase", "MetricRow", "MetricSuiteRow", "MetricTableRow", "MetricValue", "TaskMetricRow"]
+__all__ = [
+    "EvidenceMetricRow",
+    "FailureCase",
+    "LongMemEvalMetricRow",
+    "MetricRow",
+    "MetricSuiteRow",
+    "MetricTableRow",
+    "MetricTableSchema",
+    "MetricValue",
+    "SuiteMetricRow",
+    "TaskMetricRow",
+]

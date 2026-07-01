@@ -68,11 +68,7 @@ def validate_metric_rows(rows: object, *, metric_suite: MetricRowValidator | Non
     if metric_suite is not None:
         metric_suite.validate_metric_rows(rows)
         return
-    materialized = _require_record_list(rows, "metric rows")
-    if materialized and isinstance(materialized[0], dict) and "Turn Recall@5" in materialized[0]:
-        validate_longmemeval_metric_rows(materialized)
-        return
-    validate_evidence_metric_rows(materialized)
+    validate_evidence_metric_rows(rows)
 
 
 def validate_evidence_metric_rows(rows: object) -> None:

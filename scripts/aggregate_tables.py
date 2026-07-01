@@ -11,12 +11,9 @@ from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.evaluation.tables import (
-    metric_columns_for_rows,
-    split_metric_tables,
-)
 from graph_memory.contracts.common import JsonValue
-from graph_memory.contracts.metrics import MetricRow
+from graph_memory.contracts.metrics import MetricTableRow
+from graph_memory.evaluation.tables import metric_table_schema_for_suite, split_metric_tables
 from graph_memory.io import read_csv, read_json, write_csv
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 
@@ -38,6 +35,7 @@ class AggregateTablesArgs:
     output_main: str
     output_path: str
     output_efficiency: str
+    metric_suite: str = "evidence"
     ablation_index: str | None = None
     output_ablation: str | None = None
     ablation_selections: tuple[str, ...] = ()
@@ -65,19 +63,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         outputs["ablation"] = args.output_ablation
 
     try:
+        schema = metric_table_schema_for_suite(args.metric_suite)
         metric_files = [
             path
             for path in sorted(Path(args.input_dir).glob("*.csv"))
             if path not in output_paths and _looks_like_metric_file(path)
         ]
-        rows: list[MetricRow] = []
+        rows: list[MetricTableRow] = []
         for metric_file in metric_files:
-            rows.extend(cast(list[MetricRow], read_csv(metric_file)))
-        main_rows, path_rows, efficiency_rows = split_metric_tables(rows)
-        main_columns, path_columns, efficiency_columns, _ = metric_columns_for_rows(rows)
-        write_csv(args.output_main, main_rows, main_columns)
-        write_csv(args.output_path, path_rows, path_columns)
-        write_csv(args.output_efficiency, efficiency_rows, efficiency_columns)
+            rows.extend(cast(list[MetricTableRow], read_csv(metric_file)))
+        main_rows, path_rows, efficiency_rows = split_metric_tables(rows, schema=schema)
+        write_csv(args.output_main, main_rows, list(schema.main_columns))
+        write_csv(args.output_path, path_rows, list(schema.path_columns))
+        write_csv(args.output_efficiency, efficiency_rows, list(schema.efficiency_columns))
         ablation_rows = (
             _indexed_ablation_rows(args.ablation_index, args.ablation_selections)
             if args.ablation_index is not None
@@ -91,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             started_at=started_at,
             finished_at=now_iso(),
             status="success",
-            effective_config={},
+            effective_config={"metric_suite": args.metric_suite},
             inputs=inputs,
             outputs=outputs,
             counts={"metric_files": len(metric_files), "rows": len(rows)},
@@ -113,7 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             started_at=started_at,
             finished_at=now_iso(),
             status="failed",
-            effective_config={},
+            effective_config={"metric_suite": args.metric_suite},
             inputs=inputs,
             outputs=outputs,
             counts={},
@@ -195,6 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output_main", required=True)
     parser.add_argument("--output_path", required=True)
     parser.add_argument("--output_efficiency", required=True)
+    parser.add_argument("--metric_suite", default="evidence")
     parser.add_argument("--ablation_index")
     parser.add_argument("--output_ablation")
     parser.add_argument("--ablation_selection", action="append", default=[])
@@ -210,6 +209,7 @@ def parse_args(argv: Sequence[str] | None = None) -> AggregateTablesArgs:
         output_main=namespace.output_main,
         output_path=namespace.output_path,
         output_efficiency=namespace.output_efficiency,
+        metric_suite=namespace.metric_suite,
         ablation_index=namespace.ablation_index,
         output_ablation=namespace.output_ablation,
         ablation_selections=tuple(namespace.ablation_selection),

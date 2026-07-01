@@ -9,6 +9,7 @@ from graph_memory.evaluation.requests import EvidenceEvaluationRequest, Evidence
 from graph_memory.graphs.requests import GraphBuildNode, GraphBuildRequest
 from graph_memory.retrieval.requests import (
     GraphRankingRequest,
+    RealTimeRecencySpec,
     TemporalMemoryRankingRequest,
     TextCandidate,
     TextRankingRequest,
@@ -119,6 +120,13 @@ class LongMemEvalToTemporalMemoryRankingRequest:
                     for item in record["candidate_items"]
                 },
             },
+            recency=RealTimeRecencySpec(
+                question_datetime=record["question_datetime"],
+                datetime_by_item_id={
+                    item["item_id"]: item["datetime"]
+                    for item in record["candidate_items"]
+                },
+            ),
         )
 
 

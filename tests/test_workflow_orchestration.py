@@ -383,6 +383,7 @@ def test_memory_stream_manifest_caps_test_split_and_stage_config_importance_path
             },
             "outputs": {"selected_config": str(selected_config_path)},
             "effective_config": {
+                "dataset": "hotpotqa",
                 "top_k": manifest["effective_config"]["top_k"],
                 "grid_config": "configs/search_spaces/memory_stream.json",
             },

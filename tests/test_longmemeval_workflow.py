@@ -234,6 +234,87 @@ def test_longmemeval_retrieval_config_initializes_without_hotpotqa_importance(tm
     assert "data/hotpotqa/processed/memory_stream" not in rendered
 
 
+def test_memory_stream_status_marks_wrong_dataset_tune_summary_stale(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "longmemeval-memory-status",
+        config=load_experiment_config("longmemeval_v1_retrieval"),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["memory_stream"],
+        force=True,
+    )
+    selected_config_path = Path(manifest["artifacts"]["tuned"]["memory_stream"])
+    grid_config = str(manifest["effective_config"]["search_spaces"]["memory_stream"])
+    selected_config_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(
+        selected_config_path,
+        {
+            "relevance_weight": 1.0,
+            "recency_weight": 0.0,
+            "importance_weight": 0.0,
+            "recency_decay": 0.99,
+        },
+    )
+    write_json(
+        selected_config_path.with_name(f"{selected_config_path.stem}.run_summary.json"),
+        {
+            "script": "tune_memory_stream.py",
+            "status": "success",
+            "inputs": {
+                "tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+                "labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+                "graphs": manifest["artifacts"]["graphs"]["dev"],
+                "importance": None,
+                "grid_config": grid_config,
+            },
+            "outputs": {"selected_config": str(selected_config_path)},
+            "effective_config": {
+                "dataset": "hotpotqa",
+                "top_k": manifest["effective_config"]["top_k"],
+                "grid_config": grid_config,
+            },
+        },
+    )
+
+    tune_status = next(row for row in inspect_experiment_status(manifest) if row["stage"] == "tune")
+
+    assert tune_status["state"] == "stale"
+
+
+def test_aggregate_status_marks_wrong_metric_suite_summary_stale(tmp_path: Path) -> None:
+    manifest = initialize_experiment(
+        "longmemeval-aggregate-status",
+        config=load_experiment_config("longmemeval_v1_retrieval"),
+        run_root=tmp_path,
+        profile="smoke",
+        methods=["bm25"],
+        force=True,
+    )
+    table_paths = manifest["artifacts"]["tables"]
+    main_table = Path(table_paths["main"])
+    main_table.parent.mkdir(parents=True, exist_ok=True)
+    for key in ("main", "path", "efficiency"):
+        Path(table_paths[key]).write_text("Method\n", encoding="utf-8")
+    write_json(
+        main_table.with_name("aggregate_tables.run_summary.json"),
+        {
+            "script": "aggregate_tables.py",
+            "status": "success",
+            "inputs": {"input_dir": (Path(manifest["paths"]["run_dir"]) / "metrics").as_posix()},
+            "outputs": {
+                "main": table_paths["main"],
+                "path": table_paths["path"],
+                "efficiency": table_paths["efficiency"],
+            },
+            "effective_config": {"metric_suite": "evidence"},
+        },
+    )
+
+    aggregate_status = next(row for row in inspect_experiment_status(manifest) if row["stage"] == "aggregate")
+
+    assert aggregate_status["state"] == "stale"
+
+
 def test_longmemeval_memory_stream_search_space_tunes_recency_not_importance() -> None:
     config = load_experiment_config("longmemeval_v1_retrieval")
     search_space_path = Path(str(config["search_spaces"]["memory_stream"]))

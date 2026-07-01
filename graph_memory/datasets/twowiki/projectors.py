@@ -9,6 +9,7 @@ from graph_memory.evaluation.requests import EvidenceEvaluationRequest, Evidence
 from graph_memory.graphs.requests import GraphBuildNode, GraphBuildRequest
 from graph_memory.retrieval.requests import (
     GraphRankingRequest,
+    PositionRecencySpec,
     TemporalMemoryRankingRequest,
     TextCandidate,
     TextRankingRequest,
@@ -109,6 +110,12 @@ class TwoWikiToTemporalMemoryRankingRequest:
                     for sentence in record["candidate_sentences"]
                 }
             },
+            recency=PositionRecencySpec(
+                position_by_item_id={
+                    sentence["sentence_id"]: sentence["position"]
+                    for sentence in record["candidate_sentences"]
+                }
+            ),
         )
 
 

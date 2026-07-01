@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.metrics import MetricTableRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
 from graph_memory.evaluation.connectivity import GraphConnectivity
@@ -73,7 +74,7 @@ def test_split_metric_tables_partitions_columns_into_main_path_and_efficiency() 
     predictions, labels, graphs = _evaluation_fixture()
     rows = evaluate_results(_evaluation_request(predictions, labels, graphs))
 
-    main_rows, path_rows, efficiency_rows = split_metric_tables(rows)
+    main_rows, path_rows, efficiency_rows = split_metric_tables(cast(list[MetricTableRow], rows))
 
     assert list(main_rows[0]) == MAIN_RESULT_COLUMNS
     assert list(path_rows[0]) == PATH_RESULT_COLUMNS

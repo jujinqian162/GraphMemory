@@ -44,3 +44,36 @@ can leave directories that the normal user cannot delete. In particular:
 The repository `.codex/config.toml` requests `danger-full-access`, but a
 session-level permission profile may override it. Follow the rules above based
 on the effective tool permissions, not only that file.
+
+## Windows apply_patch workaround
+
+On this Windows host, the `apply_patch` entrypoint can fail before patch
+parsing because the generated `apply_patch.bat` points at the WindowsApps
+`codex.exe`, which may be blocked by the sandbox with `Access is denied` /
+`CreateProcessAsUserW failed: 5`.
+
+When `apply_patch` fails with a Windows sandbox wrapper error, do not keep
+retrying the same tool path. Prefer one of these fallbacks:
+
+- Invoke the copied Codex binary directly:
+
+  ```powershell
+  $patch = @'
+  *** Begin Patch
+  *** Update File: path/to/file
+  @@
+  -old
+  +new
+  *** End Patch
+  '@
+
+  & "$HOME\.codex\.sandbox-bin\codex.exe" --codex-run-as-apply-patch $patch
+  ```
+
+- For large documents or broad mechanical edits, use small, targeted
+  PowerShell file rewrites or replacements, then immediately verify with
+  `git diff`, `rg`, or the relevant targeted test.
+
+Keep patch payloads small on Windows. Avoid giant monolithic patch strings:
+they can hit wrapper, sandbox, or command-length failures and leave partial
+files behind.

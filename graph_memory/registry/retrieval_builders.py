@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
@@ -45,6 +44,7 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetr
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graph_rerank.config import GraphRerankConfig
 from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
+from graph_memory.retrieval.methods.memory_stream.importance import request_importance_scores
 from graph_memory.retrieval.methods.memory_stream.contracts import TaskImportanceRecord
 from graph_memory.retrieval.methods.memory_stream.method import MemoryStreamMethod
 from graph_memory.validation import validate_graphs, validate_task_id_alignment
@@ -171,7 +171,7 @@ def _request_importance_records_for_memory_stream(
 ) -> Mapping[str, TaskImportanceRecord]:
     records: dict[str, TaskImportanceRecord] = {}
     for request in temporal_requests:
-        scores = _request_importance_scores(scoring, request)
+        scores = request_importance_scores(request, require_complete=scoring.importance_weight > 0.0)
         records[request.task_id] = cast(
             TaskImportanceRecord,
             cast(
@@ -186,37 +186,6 @@ def _request_importance_records_for_memory_stream(
     return records
 
 
-def _request_importance_scores(
-    scoring: MemoryStreamScoringConfig,
-    request: TemporalMemoryRankingRequest,
-) -> dict[str, float]:
-    candidate_ids = {candidate.item_id for candidate in request.candidates}
-    observed_ids = set(request.importance_by_item_id)
-    extra = sorted(observed_ids - candidate_ids)
-    if extra:
-        raise ValueError(
-            f"Memory Stream request task_id={request.task_id} has importance for unknown items: {extra}."
-        )
-    missing = sorted(candidate_ids - observed_ids)
-    if missing and scoring.importance_weight > 0.0:
-        raise ValueError(
-            "Memory Stream request "
-            f"task_id={request.task_id} missing importance scores for items: {missing}."
-        )
-    scores: dict[str, float] = {}
-    for item_id in sorted(candidate_ids):
-        raw_score = request.importance_by_item_id.get(item_id, 0.0)
-        if isinstance(raw_score, bool):
-            raise ValueError(
-                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be numeric."
-            )
-        score = float(raw_score)
-        if not math.isfinite(score):
-            raise ValueError(
-                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be finite."
-            )
-        scores[item_id] = score
-    return scores
 
 
 def _importance_provenance(payload: MemoryStreamBuildPayload) -> ImportanceArtifactProvenance | None:
@@ -506,6 +475,7 @@ def _memory_stream_execution_tasks(
             candidates=request.candidates,
             importance_by_item_id={node_id: float(score) for node_id, score in task_importance["scores"].items()},
             metadata=request.metadata,
+            recency=request.recency,
         )
         text_request = TextRankingRequest(
             task_id=request.task_id,

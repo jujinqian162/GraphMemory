@@ -340,6 +340,7 @@ def _aggregate_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output_main", required=True)
     parser.add_argument("--output_path", required=True)
     parser.add_argument("--output_efficiency", required=True)
+    parser.add_argument("--metric_suite", default="evidence")
     parser.add_argument("--ablation_index", default=None)
     parser.add_argument("--output_ablation", default=None)
     parser.add_argument("--ablation_selection", action="append", default=[])

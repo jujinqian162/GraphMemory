@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from graph_memory.contracts.metrics import MetricRow, MetricTableRow
+from collections.abc import Mapping, Sequence
+
+from graph_memory.contracts.metrics import MetricTableRow, MetricTableSchema, MetricValue
 
 MAIN_RESULT_COLUMNS = [
     "Method",
@@ -83,52 +85,62 @@ LONGMEMEVAL_WIDE_METRIC_COLUMNS = [
     "Avg Retrieved Edges",
 ]
 
+EVIDENCE_METRIC_TABLE_SCHEMA = MetricTableSchema(
+    name="evidence",
+    main_columns=tuple(MAIN_RESULT_COLUMNS),
+    path_columns=tuple(PATH_RESULT_COLUMNS),
+    efficiency_columns=tuple(EFFICIENCY_RESULT_COLUMNS),
+    wide_columns=tuple(WIDE_METRIC_COLUMNS),
+)
+
+LONGMEMEVAL_METRIC_TABLE_SCHEMA = MetricTableSchema(
+    name="longmemeval",
+    main_columns=tuple(LONGMEMEVAL_MAIN_RESULT_COLUMNS),
+    path_columns=tuple(LONGMEMEVAL_PATH_RESULT_COLUMNS),
+    efficiency_columns=tuple(LONGMEMEVAL_EFFICIENCY_RESULT_COLUMNS),
+    wide_columns=tuple(LONGMEMEVAL_WIDE_METRIC_COLUMNS),
+)
+
+_METRIC_TABLE_SCHEMAS = {
+    EVIDENCE_METRIC_TABLE_SCHEMA.name: EVIDENCE_METRIC_TABLE_SCHEMA,
+    LONGMEMEVAL_METRIC_TABLE_SCHEMA.name: LONGMEMEVAL_METRIC_TABLE_SCHEMA,
+}
+
+
+def metric_table_schema_for_suite(name: str) -> MetricTableSchema:
+    try:
+        return _METRIC_TABLE_SCHEMAS[name]
+    except KeyError as error:
+        allowed = ", ".join(sorted(_METRIC_TABLE_SCHEMAS))
+        raise ValueError(f"Unsupported metric suite: {name}. Allowed values: {allowed}.") from error
+
 
 def split_metric_tables(
-    rows: list[MetricRow],
+    rows: Sequence[Mapping[str, MetricValue]],
+    *,
+    schema: MetricTableSchema = EVIDENCE_METRIC_TABLE_SCHEMA,
 ) -> tuple[list[MetricTableRow], list[MetricTableRow], list[MetricTableRow]]:
-    main_columns, path_columns, efficiency_columns, _ = metric_columns_for_rows(rows)
-    main_rows = [_select_columns(row, main_columns) for row in rows]
-    path_rows = [_select_columns(row, path_columns) for row in rows]
-    efficiency_rows = [_select_columns(row, efficiency_columns) for row in rows]
+    main_rows = [_select_columns(row, schema.main_columns) for row in rows]
+    path_rows = [_select_columns(row, schema.path_columns) for row in rows]
+    efficiency_rows = [_select_columns(row, schema.efficiency_columns) for row in rows]
     return main_rows, path_rows, efficiency_rows
 
 
-def metric_columns_for_rows(
-    rows: list[MetricRow],
-) -> tuple[list[str], list[str], list[str], list[str]]:
-    if _uses_longmemeval_columns(rows):
-        return (
-            LONGMEMEVAL_MAIN_RESULT_COLUMNS,
-            LONGMEMEVAL_PATH_RESULT_COLUMNS,
-            LONGMEMEVAL_EFFICIENCY_RESULT_COLUMNS,
-            LONGMEMEVAL_WIDE_METRIC_COLUMNS,
-        )
-    return (
-        MAIN_RESULT_COLUMNS,
-        PATH_RESULT_COLUMNS,
-        EFFICIENCY_RESULT_COLUMNS,
-        WIDE_METRIC_COLUMNS,
-    )
-
-
-def _uses_longmemeval_columns(rows: list[MetricRow]) -> bool:
-    return bool(rows) and "Turn Recall@5" in rows[0]
-
-
-def _select_columns(row: MetricRow, columns: list[str]) -> MetricTableRow:
+def _select_columns(row: Mapping[str, MetricValue], columns: Sequence[str]) -> MetricTableRow:
     return {column: row[column] for column in columns}
 
 
 __all__ = [
     "EFFICIENCY_RESULT_COLUMNS",
+    "EVIDENCE_METRIC_TABLE_SCHEMA",
     "LONGMEMEVAL_EFFICIENCY_RESULT_COLUMNS",
     "LONGMEMEVAL_MAIN_RESULT_COLUMNS",
+    "LONGMEMEVAL_METRIC_TABLE_SCHEMA",
     "LONGMEMEVAL_PATH_RESULT_COLUMNS",
     "LONGMEMEVAL_WIDE_METRIC_COLUMNS",
     "MAIN_RESULT_COLUMNS",
     "PATH_RESULT_COLUMNS",
     "WIDE_METRIC_COLUMNS",
-    "metric_columns_for_rows",
+    "metric_table_schema_for_suite",
     "split_metric_tables",
 ]

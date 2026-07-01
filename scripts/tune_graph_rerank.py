@@ -18,6 +18,7 @@ from graph_memory.datasets.selection import (
     validate_label_records_for_dataset,
     validate_ranking_records_for_dataset,
 )
+from graph_memory.evaluation.suites import metric_suite_for_dataset
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import build_run_summary, collect_environment, now_iso, write_run_summary
 from graph_memory.registry import Registry
@@ -25,9 +26,21 @@ from graph_memory.registry.methods import RetrievalLifecycle
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
 from graph_memory.retrieval.tuning import graph_rerank_grid, graph_rerank_grid_from_record, tune_graph_rerank
+from graph_memory.retrieval.tuning.graph_rerank import GraphRerankMetricSuite
+from graph_memory.retrieval.tuning.selection import (
+    MetricSelectionKey,
+    longmemeval_retrieval_candidate_key,
+    retrieval_candidate_key,
+)
 from graph_memory.validation import validate_graphs
 
 LOGGER = logging.getLogger("tune_graph_rerank")
+DATASET_CHOICES: tuple[DatasetId, ...] = ("hotpotqa", "twowiki", "longmemeval")
+_GRAPH_RERANK_SELECTION_KEYS: dict[DatasetId, MetricSelectionKey] = {
+    "hotpotqa": retrieval_candidate_key,
+    "twowiki": retrieval_candidate_key,
+    "longmemeval": longmemeval_retrieval_candidate_key,
+}
 
 
 @dataclass(frozen=True)
@@ -88,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.grid_config is not None
             else graph_rerank_grid()
         )
+        metric_suite, selection_key = _graph_rerank_tuning_targets(args.dataset)
         selected_config, candidate_rows = tune_graph_rerank(
             method=args.method,
             ranking_requests=ranking_requests,
@@ -102,6 +116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     passage_prefix=args.passage_prefix,
                 )
             ),
+            metric_suite=metric_suite,
+            selection_key=selection_key,
         )
         write_json(args.output_config, selected_config)
         write_json(candidates_path, candidate_rows)
@@ -145,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune graph rerank parameters on dev labels.")
-    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki", "longmemeval"), default="hotpotqa")
+    parser.add_argument("--dataset", choices=DATASET_CHOICES, default="hotpotqa")
     parser.add_argument(
         "--method",
         required=True,
@@ -164,6 +180,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top_k", type=int, default=10)
     parser.add_argument("--grid_config", default=None, help="Optional graph-rerank tuning search-space JSON.")
     return parser
+
+
+def _graph_rerank_tuning_targets(dataset: DatasetId) -> tuple[GraphRerankMetricSuite, MetricSelectionKey]:
+    try:
+        selection_key = _GRAPH_RERANK_SELECTION_KEYS[dataset]
+    except KeyError as error:
+        allowed = ", ".join(DATASET_CHOICES)
+        raise ValueError(f"Unsupported graph-rerank tuning dataset: {dataset}. Allowed values: {allowed}.") from error
+    return cast(GraphRerankMetricSuite, metric_suite_for_dataset(dataset)), selection_key
 
 
 def parse_args(argv: Sequence[str] | None = None) -> TuneGraphRerankArgs:

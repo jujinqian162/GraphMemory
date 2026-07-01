@@ -22,10 +22,7 @@ from graph_memory.datasets.selection import (
     validate_label_records_for_dataset,
     validate_ranking_records_for_dataset,
 )
-from graph_memory.evaluation.suites import (
-    evidence_metric_suite,
-    longmemeval_metric_suite,
-)
+from graph_memory.evaluation.suites import metric_suite_for_dataset
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import (
     build_run_summary,
@@ -56,6 +53,11 @@ from graph_memory.validation import (
 LOGGER = logging.getLogger("tune_memory_stream")
 DEFAULT_GRID_CONFIG = "configs/search_spaces/memory_stream.json"
 DATASET_CHOICES: tuple[DatasetId, ...] = ("hotpotqa", "twowiki", "longmemeval")
+_MEMORY_STREAM_SELECTION_KEYS: dict[DatasetId, MetricSelectionKey] = {
+    "hotpotqa": retrieval_candidate_key,
+    "twowiki": retrieval_candidate_key,
+    "longmemeval": longmemeval_retrieval_candidate_key,
+}
 
 
 @dataclass(frozen=True)
@@ -197,11 +199,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise
 
 
-
 def _memory_stream_tuning_targets(dataset: DatasetId) -> tuple[MemoryStreamMetricSuite, MetricSelectionKey]:
-    if dataset == "longmemeval":
-        return longmemeval_metric_suite(), longmemeval_retrieval_candidate_key
-    return evidence_metric_suite(), retrieval_candidate_key
+    try:
+        selection_key = _MEMORY_STREAM_SELECTION_KEYS[dataset]
+    except KeyError as error:
+        allowed = ", ".join(DATASET_CHOICES)
+        raise ValueError(f"Unsupported Memory Stream tuning dataset: {dataset}. Allowed values: {allowed}.") from error
+    return cast(MemoryStreamMetricSuite, metric_suite_for_dataset(dataset)), selection_key
 
 
 def _load_importance_artifact(path: str | None) -> tuple[ImportanceArtifact | None, str | None]:

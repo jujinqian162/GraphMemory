@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from graph_memory.evaluation.suites import metric_suite_name_for_dataset
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import ArtifactKind, GraphInputSource, TuningKind
 from graph_memory.io import read_json, write_json
@@ -288,6 +289,7 @@ def _memory_stream_tune_status(
         },
         expected_outputs={"selected_config": path},
         expected_config={
+            "dataset": _dataset_id(manifest),
             "top_k": manifest["effective_config"]["top_k"],
             "grid_config": grid_config,
         },
@@ -334,7 +336,7 @@ def _aggregate_status(manifest: dict[str, Any]) -> dict[str, str]:
         script="aggregate_tables.py",
         expected_inputs={"input_dir": (Path(manifest["paths"]["run_dir"]) / "metrics").as_posix()},
         expected_outputs=expected_outputs,
-        expected_config={},
+        expected_config={"metric_suite": metric_suite_name_for_dataset(_dataset_id(manifest))},
     )
 
 

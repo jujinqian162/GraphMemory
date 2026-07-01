@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from graph_memory.evaluation.suites import metric_suite_name_for_dataset
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import TuningKind
 from scripts.workflow.stage_configs import _memory_stream_importance_path
@@ -385,6 +386,8 @@ def build_aggregate_command(
         manifest["artifacts"]["tables"]["path"],
         "--output_efficiency",
         manifest["artifacts"]["tables"]["efficiency"],
+        "--metric_suite",
+        metric_suite_name_for_dataset(_dataset_id(manifest)),
     ]
     index_path = manifest.get("paths", {}).get("ablation_metrics_index")
     table_path = manifest.get("artifacts", {}).get("tables", {}).get("ablation")

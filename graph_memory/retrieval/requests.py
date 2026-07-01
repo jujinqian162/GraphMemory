@@ -55,12 +55,27 @@ class GraphRankingRequest:
 
 
 @dataclass(frozen=True)
+class PositionRecencySpec:
+    position_by_item_id: Mapping[str, int]
+
+
+@dataclass(frozen=True)
+class RealTimeRecencySpec:
+    question_datetime: str
+    datetime_by_item_id: Mapping[str, str]
+
+
+TemporalRecencySpec: TypeAlias = PositionRecencySpec | RealTimeRecencySpec
+
+
+@dataclass(frozen=True)
 class TemporalMemoryRankingRequest:
     task_id: TaskId
     query_text: str
     candidates: Sequence[TextCandidate]
     importance_by_item_id: Mapping[str, float]
     metadata: Mapping[str, JsonValue]
+    recency: TemporalRecencySpec | None = None
 
 
 RankingMethodRequest: TypeAlias = TextRankingRequest | GraphRankingRequest | TemporalMemoryRankingRequest
@@ -76,8 +91,11 @@ __all__ = [
     "DenseConfigLike",
     "DenseRuntime",
     "GraphRankingRequest",
+    "PositionRecencySpec",
     "RankingMethodRequest",
+    "RealTimeRecencySpec",
     "TemporalMemoryRankingRequest",
+    "TemporalRecencySpec",
     "TextCandidate",
     "TextRankingRequest",
 ]

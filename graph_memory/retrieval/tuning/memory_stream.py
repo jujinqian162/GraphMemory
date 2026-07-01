@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import math
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Protocol, TypeAlias, cast
 
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.metrics import MetricRow
+from graph_memory.contracts.metrics import EvidenceMetricRow, LongMemEvalMetricRow, SuiteMetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.suites import evidence_metric_suite
@@ -20,6 +20,7 @@ from graph_memory.retrieval.methods.memory_stream.config import (
     memory_stream_scoring_config_record,
 )
 from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
+from graph_memory.retrieval.methods.memory_stream.importance import request_importance_scores
 from graph_memory.retrieval.methods.memory_stream.scoring import (
     NormalizedMemoryStreamSignals,
     RawMemoryStreamSignals,
@@ -43,12 +44,21 @@ from graph_memory.validation import (
 )
 
 
-class MemoryStreamTuningCandidateRow(MetricRow):
+class EvidenceMemoryStreamTuningCandidateRow(EvidenceMetricRow):
     config: MemoryStreamScoringConfigRecord
 
 
+class LongMemEvalMemoryStreamTuningCandidateRow(LongMemEvalMetricRow):
+    config: MemoryStreamScoringConfigRecord
+
+
+MemoryStreamTuningCandidateRow: TypeAlias = (
+    EvidenceMemoryStreamTuningCandidateRow | LongMemEvalMemoryStreamTuningCandidateRow
+)
+
+
 class MemoryStreamMetricSuite(Protocol):
-    def evaluate(self, request: EvidenceEvaluationRequest) -> list[MetricRow]: ...
+    def evaluate(self, request: EvidenceEvaluationRequest) -> Sequence[SuiteMetricRow]: ...
 
 
 @dataclass(frozen=True)
@@ -198,20 +208,25 @@ def tune_memory_stream(
             top_k=top_k,
             scoring=scoring,
         )
-        metric_rows = cast(
-            list[MetricRow],
+        metric_rows = list(
             effective_metric_suite.evaluate(
                 EvidenceEvaluationRequest(predictions=predictions, labels=labels, graphs=graphs)
-            ),
+            )
         )
         if len(metric_rows) != 1:
             raise ValueError(
                 "Expected one aggregate metric row per tuning candidate."
             )
-        return {
-            **metric_rows[0],
-            "config": memory_stream_scoring_config_record(scoring),
-        }
+        return cast(
+            MemoryStreamTuningCandidateRow,
+            cast(
+                object,
+                {
+                    **metric_rows[0],
+                    "config": memory_stream_scoring_config_record(scoring),
+                },
+            ),
+        )
 
     result = GridSearchRunner[
         MemoryStreamScoringConfig,
@@ -241,52 +256,13 @@ def _importance_by_task_id(
             for record in importance_records
         }
     return {
-        request.task_id: _request_importance_scores(
+        request.task_id: request_importance_scores(
             request,
             require_complete=require_complete_request_importance,
         )
         for request in temporal_requests
     }
 
-
-def _request_importance_scores(
-    request: TemporalMemoryRankingRequest,
-    *,
-    require_complete: bool,
-) -> dict[str, float]:
-    candidate_ids = {candidate.item_id for candidate in request.candidates}
-    observed_ids = set(request.importance_by_item_id)
-    extra = sorted(observed_ids - candidate_ids)
-    if extra:
-        raise ValueError(
-            f"Memory Stream request task_id={request.task_id} has importance for unknown items: {extra}."
-        )
-    missing = sorted(candidate_ids - observed_ids)
-    if require_complete and missing:
-        raise ValueError(
-            "Memory Stream request "
-            f"task_id={request.task_id} missing importance scores for items: {missing}."
-        )
-
-    scores: dict[str, float] = {}
-    for item_id in sorted(candidate_ids):
-        raw_score = request.importance_by_item_id.get(item_id, 0.0)
-        if isinstance(raw_score, bool):
-            raise ValueError(
-                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be numeric."
-            )
-        try:
-            score = float(raw_score)
-        except (TypeError, ValueError) as error:
-            raise ValueError(
-                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be numeric."
-            ) from error
-        if not math.isfinite(score):
-            raise ValueError(
-                f"Memory Stream request task_id={request.task_id} item_id={item_id} importance must be finite."
-            )
-        scores[item_id] = score
-    return scores
 
 
 def _text_request_from_temporal(request: TemporalMemoryRankingRequest) -> TextRankingRequest:

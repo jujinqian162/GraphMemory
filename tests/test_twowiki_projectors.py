@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.ranking import RankedResult
+from graph_memory.retrieval.requests import PositionRecencySpec
 from graph_memory.datasets.twowiki import (
     TwoWikiLabelRecord,
     TwoWikiRankingRecord,
@@ -110,6 +111,8 @@ def test_twowiki_temporal_projection_uses_synthetic_positions_only() -> None:
 
     assert request.importance_by_item_id == {"m0": 0.5}
     assert request.metadata == {"position_by_item_id": {"m0": 0, "m1": 1}}
+    assert isinstance(request.recency, PositionRecencySpec)
+    assert request.recency.position_by_item_id == {"m0": 0, "m1": 1}
 
 
 def test_twowiki_evaluation_projection_outputs_dependency_edges() -> None:

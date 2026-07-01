@@ -1,16 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Protocol
 
 from graph_memory.contracts.common import NodeId
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.metrics import FailureCase, MetricRow, MetricTableRow, TaskMetricRow
+from graph_memory.contracts.metrics import (
+    EvidenceMetricRow,
+    FailureCase,
+    LongMemEvalMetricRow,
+    MetricTableSchema,
+    SuiteMetricRow,
+    TaskMetricRow,
+)
 from graph_memory.evaluation.connectivity import connected_evidence_at, query_evidence_connectivity_at
 from graph_memory.evaluation.metrics import evidence_f1_at, full_support_at, mrr, recall_at
 from graph_memory.evaluation.path_metrics import edge_recall_at, path_recall_at
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest
+from graph_memory.evaluation.tables import EVIDENCE_METRIC_TABLE_SCHEMA, LONGMEMEVAL_METRIC_TABLE_SCHEMA
 from graph_memory.registry.methods import build_method_registry
 from graph_memory.validation.common import ContractValidationError, validate_task_id_alignment
 from graph_memory.validation.metrics import validate_evidence_metric_rows, validate_longmemeval_metric_rows
@@ -52,23 +60,36 @@ METHOD_REGISTRY = build_method_registry()
 
 
 class MetricSuite(Protocol):
-    name: str
+    @property
+    def name(self) -> str:
+        ...
 
-    def evaluate(self, request: object) -> list[MetricTableRow]:
+    @property
+    def table_schema(self) -> MetricTableSchema:
+        ...
+
+    def evaluate(self, request: EvidenceEvaluationRequest) -> Sequence[SuiteMetricRow]:
         ...
 
     def validate_metric_rows(self, rows: object) -> None:
         ...
 
-    def build_failure_cases(self, request: object, *, top_k: int = 10, limit: int = 0) -> list[dict[str, object]]:
+    def build_failure_cases(
+        self,
+        request: EvidenceEvaluationRequest,
+        *,
+        top_k: int = 10,
+        limit: int = 0,
+    ) -> list[FailureCase]:
         ...
 
 
 @dataclass(frozen=True)
 class EvidenceMetricSuite:
     name: str = "evidence"
+    table_schema: MetricTableSchema = EVIDENCE_METRIC_TABLE_SCHEMA
 
-    def evaluate(self, request: EvidenceEvaluationRequest) -> list[MetricRow]:
+    def evaluate(self, request: EvidenceEvaluationRequest) -> list[EvidenceMetricRow]:
         prediction_task_ids = {prediction["task_id"] for prediction in request.predictions}
         label_task_ids = {label.task_id for label in request.labels}
         graph_task_ids = {graph["task_id"] for graph in request.graphs}
@@ -124,7 +145,7 @@ class EvidenceMetricSuite:
                 }
             )
 
-        aggregate_row: MetricRow = {
+        aggregate_row: EvidenceMetricRow = {
             "Method": method,
             "Recall@2": 0.0,
             "Recall@5": 0.0,
@@ -212,8 +233,9 @@ class EvidenceMetricSuite:
 @dataclass(frozen=True)
 class LongMemEvalMetricSuite:
     name: str = "longmemeval"
+    table_schema: MetricTableSchema = LONGMEMEVAL_METRIC_TABLE_SCHEMA
 
-    def evaluate(self, request: EvidenceEvaluationRequest) -> list[MetricRow]:
+    def evaluate(self, request: EvidenceEvaluationRequest) -> list[LongMemEvalMetricRow]:
         prediction_task_ids = {prediction["task_id"] for prediction in request.predictions}
         label_task_ids = {label.task_id for label in request.labels}
         graph_task_ids = {graph["task_id"] for graph in request.graphs}
@@ -256,7 +278,7 @@ class LongMemEvalMetricSuite:
                 }
             )
 
-        aggregate_row: dict[str, object] = {
+        aggregate_row: LongMemEvalMetricRow = {
             "Method": method,
             "Turn Recall@5": 0.0,
             "Turn Recall@10": 0.0,
@@ -286,7 +308,7 @@ class LongMemEvalMetricSuite:
             "Avg Retrieved Edges",
         ]:
             aggregate_row[column] = _mean(row[column] for row in per_task_rows)
-        return [cast(MetricRow, cast(object, aggregate_row))]
+        return [aggregate_row]
 
     def validate_metric_rows(self, rows: object) -> None:
         validate_longmemeval_metric_rows(rows)
@@ -335,6 +357,26 @@ def evidence_metric_suite() -> EvidenceMetricSuite:
 
 def longmemeval_metric_suite() -> LongMemEvalMetricSuite:
     return LongMemEvalMetricSuite()
+
+
+_METRIC_SUITE_FACTORIES: dict[str, Callable[[], MetricSuite]] = {
+    "hotpotqa": evidence_metric_suite,
+    "twowiki": evidence_metric_suite,
+    "longmemeval": longmemeval_metric_suite,
+}
+
+
+def metric_suite_for_dataset(dataset: str) -> MetricSuite:
+    try:
+        factory = _METRIC_SUITE_FACTORIES[dataset]
+    except KeyError as error:
+        allowed = ", ".join(sorted(_METRIC_SUITE_FACTORIES))
+        raise ValueError(f"Unsupported metric suite dataset: {dataset}. Allowed values: {allowed}.") from error
+    return factory()
+
+
+def metric_suite_name_for_dataset(dataset: str) -> str:
+    return metric_suite_for_dataset(dataset).name
 
 
 def session_recall_at(
@@ -440,6 +482,8 @@ __all__ = [
     "LongMemEvalMetricSuite",
     "MetricSuite",
     "evidence_metric_suite",
+    "metric_suite_for_dataset",
+    "metric_suite_name_for_dataset",
     "full_session_support_at",
     "longmemeval_metric_suite",
     "session_recall_at",
