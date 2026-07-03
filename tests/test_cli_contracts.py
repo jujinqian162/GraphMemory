@@ -98,6 +98,7 @@ def test_experiment_parser_contract_is_frozen() -> None:
         "config": _store("--config"),
         "from_stage": _store("--from"),
         "to_stage": _store("--to"),
+        "color": _store("--color", default="auto", choices=("auto", "always", "never")),
         "force": _flag("--force"),
         "no_cache": _flag("--no-cache"),
         "variant": _append("--variant"),

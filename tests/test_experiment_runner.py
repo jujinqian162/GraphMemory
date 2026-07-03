@@ -9,13 +9,14 @@ from graph_memory.io import read_json, write_json
 from scripts.workflow import (
     build_stage_plan,
     format_commands,
+    run_stage_plan,
     initialize_experiment,
     inspect_experiment_status,
     list_config_entries,
     load_experiment_config,
 )
 import scripts.experiment as experiment_script
-from scripts.workflow.types import StageId
+from scripts.workflow.types import StageCommand, StageId
 
 TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
 DENSE_FT_SEEDED_RGCN_METHOD = "dense_ft_rgcn_graph_retriever"
@@ -92,6 +93,39 @@ def test_seeded_rgcn_plan_orders_dense_ft_dependency_before_rgcn(tmp_path: Path)
     assert "scripts/train_method.py" in rendered
     assert "scripts/run_retrieval.py" in rendered
     assert "scripts/evaluate_retrieval.py" in rendered
+
+
+def test_run_stage_plan_prints_plan_style_command_before_execution(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    command = StageCommand(
+        stage=StageId.RETRIEVE,
+        method="dense",
+        argv=[
+            "uv",
+            "run",
+            "python",
+            "scripts/run_retrieval.py",
+            "--config",
+            "runs/example/retrieve.dense.json",
+        ],
+    )
+    observed_argv: list[list[str]] = []
+    observed_stdout: list[str] = []
+
+    def fake_run(argv: list[str], *, check: bool) -> None:
+        observed_argv.append(argv)
+        observed_stdout.append(capsys.readouterr().out)
+        assert check is True
+
+    monkeypatch.setattr("scripts.workflow.planner.subprocess.run", fake_run)
+
+    run_stage_plan([command], color=True)
+
+    assert observed_argv == [command.argv]
+    assert len(observed_stdout) == 1
+    assert "[1] retrieve method=dense" in observed_stdout[0]
+    assert "script: scripts/run_retrieval.py" in observed_stdout[0]
+    assert "command:\n  uv\n  run\n  python\n  scripts/run_retrieval.py" in observed_stdout[0]
+    assert "  \033[36m--config\033[0m runs/example/retrieve.dense.json" in observed_stdout[0]
 
 
 def test_seeded_rgcn_from_train_requires_dense_ft_train_pairs(tmp_path: Path) -> None:

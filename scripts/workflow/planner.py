@@ -404,8 +404,11 @@ def _without_aggregate(commands: Sequence[StageCommand]) -> list[StageCommand]:
     return [command for command in commands if command.stage is not StageId.AGGREGATE]
 
 
-def run_stage_plan(commands: Sequence[StageCommand]) -> None:
-    for command in commands:
+def run_stage_plan(commands: Sequence[StageCommand], *, color: bool = False) -> None:
+    for index, command in enumerate(commands, 1):
+        if index > 1:
+            print(flush=True)
+        print(_format_command_block(index, command, color=color), flush=True)
         subprocess.run(command.argv, check=True)
 
 

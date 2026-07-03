@@ -80,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if not args.no_cache:
             commands = list(prune_manifest_completed_prefix(manifest, commands).commands)
-        run_stage_plan(commands)
+        run_stage_plan(commands, color=_color_enabled(args.color))
         update_manifest_status(manifest)
         return 0
 
@@ -142,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_run_args(run_parser, include_config=True)
     run_parser.add_argument("--from", dest="from_stage", default=None, help="Run from this stage onward.")
     run_parser.add_argument("--to", dest="to_stage", default=None, help="Run through this stage.")
+    run_parser.add_argument("--color", choices=("auto", "always", "never"), default="auto")
     run_parser.add_argument("--force", action="store_true", help="Reinitialize an existing manifest before running.")
     run_parser.add_argument(
         "--no-cache",

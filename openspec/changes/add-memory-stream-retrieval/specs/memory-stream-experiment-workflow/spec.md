@@ -95,3 +95,11 @@ record the external artifact as retrieval provenance.
 - **WHEN** a Memory Stream run is delivered
 - **THEN** retrieval provenance identifies the external importance path and hash
 - **AND** the global artifact and cleaning summary are not copied into run delivery
+
+### Requirement: Workflow run displays executable command blocks
+The system SHALL print the same formatted command block used by `plan` before each selected workflow command starts during `run` execution.
+
+#### Scenario: Command block precedes subprocess execution
+- **WHEN** a workflow `run` command starts a selected stage command
+- **THEN** stdout shows the command index, stage qualifier, script, and indented argv lines before the subprocess executes
+- **AND** `--color` accepts the same `auto`, `always`, and `never` choices as `plan`

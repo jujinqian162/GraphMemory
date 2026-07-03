@@ -53,6 +53,8 @@
   settings.
 - [ ] 3.11 Add registry, stage-config, workflow, missing/stale artifact, default
   path, override path, capped-test warning, and run-summary provenance tests.
+- [x] 3.12 Print plan-style command blocks before each executed workflow
+  command.
 
 ## 4. Verification
 
