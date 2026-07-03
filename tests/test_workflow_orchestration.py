@@ -35,6 +35,7 @@ from scripts.workflow.status import inspect_experiment_status
 import scripts.experiment as experiment_script
 
 TRAINABLE_METHOD = "dense_rgcn_graph_retriever"
+DENSE_FT_SEEDED_TRAINABLE_METHOD = "dense_ft_rgcn_graph_retriever"
 
 
 def _ablation_config(*, variants: list[str] | None = None) -> dict[str, object]:
@@ -100,10 +101,11 @@ assert str(StageId.PREPARE) == "prepare"
     assert result.returncode == 0, result.stderr
 
 
-def test_rgcn_ablation_suite_exposes_current_patch_paths() -> None:
+@pytest.mark.parametrize("method", [TRAINABLE_METHOD, DENSE_FT_SEEDED_TRAINABLE_METHOD])
+def test_rgcn_ablation_suite_exposes_current_patch_paths(method: str) -> None:
     validate_workflow_registry()
-    rows = discover_ablation_variants(TRAINABLE_METHOD)
-    suite = get_ablation_suite(TRAINABLE_METHOD)
+    rows = discover_ablation_variants(method)
+    suite = get_ablation_suite(method)
 
     assert [row["variant"] for row in rows] == [variant.value for variant in RgcnAblationVariant]
     assert suite is not None

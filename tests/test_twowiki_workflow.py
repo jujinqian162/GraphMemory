@@ -180,6 +180,68 @@ def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_b
     assert isinstance(seeded_rgcn_retrieve["io"]["graphs"], str)
 
 
+def test_named_twowiki_evidence_retrieval_config_keeps_ablation_disabled() -> None:
+    config = load_experiment_config("2wiki_evidence_retrieval")
+
+    assert config["enable_ablation"] is False
+    assert "ablation_variants" not in config
+    assert config["methods"] == [
+        "bm25",
+        "dense",
+        "bm25_graph_rerank",
+        "dense_graph_rerank",
+        RGCN,
+        DENSE_FT,
+        DENSE_FT_SEEDED_RGCN,
+    ]
+
+
+def test_named_twowiki_rgcn_ablation_config_enables_both_rgcn_ablation_suites(tmp_path: Path) -> None:
+    config = load_experiment_config("2wiki_rgcn_ablation_7methods")
+
+    manifest = initialize_experiment(
+        "2wiki-rgcn-ablation-7methods",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=[RGCN, DENSE_FT_SEEDED_RGCN],
+        force=True,
+    )
+
+    expected_variants = {
+        "full_rgcn",
+        "wo_bridge",
+        "wo_entity_overlap",
+        "wo_sequential",
+        "wo_query_overlap",
+        "wo_graph",
+        "wo_edge_type",
+        "wo_edge_weight",
+        "wo_seed_score",
+        "wo_hard_negatives",
+    }
+    assert config["enable_ablation"] is True
+    assert config["methods"] == [
+        "bm25",
+        "dense",
+        "bm25_graph_rerank",
+        "dense_graph_rerank",
+        RGCN,
+        DENSE_FT,
+        DENSE_FT_SEEDED_RGCN,
+    ]
+    assert set(config["ablation_variants"]) == {RGCN, DENSE_FT_SEEDED_RGCN}
+    assert set(manifest["artifacts"]["ablations"]) == {RGCN, DENSE_FT_SEEDED_RGCN}
+    assert set(manifest["selected_methods"]) == {RGCN, DENSE_FT_SEEDED_RGCN}
+    assert DENSE_FT in manifest["artifacts"]["learned"]
+    for method in (RGCN, DENSE_FT_SEEDED_RGCN):
+        records = manifest["artifacts"]["ablations"][method]
+        assert set(records) == expected_variants
+        assert records["full_rgcn"]["baseline_alias"] is True
+        assert records["wo_graph"]["invalidated_from"] == "train"
+        assert records["wo_hard_negatives"]["invalidated_from"] == "pairs"
+
+
 def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tmp_path: Path) -> None:
     config = load_experiment_config("2wiki_evidence_retrieval")
 
