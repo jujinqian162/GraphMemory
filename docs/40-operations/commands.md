@@ -26,7 +26,7 @@ Initialize a quick run. Methods with a tuning adapter get a dev-only tune stage 
 python scripts/experiment.py init quick_valid_100 `
   --config configs/experiments/hotpotqa_evidence_retrieval.json `
   --profile quick `
-  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever `
+  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,learned_graph_rgcn_retriever,dense_ft,dense_ft_rgcn_graph_retriever `
   --force
 ```
 
@@ -35,9 +35,8 @@ Plan without executing:
 ```powershell
 python scripts/experiment.py plan quick_valid_100 `
   --run-root runs `
-  --from pairs `
   --to evaluate `
-  --methods dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
+  --methods dense_rgcn_graph_retriever,learned_graph_rgcn_retriever,dense_ft,dense_ft_rgcn_graph_retriever
 ```
 
 Run a trainable path:
@@ -45,7 +44,7 @@ Run a trainable path:
 ```powershell
 python scripts/experiment.py run quick_valid_100 `
   --run-root runs `
-  --methods dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
+  --methods dense_rgcn_graph_retriever,learned_graph_rgcn_retriever,dense_ft,dense_ft_rgcn_graph_retriever
 ```
 
 Render the full selected plan instead of cache-pruned work:
@@ -75,6 +74,7 @@ Current trainable method configs live under:
 
 ```text
 configs/methods/dense_rgcn_graph_retriever.json
+configs/methods/learned_graph_rgcn_retriever.json
 configs/methods/dense_ft.json
 configs/methods/dense_ft_rgcn_graph_retriever.json
 ```
@@ -83,6 +83,7 @@ Experiment configs reference them through `method_configs`. Field documentation:
 
 ```text
 docs/configs/methods/dense_rgcn_graph_retriever.md
+docs/configs/methods/learned_graph_rgcn_retriever.md
 docs/configs/methods/dense_ft.md
 docs/configs/methods/dense_ft_rgcn_graph_retriever.md
 ```

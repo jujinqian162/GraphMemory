@@ -44,6 +44,7 @@ LOGGER = logging.getLogger(__name__)
 STAGE_DESCRIPTIONS = {
     StageId.PREPARE.value: "Build split-specific task, label, and combined input artifacts.",
     StageId.GRAPHS.value: "Build evidence graph artifacts for train, dev, and test splits.",
+    StageId.PROPOSAL_GRAPHS.value: "Build method-local high-recall proposal graphs.",
     StageId.PAIRS.value: "Build supervised training pairs for checkpoint-backed methods.",
     StageId.TUNE.value: "Select graph-rerank parameters from the search-space config.",
     StageId.TRAIN.value: "Train checkpoint-backed retrieval methods.",
@@ -365,6 +366,14 @@ def _build_artifact_paths(run_dir: Path, methods: Sequence[str]) -> dict[str, An
     return {
         "inputs": inputs,
         "graphs": {split: _path_str(run_dir / "graphs" / f"{split}.graphs.json") for split in ("train", "dev", "test")},
+        "proposal_graphs": {
+            method: {
+                split: _path_str(run_dir / "graphs" / f"{split}.{method}.graphs.json")
+                for split in ("train", "dev", "test")
+            }
+            for method in methods
+            if _method_has_stage(method, StageId.PROPOSAL_GRAPHS)
+        },
         "tuned": {
             method: _path_str(run_dir / "tuned" / f"{method}.dev_selected.json")
             for method in methods

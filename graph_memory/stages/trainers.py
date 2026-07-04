@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,8 +9,12 @@ from graph_memory.models.dense_finetune.training import (
     DenseFinetuneTrainingResult,
     train_dense_finetune,
 )
-from graph_memory.registry.conversions import rgcn_training_config_from_trainer_settings
-from graph_memory.registry.method_configs import DenseFinetuneMethodSettings, RgcnMethodSettings
+from graph_memory.registry.conversions import rgcn_loss_config_from_settings, rgcn_training_config_from_trainer_settings
+from graph_memory.registry.method_configs import (
+    DenseFinetuneMethodSettings,
+    LearnedGraphRgcnMethodSettings,
+    RgcnMethodSettings,
+)
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import DenseFinetuneTrainPayload, RgcnTrainPayload, TrainDependencies, TrainPayload
 
@@ -20,7 +24,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RgcnGraphRetrieverTrainer:
-    settings: RgcnMethodSettings
+    settings: RgcnMethodSettings | LearnedGraphRgcnMethodSettings
 
     def train(self, payload: TrainPayload) -> "RgcnTrainingResult":
         from graph_memory.models.graph_retriever.config.defaults import default_model_config
@@ -42,6 +46,12 @@ class RgcnGraphRetrieverTrainer:
             dropout=self.settings.model.dropout,
             ablation_name=self.settings.model.ablation,
         )
+        training_config = rgcn_training_config_from_trainer_settings(self.settings.trainer)
+        if isinstance(self.settings, LearnedGraphRgcnMethodSettings):
+            training_config = replace(
+                training_config,
+                loss_config=rgcn_loss_config_from_settings(self.settings.loss),
+            )
         return train_graph_retriever(
             train_requests=payload.train_requests,
             train_graphs=payload.train_graphs,
@@ -51,7 +61,7 @@ class RgcnGraphRetrieverTrainer:
             dev_labels=payload.dev_labels,
             dev_graphs=payload.dev_graphs,
             model_config=model_config,
-            training_config=rgcn_training_config_from_trainer_settings(self.settings.trainer),
+            training_config=training_config,
             text_embedding_provider=deps.text_embedding_provider,
             seed_signal_provider=deps.seed_signal_provider,
             device=self.settings.trainer.device,
@@ -85,7 +95,7 @@ class DenseFinetuneMethodTrainer:
 
 
 def _effective_rgcn_encoder_settings(
-    settings: RgcnMethodSettings,
+    settings: RgcnMethodSettings | LearnedGraphRgcnMethodSettings,
     seed_checkpoint: Path | None,
 ) -> DenseEncoderSettings:
     if seed_checkpoint is None:

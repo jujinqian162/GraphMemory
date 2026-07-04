@@ -44,6 +44,12 @@ RGCN_TRAINING_CONFIG_FIELDS = {
     "random_seed",
     "pos_weight_enabled",
     "epochs",
+    "loss_config",
+}
+RGCN_LOSS_CONFIG_FIELDS = {
+    "rank_loss_weight",
+    "edge_loss_weight",
+    "sparse_loss_weight",
 }
 RGCN_CHECKPOINT_FIELDS = {
     "method_name",
@@ -107,6 +113,9 @@ def validate_rgcn_training_config(config: object) -> None:
     if not isinstance(config_dict.get("pos_weight_enabled"), bool):
         raise ContractValidationError("Invalid R-GCN training config: pos_weight_enabled must be boolean.")
     _required_int(config_dict, "epochs", "R-GCN training config", minimum=1)
+    loss_config = config_dict.get("loss_config")
+    if loss_config is not None:
+        _validate_rgcn_loss_config(loss_config)
 
 
 def validate_rgcn_checkpoint_metadata(checkpoint: object, *, expected_method: str | None = None) -> None:
@@ -129,6 +138,14 @@ def validate_rgcn_checkpoint_metadata(checkpoint: object, *, expected_method: st
     validate_rgcn_model_config(checkpoint.get("model_config"))
     validate_rgcn_training_config(checkpoint.get("training_config"))
     _required_string(checkpoint, "created_at", "R-GCN checkpoint")
+
+
+def _validate_rgcn_loss_config(config: object) -> None:
+    config_dict = _require_record(config, "R-GCN loss config")
+    _reject_unknown_fields(config_dict, RGCN_LOSS_CONFIG_FIELDS, "R-GCN loss config")
+    _required_finite_number(config_dict, "rank_loss_weight", "R-GCN loss config", minimum=0.0)
+    _required_finite_number(config_dict, "edge_loss_weight", "R-GCN loss config", minimum=0.0)
+    _required_finite_number(config_dict, "sparse_loss_weight", "R-GCN loss config", minimum=0.0)
 
 
 def validate_graph_batch(batch: object) -> None:
@@ -175,6 +192,7 @@ def validate_graph_batch(batch: object) -> None:
 def validate_training_batch(batch: object) -> None:
     graph_batch = _required_attr(batch, "graph_batch", "training batch")
     validate_graph_batch(graph_batch)
+    message_edge_count = _require_tensor_2d(graph_batch, "edge_index", "graph batch").shape[1]
     num_samples = _require_tensor_1d(batch, "sample_node_indices", "training batch").shape[0]
     if _require_tensor_1d(batch, "sample_query_indices", "training batch").shape[0] != num_samples:
         raise ContractValidationError("Invalid training batch: sample_query_indices length must match samples.")
@@ -192,6 +210,21 @@ def validate_training_batch(batch: object) -> None:
             sample_node_ids = value
     if sample_node_ids is not None and any(node_id == "q" for node_id in sample_node_ids):
         raise ContractValidationError("Invalid training batch: sample_node_ids must not contain q.")
+    learned_edges = getattr(batch, "learned_edges", None)
+    if learned_edges is not None:
+        edge_features_shape = _require_tensor_2d(learned_edges, "edge_features", "learned edge batch").shape
+        edge_label_mask_shape = _require_tensor_1d(learned_edges, "edge_label_mask", "learned edge batch").shape
+        edge_labels_shape = _require_tensor_1d(learned_edges, "edge_labels", "learned edge batch").shape
+        if edge_features_shape[0] != message_edge_count:
+            raise ContractValidationError(
+                "Invalid learned edge batch: edge_features first dimension must match message edges."
+            )
+        if edge_label_mask_shape[0] != message_edge_count:
+            raise ContractValidationError(
+                "Invalid learned edge batch: edge_label_mask length must match message edges."
+            )
+        if edge_labels_shape[0] != message_edge_count:
+            raise ContractValidationError("Invalid learned edge batch: edge_labels length must match message edges.")
 
 
 def validate_graph_rerank_config(config: object) -> None:

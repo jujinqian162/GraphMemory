@@ -50,6 +50,7 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
     assert [stage.value for stage in StageId] == [
         "prepare",
         "graphs",
+        "proposal_graphs",
         "pairs",
         "tune",
         "train",
@@ -62,6 +63,7 @@ def test_closed_workflow_values_expose_allowed_choices() -> None:
         "tuned_stateless_retrieval",
         "graph_rerank",
         "rgcn_trainable_retrieval",
+        "learned_graph_rgcn_trainable_retrieval",
         "dense_finetune_retrieval",
     }
     assert ArtifactRole.EFFECTIVE_METHOD_CONFIG.value == "effective_method_config"

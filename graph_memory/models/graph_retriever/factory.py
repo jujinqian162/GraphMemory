@@ -5,11 +5,14 @@ from dataclasses import dataclass
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.internals.neural import (
     EvidenceScoringModel,
+    GatedRGCNGraphEncoder,
     IdentityGraphEncoder,
+    LearnedGraphEvidenceScoringModel,
     RGCNGraphEncoder,
     SharedRelationTransform,
     TypedRelationTransform,
 )
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.validation import validate_rgcn_model_config
 
 
@@ -20,17 +23,18 @@ class GraphScoringModelFactory:
     可训练图评分模型的重建工厂。
     """
 
-    def build(self, model_config: RgcnModelConfig) -> EvidenceScoringModel:
+    def build(self, model_config: RgcnModelConfig) -> EvidenceScoringModel | LearnedGraphEvidenceScoringModel:
         return build_model_from_config(model_config)
 
 
-def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringModel:
+def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringModel | LearnedGraphEvidenceScoringModel:
     """
     Reconstruct an EvidenceScoringModel from saved model config.
     根据保存的 model config 重建 EvidenceScoringModel。
     """
 
     validate_rgcn_model_config(model_config)
+    learned_graph = model_config.method_name == RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value
     if model_config.graph_encoder_type == "identity" or model_config.num_layers == 0:
         graph_encoder = IdentityGraphEncoder()
     elif model_config.graph_encoder_type == "rgcn":
@@ -54,6 +58,19 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
         )
     else:
         raise ValueError(f"Unsupported graph_encoder_type: {model_config.graph_encoder_type}")
+
+    if learned_graph:
+        if not isinstance(graph_encoder, RGCNGraphEncoder):
+            raise ValueError("Learned graph R-GCN requires an R-GCN graph encoder.")
+        return LearnedGraphEvidenceScoringModel(
+            encoder_dim=model_config.encoder_dim,
+            node_feature_dim=len(model_config.feature_config.node_feature_names),
+            hidden_dim=model_config.hidden_dim,
+            graph_encoder=GatedRGCNGraphEncoder(base_encoder=graph_encoder),
+            scorer_feature_dim=len(model_config.feature_config.scorer_feature_names),
+            edge_feature_dim=8,
+            dropout=model_config.dropout,
+        )
 
     return EvidenceScoringModel(
         encoder_dim=model_config.encoder_dim,

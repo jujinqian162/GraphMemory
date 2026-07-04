@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
 
 import torch
@@ -200,6 +201,33 @@ class RGCNGraphEncoder(nn.Module):
         return encoded
 
 
+class GatedRGCNGraphEncoder(nn.Module):
+    """
+    R-GCN encoder wrapper that multiplies message edge weights by learned gates.
+    用 learned gates 缩放 message edge weights 的 R-GCN encoder 包装器。
+    """
+
+    def __init__(self, *, base_encoder: RGCNGraphEncoder) -> None:
+        super().__init__()
+        self.base_encoder = base_encoder
+
+    def forward(self, batch: GraphBatch, node_states: Tensor, *, edge_gates: Tensor) -> Tensor:
+        if edge_gates.shape != batch.edge_weights.shape:
+            raise ValueError("edge_gates must have the same shape as edge_weights.")
+        gated_batch = GraphBatch(
+            node_embeddings=batch.node_embeddings,
+            node_features=batch.node_features,
+            edge_index=batch.edge_index,
+            relation_ids=batch.relation_ids,
+            edge_weights=batch.edge_weights * edge_gates,
+            query_node_indices=batch.query_node_indices,
+            task_node_offsets=batch.task_node_offsets,
+            task_ids=batch.task_ids,
+            node_ids_by_task=batch.node_ids_by_task,
+        )
+        return self.base_encoder.forward(gated_batch, node_states)
+
+
 class EvidenceNodeScorer(nn.Module):
     """
     MLP scorer that maps memory/query node states to one evidence logit per sample.
@@ -223,6 +251,34 @@ class EvidenceNodeScorer(nn.Module):
     def forward(self, *, node_states: Tensor, query_states: Tensor, sample_node_features: Tensor) -> Tensor:
         scorer_input = torch.cat([node_states, query_states, node_states * query_states, sample_node_features], dim=1)
         return self.network(scorer_input).squeeze(-1)
+
+
+class EdgeGateScorer(nn.Module):
+    """
+    MLP scorer that maps edge features to one gate logit per message edge.
+    将 edge features 映射为每条 message edge 一个 gate logit 的 MLP。
+    """
+
+    def __init__(self, *, feature_dim: int, hidden_dim: int, dropout: float) -> None:
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(feature_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, edge_features: Tensor) -> Tensor:
+        if edge_features.ndim != 2:
+            raise ValueError("edge_features must be a 2D tensor.")
+        return self.network(edge_features).squeeze(-1)
+
+
+@dataclass(frozen=True)
+class EvidenceScoringOutput:
+    node_logits: Tensor
+    edge_gate_logits: Tensor | None = None
+    edge_gates: Tensor | None = None
 
 
 class EvidenceScoringModel(nn.Module):
@@ -268,6 +324,55 @@ class EvidenceScoringModel(nn.Module):
             node_states=node_states,
             query_states=query_states,
             sample_node_features=batch.sample_node_features,
+        )
+
+
+class LearnedGraphEvidenceScoringModel(nn.Module):
+    """
+    Evidence scorer that learns edge gates before R-GCN message passing.
+    在 R-GCN message passing 前学习 edge gates 的 evidence scorer。
+    """
+
+    def __init__(
+        self,
+        *,
+        encoder_dim: int,
+        node_feature_dim: int,
+        hidden_dim: int,
+        graph_encoder: GatedRGCNGraphEncoder,
+        scorer_feature_dim: int,
+        edge_feature_dim: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        self.input_projection = nn.Sequential(
+            nn.Linear(encoder_dim + node_feature_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.graph_encoder = graph_encoder
+        self.edge_gate_scorer = EdgeGateScorer(feature_dim=edge_feature_dim, hidden_dim=hidden_dim, dropout=dropout)
+        self.scorer = EvidenceNodeScorer(hidden_dim=hidden_dim, scorer_feature_dim=scorer_feature_dim, dropout=dropout)
+
+    def forward(self, batch: TrainingBatch) -> EvidenceScoringOutput:
+        if batch.learned_edges is None:
+            raise ValueError("Learned graph scoring requires learned edge tensors.")
+        graph_batch = batch.graph_batch
+        h0 = self.input_projection(torch.cat([graph_batch.node_embeddings, graph_batch.node_features], dim=1))
+        edge_gate_logits = self.edge_gate_scorer(batch.learned_edges.edge_features)
+        edge_gates = torch.sigmoid(edge_gate_logits)
+        h = self.graph_encoder.forward(graph_batch, h0, edge_gates=edge_gates)
+        node_states = h[batch.sample_node_indices]
+        query_states = h[batch.sample_query_indices]
+        node_logits = self.scorer(
+            node_states=node_states,
+            query_states=query_states,
+            sample_node_features=batch.sample_node_features,
+        )
+        return EvidenceScoringOutput(
+            node_logits=node_logits,
+            edge_gate_logits=edge_gate_logits,
+            edge_gates=edge_gates,
         )
 
 

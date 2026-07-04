@@ -16,6 +16,7 @@ from scripts.workflow.types import (
 from scripts.workflow.workflows import (
     DENSE_FT_WORKFLOW,
     GRAPH_RERANK_WORKFLOW,
+    LEARNED_GRAPH_RGCN_WORKFLOW,
     RGCN_WORKFLOW,
     STATELESS_RETRIEVAL_WORKFLOW,
     TUNED_STATELESS_RETRIEVAL_WORKFLOW,
@@ -37,6 +38,9 @@ WORKFLOW_BY_CAPABILITY: dict[
     ): GRAPH_RERANK_WORKFLOW,
     (RetrievalLifecycle.RGCN_TRAINABLE, None): RGCN_WORKFLOW,
     (RetrievalLifecycle.DENSE_FINETUNE, None): DENSE_FT_WORKFLOW,
+}
+WORKFLOW_BY_METHOD: dict[str, WorkflowSpec] = {
+    "learned_graph_rgcn_retriever": LEARNED_GRAPH_RGCN_WORKFLOW,
 }
 
 
@@ -64,6 +68,8 @@ ABLATION_SUITE_REGISTRY: dict[str, AblationSuiteSpec] = {
 
 def get_workflow(method: str) -> WorkflowSpec:
     try:
+        if method in WORKFLOW_BY_METHOD:
+            return WORKFLOW_BY_METHOD[method]
         definition = Registry.methods.get(method)
         return WORKFLOW_BY_CAPABILITY[
             (definition.lifecycle, definition.tuning)

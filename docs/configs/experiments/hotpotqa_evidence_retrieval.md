@@ -231,6 +231,7 @@ split 语义：
 - `bm25_graph_rerank`
 - `dense_graph_rerank`
 - `dense_rgcn_graph_retriever`
+- `learned_graph_rgcn_retriever`
 - `dense_ft`
 - `dense_ft_rgcn_graph_retriever`
 
@@ -264,6 +265,7 @@ trainable method 到当前 method config 的映射。
 ```json
 "method_configs": {
   "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+  "learned_graph_rgcn_retriever": "configs/methods/learned_graph_rgcn_retriever.json",
   "dense_ft": "configs/methods/dense_ft.json",
   "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
 }
@@ -273,6 +275,7 @@ trainable method 到当前 method config 的映射。
 
 - key 必须是 trainable retrieval method 名称。
 - value 是该 method 的 current-only method config 路径。
+- `learned_graph_rgcn_retriever` 使用 method-local `proposal_graphs` stage，不读取共享 `graphs` artifact。
 - `dense_ft_rgcn_graph_retriever` 会在 workflow 中自动引入 `dense_ft` 训练依赖；依赖方法只参与 pair/train，不会因为依赖关系被加入 retrieve/evaluate 输出。
 
 experiment runner 会按当前 experiment `--profile` 解析 method config 中同名 profile。例如 experiment profile 为 `quick` 时，会解析 method config 的 `profiles.quick`。
@@ -325,6 +328,7 @@ python scripts/experiment.py init rgcn_cloud_full --profile cloud-full --config 
 ```json
 "method_configs": {
   "dense_rgcn_graph_retriever": "configs/methods/dense_rgcn_graph_retriever.json",
+  "learned_graph_rgcn_retriever": "configs/methods/learned_graph_rgcn_retriever.json",
   "dense_ft": "configs/methods/dense_ft.json",
   "dense_ft_rgcn_graph_retriever": "configs/methods/dense_ft_rgcn_graph_retriever.json"
 }

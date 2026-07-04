@@ -30,6 +30,18 @@ class GraphBatch:
 
 
 @dataclass(frozen=True)
+class LearnedEdgeBatch:
+    """
+    Optional edge-level tensors used by learned graph R-GCN variants.
+    learned graph R-GCN variant 使用的可选 edge-level 张量。
+    """
+
+    edge_features: Tensor
+    edge_label_mask: Tensor
+    edge_labels: Tensor
+
+
+@dataclass(frozen=True)
 class TrainingBatch:
     """
     Supervised sample batch over a tensorized graph batch.
@@ -44,6 +56,7 @@ class TrainingBatch:
     sample_task_ids: list[TaskId]
     sample_node_ids: list[NodeId]
     sample_types: list[TrainPairSampleType]
+    learned_edges: LearnedEdgeBatch | None = None
 
 
-__all__ = ["GraphBatch", "TrainingBatch"]
+__all__ = ["GraphBatch", "LearnedEdgeBatch", "TrainingBatch"]

@@ -9,3 +9,11 @@ class GraphBuildConfig:
     max_entity_neighbors: int = 10
     max_bridge_edges: int = 50
     use_spacy: bool = False
+
+
+@dataclass(frozen=True)
+class ProposalGraphBuildConfig(GraphBuildConfig):
+    max_query_overlap: int = 80
+    max_entity_neighbors: int = 30
+    max_bridge_edges: int = 200
+    use_spacy: bool = False

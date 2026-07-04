@@ -27,6 +27,7 @@ docs/configs/methods/dense_ft_rgcn_graph_retriever.md
 | `configs/experiments/hotpoqa_dev_full.json` | `experiments/hotpoqa_dev_full.md` | 使用完整 dev 作为 test 区间的 HotpotQA dev-full 变体配置。 |
 | `configs/experiments/hotpotqa_rgcn_ablation_selected.json` | `experiments/hotpotqa_rgcn_ablation_selected.md` | 服务器上运行选定 R-GCN variants 的 ablation 配置。 |
 | `configs/methods/dense_rgcn_graph_retriever.json` | `methods/dense_rgcn_graph_retriever.md` | R-GCN trainable graph retriever 的当前方法配置。 |
+| `configs/methods/learned_graph_rgcn_retriever.json` | `methods/learned_graph_rgcn_retriever.md` | 使用 proposal graph 和 learned edge gate 的 R-GCN trainable graph retriever 当前方法配置。 |
 | `configs/methods/dense_ft.json` | `methods/dense_ft.md` | Dense-FT trainable retriever 的当前方法配置。 |
 | `configs/methods/dense_ft_rgcn_graph_retriever.json` | `methods/dense_ft_rgcn_graph_retriever.md` | 使用 Dense-FT checkpoint 作为 encoder seed 的 R-GCN trainable graph retriever 当前方法配置。 |
 | `configs/search_spaces/graph_rerank.json` | `search_spaces/graph_rerank.md` | BM25/dense graph rerank 的 tuning search space。 |

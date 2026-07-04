@@ -4,7 +4,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from graph_memory.registry.ids import StrEnum
-from graph_memory.registry.method_configs import DenseFinetuneMethodConfig, RgcnMethodConfig
+from graph_memory.registry.method_configs import (
+    DenseFinetuneMethodConfig,
+    LearnedGraphRgcnMethodConfig,
+    RgcnMethodConfig,
+)
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     CheckpointGraphRetrievalSettings,
@@ -213,6 +217,20 @@ def build_method_registry() -> MethodRegistry:
             train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
             seed_method=RetrievalMethodId.DENSE_FT,
             train_dependencies=(RetrievalMethodId.DENSE_FT,),
+        ),
+        MethodDefinition(
+            identifier=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
+            lifecycle=RetrievalLifecycle.RGCN_TRAINABLE,
+            retrieval_settings_type=CheckpointGraphRetrievalSettings,
+            dependencies=RetrievalDependencySpec(
+                graphs=GraphInputSource.GRAPH_ARTIFACT,
+                selected_config=SelectedConfigSource.NONE,
+                model=ModelSource.CHECKPOINT_FILE,
+                encoder=EncoderSource.CHECKPOINT_METADATA,
+            ),
+            method_config_type=LearnedGraphRgcnMethodConfig,
+            train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
+            seed_method=RetrievalMethodId.DENSE,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_FT,

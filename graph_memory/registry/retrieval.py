@@ -30,6 +30,7 @@ class RetrievalMethodId(StrEnum):
     DENSE_GRAPH_RERANK = "dense_graph_rerank"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
     DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
+    LEARNED_GRAPH_RGCN_RETRIEVER = "learned_graph_rgcn_retriever"
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,7 @@ class CheckpointGraphRetrievalSettings:
     method: Literal[
         RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
         RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
     ] = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
 
 

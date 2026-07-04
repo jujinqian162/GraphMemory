@@ -18,11 +18,13 @@ from graph_memory.models.graph_retriever.batching import (
     build_training_batches,
     move_training_batch,
 )
-from graph_memory.models.graph_retriever.config.records import RgcnModelConfig, RgcnTrainingConfig
+from graph_memory.models.graph_retriever.config.records import RgcnLossConfig, RgcnModelConfig, RgcnTrainingConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.dev_evaluation import best_metric as select_best_metric
 from graph_memory.models.graph_retriever.dev_evaluation import predict_dev_from_batches
 from graph_memory.models.graph_retriever.factory import build_model_from_config
+from graph_memory.models.graph_retriever.internals.contracts import LearnedEdgeBatch
+from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringOutput
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.validation import (
@@ -53,6 +55,16 @@ class RgcnTrainingResult:
     best_epoch: int
     global_step: int
     best_dev_metric: float
+
+
+@dataclass(frozen=True)
+class RgcnLossComponents:
+    total_loss: Tensor
+    rank_loss: Tensor
+    edge_loss: Tensor
+    sparse_loss: Tensor
+    edge_loss_sample_count: int
+    mean_edge_gate: float
 
 
 def train_graph_retriever(
@@ -101,6 +113,7 @@ def train_graph_retriever(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         batch_size=training_config.batch_size,
+        labels=train_labels,
     )
     if not train_batches:
         raise ValueError("Training requires at least one non-empty training batch.")
@@ -126,12 +139,25 @@ def train_graph_retriever(
     for epoch in range(1, training_config.epochs + 1):
         model.train()
         train_loss_total = 0.0
+        train_rank_loss_total = 0.0
+        train_edge_loss_total = 0.0
+        train_sparse_loss_total = 0.0
         train_sample_count = 0
+        edge_loss_sample_count = 0
+        mean_edge_gate_total = 0.0
+        mean_edge_gate_count = 0
         last_grad_norm = 0.0
         for batch in train_batches:
             moved_batch = move_training_batch(batch, device)
-            logits = model(moved_batch)
-            loss = F.binary_cross_entropy_with_logits(logits, moved_batch.labels, pos_weight=pos_weight)
+            output = model(moved_batch)
+            loss_components = _compute_loss_components(
+                output=output,
+                labels=moved_batch.labels,
+                learned_edges=moved_batch.learned_edges,
+                loss_config=training_config.loss_config,
+                pos_weight=pos_weight,
+            )
+            loss = loss_components.total_loss
             optimizer.zero_grad()
             loss.backward()
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), training_config.max_grad_norm)
@@ -140,7 +166,14 @@ def train_graph_retriever(
             global_step += 1
             sample_count = int(moved_batch.labels.shape[0])
             train_loss_total += float(loss.detach().cpu()) * sample_count
+            train_rank_loss_total += float(loss_components.rank_loss.detach().cpu()) * sample_count
+            train_edge_loss_total += float(loss_components.edge_loss.detach().cpu()) * sample_count
+            train_sparse_loss_total += float(loss_components.sparse_loss.detach().cpu()) * sample_count
             train_sample_count += sample_count
+            edge_loss_sample_count += loss_components.edge_loss_sample_count
+            if loss_components.mean_edge_gate == loss_components.mean_edge_gate:
+                mean_edge_gate_total += loss_components.mean_edge_gate
+                mean_edge_gate_count += 1
             last_grad_norm = float(grad_norm.detach().cpu() if isinstance(grad_norm, Tensor) else grad_norm)
 
         dev_predictions, dev_loss = predict_dev_from_batches(
@@ -165,6 +198,14 @@ def train_graph_retriever(
                 "epoch": epoch,
                 "global_step": global_step,
                 "train_loss": train_loss_total / train_sample_count if train_sample_count else 0.0,
+                "train_rank_loss": train_rank_loss_total / train_sample_count if train_sample_count else 0.0,
+                "train_edge_loss": train_edge_loss_total / train_sample_count if train_sample_count else 0.0,
+                "train_sparse_loss": train_sparse_loss_total / train_sample_count if train_sample_count else 0.0,
+                "edge_loss_sample_count": edge_loss_sample_count,
+                "mean_edge_gate": mean_edge_gate_total / mean_edge_gate_count if mean_edge_gate_count else 0.0,
+                "rank_loss_weight": training_config.loss_config.rank_loss_weight,
+                "edge_loss_weight": training_config.loss_config.edge_loss_weight,
+                "sparse_loss_weight": training_config.loss_config.sparse_loss_weight,
                 "dev_loss": dev_loss,
                 "dev_recall_at_5": float(dev_row["Recall@5"]),
                 "dev_full_support_at_5": float(dev_row["Full Support@5"]),
@@ -192,6 +233,49 @@ def train_graph_retriever(
     if checkpoint_callback is not None:
         checkpoint_callback(result)
     return result
+
+
+def _compute_loss_components(
+    *,
+    output: Tensor | EvidenceScoringOutput,
+    labels: Tensor,
+    learned_edges: LearnedEdgeBatch | None,
+    loss_config: RgcnLossConfig,
+    pos_weight: Tensor | None,
+) -> RgcnLossComponents:
+    if isinstance(output, EvidenceScoringOutput):
+        node_logits = output.node_logits
+        edge_gate_logits = output.edge_gate_logits
+        edge_gates = output.edge_gates
+    else:
+        node_logits = output
+        edge_gate_logits = None
+        edge_gates = None
+
+    rank_loss = F.binary_cross_entropy_with_logits(node_logits, labels, pos_weight=pos_weight)
+    zero = rank_loss.new_tensor(0.0)
+    edge_loss = zero
+    edge_loss_sample_count = 0
+    if edge_gate_logits is not None and learned_edges is not None:
+        mask = learned_edges.edge_label_mask
+        edge_loss_sample_count = int(mask.sum().detach().cpu())
+        if edge_loss_sample_count:
+            edge_loss = F.binary_cross_entropy_with_logits(edge_gate_logits[mask], learned_edges.edge_labels[mask])
+    sparse_loss = edge_gates.mean() if edge_gates is not None and edge_gates.numel() else zero
+    mean_edge_gate = float(edge_gates.mean().detach().cpu()) if edge_gates is not None and edge_gates.numel() else 0.0
+    total_loss = (
+        loss_config.rank_loss_weight * rank_loss
+        + loss_config.edge_loss_weight * edge_loss
+        + loss_config.sparse_loss_weight * sparse_loss
+    )
+    return RgcnLossComponents(
+        total_loss=total_loss,
+        rank_loss=rank_loss,
+        edge_loss=edge_loss,
+        sparse_loss=sparse_loss,
+        edge_loss_sample_count=edge_loss_sample_count,
+        mean_edge_gate=mean_edge_gate,
+    )
 
 
 def _pos_weight(train_pairs: list[TrainPairRecord], device: torch.device) -> Tensor:

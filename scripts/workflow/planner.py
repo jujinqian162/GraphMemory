@@ -15,6 +15,7 @@ from scripts.workflow.workflows import (
     build_evaluate_commands,
     build_graph_commands,
     build_pair_commands,
+    build_proposal_graph_commands,
     build_prepare_commands,
     build_retrieve_commands,
     build_train_commands,
@@ -89,6 +90,13 @@ def build_stage_plan(
             commands.extend(build_prepare_commands(manifest))
         if StageId.GRAPHS.value in selected_stages:
             commands.extend(build_graph_commands(manifest))
+        if StageId.PROPOSAL_GRAPHS.value in selected_stages:
+            commands.extend(
+                build_proposal_graph_commands(
+                    manifest,
+                    _methods_with_stage(selected_methods, StageId.PROPOSAL_GRAPHS),
+                )
+            )
         shared_pair_methods = sorted(
             {
                 method
@@ -125,6 +133,13 @@ def _ordinary_stage_plan(
         commands.extend(build_prepare_commands(manifest))
     if StageId.GRAPHS.value in selected_stages:
         commands.extend(build_graph_commands(manifest))
+    if StageId.PROPOSAL_GRAPHS.value in selected_stages:
+        commands.extend(
+            build_proposal_graph_commands(
+                manifest,
+                _methods_with_stage(methods, StageId.PROPOSAL_GRAPHS),
+            )
+        )
     train_execution_methods = expand_train_dependency_methods(methods)
     if StageId.PAIRS.value in selected_stages:
         commands.extend(build_pair_commands(manifest, _methods_with_stage(train_execution_methods, StageId.PAIRS)))

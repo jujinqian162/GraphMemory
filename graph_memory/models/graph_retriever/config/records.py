@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from graph_memory.contracts.common import MethodName
 
@@ -65,6 +65,20 @@ class RgcnModelConfig:
 
 
 @dataclass(frozen=True)
+class RgcnLossConfig:
+    rank_loss_weight: float = 1.0
+    edge_loss_weight: float = 0.2
+    sparse_loss_weight: float = 0.05
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "rank_loss_weight": self.rank_loss_weight,
+            "edge_loss_weight": self.edge_loss_weight,
+            "sparse_loss_weight": self.sparse_loss_weight,
+        }
+
+
+@dataclass(frozen=True)
 class RgcnTrainingConfig:
     """
     Minimal training config needed to resume or audit a trainable run.
@@ -78,6 +92,7 @@ class RgcnTrainingConfig:
     random_seed: int = 13
     pos_weight_enabled: bool = False
     epochs: int = 1
+    loss_config: RgcnLossConfig = field(default_factory=RgcnLossConfig)
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -88,11 +103,13 @@ class RgcnTrainingConfig:
             "random_seed": self.random_seed,
             "pos_weight_enabled": self.pos_weight_enabled,
             "epochs": self.epochs,
+            "loss_config": self.loss_config.to_json_dict(),
         }
 
 
 __all__ = [
     "NodeFeatureConfig",
+    "RgcnLossConfig",
     "RgcnModelConfig",
     "RgcnTrainingConfig",
 ]

@@ -26,6 +26,12 @@ _GRAPHS = WorkflowStepSpec(
     outputs=(ArtifactRole.GRAPHS,),
     command_adapter="scripts/build_graphs.py",
 )
+_PROPOSAL_GRAPHS = WorkflowStepSpec(
+    stage=StageId.PROPOSAL_GRAPHS,
+    inputs=(ArtifactRole.INPUTS,),
+    outputs=(ArtifactRole.PROPOSAL_GRAPHS,),
+    command_adapter="scripts/build_proposal_graphs.py",
+)
 _RETRIEVE = WorkflowStepSpec(
     stage=StageId.RETRIEVE,
     inputs=(ArtifactRole.INPUTS,),
@@ -122,6 +128,43 @@ RGCN_WORKFLOW = WorkflowSpec(
         WorkflowStepSpec(
             stage=StageId.EVALUATE,
             inputs=(ArtifactRole.PREDICTIONS, ArtifactRole.LABELS, ArtifactRole.GRAPHS),
+            outputs=(ArtifactRole.METRICS,),
+            invalidated_by=_TRAIN_INVALIDATIONS,
+            command_adapter="scripts/evaluate_retrieval.py",
+        ),
+        _AGGREGATE,
+    ),
+)
+
+LEARNED_GRAPH_RGCN_WORKFLOW = WorkflowSpec(
+    identifier=WorkflowId.LEARNED_GRAPH_RGCN_TRAINABLE_RETRIEVAL,
+    steps=(
+        _PREPARE,
+        _PROPOSAL_GRAPHS,
+        WorkflowStepSpec(
+            stage=StageId.PAIRS,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.LABELS, ArtifactRole.PROPOSAL_GRAPHS),
+            outputs=(ArtifactRole.TRAIN_PAIRS,),
+            invalidated_by=frozenset({ChangeDimension.PAIR_SAMPLING}),
+            command_adapter="scripts/build_train_pairs.py",
+        ),
+        WorkflowStepSpec(
+            stage=StageId.TRAIN,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.LABELS, ArtifactRole.PROPOSAL_GRAPHS, ArtifactRole.TRAIN_PAIRS),
+            outputs=(ArtifactRole.CHECKPOINT,),
+            invalidated_by=_TRAIN_INVALIDATIONS,
+            command_adapter="scripts/train_method.py",
+        ),
+        WorkflowStepSpec(
+            stage=StageId.RETRIEVE,
+            inputs=(ArtifactRole.INPUTS, ArtifactRole.PROPOSAL_GRAPHS, ArtifactRole.CHECKPOINT),
+            outputs=(ArtifactRole.PREDICTIONS,),
+            invalidated_by=_TRAIN_INVALIDATIONS,
+            command_adapter="scripts/run_retrieval.py",
+        ),
+        WorkflowStepSpec(
+            stage=StageId.EVALUATE,
+            inputs=(ArtifactRole.PREDICTIONS, ArtifactRole.LABELS, ArtifactRole.PROPOSAL_GRAPHS),
             outputs=(ArtifactRole.METRICS,),
             invalidated_by=_TRAIN_INVALIDATIONS,
             command_adapter="scripts/evaluate_retrieval.py",
@@ -250,6 +293,43 @@ def build_graph_commands(manifest: dict[str, Any]) -> list[StageCommand]:
         if graph_config.get("use_spacy"):
             argv.append("--use_spacy")
         commands.append(StageCommand(stage=StageId.GRAPHS, split=split, argv=argv))
+    return commands
+
+
+def build_proposal_graph_commands(manifest: dict[str, Any], methods: Sequence[str]) -> list[StageCommand]:
+    commands: list[StageCommand] = []
+    dataset = _dataset_id(manifest)
+    for method in methods:
+        proposal_config = _proposal_graph_config(manifest, method)
+        for split in ("train", "dev", "test"):
+            argv = [
+                sys.executable,
+                "scripts/build_proposal_graphs.py",
+                "--dataset",
+                dataset,
+                "--method",
+                method,
+                "--input",
+                manifest["artifacts"]["inputs"][split]["input"],
+                "--output",
+                manifest["artifacts"]["proposal_graphs"][method][split],
+                "--max_query_overlap",
+                str(proposal_config["max_query_overlap"]),
+                "--max_entity_neighbors",
+                str(proposal_config["max_entity_neighbors"]),
+                "--max_bridge_edges",
+                str(proposal_config["max_bridge_edges"]),
+            ]
+            if proposal_config.get("use_spacy"):
+                argv.append("--use_spacy")
+            commands.append(
+                StageCommand(
+                    stage=StageId.PROPOSAL_GRAPHS,
+                    method=method,
+                    split=split,
+                    argv=argv,
+                )
+            )
     return commands
 
 
@@ -437,6 +517,19 @@ def _dataset_id(manifest: dict[str, Any]) -> str:
     if dataset not in {"hotpotqa", "twowiki"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return dataset
+
+
+def _proposal_graph_config(manifest: dict[str, Any], method: str) -> dict[str, Any]:
+    resolved = manifest["effective_config"].get("resolved_method_configs", {})
+    if not isinstance(resolved, dict):
+        raise ValueError("Manifest requires resolved method configs for proposal graph methods.")
+    method_config = resolved.get(method)
+    if not isinstance(method_config, dict):
+        raise ValueError(f"Method requires resolved method config for proposal graphs: {method}")
+    proposal_graph = method_config.get("proposal_graph")
+    if not isinstance(proposal_graph, dict):
+        raise ValueError(f"Method config requires proposal_graph for method={method}")
+    return proposal_graph
 
 
 def _prepare_script(dataset: str) -> str:

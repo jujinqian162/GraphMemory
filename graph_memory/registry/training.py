@@ -4,7 +4,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
-from graph_memory.registry.method_configs import DenseFinetuneMethodSettings, RgcnMethodSettings, TrainJobSettings
+from graph_memory.registry.method_configs import (
+    DenseFinetuneMethodSettings,
+    LearnedGraphRgcnMethodSettings,
+    RgcnMethodSettings,
+    TrainJobSettings,
+)
 
 if TYPE_CHECKING:
     from graph_memory.stages.train_payloads import TrainPayload
@@ -41,6 +46,10 @@ def build_training_registry() -> TrainingRegistry:
             RgcnMethodSettings: TrainingBuilderSpec(
                 RgcnMethodSettings,
                 lambda settings: RgcnGraphRetrieverTrainer(cast(RgcnMethodSettings, settings)),
+            ),
+            LearnedGraphRgcnMethodSettings: TrainingBuilderSpec(
+                LearnedGraphRgcnMethodSettings,
+                lambda settings: RgcnGraphRetrieverTrainer(cast(LearnedGraphRgcnMethodSettings, settings)),
             ),
             DenseFinetuneMethodSettings: TrainingBuilderSpec(
                 DenseFinetuneMethodSettings,

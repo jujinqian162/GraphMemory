@@ -9,6 +9,7 @@ from graph_memory.config import CONFIG_LOADER
 from graph_memory.registry import Registry
 from graph_memory.registry.method_configs import (
     DenseFinetuneMethodConfig,
+    LearnedGraphRgcnMethodConfig,
     RgcnMethodConfig,
 )
 
@@ -50,6 +51,30 @@ def test_repository_dense_ft_seeded_rgcn_method_config_loads_as_current_typed_co
     assert config.method.value == "dense_ft_rgcn_graph_retriever"
     assert config.encoder.model_name == "models/intfloat-e5-base-v2"
     assert config.pairs.easy_random_per_positive == 1
+    assert config.train.model.hidden_dim == 32
+    assert config.train.trainer.batch_size == 1
+    assert config.train.trainer.epochs == 1
+
+
+def test_repository_learned_graph_rgcn_method_config_loads_as_current_typed_config() -> None:
+    config = CONFIG_LOADER.load(
+        Registry.configs.TRAINABLE_METHOD,
+        [
+            "--config",
+            str(REPO_ROOT / "configs" / "methods" / "learned_graph_rgcn_retriever.json"),
+            "--profile",
+            "smoke",
+        ],
+    )
+
+    assert isinstance(config, LearnedGraphRgcnMethodConfig)
+    assert config.method.value == "learned_graph_rgcn_retriever"
+    assert config.encoder.model_name == "models/intfloat-e5-base-v2"
+    assert config.proposal_graph.max_query_overlap == 80
+    assert config.pairs.easy_random_per_positive == 1
+    assert config.train.loss.rank_loss_weight == 1.0
+    assert config.train.loss.edge_loss_weight == 0.2
+    assert config.train.loss.sparse_loss_weight == 0.05
     assert config.train.model.hidden_dim == 32
     assert config.train.trainer.batch_size == 1
     assert config.train.trainer.epochs == 1
@@ -169,6 +194,21 @@ def test_method_config_rejects_missing_fields_even_when_dataclass_has_defaults(t
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing required fields.*learning_rate"):
+        CONFIG_LOADER.load(
+            Registry.configs.TRAINABLE_METHOD,
+            ["--config", str(config_path), "--profile", "quick"],
+        )
+
+
+def test_learned_graph_rgcn_config_rejects_missing_loss_weight(tmp_path: Path) -> None:
+    payload = json.loads(
+        (REPO_ROOT / "configs" / "methods" / "learned_graph_rgcn_retriever.json").read_text(encoding="utf-8")
+    )
+    del payload["train"]["loss"]["rank_loss_weight"]
+    config_path = tmp_path / "missing-learned-loss-weight.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing required fields.*rank_loss_weight"):
         CONFIG_LOADER.load(
             Registry.configs.TRAINABLE_METHOD,
             ["--config", str(config_path), "--profile", "quick"],

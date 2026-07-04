@@ -13,6 +13,8 @@ from graph_memory.registry import Registry
 from graph_memory.registry.method_configs import (
     DenseFinetuneMethodConfig,
     DenseFinetuneMethodSettings,
+    LearnedGraphRgcnMethodConfig,
+    LearnedGraphRgcnMethodSettings,
     RgcnMethodConfig,
     RgcnMethodSettings,
     TrainableMethodConfig,
@@ -53,10 +55,14 @@ from graph_memory.registry.stage_configs import (
 )
 
 
-RgcnTrainMethodId: TypeAlias = Literal[
+StandardRgcnTrainMethodId: TypeAlias = Literal[
     RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
     RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
 ]
+LearnedRgcnTrainMethodId: TypeAlias = Literal[
+    RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
+]
+RgcnTrainMethodId: TypeAlias = StandardRgcnTrainMethodId | LearnedRgcnTrainMethodId
 DenseFtTrainMethodId: TypeAlias = Literal[RetrievalMethodId.DENSE_FT]
 
 
@@ -65,6 +71,7 @@ def _rgcn_train_method_id(method: str) -> RgcnTrainMethodId:
     if method_id not in {
         RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
         RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
     }:
         raise ValueError(f"R-GCN train stage received non-R-GCN method: {method}")
     return cast(RgcnTrainMethodId, method_id)
@@ -223,7 +230,7 @@ def _pair_stage_config(
         io=PairBuildIO(
             tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
             labels=Path(manifest["artifacts"]["inputs"]["train"]["labels"]),
-            graphs=Path(manifest["artifacts"]["graphs"]["train"]),
+            graphs=_graph_artifact_for_method(manifest, method, "train"),
             output=Path(learned["train_pairs"]),
             summary=Path(learned["train_pair_summary"]),
             run_summary=Path(learned["train_pair_run_summary"]),
@@ -248,34 +255,49 @@ def _train_stage_config(
     method_config: TrainableMethodConfig,
 ) -> TrainStageConfig:
     learned = manifest["artifacts"]["learned"][method]
-    if isinstance(method_config, RgcnMethodConfig):
+    if isinstance(method_config, RgcnMethodConfig | LearnedGraphRgcnMethodConfig):
         method_id = _rgcn_train_method_id(method)
-        return RgcnTrainStageConfig(
-            dataset=_dataset_id(manifest),
-            method=method_id,
-            io=RgcnTrainIO(
-                train_tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
-                train_labels=Path(manifest["artifacts"]["inputs"]["train"]["labels"]),
-                train_graphs=Path(manifest["artifacts"]["graphs"]["train"]),
-                train_pairs=Path(learned["train_pairs"]),
-                dev_tasks=Path(manifest["artifacts"]["inputs"]["dev"]["input"]),
-                dev_labels=Path(manifest["artifacts"]["inputs"]["dev"]["labels"]),
-                dev_graphs=Path(manifest["artifacts"]["graphs"]["dev"]),
-                output_dir=Path(learned["training_output_dir"]),
-                checkpoint_dir=Path(learned["best_checkpoint"]).parent,
-                metrics=Path(learned["train_metrics"]),
-                run_summary=Path(learned["train_run_summary"]),
-                seed_checkpoint=_rgcn_seed_checkpoint(manifest, method),
-            ),
-            job=RgcnMethodSettings(
-                method=method_id,
+        train_settings = (
+            RgcnMethodSettings(
+                method=cast(StandardRgcnTrainMethodId, method_id),
                 encoder=method_config.encoder,
                 model=method_config.train.model,
                 trainer=method_config.train.trainer,
                 pairs=method_config.pairs,
                 reporting=method_config.train.reporting,
                 selection=method_config.train.selection,
+            )
+            if isinstance(method_config, RgcnMethodConfig)
+            else LearnedGraphRgcnMethodSettings(
+                method=cast(LearnedRgcnTrainMethodId, method_id),
+                encoder=method_config.encoder,
+                proposal_graph=method_config.proposal_graph,
+                model=method_config.train.model,
+                trainer=method_config.train.trainer,
+                loss=method_config.train.loss,
+                pairs=method_config.pairs,
+                reporting=method_config.train.reporting,
+                selection=method_config.train.selection,
+            )
+        )
+        return RgcnTrainStageConfig(
+            dataset=_dataset_id(manifest),
+            method=method_id,
+            io=RgcnTrainIO(
+                train_tasks=Path(manifest["artifacts"]["inputs"]["train"]["input"]),
+                train_labels=Path(manifest["artifacts"]["inputs"]["train"]["labels"]),
+                train_graphs=_graph_artifact_for_method(manifest, method, "train"),
+                train_pairs=Path(learned["train_pairs"]),
+                dev_tasks=Path(manifest["artifacts"]["inputs"]["dev"]["input"]),
+                dev_labels=Path(manifest["artifacts"]["inputs"]["dev"]["labels"]),
+                dev_graphs=_graph_artifact_for_method(manifest, method, "dev"),
+                output_dir=Path(learned["training_output_dir"]),
+                checkpoint_dir=Path(learned["best_checkpoint"]).parent,
+                metrics=Path(learned["train_metrics"]),
+                run_summary=Path(learned["train_run_summary"]),
+                seed_checkpoint=_rgcn_seed_checkpoint(manifest, method),
             ),
+            job=train_settings,
         )
     if isinstance(method_config, DenseFinetuneMethodConfig):
         return DenseFinetuneTrainStageConfig(
@@ -316,7 +338,7 @@ def _retrieve_stage_config(
 ) -> RetrieveStageConfig:
     definition = Registry.methods.get(method)
     graph_path = (
-        Path(manifest["artifacts"]["graphs"]["test"])
+        _graph_artifact_for_method(manifest, method, "test")
         if definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
         else None
     )
@@ -415,8 +437,11 @@ def _retrieval_job(
         raise ValueError(f"Trainable retrieval method requires a method config: {method}")
     checkpoint = Path(manifest["artifacts"]["learned"][method]["best_checkpoint"])
     if definition.dependencies.model is ModelSource.CHECKPOINT_FILE:
-        if not isinstance(method_config, RgcnMethodConfig):
-            raise TypeError(f"R-GCN retrieval requires RgcnMethodConfig, got {type(method_config).__name__}.")
+        if not isinstance(method_config, RgcnMethodConfig | LearnedGraphRgcnMethodConfig):
+            raise TypeError(
+                f"R-GCN retrieval requires RgcnMethodConfig or LearnedGraphRgcnMethodConfig, "
+                f"got {type(method_config).__name__}."
+            )
         return CheckpointGraphRetrievalSettings(
             top_k=top_k,
             checkpoint=checkpoint,
@@ -442,7 +467,7 @@ def _evaluate_stage_config(manifest: dict[str, Any], method: str) -> EvaluateSta
         io=EvaluateIO(
             predictions=Path(manifest["artifacts"]["predictions"][method]),
             labels=Path(manifest["artifacts"]["inputs"]["test"]["labels"]),
-            graphs=Path(manifest["artifacts"]["graphs"]["test"]),
+            graphs=_graph_artifact_for_method(manifest, method, "test"),
             output=Path(manifest["artifacts"]["metrics"][method]),
             failure_cases_output=Path(manifest["artifacts"]["failure_cases"][method]),
         ),
@@ -465,6 +490,16 @@ def _dataset_id(manifest: Mapping[str, Any]) -> DatasetId:
     if dataset not in {"hotpotqa", "twowiki"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return cast(DatasetId, dataset)
+
+
+def _graph_artifact_for_method(manifest: Mapping[str, Any], method: str, split: str) -> Path:
+    if _method_uses_proposal_graph(method):
+        return Path(manifest["artifacts"]["proposal_graphs"][method][split])
+    return Path(manifest["artifacts"]["graphs"][split])
+
+
+def _method_uses_proposal_graph(method: str) -> bool:
+    return RetrievalMethodId(method) is RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER
 
 
 def _experiment_encoder(manifest: Mapping[str, Any]) -> DenseEncoderSettings:

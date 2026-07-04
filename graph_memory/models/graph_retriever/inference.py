@@ -12,6 +12,7 @@ from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import GraphScoringModelFactory
+from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringOutput
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult, RetrievalTrace
 from graph_memory.retrieval.requests import GraphRankingRequest, TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignal, SeedSignalProvider, seed_signals_from_ranked_nodes
@@ -50,7 +51,9 @@ class GraphRetrieverInference:
             raise RuntimeError("Expected exactly one full ranking batch.")
         with torch.no_grad():
             batch = move_training_batch(batches[0], self.device)
-            logits = self.model(batch).detach().cpu().tolist()
+            output = self.model(batch)
+            logits_tensor = output.node_logits if isinstance(output, EvidenceScoringOutput) else output
+            logits = logits_tensor.detach().cpu().tolist()
         ranked_nodes = sorted(
             [
                 RankedNode(node_id=node_id, score=float(score))

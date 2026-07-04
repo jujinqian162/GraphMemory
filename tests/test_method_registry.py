@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from graph_memory.registry import Registry
-from graph_memory.registry.method_configs import DenseFinetuneMethodConfig, RgcnMethodConfig
+from graph_memory.registry.method_configs import (
+    DenseFinetuneMethodConfig,
+    LearnedGraphRgcnMethodConfig,
+    RgcnMethodConfig,
+)
 from graph_memory.registry.methods import (
     ArtifactKind,
     EncoderSource,
@@ -52,6 +56,24 @@ def test_dense_ft_seeded_rgcn_method_definition_declares_train_dependency() -> N
     assert definition.train_dependencies == (RetrievalMethodId.DENSE_FT,)
 
 
+def test_learned_graph_rgcn_method_definition_is_first_class() -> None:
+    definition = Registry.methods.get(RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER)
+
+    assert RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER in Registry.methods.list_ids()
+    assert definition.lifecycle is RetrievalLifecycle.RGCN_TRAINABLE
+    assert definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
+    assert definition.dependencies.selected_config is SelectedConfigSource.NONE
+    assert definition.dependencies.model is ModelSource.CHECKPOINT_FILE
+    assert definition.dependencies.encoder is EncoderSource.CHECKPOINT_METADATA
+    assert definition.method_config_type is LearnedGraphRgcnMethodConfig
+    assert definition.train_artifact is not None
+    assert definition.train_artifact.basename == "best.pt"
+    assert definition.train_artifact.kind is ArtifactKind.FILE
+    assert Registry.methods.supports_path_metrics(definition.identifier)
+    assert definition.seed_method is RetrievalMethodId.DENSE
+    assert definition.train_dependencies == ()
+
+
 def test_dense_ft_method_definition_declares_model_directory() -> None:
     definition = Registry.methods.get(RetrievalMethodId.DENSE_FT)
 
@@ -94,6 +116,7 @@ def test_path_metric_capability_is_declared_by_method_registry() -> None:
         RetrievalMethodId.DENSE_GRAPH_RERANK,
         RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
         RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
     }
 
 

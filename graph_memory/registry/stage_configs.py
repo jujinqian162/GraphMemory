@@ -13,6 +13,7 @@ from graph_memory.registry.ids import StageId
 from graph_memory.registry.method_configs import TrainableMethodConfig
 from graph_memory.registry.method_configs import (
     DenseFinetuneMethodSettings,
+    LearnedGraphRgcnMethodSettings,
     RgcnMethodSettings,
     validate_complete_method_config_record,
 )
@@ -128,9 +129,10 @@ class RgcnTrainStageConfig:
     method: Literal[
         RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
         RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
     ]
     io: RgcnTrainIO
-    job: RgcnMethodSettings
+    job: RgcnMethodSettings | LearnedGraphRgcnMethodSettings
     dataset: DatasetId = "hotpotqa"
 
     io_type: ClassVar[type[RgcnTrainIO]] = RgcnTrainIO
@@ -172,6 +174,7 @@ class StageConfigRegistry:
     TRAINABLE_METHOD: StageConfigSpec[TrainableMethodConfig]
     PREPARE: StageConfigSpec[GenericStageConfig]
     GRAPHS: StageConfigSpec[GenericStageConfig]
+    PROPOSAL_GRAPHS: StageConfigSpec[GenericStageConfig]
     PAIRS: StageConfigSpec[PairBuildStageConfig]
     TUNE: StageConfigSpec[GenericStageConfig]
     TRAIN: StageConfigSpec[TrainStageConfig]
@@ -194,6 +197,7 @@ def build_stage_config_registry() -> StageConfigRegistry:
         ),
         PREPARE=_generic_spec(StageId.PREPARE, _prepare_parser),
         GRAPHS=_generic_spec(StageId.GRAPHS, _graphs_parser),
+        PROPOSAL_GRAPHS=_generic_spec(StageId.PROPOSAL_GRAPHS, _proposal_graphs_parser),
         PAIRS=_stage_file_spec(StageId.PAIRS, PairBuildStageConfig, "Build train pair artifacts."),
         TUNE=_generic_spec(StageId.TUNE, _tune_parser),
         TRAIN=_stage_file_spec(StageId.TRAIN, TrainStageConfig, "Train a retrieval method."),
@@ -315,6 +319,19 @@ def _graphs_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_query_overlap", type=int, default=20)
     parser.add_argument("--max_entity_neighbors", type=int, default=10)
     parser.add_argument("--max_bridge_edges", type=int, default=50)
+    parser.add_argument("--use_spacy", action="store_true")
+    return parser
+
+
+def _proposal_graphs_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Build method-local high-recall proposal graphs.")
+    parser.add_argument("--dataset", choices=("hotpotqa", "twowiki"), default="hotpotqa")
+    parser.add_argument("--method", required=True)
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--max_query_overlap", type=int, default=80)
+    parser.add_argument("--max_entity_neighbors", type=int, default=30)
+    parser.add_argument("--max_bridge_edges", type=int, default=200)
     parser.add_argument("--use_spacy", action="store_true")
     return parser
 

@@ -11,8 +11,9 @@ from scripts.workflow.types import StageId
 
 DENSE_FT = "dense_ft"
 RGCN = "dense_rgcn_graph_retriever"
+LEARNED = "learned_graph_rgcn_retriever"
 DENSE_FT_SEEDED_RGCN = "dense_ft_rgcn_graph_retriever"
-TRAINABLE_METHODS = (DENSE_FT, RGCN, DENSE_FT_SEEDED_RGCN)
+TRAINABLE_METHODS = (RGCN, LEARNED, DENSE_FT, DENSE_FT_SEEDED_RGCN)
 
 
 def _twowiki_workflow_config() -> dict[str, Any]:
@@ -131,9 +132,36 @@ def test_named_twowiki_tiny_config_exposes_trainable_methods() -> None:
     assert set(TRAINABLE_METHODS).issubset(set(config["methods"]))
     assert config["method_configs"] == {
         RGCN: "configs/methods/dense_rgcn_graph_retriever.json",
+        LEARNED: "configs/methods/learned_graph_rgcn_retriever.json",
         DENSE_FT: "configs/methods/dense_ft.json",
         DENSE_FT_SEEDED_RGCN: "configs/methods/dense_ft_rgcn_graph_retriever.json",
     }
+
+
+def test_named_twowiki_tiny_learned_method_plan_uses_proposal_graphs(tmp_path: Path) -> None:
+    config = load_experiment_config("2wiki_tiny")
+
+    manifest = initialize_experiment(
+        "2wiki-tiny-learned",
+        config=config,
+        run_root=tmp_path,
+        profile="smoke",
+        methods=[LEARNED],
+        force=True,
+    )
+    commands = build_stage_plan(
+        manifest,
+        from_stage="prepare",
+        to_stage="evaluate",
+        methods=[LEARNED],
+    )
+    proposal_commands = [command for command in commands if command.stage is StageId.PROPOSAL_GRAPHS]
+
+    assert StageId.GRAPHS not in {command.stage for command in commands}
+    assert len(proposal_commands) == 3
+    assert {command.method for command in proposal_commands} == {LEARNED}
+    assert all(command.argv[command.argv.index("--dataset") + 1] == "twowiki" for command in proposal_commands)
+    assert all(command.argv[command.argv.index("--method") + 1] == LEARNED for command in proposal_commands)
 
 
 def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_boundaries(
@@ -160,6 +188,10 @@ def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_b
     dense_ft_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT])
     rgcn_train = read_json(manifest["stage_configs"]["train"][RGCN])
     rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][RGCN])
+    learned_pair = read_json(manifest["stage_configs"]["pairs"][LEARNED])
+    learned_train = read_json(manifest["stage_configs"]["train"][LEARNED])
+    learned_retrieve = read_json(manifest["stage_configs"]["retrieve"][LEARNED])
+    learned_evaluate = read_json(manifest["stage_configs"]["evaluate"][LEARNED])
     seeded_rgcn_train = read_json(manifest["stage_configs"]["train"][DENSE_FT_SEEDED_RGCN])
     seeded_rgcn_retrieve = read_json(manifest["stage_configs"]["retrieve"][DENSE_FT_SEEDED_RGCN])
 
@@ -174,6 +206,12 @@ def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_b
     assert isinstance(rgcn_train["io"]["train_graphs"], str)
     assert isinstance(rgcn_train["io"]["dev_graphs"], str)
     assert isinstance(rgcn_retrieve["io"]["graphs"], str)
+    assert Path(learned_pair["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["train"])
+    assert Path(learned_train["io"]["train_graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["train"])
+    assert Path(learned_train["io"]["dev_graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["dev"])
+    assert Path(learned_retrieve["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["test"])
+    assert Path(learned_evaluate["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["test"])
+    assert learned_train["job"]["loss"]["edge_loss_weight"] == 0.2
     assert seeded_rgcn_train["job"]["trainer"]["device"] == "cuda"
     assert seeded_rgcn_retrieve["job"]["device"] == "cuda"
     assert Path(seeded_rgcn_train["io"]["seed_checkpoint"]) == Path(dense_ft_train["io"]["model_dir"])
@@ -191,6 +229,7 @@ def test_named_twowiki_evidence_retrieval_config_keeps_ablation_disabled() -> No
         "bm25_graph_rerank",
         "dense_graph_rerank",
         RGCN,
+        LEARNED,
         DENSE_FT,
         DENSE_FT_SEEDED_RGCN,
     ]
@@ -260,6 +299,7 @@ def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tm
         "bm25_graph_rerank",
         "dense_graph_rerank",
         "dense_rgcn_graph_retriever",
+        "learned_graph_rgcn_retriever",
         "dense_ft",
         "dense_ft_rgcn_graph_retriever",
     ]
@@ -280,6 +320,9 @@ def test_named_twowiki_evidence_retrieval_config_matches_full_method_workflow(tm
     }
     assert manifest["effective_config"]["resolved_method_configs"]["dense_rgcn_graph_retriever"]["method"] == (
         "dense_rgcn_graph_retriever"
+    )
+    assert manifest["effective_config"]["resolved_method_configs"]["learned_graph_rgcn_retriever"]["method"] == (
+        "learned_graph_rgcn_retriever"
     )
     assert manifest["effective_config"]["resolved_method_configs"]["dense_ft"]["method"] == "dense_ft"
     assert manifest["effective_config"]["resolved_method_configs"]["dense_ft_rgcn_graph_retriever"]["method"] == (

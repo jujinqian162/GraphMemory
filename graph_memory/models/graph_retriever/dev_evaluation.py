@@ -15,7 +15,11 @@ from graph_memory.models.graph_retriever.batching import build_full_ranking_batc
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
-from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
+from graph_memory.models.graph_retriever.internals.neural import (
+    EvidenceScoringModel,
+    EvidenceScoringOutput,
+    LearnedGraphEvidenceScoringModel,
+)
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
@@ -23,7 +27,7 @@ from graph_memory.retrieval.signals import SeedSignalProvider
 
 def predict_dev(
     *,
-    model: EvidenceScoringModel,
+    model: EvidenceScoringModel | LearnedGraphEvidenceScoringModel,
     ranking_requests: list[TextRankingRequest],
     labels: list[EvidenceLabel],
     graphs: list[MemoryGraph],
@@ -55,7 +59,7 @@ def predict_dev(
 
 def predict_dev_from_batches(
     *,
-    model: EvidenceScoringModel,
+    model: EvidenceScoringModel | LearnedGraphEvidenceScoringModel,
     ranking_requests: list[TextRankingRequest],
     labels: list[EvidenceLabel],
     graphs: list[MemoryGraph],
@@ -73,7 +77,8 @@ def predict_dev_from_batches(
     with torch.no_grad():
         for batch in batches:
             moved_batch = move_training_batch(batch, device)
-            logits = model(moved_batch)
+            output = model(moved_batch)
+            logits = output.node_logits if isinstance(output, EvidenceScoringOutput) else output
             loss = F.binary_cross_entropy_with_logits(logits, moved_batch.labels)
             loss_total += float(loss.detach().cpu()) * int(moved_batch.labels.shape[0])
             sample_count += int(moved_batch.labels.shape[0])

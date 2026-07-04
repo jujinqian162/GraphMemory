@@ -45,6 +45,21 @@ class RgcnPairSamplingSettings:
 
 
 @dataclass(frozen=True)
+class ProposalGraphBuildSettings:
+    max_query_overlap: int = 80
+    max_entity_neighbors: int = 30
+    max_bridge_edges: int = 200
+    use_spacy: bool = False
+
+
+@dataclass(frozen=True)
+class RgcnLossSettings:
+    rank_loss_weight: float = 1.0
+    edge_loss_weight: float = 0.2
+    sparse_loss_weight: float = 0.05
+
+
+@dataclass(frozen=True)
 class TrainingReportingSettings:
     render_training_curves: bool = True
 
@@ -70,6 +85,21 @@ class RgcnMethodSettings:
 
 
 @dataclass(frozen=True)
+class LearnedGraphRgcnMethodSettings:
+    encoder: DenseEncoderSettings
+    proposal_graph: ProposalGraphBuildSettings
+    model: RgcnModelSettings
+    trainer: RgcnTrainerSettings
+    loss: RgcnLossSettings
+    pairs: RgcnPairSamplingSettings = field(default_factory=RgcnPairSamplingSettings)
+    reporting: TrainingReportingSettings = field(default_factory=TrainingReportingSettings)
+    selection: ModelSelectionSettings = field(default_factory=ModelSelectionSettings)
+    method: Literal[
+        RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER
+    ] = RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER
+
+
+@dataclass(frozen=True)
 class DenseFinetuneMethodSettings:
     encoder: DenseEncoderSettings
     data: DenseFinetuneDataSettings = field(default_factory=DenseFinetuneDataSettings)
@@ -80,6 +110,15 @@ class DenseFinetuneMethodSettings:
 
 @dataclass(frozen=True)
 class RgcnTrainSettings:
+    model: RgcnModelSettings
+    trainer: RgcnTrainerSettings
+    reporting: TrainingReportingSettings
+    selection: ModelSelectionSettings
+
+
+@dataclass(frozen=True)
+class LearnedGraphRgcnTrainSettings:
+    loss: RgcnLossSettings
     model: RgcnModelSettings
     trainer: RgcnTrainerSettings
     reporting: TrainingReportingSettings
@@ -105,6 +144,15 @@ class RgcnMethodConfig:
 
 
 @dataclass(frozen=True)
+class LearnedGraphRgcnMethodConfig:
+    method: Literal[RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER]
+    encoder: DenseEncoderSettings
+    proposal_graph: ProposalGraphBuildSettings
+    pairs: RgcnPairSamplingSettings
+    train: LearnedGraphRgcnTrainSettings
+
+
+@dataclass(frozen=True)
 class DenseFinetuneMethodConfig:
     method: Literal[RetrievalMethodId.DENSE_FT]
     encoder: DenseEncoderSettings
@@ -112,8 +160,8 @@ class DenseFinetuneMethodConfig:
     train: DenseFinetuneTrainSettings
 
 
-TrainableMethodConfig: TypeAlias = RgcnMethodConfig | DenseFinetuneMethodConfig
-TrainJobSettings: TypeAlias = RgcnMethodSettings | DenseFinetuneMethodSettings
+TrainableMethodConfig: TypeAlias = RgcnMethodConfig | LearnedGraphRgcnMethodConfig | DenseFinetuneMethodConfig
+TrainJobSettings: TypeAlias = RgcnMethodSettings | LearnedGraphRgcnMethodSettings | DenseFinetuneMethodSettings
 
 
 def validate_complete_method_config_record(value: Mapping[str, JsonValue]) -> None:
@@ -148,7 +196,12 @@ __all__ = [
     "DenseFinetuneMethodConfig",
     "DenseFinetuneMethodSettings",
     "DenseFinetuneTrainSettings",
+    "LearnedGraphRgcnMethodConfig",
+    "LearnedGraphRgcnMethodSettings",
+    "LearnedGraphRgcnTrainSettings",
     "ModelSelectionSettings",
+    "ProposalGraphBuildSettings",
+    "RgcnLossSettings",
     "RgcnMethodConfig",
     "RgcnMethodSettings",
     "RgcnModelSettings",

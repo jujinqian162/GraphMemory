@@ -16,15 +16,17 @@ from graph_memory.models.graph_retriever.contracts import (
     TextEmbeddingProvider,
     build_task_feature_groups,
 )
-from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
+from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, LearnedEdgeBatch, TrainingBatch
 from graph_memory.models.graph_retriever.internals.features import NodeFeatureBuilder
 from graph_memory.models.graph_retriever.internals.tensorization import (
     ArtifactEdgeWeightPolicy,
     EdgeTensorizer,
+    MessageEdgeTensors,
     UniformEdgeWeightPolicy,
 )
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.validation import (
     validate_graph_batch,
     validate_graphs,
@@ -74,6 +76,7 @@ def build_training_batches(
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
+    labels: list[EvidenceLabel] | None = None,
 ) -> list[TrainingBatch]:
     """
     Build supervised TrainingBatch objects grouped by task graph.
@@ -84,6 +87,7 @@ def build_training_batches(
     validate_graphs(graphs, ranking_requests)
     validate_task_id_alignment("training batch graphs", set(requests_by_task_id), {graph["task_id"] for graph in graphs})
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
+    labels_by_task_id = {label.task_id: label for label in labels} if labels is not None else {}
     pairs_by_task_id: dict[TaskId, list[TrainPairRecord]] = defaultdict(list)
     for pair in pairs:
         if pair["node_id"] == "q":
@@ -91,7 +95,12 @@ def build_training_batches(
         pairs_by_task_id[pair["task_id"]].append(pair)
 
     task_batches = [
-        TaskBatchInputs(text_request=request, graph=graphs_by_task_id[request.task_id], pairs=pairs_by_task_id[request.task_id])
+        TaskBatchInputs(
+            text_request=request,
+            graph=graphs_by_task_id[request.task_id],
+            pairs=pairs_by_task_id[request.task_id],
+            label=labels_by_task_id.get(request.task_id),
+        )
         for request in ranking_requests
         if pairs_by_task_id[request.task_id]
     ]
@@ -166,6 +175,15 @@ def move_training_batch(batch: TrainingBatch, device: torch.device | str) -> Tra
         task_ids=graph_batch.task_ids,
         node_ids_by_task=graph_batch.node_ids_by_task,
     )
+    moved_learned_edges = (
+        LearnedEdgeBatch(
+            edge_features=batch.learned_edges.edge_features.to(device),
+            edge_label_mask=batch.learned_edges.edge_label_mask.to(device),
+            edge_labels=batch.learned_edges.edge_labels.to(device),
+        )
+        if batch.learned_edges is not None
+        else None
+    )
     return TrainingBatch(
         graph_batch=moved_graph,
         sample_node_indices=batch.sample_node_indices.to(device),
@@ -175,6 +193,7 @@ def move_training_batch(batch: TrainingBatch, device: torch.device | str) -> Tra
         sample_task_ids=batch.sample_task_ids,
         sample_node_ids=batch.sample_node_ids,
         sample_types=batch.sample_types,
+        learned_edges=moved_learned_edges,
     )
 
 
@@ -204,6 +223,10 @@ def _build_batch(
     sample_task_ids: list[str] = []
     sample_node_ids: list[str] = []
     sample_types: list[TrainPairSampleType] = []
+    learned_edge_features: list[Tensor] = []
+    learned_edge_label_masks: list[Tensor] = []
+    learned_edge_labels: list[Tensor] = []
+    include_learned_edges = model_config.method_name == RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value
 
     requests = [
         DenseTaskEncodingRequest(
@@ -237,6 +260,17 @@ def _build_batch(
             edge_indices.append(message_edges.edge_index + node_offset)
             relation_ids.append(message_edges.relation_ids)
             edge_weights.append(message_edges.edge_weights)
+        if include_learned_edges:
+            edge_batch = _build_learned_edge_batch_for_task(
+                message_edges=message_edges,
+                node_ids=node_ids,
+                node_features=features.node_features,
+                node_feature_names=features.node_feature_names,
+                label=task.label,
+            )
+            learned_edge_features.append(edge_batch.edge_features)
+            learned_edge_label_masks.append(edge_batch.edge_label_mask)
+            learned_edge_labels.append(edge_batch.edge_labels)
 
         node_embeddings.append(embeddings)
         node_features.append(features.node_features)
@@ -310,6 +344,81 @@ def _build_batch(
         sample_task_ids=sample_task_ids,
         sample_node_ids=sample_node_ids,
         sample_types=sample_types,
+        learned_edges=(
+            LearnedEdgeBatch(
+                edge_features=torch.cat(learned_edge_features, dim=0)
+                if learned_edge_features
+                else torch.empty((0, 8), dtype=torch.float32),
+                edge_label_mask=torch.cat(learned_edge_label_masks, dim=0)
+                if learned_edge_label_masks
+                else torch.empty((0,), dtype=torch.bool),
+                edge_labels=torch.cat(learned_edge_labels, dim=0)
+                if learned_edge_labels
+                else torch.empty((0,), dtype=torch.float32),
+            )
+            if include_learned_edges
+            else None
+        ),
     )
     validate_training_batch(training_batch)
     return training_batch
+
+
+def _build_learned_edge_batch_for_task(
+    *,
+    message_edges: MessageEdgeTensors,
+    node_ids: list[str],
+    node_features: Tensor,
+    node_feature_names: tuple[str, ...],
+    label: EvidenceLabel | None,
+) -> LearnedEdgeBatch:
+    edge_index = message_edges.edge_index
+    edge_count = int(edge_index.shape[1])
+    if edge_count == 0:
+        return LearnedEdgeBatch(
+            edge_features=torch.empty((0, 8), dtype=torch.float32),
+            edge_label_mask=torch.empty((0,), dtype=torch.bool),
+            edge_labels=torch.empty((0,), dtype=torch.float32),
+        )
+
+    source_indices = edge_index[0]
+    target_indices = edge_index[1]
+    source_features = node_features[source_indices]
+    target_features = node_features[target_indices]
+    seed_score_index = _node_feature_index(node_feature_names, "seed_score")
+    seed_rank_index = _node_feature_index(node_feature_names, "seed_rank_percentile")
+    question_flag_index = _node_feature_index(node_feature_names, "is_question_node")
+    edge_features = torch.stack(
+        [
+            message_edges.edge_weights,
+            message_edges.relation_ids.to(dtype=torch.float32),
+            source_features[:, seed_score_index],
+            source_features[:, seed_rank_index],
+            target_features[:, seed_score_index],
+            target_features[:, seed_rank_index],
+            source_features[:, question_flag_index],
+            target_features[:, question_flag_index],
+        ],
+        dim=1,
+    ).to(dtype=torch.float32)
+
+    gold_edges = set(label.gold_dependency_edges) if label is not None else set()
+    has_edge_labels = bool(gold_edges)
+    edge_labels: list[float] = []
+    for source_index, target_index in zip(source_indices.tolist(), target_indices.tolist(), strict=True):
+        source_id = node_ids[int(source_index)]
+        target_id = node_ids[int(target_index)]
+        edge_labels.append(1.0 if (source_id, target_id) in gold_edges or (target_id, source_id) in gold_edges else 0.0)
+    return LearnedEdgeBatch(
+        edge_features=edge_features,
+        edge_label_mask=torch.full((edge_count,), has_edge_labels, dtype=torch.bool),
+        edge_labels=torch.tensor(edge_labels, dtype=torch.float32),
+    )
+
+
+def _node_feature_index(node_feature_names: tuple[str, ...], feature_name: str) -> int:
+    try:
+        return node_feature_names.index(feature_name)
+    except ValueError as error:
+        available = ", ".join(node_feature_names)
+        raise ValueError(f"Learned edge features require node feature={feature_name!r}; available: {available}") from error

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
+from graph_memory.models.graph_retriever.config.records import RgcnLossConfig, RgcnTrainingConfig
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 
@@ -30,6 +30,17 @@ class TrainerSettingsLike(Protocol):
     def epochs(self) -> int: ...
 
 
+class LossSettingsLike(Protocol):
+    @property
+    def rank_loss_weight(self) -> float: ...
+
+    @property
+    def edge_loss_weight(self) -> float: ...
+
+    @property
+    def sparse_loss_weight(self) -> float: ...
+
+
 def dense_config_from_encoder_settings(settings: DenseEncoderSettings) -> DenseConfig:
     return DenseConfig(
         model_name=settings.model_name,
@@ -51,7 +62,16 @@ def rgcn_training_config_from_trainer_settings(settings: TrainerSettingsLike) ->
     )
 
 
+def rgcn_loss_config_from_settings(settings: LossSettingsLike) -> RgcnLossConfig:
+    return RgcnLossConfig(
+        rank_loss_weight=settings.rank_loss_weight,
+        edge_loss_weight=settings.edge_loss_weight,
+        sparse_loss_weight=settings.sparse_loss_weight,
+    )
+
+
 __all__ = [
     "dense_config_from_encoder_settings",
+    "rgcn_loss_config_from_settings",
     "rgcn_training_config_from_trainer_settings",
 ]

@@ -20,10 +20,15 @@ def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
     """Inspect ordinary artifacts and expanded ablation namespaces."""
 
     rows: list[dict[str, str]] = []
+    selected_methods = list(manifest["selected_methods"])
     for split in ("train", "dev", "test"):
         rows.append(_prepare_status(manifest, split))
-        rows.append(_graph_status(manifest, split))
-    for method in manifest["selected_methods"]:
+        if any(_method_has_stage(method, StageId.GRAPHS) for method in selected_methods):
+            rows.append(_graph_status(manifest, split))
+        for method in selected_methods:
+            if _method_has_stage(method, StageId.PROPOSAL_GRAPHS):
+                rows.append(_proposal_graph_status(manifest, method, split))
+    for method in selected_methods:
         if _method_has_stage(method, StageId.PAIRS):
             rows.append(_pair_status(manifest, method))
         if _method_has_stage(method, StageId.TRAIN):
@@ -154,6 +159,24 @@ def _graph_status(manifest: dict[str, Any], split: str) -> dict[str, str]:
     )
 
 
+def _proposal_graph_status(manifest: dict[str, Any], method: str, split: str) -> dict[str, str]:
+    path = manifest["artifacts"]["proposal_graphs"][method][split]
+    output_path = Path(path)
+    proposal_config = _proposal_graph_config(manifest, method)
+    expected_config = {"dataset": _dataset_id(manifest), "method": method, **proposal_config}
+    return _summary_status(
+        stage=StageId.PROPOSAL_GRAPHS.value,
+        path=path,
+        summary_path=output_path.with_name(f"{output_path.stem}.run_summary.json"),
+        script="build_proposal_graphs.py",
+        expected_inputs={"tasks": manifest["artifacts"]["inputs"][split]["input"]},
+        expected_outputs={"proposal_graphs": path},
+        expected_config=expected_config,
+        method=method,
+        split=split,
+    )
+
+
 def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
     learned = manifest["artifacts"]["learned"][method]
     method_config = manifest["effective_config"]["resolved_method_configs"][method]
@@ -166,7 +189,7 @@ def _pair_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         expected_inputs={
             "tasks": manifest["artifacts"]["inputs"]["train"]["input"],
             "labels": manifest["artifacts"]["inputs"]["train"]["labels"],
-            "graphs": manifest["artifacts"]["graphs"]["train"],
+            "graphs": _graph_artifact_for_method(manifest, method, "train"),
         },
         expected_outputs={
             "pairs": learned["train_pairs"],
@@ -188,8 +211,8 @@ def _train_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         "dev_labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
     }
     if definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT:
-        expected_inputs["train_graphs"] = manifest["artifacts"]["graphs"]["train"]
-        expected_inputs["dev_graphs"] = manifest["artifacts"]["graphs"]["dev"]
+        expected_inputs["train_graphs"] = _graph_artifact_for_method(manifest, method, "train")
+        expected_inputs["dev_graphs"] = _graph_artifact_for_method(manifest, method, "dev")
     train_artifact = definition.train_artifact
     if train_artifact is None:
         raise ValueError(f"Trainable workflow requires a train artifact: {method}")
@@ -308,7 +331,7 @@ def _evaluate_status(manifest: dict[str, Any], method: str) -> dict[str, str]:
         expected_inputs={
             "predictions": manifest["artifacts"]["predictions"][method],
             "labels": manifest["artifacts"]["inputs"]["test"]["labels"],
-            "graphs": manifest["artifacts"]["graphs"]["test"],
+            "graphs": _graph_artifact_for_method(manifest, method, "test"),
         },
         expected_outputs={
             "metrics": path,
@@ -469,6 +492,25 @@ def _dataset_id(manifest: Mapping[str, Any]) -> str:
     if dataset not in {"hotpotqa", "twowiki"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return dataset
+
+
+def _proposal_graph_config(manifest: Mapping[str, Any], method: str) -> dict[str, object]:
+    resolved = manifest["effective_config"].get("resolved_method_configs", {})
+    if not isinstance(resolved, Mapping):
+        raise ValueError("Manifest requires resolved method configs for proposal graph methods.")
+    method_config = resolved.get(method)
+    if not isinstance(method_config, Mapping):
+        raise ValueError(f"Method requires resolved method config for proposal graphs: {method}")
+    proposal_graph = method_config.get("proposal_graph")
+    if not isinstance(proposal_graph, Mapping):
+        raise ValueError(f"Method config requires proposal_graph for method={method}")
+    return {str(key): value for key, value in proposal_graph.items()}
+
+
+def _graph_artifact_for_method(manifest: Mapping[str, Any], method: str, split: str) -> str:
+    if _method_has_stage(method, StageId.PROPOSAL_GRAPHS):
+        return str(manifest["artifacts"]["proposal_graphs"][method][split])
+    return str(manifest["artifacts"]["graphs"][split])
 
 
 def _prepare_script_name(dataset: str) -> str:

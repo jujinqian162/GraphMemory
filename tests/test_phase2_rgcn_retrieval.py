@@ -4,6 +4,7 @@ from dataclasses import replace
 from inspect import Parameter, signature
 from pathlib import Path
 
+import pytest
 import torch
 
 from graph_memory.config import CONFIG_LOADER
@@ -12,6 +13,7 @@ from graph_memory.io import write_json
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
+from graph_memory.models.graph_retriever.config.records import RgcnLossConfig
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
@@ -21,7 +23,7 @@ from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
-from graph_memory.validation import validate_ranked_results
+from graph_memory.validation import ContractValidationError, validate_ranked_results
 from scripts.run_retrieval import main as run_retrieval_cli_main
 from tests.test_phase2_rgcn_training import (
     FakeRetriever,
@@ -93,6 +95,7 @@ def write_tiny_checkpoint(
     *,
     model_config=None,
     method_name: str = "dense_rgcn_graph_retriever",
+    training_config=None,
 ) -> None:
     effective_model_config = model_config or tiny_model_config()
     model = build_model_from_config(effective_model_config)
@@ -109,7 +112,7 @@ def write_tiny_checkpoint(
         global_step=1,
         best_dev_metric=1.0,
         model_config=effective_model_config,
-        training_config=tiny_training_config(),
+        training_config=training_config or tiny_training_config(),
     )
 
 
@@ -277,6 +280,138 @@ def test_checkpoint_graph_builder_accepts_dense_ft_seeded_rgcn_checkpoint(tmp_pa
     assert built.provenance.model == checkpoint_path
     assert built.provenance.encoder is not None
     assert built.provenance.encoder.model_name == "fake-encoder"
+
+
+def test_learned_graph_checkpoint_round_trips_method_identity_and_loss_config(tmp_path: Path):
+    checkpoint_path = tmp_path / "learned.pt"
+    learned_model_config = replace(
+        tiny_model_config(),
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+    learned_training_config = replace(
+        tiny_training_config(),
+        loss_config=RgcnLossConfig(rank_loss_weight=0.7, edge_loss_weight=0.3, sparse_loss_weight=0.1),
+    )
+    write_tiny_checkpoint(
+        checkpoint_path,
+        model_config=learned_model_config,
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+        training_config=learned_training_config,
+    )
+
+    checkpoint = load_rgcn_checkpoint(
+        checkpoint_path,
+        expected_method=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+
+    assert checkpoint.model_config.method_name == RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value
+    assert checkpoint.training_config.loss_config == learned_training_config.loss_config
+
+
+def test_learned_and_existing_rgcn_checkpoints_reject_mismatched_methods(tmp_path: Path):
+    dense_checkpoint_path = tmp_path / "dense.pt"
+    learned_checkpoint_path = tmp_path / "learned.pt"
+    learned_model_config = replace(
+        tiny_model_config(),
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+    write_tiny_checkpoint(dense_checkpoint_path)
+    write_tiny_checkpoint(
+        learned_checkpoint_path,
+        model_config=learned_model_config,
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+
+    with pytest.raises(ContractValidationError, match="expected_method=learned_graph_rgcn_retriever"):
+        load_rgcn_checkpoint(
+            dense_checkpoint_path,
+            expected_method=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+        )
+    with pytest.raises(ContractValidationError, match="expected_method=dense_rgcn_graph_retriever"):
+        load_rgcn_checkpoint(
+            learned_checkpoint_path,
+            expected_method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
+        )
+
+
+def test_checkpoint_graph_builder_accepts_learned_graph_checkpoint(tmp_path: Path):
+    checkpoint_path = tmp_path / "best.pt"
+    learned_model_config = replace(
+        tiny_model_config(),
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+    write_tiny_checkpoint(
+        checkpoint_path,
+        model_config=learned_model_config,
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+
+    built = Registry.retrieval.build(
+        CheckpointGraphRetrievalSettings(
+            top_k=2,
+            checkpoint=checkpoint_path,
+            device="cpu",
+            method=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
+        ),
+        CheckpointGraphBuildPayload(
+            ranking_requests=_ranking_requests(tiny_task_inputs()),
+            graphs=tiny_graphs(),
+            text_embedding_provider=FakeTextEmbeddingProvider(),
+            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        ),
+    )
+
+    assert built.method.name == RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value
+    assert built.provenance.method is RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER
+    assert built.provenance.model == checkpoint_path
+    assert built.provenance.encoder is not None
+    assert built.provenance.encoder.model_name == "fake-encoder"
+
+
+def test_learned_graph_retrieval_uses_input_graph_for_retrieved_subgraph(tmp_path: Path):
+    checkpoint_path = tmp_path / "best.pt"
+    learned_model_config = replace(
+        tiny_model_config(),
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+    write_tiny_checkpoint(
+        checkpoint_path,
+        model_config=learned_model_config,
+        method_name=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value,
+    )
+    proposal_graphs = tiny_graphs()
+
+    built = Registry.retrieval.build(
+        CheckpointGraphRetrievalSettings(
+            top_k=3,
+            checkpoint=checkpoint_path,
+            device="cpu",
+            method=RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER,
+        ),
+        CheckpointGraphBuildPayload(
+            ranking_requests=_ranking_requests(tiny_task_inputs()),
+            graphs=proposal_graphs,
+            text_embedding_provider=FakeTextEmbeddingProvider(),
+            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        ),
+    )
+    predictions = execute_retrieval(
+        retrieval_method=built.method,
+        tasks=built.execution_tasks,
+        top_k=3,
+    )
+
+    validate_ranked_results(predictions, _ranking_requests(tiny_task_inputs()))
+    assert predictions[0]["method"] == RetrievalMethodId.LEARNED_GRAPH_RGCN_RETRIEVER.value
+    assert predictions[0]["retrieved_subgraph"]["nodes"] == [
+        ranked_node["node_id"] for ranked_node in predictions[0]["ranked_nodes"][:3]
+    ]
+    top_node_ids = set(predictions[0]["retrieved_subgraph"]["nodes"])
+    assert predictions[0]["retrieved_subgraph"]["edges"] == [
+        edge
+        for edge in proposal_graphs[0]["edges"]
+        if edge["source"] in top_node_ids and edge["target"] in top_node_ids
+    ]
 
 
 def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path: Path):
