@@ -23,8 +23,7 @@ docs/configs/methods/dense_ft_rgcn_graph_retriever.md
 
 | Config | Documentation | 用途 |
 |---|---|---|
-| `configs/experiments/hotpotqa_evidence_retrieval.json` | `experiments/hotpotqa_evidence_retrieval.md` | HotpotQA evidence retrieval 的默认 experiment runner 配置。 |
-| `configs/experiments/hotpoqa_dev_full.json` | `experiments/hotpoqa_dev_full.md` | 使用完整 dev 作为 test 区间的 HotpotQA dev-full 变体配置。 |
+| `configs/experiments/hotpotqa_evidence_retrieval.json` | `experiments/hotpotqa_evidence_retrieval.md` | HotpotQA evidence retrieval 的默认 experiment runner 配置，包含 dev-heldout profile。 |
 | `configs/experiments/hotpotqa_rgcn_ablation_selected.json` | `experiments/hotpotqa_rgcn_ablation_selected.md` | 服务器上运行选定 R-GCN variants 的 ablation 配置。 |
 | `configs/methods/dense_rgcn_graph_retriever.json` | `methods/dense_rgcn_graph_retriever.md` | R-GCN trainable graph retriever 的当前方法配置。 |
 | `configs/methods/learned_graph_rgcn_retriever.json` | `methods/learned_graph_rgcn_retriever.md` | 使用 proposal graph 和 learned edge gate 的 R-GCN trainable graph retriever 当前方法配置。 |

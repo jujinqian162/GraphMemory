@@ -982,7 +982,7 @@ scripts/workflow/resume.py
 scripts/experiment.py
 scripts/deliver/collect_run_artifacts.py
 configs/experiments/hotpotqa_evidence_retrieval.json
-configs/experiments/hotpoqa_dev_full.json
+configs/experiments/hotpotqa_evidence_retrieval.json dev-heldout profile
 configs/experiments/hotpotqa_rgcn_ablation_selected.json
 docs/configs/README.md
 docs/configs/experiments/*.md

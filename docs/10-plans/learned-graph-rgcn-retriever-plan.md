@@ -234,8 +234,7 @@ Proposal graph 第一版复用现有 `GraphBuilder` 规则，只提高召回：
 
 | File | Responsibility |
 |---|---|
-| `configs/experiments/hotpotqa_evidence_retrieval.json` | 添加新 method 和 method config mapping。 |
-| `configs/experiments/hotpoqa_dev_full.json` | 若该文件仍是活跃配置，也添加新 method 和 method config mapping。 |
+| `configs/experiments/hotpotqa_evidence_retrieval.json` | 作为唯一 HotpotQA canonical config，包含新 method、method config mapping、服务器和 dev-heldout profiles。 |
 | `configs/experiments/2wiki_evidence_retrieval.json` | 添加新 method 和 method config mapping。 |
 | `configs/experiments/2wiki_tiny.json` | 添加新 method 到 smoke/tiny 验证路径。 |
 | `README.md` / `docs/40-operations/commands.md` | 更新公开 method 列表和运行命令。 |
@@ -588,7 +587,7 @@ total_loss = (
 **Files:**
 - Create: `configs/methods/learned_graph_rgcn_retriever.json`
 - Modify: `configs/experiments/hotpotqa_evidence_retrieval.json`
-- Modify: `configs/experiments/hotpoqa_dev_full.json`
+- Do not maintain a separate HotpotQA dev-full config; keep dev-heldout profiles in `configs/experiments/hotpotqa_evidence_retrieval.json`.
 - Modify: `tests/test_cli_contracts.py`
 - Modify: `tests/test_experiment_runner.py`
 - Modify: `README.md`

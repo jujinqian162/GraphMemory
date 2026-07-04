@@ -154,8 +154,7 @@ If the user also selects `dense_ft`, the same `dense_ft` artifacts are reused an
   - Add `dense_ft_rgcn_graph_retriever` to method lists where the default trainable comparison should include it.
   - Add method config mapping to `configs/methods/dense_ft_rgcn_graph_retriever.json`.
   - Expected active files include:
-    - `configs/experiments/hotpotqa_evidence_retrieval.json`
-    - `configs/experiments/hotpoqa_dev_full.json`
+    - `configs/experiments/hotpotqa_evidence_retrieval.json`, including its dev-heldout profile
     - `configs/experiments/2wiki_evidence_retrieval.json`
     - `configs/experiments/2wiki_tiny.json`
 
@@ -338,7 +337,7 @@ scripts/aggregate_tables.py ...
 **Files:**
 - Create: `configs/methods/dense_ft_rgcn_graph_retriever.json`
 - Modify: `configs/experiments/hotpotqa_evidence_retrieval.json`
-- Modify: `configs/experiments/hotpoqa_dev_full.json`
+- Keep dev-heldout profile changes in `configs/experiments/hotpotqa_evidence_retrieval.json`; do not add a duplicate HotpotQA dev-full config.
 - Modify: `configs/experiments/2wiki_evidence_retrieval.json`
 - Modify: `configs/experiments/2wiki_tiny.json`
 - Modify: `README.md`

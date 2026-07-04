@@ -29,7 +29,7 @@ python scripts/train_method.py --config runs/<experiment>/config/stages/train.de
 - `train.data.hard_negatives_per_positive`: 每个正例最多送入 Dense-FT 训练的负例数，优先顺序为 hard-dense、hard-bm25、graph-neighbor、easy-random。
 - `train.trainer`: SentenceTransformers 2.7 `fit()` 参数，包括训练/评估 batch size、epoch、learning rate、warmup、梯度裁剪、device 和 AMP。
 - `train.selection`: 选择最佳模型的 evaluator 指标，当前默认 `eval_dev_cos_sim_map@100`。
-- `profiles`: 对上述字段的深度覆盖。`smoke` 使用 CPU，其余 profile 默认继承 CUDA device。
+- `profiles`: 对上述字段的深度覆盖。profile 名必须与 experiment `--profile` 对齐；`smoke` 和 `dev` 使用小 batch 设置，其余 profile 默认继承 CUDA device。
 
 ## 产物
 

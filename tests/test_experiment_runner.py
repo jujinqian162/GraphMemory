@@ -208,6 +208,35 @@ def test_config_listing_uses_methods_not_training() -> None:
     assert "training" not in kinds
 
 
+def test_hotpotqa_canonical_config_owns_dev_profile_without_dev_full_duplicate(tmp_path: Path) -> None:
+    config = load_experiment_config("hotpotqa_evidence_retrieval")
+    experiment_names = {entry.name for entry in list_config_entries("experiments")}
+
+    assert config["profiles"]["dev"] == {
+        "dev_examples": 500,
+        "test_examples": 6869,
+        "train_examples": 1,
+    }
+    assert "hotpotqa_evidence_retrieval" in experiment_names
+    assert "hotpoqa_dev_full" not in experiment_names
+    assert not Path("configs/experiments/hotpoqa_dev_full.json").exists()
+
+    manifest = initialize_experiment(
+        "hotpotqa-dev-profile",
+        config=config,
+        run_root=tmp_path,
+        profile="dev",
+        methods=[
+            TRAINABLE_METHOD,
+            "learned_graph_rgcn_retriever",
+            DENSE_FT_METHOD,
+            DENSE_FT_SEEDED_RGCN_METHOD,
+        ],
+        force=True,
+    )
+    assert manifest["effective_config"]["splits"]["test"]["max_examples"] == 6869
+
+
 def test_experiment_cli_init_plan_and_list_current_resources(tmp_path: Path, capsys) -> None:
     assert experiment_script.main(
         [

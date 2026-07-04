@@ -39,7 +39,7 @@ python scripts/run_retrieval.py --config runs/<experiment>/config/stages/retriev
 - `train.model`: R-GCN 模型结构配置。
 - `train.trainer`: 训练循环参数。
 - `train.selection` 和 `train.reporting`: best checkpoint 选择与报告开关。
-- `profiles`: 对上述字段的 profile 覆盖。
+- `profiles`: 对上述字段的 profile 覆盖。profile 名必须与 experiment `--profile` 对齐；`dev` 使用和 `smoke` 相同的小训练设置，用于 canonical HotpotQA dev-heldout profile。
 
 ## Label Boundary
 

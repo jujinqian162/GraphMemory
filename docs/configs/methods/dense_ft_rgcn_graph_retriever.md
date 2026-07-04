@@ -40,7 +40,7 @@ python scripts/run_retrieval.py --config runs/<experiment>/config/stages/retriev
 - `train.trainer`: 训练循环参数，包含 optimizer、learning rate、batch size、epoch、device、随机种子和 pos weight 开关。
 - `train.selection`: best checkpoint 选择语义。当前 R-GCN 训练仍使用 dev composite 指标。
 - `train.reporting`: 训练报告开关。
-- `profiles`: 对上述字段的深度覆盖。profile 名必须与 experiment `--profile` 对齐。
+- `profiles`: 对上述字段的深度覆盖。profile 名必须与 experiment `--profile` 对齐；`dev` 使用和 `smoke` 相同的小训练设置，用于 canonical HotpotQA dev-heldout profile。
 
 ## 产物
 

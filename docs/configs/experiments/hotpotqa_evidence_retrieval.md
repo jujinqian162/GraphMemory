@@ -179,7 +179,8 @@ experiment runner 的默认参数。
 - `quick`：100 train / 100 dev / 100 test，用于快速实验。
 - `full`：5000 train / 500 dev / 1000 test，用于较大规模实验；它是较大子集，不是全量数据。
 - `cloud-quick`：1000 train / 500 dev / 1000 test，用于服务器上的快速 R-GCN 训练。
-- `cloud-full`：90447 train / 500 dev / 6869 test，用于服务器上的接近全量训练和完整 dev held-out 评估。
+- `cloud-full`：90025 train / 500 dev / 6869 test，用于服务器上的接近全量训练和完整 dev held-out 评估。
+- `dev`：1 train / 500 dev / 6869 test，用于只做 dev-heldout 评估或调试评估链路。
 
 每个 profile 字段：
 
@@ -303,8 +304,8 @@ experiment runner 会按当前 experiment `--profile` 解析 method config 中�
 服务器训练优先使用：
 
 ```bash
-python scripts/experiment.py init rgcn_cloud_quick --profile cloud-quick --config configs/experiments/hotpoqa_dev_full.json
-python scripts/experiment.py init rgcn_cloud_full --profile cloud-full --config configs/experiments/hotpoqa_dev_full.json
+python scripts/experiment.py init rgcn_cloud_quick --profile cloud-quick --config configs/experiments/hotpotqa_evidence_retrieval.json
+python scripts/experiment.py init rgcn_cloud_full --profile cloud-full --config configs/experiments/hotpotqa_evidence_retrieval.json
 ```
 
 `cloud-quick` 和 `cloud-full` 必须在 experiment config 与对应 `configs/methods/*.json` 中同名存在，因为 runner 会把 `--profile` 原样传给 method config。

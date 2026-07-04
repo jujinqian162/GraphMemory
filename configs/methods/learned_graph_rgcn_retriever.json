@@ -80,6 +80,25 @@
         "hard_graph_neighbor_per_positive": 1
       }
     },
+    "dev": {
+      "train": {
+        "model": {
+          "hidden_dim": 32,
+          "num_layers": 1
+        },
+        "trainer": {
+          "batch_size": 1,
+          "device": "cuda",
+          "epochs": 1
+        }
+      },
+      "pairs": {
+        "easy_random_per_positive": 1,
+        "hard_bm25_per_positive": 1,
+        "hard_dense_per_positive": 0,
+        "hard_graph_neighbor_per_positive": 1
+      }
+    },
     "full": {
       "train": {
         "model": {
