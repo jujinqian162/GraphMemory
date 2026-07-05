@@ -14,6 +14,8 @@ Date: 2026-07-03
 
 Status: Draft implementation plan.
 
+Update 2026-07-05: 当前默认 `learned_graph_rgcn_retriever` 不再直接以 base E5 作为最终 R-GCN seed encoder。workflow 会先训练/复用 `dense_ft`，并把 `learned/dense_ft/checkpoints/best_model` 作为该方法的 `seed_checkpoint`；method-local proposal graph、learned edge gate、rank/edge/sparse loss 和 public method id 不变。
+
 ## 1. 决策摘要
 
 新增 public method：
@@ -38,6 +40,7 @@ dense_ft_rgcn_graph_retriever
 
 learned_graph_rgcn_retriever
   graph: method-specific high-recall proposal graph
+  seed/text encoder: dense_ft checkpoint
   train loss: rank + edge + sparse
   learned: input projection + edge gate + typed R-GCN + evidence scorer
 ```
@@ -56,7 +59,7 @@ dataset-specific record
 
 不要把这个能力做成 `dense_rgcn_graph_retriever` 的配置开关。它必须是独立 result-table row，方便和当前 Ours、Dense-FT seeded Ours 做公平对比。
 
-Workflow 层面必须按 method 维护独立依赖链。`learned_graph_rgcn_retriever` 的 graph artifact 是自己的 `proposal_graphs`，不依赖也不包裹其他 method 的 shared `graphs` stage。多个 methods 同时选中时，只是在 manifest/planner 中并列组合多条 method DAG。
+Workflow 层面必须按 method 维护独立依赖链。`learned_graph_rgcn_retriever` 的 graph artifact 是自己的 `proposal_graphs`，不读取也不包裹 shared `graphs` artifact；当前默认还会把 `dense_ft` 作为 seed encoder 的 pair/train 依赖。该依赖可以有自己的 shared-graphs pair 生成链，但不会改变 learned graph 自己的 graph 输入，也不会被加入 retrieve/evaluate 输出，除非用户显式选择 `dense_ft`。
 
 ## 2. 非目标
 
@@ -64,7 +67,7 @@ Workflow 层面必须按 method 维护独立依赖链。`learned_graph_rgcn_retr
 - 不把 `gold_dependency_edges` 写入 `GraphBuildRequest.input_visible_edges`、graph artifact 或 test-time tensor。
 - 不替换现有 R-GCN method 的默认行为。
 - 不复制 `TrainableGraphRetrievalMethod`、checkpoint loader、Dense-FT trainer 或 dense retriever。
-- 不先做 full joint encoder finetuning。第一版仍使用 frozen text embedding provider。
+- 不先做 full joint encoder finetuning。当前默认使用 Dense-FT checkpoint 作为 frozen text embedding provider。
 - 不做大规模超参数搜索。三个 loss weight 可配置，但默认固定为 `1.0 / 0.2 / 0.05`。
 - 不新增与现有 request-first 边界冲突的 generic wrapper，例如 `EvidenceRankingView`。
 
@@ -153,6 +156,8 @@ sparse_loss = torch.relu(edge_gates.mean() - sparse_target_density).square()
 ```text
 prepare
   |
+graphs -> pairs/train: dense_ft -> dense_ft best_model
+  |
 proposal_graphs: learned_graph_rgcn_retriever
   |
 pairs: learned_graph_rgcn_retriever
@@ -174,7 +179,7 @@ graphs: dense_rgcn_graph_retriever
 pairs/train/retrieve: dense_rgcn_graph_retriever
 ```
 
-这两条链只共享 `prepare` 产物和 dataset projector，不共享 graph artifact 语义。实现时不要把 `proposal_graphs` 写成 `graphs` 的下游 stage，也不要让新 method 等待其他 method 的 graph stage。
+learned graph 自己的 pair/train/retrieve/evaluate 只读取 proposal graph artifact。Dense-FT seed 依赖可以为了自己的 train-pair generation 读取 shared `graphs` artifact，但它只提供 `learned/dense_ft/checkpoints/best_model` 给 learned graph train stage；不要把 `proposal_graphs` 写成 `graphs` 的下游 stage，也不要把 dependency-only `dense_ft` 加入 retrieve/evaluate 输出。
 
 Proposal graph 第一版复用现有 `GraphBuilder` 规则，只提高召回：
 

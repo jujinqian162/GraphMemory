@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from graph_memory.io import read_json, write_json
 from scripts import build_proposal_graphs
@@ -17,6 +18,7 @@ from scripts.workflow.types import ArtifactState, StageId
 
 LEARNED = "learned_graph_rgcn_retriever"
 RGCN = "dense_rgcn_graph_retriever"
+DENSE_FT = "dense_ft"
 
 
 def _config_with_learned_method() -> dict[str, object]:
@@ -53,6 +55,102 @@ def _twowiki_task() -> dict[str, object]:
     }
 
 
+def _write_shared_graph_artifacts(manifest: dict[str, Any]) -> None:
+    for split, path in manifest["artifacts"]["graphs"].items():
+        graph_path = Path(path)
+        write_json(graph_path, [])
+        write_json(
+            graph_path.with_name(f"{graph_path.stem}.run_summary.json"),
+            {
+                "script": "build_graphs.py",
+                "status": "success",
+                "inputs": {"tasks": manifest["artifacts"]["inputs"][split]["input"]},
+                "outputs": {"graphs": path},
+                "effective_config": {
+                    "dataset": "hotpotqa",
+                    **manifest["effective_config"]["graph"],
+                },
+            },
+        )
+
+
+def _write_pair_artifacts(
+    manifest: dict[str, Any],
+    method: str,
+    *,
+    graph_path: str,
+) -> None:
+    learned = manifest["artifacts"]["learned"][method]
+    write_json(learned["train_pairs"], [])
+    write_json(learned["train_pair_summary"], {})
+    write_json(
+        learned["train_pair_run_summary"],
+        {
+            "script": "build_train_pairs.py",
+            "status": "success",
+            "inputs": {
+                "tasks": manifest["artifacts"]["inputs"]["train"]["input"],
+                "labels": manifest["artifacts"]["inputs"]["train"]["labels"],
+                "graphs": graph_path,
+            },
+            "outputs": {
+                "pairs": learned["train_pairs"],
+                "summary": learned["train_pair_summary"],
+            },
+            "effective_config": {
+                "dataset": "hotpotqa",
+                **manifest["effective_config"]["resolved_method_configs"][method]["pairs"],
+            },
+        },
+    )
+
+
+def _write_train_artifacts(
+    manifest: dict[str, Any],
+    method: str,
+    *,
+    train_graph_path: str | None = None,
+    dev_graph_path: str | None = None,
+) -> None:
+    learned = manifest["artifacts"]["learned"][method]
+    checkpoint_path = Path(learned["best_checkpoint"])
+    if method == DENSE_FT:
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+    else:
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_bytes(b"checkpoint")
+
+    metrics_path = Path(learned["train_metrics"])
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_path.write_text("{}\n", encoding="utf-8")
+
+    inputs = {
+        "train_tasks": manifest["artifacts"]["inputs"]["train"]["input"],
+        "train_labels": manifest["artifacts"]["inputs"]["train"]["labels"],
+        "train_pairs": learned["train_pairs"],
+        "dev_tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
+        "dev_labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
+    }
+    if train_graph_path is not None:
+        inputs["train_graphs"] = train_graph_path
+    if dev_graph_path is not None:
+        inputs["dev_graphs"] = dev_graph_path
+
+    write_json(
+        learned["train_run_summary"],
+        {
+            "script": "train_method.py",
+            "status": "success",
+            "inputs": inputs,
+            "outputs": {
+                "best_checkpoint": learned["best_checkpoint"],
+                "metrics": learned["train_metrics"],
+            },
+            "effective_config": {"dataset": "hotpotqa", "method": method},
+        },
+    )
+
+
 def test_build_proposal_graphs_cli_uses_dataset_selector_and_high_recall_defaults(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     graphs_path = tmp_path / "proposal.graphs.json"
@@ -86,7 +184,7 @@ def test_build_proposal_graphs_cli_uses_dataset_selector_and_high_recall_default
     assert "answer" not in graph_payload
 
 
-def test_learned_rgcn_uses_method_local_proposal_graphs_without_shared_graph_stage(tmp_path: Path) -> None:
+def test_learned_rgcn_keeps_proposal_graphs_with_dense_ft_seed_dependency(tmp_path: Path) -> None:
     manifest = initialize_experiment(
         "learned-only",
         config=_config_with_learned_method(),
@@ -100,6 +198,15 @@ def test_learned_rgcn_uses_method_local_proposal_graphs_without_shared_graph_sta
     assert manifest["artifacts"]["proposal_graphs"][LEARNED]["train"].endswith(
         "graphs/train.learned_graph_rgcn_retriever.graphs.json"
     )
+    assert manifest["selected_methods"] == [LEARNED]
+    assert set(manifest["artifacts"]["learned"]) == {DENSE_FT, LEARNED}
+    assert DENSE_FT not in manifest["artifacts"]["predictions"]
+    assert DENSE_FT not in manifest["artifacts"]["metrics"]
+    assert DENSE_FT not in manifest["artifacts"]["failure_cases"]
+    assert set(manifest["stage_configs"]["pairs"]) == {DENSE_FT, LEARNED}
+    assert set(manifest["stage_configs"]["train"]) == {DENSE_FT, LEARNED}
+    assert set(manifest["stage_configs"]["retrieve"]) == {LEARNED}
+    assert set(manifest["stage_configs"]["evaluate"]) == {LEARNED}
     assert "graphs" in manifest["artifacts"]
 
     pair_config = read_json(Path(manifest["stage_configs"]["pairs"][LEARNED]))
@@ -110,6 +217,7 @@ def test_learned_rgcn_uses_method_local_proposal_graphs_without_shared_graph_sta
     assert Path(pair_config["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["train"])
     assert Path(train_config["io"]["train_graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["train"])
     assert Path(train_config["io"]["dev_graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["dev"])
+    assert Path(train_config["io"]["seed_checkpoint"]) == Path(manifest["artifacts"]["learned"][DENSE_FT]["best_checkpoint"])
     assert Path(retrieve_config["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["test"])
     assert Path(evaluate_config["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["test"])
 
@@ -120,7 +228,7 @@ def test_learned_rgcn_uses_method_local_proposal_graphs_without_shared_graph_sta
         methods=[LEARNED],
     )
 
-    assert StageId.GRAPHS not in {command.stage for command in commands}
+    assert StageId.GRAPHS in {command.stage for command in commands}
     assert [command.stage for command in commands].count(StageId.PROPOSAL_GRAPHS) == 3
     proposal_commands = [command for command in commands if command.stage is StageId.PROPOSAL_GRAPHS]
     assert {command.method for command in proposal_commands} == {LEARNED}
@@ -129,6 +237,10 @@ def test_learned_rgcn_uses_method_local_proposal_graphs_without_shared_graph_sta
         "dev.learned_graph_rgcn_retriever.graphs.json",
         "test.learned_graph_rgcn_retriever.graphs.json",
     }
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.PAIRS] == [
+        (StageId.PAIRS, DENSE_FT),
+        (StageId.PAIRS, LEARNED),
+    ]
 
 
 def test_active_hotpotqa_config_wires_learned_graph_method_to_proposal_graphs(tmp_path: Path) -> None:
@@ -161,8 +273,23 @@ def test_active_hotpotqa_config_wires_learned_graph_method_to_proposal_graphs(tm
         "sparse_loss_weight": 0.05,
     }
     assert Path(train_config["io"]["train_graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["train"])
+    assert Path(train_config["io"]["seed_checkpoint"]) == Path(manifest["artifacts"]["learned"][DENSE_FT]["best_checkpoint"])
     assert Path(retrieve_config["io"]["graphs"]) == Path(manifest["artifacts"]["proposal_graphs"][LEARNED]["test"])
-    assert StageId.GRAPHS not in {command.stage for command in commands}
+    assert StageId.GRAPHS in {command.stage for command in commands}
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.PAIRS] == [
+        (StageId.PAIRS, DENSE_FT),
+        (StageId.PAIRS, LEARNED),
+    ]
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.TRAIN] == [
+        (StageId.TRAIN, DENSE_FT),
+        (StageId.TRAIN, LEARNED),
+    ]
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.RETRIEVE] == [
+        (StageId.RETRIEVE, LEARNED),
+    ]
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.EVALUATE] == [
+        (StageId.EVALUATE, LEARNED),
+    ]
     assert {command.stage for command in commands} >= {
         StageId.PREPARE,
         StageId.PROPOSAL_GRAPHS,
@@ -245,56 +372,23 @@ def test_learned_status_and_cache_use_proposal_graph_artifacts(tmp_path: Path) -
             },
         )
 
-    learned = manifest["artifacts"]["learned"][LEARNED]
-    write_json(learned["train_pairs"], [])
-    write_json(learned["train_pair_summary"], {})
-    write_json(
-        learned["train_pair_run_summary"],
-        {
-            "script": "build_train_pairs.py",
-            "status": "success",
-            "inputs": {
-                "tasks": manifest["artifacts"]["inputs"]["train"]["input"],
-                "labels": manifest["artifacts"]["inputs"]["train"]["labels"],
-                "graphs": manifest["artifacts"]["proposal_graphs"][LEARNED]["train"],
-            },
-            "outputs": {
-                "pairs": learned["train_pairs"],
-                "summary": learned["train_pair_summary"],
-                "run_summary": learned["train_pair_run_summary"],
-            },
-            "effective_config": {
-                "dataset": "hotpotqa",
-                **manifest["effective_config"]["resolved_method_configs"][LEARNED]["pairs"],
-            },
-        },
+    _write_shared_graph_artifacts(manifest)
+    _write_pair_artifacts(
+        manifest,
+        DENSE_FT,
+        graph_path=manifest["artifacts"]["graphs"]["train"],
     )
-    checkpoint_path = Path(learned["best_checkpoint"])
-    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    checkpoint_path.write_bytes(b"checkpoint")
-    Path(learned["train_metrics"]).parent.mkdir(parents=True, exist_ok=True)
-    Path(learned["train_metrics"]).write_text("{}\n", encoding="utf-8")
-    write_json(
-        learned["train_run_summary"],
-        {
-            "script": "train_method.py",
-            "status": "success",
-            "inputs": {
-                "train_tasks": manifest["artifacts"]["inputs"]["train"]["input"],
-                "train_labels": manifest["artifacts"]["inputs"]["train"]["labels"],
-                "train_pairs": learned["train_pairs"],
-                "train_graphs": manifest["artifacts"]["proposal_graphs"][LEARNED]["train"],
-                "dev_tasks": manifest["artifacts"]["inputs"]["dev"]["input"],
-                "dev_labels": manifest["artifacts"]["inputs"]["dev"]["labels"],
-                "dev_graphs": manifest["artifacts"]["proposal_graphs"][LEARNED]["dev"],
-            },
-            "outputs": {
-                "best_checkpoint": learned["best_checkpoint"],
-                "metrics": learned["train_metrics"],
-                "run_summary": learned["train_run_summary"],
-            },
-            "effective_config": {"dataset": "hotpotqa", "method": LEARNED},
-        },
+    _write_train_artifacts(manifest, DENSE_FT)
+    _write_pair_artifacts(
+        manifest,
+        LEARNED,
+        graph_path=manifest["artifacts"]["proposal_graphs"][LEARNED]["train"],
+    )
+    _write_train_artifacts(
+        manifest,
+        LEARNED,
+        train_graph_path=manifest["artifacts"]["proposal_graphs"][LEARNED]["train"],
+        dev_graph_path=manifest["artifacts"]["proposal_graphs"][LEARNED]["dev"],
     )
     prediction_path = Path(manifest["artifacts"]["predictions"][LEARNED])
     write_json(prediction_path, [])
@@ -338,10 +432,14 @@ def test_learned_status_and_cache_use_proposal_graph_artifacts(tmp_path: Path) -
         for row in rows
     }
 
-    assert all(row["stage"] != StageId.GRAPHS.value for row in rows)
+    assert state_by_key[(StageId.GRAPHS.value, None, "train")] == ArtifactState.COMPLETE.value
+    assert state_by_key[(StageId.GRAPHS.value, None, "dev")] == ArtifactState.COMPLETE.value
+    assert state_by_key[(StageId.GRAPHS.value, None, "test")] == ArtifactState.COMPLETE.value
     assert state_by_key[(StageId.PROPOSAL_GRAPHS.value, LEARNED, "train")] == ArtifactState.COMPLETE.value
     assert state_by_key[(StageId.PROPOSAL_GRAPHS.value, LEARNED, "dev")] == ArtifactState.COMPLETE.value
     assert state_by_key[(StageId.PROPOSAL_GRAPHS.value, LEARNED, "test")] == ArtifactState.COMPLETE.value
+    assert state_by_key[(StageId.PAIRS.value, DENSE_FT, None)] == ArtifactState.COMPLETE.value
+    assert state_by_key[(StageId.TRAIN.value, DENSE_FT, None)] == ArtifactState.COMPLETE.value
     assert state_by_key[(StageId.PAIRS.value, LEARNED, None)] == ArtifactState.COMPLETE.value
     assert state_by_key[(StageId.TRAIN.value, LEARNED, None)] == ArtifactState.COMPLETE.value
     assert state_by_key[(StageId.EVALUATE.value, LEARNED, None)] == ArtifactState.COMPLETE.value
@@ -360,6 +458,8 @@ def test_learned_status_and_cache_use_proposal_graph_artifacts(tmp_path: Path) -
         StageId.PROPOSAL_GRAPHS,
         StageId.PROPOSAL_GRAPHS,
         StageId.PAIRS,
+        StageId.PAIRS,
+        StageId.TRAIN,
         StageId.TRAIN,
         StageId.RETRIEVE,
         StageId.EVALUATE,

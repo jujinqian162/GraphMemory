@@ -157,11 +157,25 @@ def test_named_twowiki_tiny_learned_method_plan_uses_proposal_graphs(tmp_path: P
     )
     proposal_commands = [command for command in commands if command.stage is StageId.PROPOSAL_GRAPHS]
 
-    assert StageId.GRAPHS not in {command.stage for command in commands}
+    assert StageId.GRAPHS in {command.stage for command in commands}
     assert len(proposal_commands) == 3
     assert {command.method for command in proposal_commands} == {LEARNED}
     assert all(command.argv[command.argv.index("--dataset") + 1] == "twowiki" for command in proposal_commands)
     assert all(command.argv[command.argv.index("--method") + 1] == LEARNED for command in proposal_commands)
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.PAIRS] == [
+        (StageId.PAIRS, DENSE_FT),
+        (StageId.PAIRS, LEARNED),
+    ]
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.TRAIN] == [
+        (StageId.TRAIN, DENSE_FT),
+        (StageId.TRAIN, LEARNED),
+    ]
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.RETRIEVE] == [
+        (StageId.RETRIEVE, LEARNED),
+    ]
+    assert [(command.stage, command.method) for command in commands if command.stage is StageId.EVALUATE] == [
+        (StageId.EVALUATE, LEARNED),
+    ]
 
 
 def test_named_twowiki_tiny_trainable_stage_configs_use_dataset_cuda_and_graph_boundaries(

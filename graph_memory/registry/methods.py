@@ -230,7 +230,8 @@ def build_method_registry() -> MethodRegistry:
             ),
             method_config_type=LearnedGraphRgcnMethodConfig,
             train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
-            seed_method=RetrievalMethodId.DENSE,
+            seed_method=RetrievalMethodId.DENSE_FT,
+            train_dependencies=(RetrievalMethodId.DENSE_FT,),
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_FT,

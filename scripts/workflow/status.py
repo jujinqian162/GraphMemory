@@ -9,7 +9,7 @@ from graph_memory.registry.methods import ArtifactKind, GraphInputSource, Tuning
 from graph_memory.io import read_json, write_json
 from graph_memory.observability import now_iso
 from scripts.workflow.planner import _materialize_variant_manifest, _method_has_stage
-from scripts.workflow.stage_configs import _memory_stream_importance_path
+from scripts.workflow.stage_configs import _memory_stream_importance_path, expand_train_dependency_methods
 from scripts.workflow.types import ArtifactRole, ArtifactState, StageId
 
 DEFAULT_CANONICAL_DEV_INPUT = Path("data/hotpotqa/processed/dev_memory_tasks.input.json")
@@ -21,18 +21,20 @@ def inspect_experiment_status(manifest: dict[str, Any]) -> list[dict[str, str]]:
 
     rows: list[dict[str, str]] = []
     selected_methods = list(manifest["selected_methods"])
+    train_execution_methods = expand_train_dependency_methods(selected_methods)
     for split in ("train", "dev", "test"):
         rows.append(_prepare_status(manifest, split))
-        if any(_method_has_stage(method, StageId.GRAPHS) for method in selected_methods):
+        if any(_method_has_stage(method, StageId.GRAPHS) for method in train_execution_methods):
             rows.append(_graph_status(manifest, split))
         for method in selected_methods:
             if _method_has_stage(method, StageId.PROPOSAL_GRAPHS):
                 rows.append(_proposal_graph_status(manifest, method, split))
-    for method in selected_methods:
+    for method in train_execution_methods:
         if _method_has_stage(method, StageId.PAIRS):
             rows.append(_pair_status(manifest, method))
         if _method_has_stage(method, StageId.TRAIN):
             rows.append(_train_status(manifest, method))
+    for method in selected_methods:
         if _method_has_stage(method, StageId.TUNE):
             rows.append(_tune_status(manifest, method))
         rows.append(_retrieval_status(manifest, method))

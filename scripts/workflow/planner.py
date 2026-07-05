@@ -293,9 +293,13 @@ def _materialize_variant_manifest(manifest: dict[str, Any], method: str, record:
 def required_stages_for_methods(methods: Sequence[str]) -> list[str]:
     selected_methods = list(methods)
     _validate_methods(selected_methods)
+    workflow_methods = expand_train_dependency_methods(selected_methods)
+    for method in selected_methods:
+        if method not in workflow_methods:
+            workflow_methods.append(method)
     required = {
         step.stage.value
-        for method in selected_methods
+        for method in workflow_methods
         for step in get_workflow(method).steps
     }
     return [stage.value for stage in StageId if stage.value in required]

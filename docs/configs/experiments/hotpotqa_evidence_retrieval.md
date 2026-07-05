@@ -276,8 +276,8 @@ trainable method 到当前 method config 的映射。
 
 - key 必须是 trainable retrieval method 名称。
 - value 是该 method 的 current-only method config 路径。
-- `learned_graph_rgcn_retriever` 使用 method-local `proposal_graphs` stage，不读取共享 `graphs` artifact。
-- `dense_ft_rgcn_graph_retriever` 会在 workflow 中自动引入 `dense_ft` 训练依赖；依赖方法只参与 pair/train，不会因为依赖关系被加入 retrieve/evaluate 输出。
+- `learned_graph_rgcn_retriever` 使用 method-local `proposal_graphs` stage 作为自己的 graph 输入，并会在 workflow 中自动引入 `dense_ft` 训练依赖作为 R-GCN seed encoder；依赖方法只参与 pair/train，不会因为依赖关系被加入 retrieve/evaluate 输出。
+- `dense_ft_rgcn_graph_retriever` 也会在 workflow 中自动引入 `dense_ft` 训练依赖；它使用共享 `graphs` artifact，而不是 learned proposal graph。
 
 experiment runner 会按当前 experiment `--profile` 解析 method config 中同名 profile。例如 experiment profile 为 `quick` 时，会解析 method config 的 `profiles.quick`。
 
