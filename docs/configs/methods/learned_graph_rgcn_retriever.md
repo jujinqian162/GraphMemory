@@ -2,7 +2,7 @@
 
 对应配置文件：`configs/methods/learned_graph_rgcn_retriever.json`
 
-这是 learned graph R-GCN trainable retriever 的当前方法配置。它是独立 public method，不是 `dense_rgcn_graph_retriever` 的开关。workflow 会为它构建 method-local proposal graph，并自动训练/复用 `dense_ft` 的 best model directory 作为 R-GCN seed encoder，然后用 learned edge gate 缩放 R-GCN message edge，并用 rank、edge、sparse 三项 loss 训练。
+这是 learned graph R-GCN trainable retriever 的当前方法配置。它是独立 public method，不是 `dense_rgcn_graph_retriever` 的开关。workflow 会为它构建 method-local proposal graph，并自动训练/复用 `dense_ft` 的 best model directory 作为 R-GCN seed encoder，然后用 learned edge gate 缩放 R-GCN message edge，并用 rank BCE、task-local pairwise rank、edge、sparse 四项 loss 训练。
 
 ## 使用位置
 
@@ -39,7 +39,7 @@ python scripts/run_retrieval.py --config runs/<experiment>/config/stages/retriev
 - `encoder`: method config 中的基础 Sentence-Transformers encoder 设置。正常 workflow 训练时，R-GCN 的有效 encoder 会被 `dense_ft` best model directory 覆盖，并写入 checkpoint metadata；该字段仍用于当前配置解析和 hard-dense pair sampling 的基础 encoder 设置。
 - `proposal_graph`: proposal graph 的召回上限，默认 `max_query_overlap=80`、`max_entity_neighbors=30`、`max_bridge_edges=200`、`use_spacy=false`。它复用现有 graph builder 规则，但输出到该 method 自己的 proposal graph artifact。
 - `pairs`: 复用 train-pair 采样配置。输入 graph 为 proposal graph，不是共享 `graphs` artifact。
-- `train.loss`: 三项 loss 权重，默认 `rank_loss_weight=1.0`、`edge_loss_weight=0.2`、`sparse_loss_weight=0.05`。
+- `train.loss`: loss 权重与 pairwise ranking 参数。当前默认 `rank_loss_weight=0.5`、`pairwise_rank_loss_weight=1.0`、`pairwise_temperature=1.0`、`edge_loss_weight=0.2`、`sparse_loss_weight=0.05`。`pairwise_negative_type_weights` 按负样本来源加权，默认提高 hard dense / graph-neighbor / BM25 负样本的排序惩罚，降低 easy random 负样本权重。
 - `train.model`: R-GCN 模型结构配置。
 - `train.trainer`: 训练循环参数。
 - `train.selection` 和 `train.reporting`: best checkpoint 选择与报告开关。
@@ -49,7 +49,17 @@ python scripts/run_retrieval.py --config runs/<experiment>/config/stages/retriev
 
 `gold_dependency_edges` 只作为 edge loss 的 label-side supervision 和 path metrics 标签使用。proposal graph 构建、检索输入 graph tensor、test-time retrieval 都不能把 gold dependency edge 直接插入图里。
 
-HotpotQA 通常没有 dependency edge labels，因此 edge loss sample count 可以为 0；rank loss 和 sparse gate penalty 仍然有效。2Wiki 的 dependency labels 只有在 proposal graph 已经包含同端点 candidate edge 时才会标正例。
+HotpotQA 通常没有 dependency edge labels，因此 edge loss sample count 可以为 0；rank BCE、pairwise rank loss 和 sparse gate penalty 仍然有效。2Wiki 的 dependency labels 只有在 proposal graph 已经包含同端点 candidate edge 时才会标正例。
+
+## Pairwise Ranking Loss
+
+Pairwise rank loss 在同一个 task 内比较 gold evidence sample 和 negative sample。每个正负样本对的 loss 为：
+
+```text
+softplus(-(score_gold - score_negative) / pairwise_temperature)
+```
+
+该项会持续惩罚排在 gold evidence 前面的同题负样本，因此目标是让 gold evidence 排得更靠前，而不是仅满足二分类为正。`pairwise_negative_type_weights` 用来让 hard negatives 比 easy random negatives 贡献更高的排序压力。
 
 ## 产物
 

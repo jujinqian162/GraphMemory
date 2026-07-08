@@ -268,7 +268,15 @@ def test_active_hotpotqa_config_wires_learned_graph_method_to_proposal_graphs(tm
 
     assert manifest["effective_config"]["resolved_method_configs"][LEARNED]["method"] == LEARNED
     assert train_config["job"]["loss"] == {
-        "rank_loss_weight": 1.0,
+        "rank_loss_weight": 0.5,
+        "pairwise_rank_loss_weight": 1.0,
+        "pairwise_temperature": 1.0,
+        "pairwise_negative_type_weights": {
+            "easy_random": 0.5,
+            "hard_bm25": 1.2,
+            "hard_dense": 1.5,
+            "hard_graph_neighbor": 1.3,
+        },
         "edge_loss_weight": 0.2,
         "sparse_loss_weight": 0.05,
     }

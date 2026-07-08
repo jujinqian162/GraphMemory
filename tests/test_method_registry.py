@@ -70,8 +70,8 @@ def test_learned_graph_rgcn_method_definition_is_first_class() -> None:
     assert definition.train_artifact.basename == "best.pt"
     assert definition.train_artifact.kind is ArtifactKind.FILE
     assert Registry.methods.supports_path_metrics(definition.identifier)
-    assert definition.seed_method is RetrievalMethodId.DENSE
-    assert definition.train_dependencies == ()
+    assert definition.seed_method is RetrievalMethodId.DENSE_FT
+    assert definition.train_dependencies == (RetrievalMethodId.DENSE_FT,)
 
 
 def test_dense_ft_method_definition_declares_model_directory() -> None:

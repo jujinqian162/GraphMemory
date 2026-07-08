@@ -16,6 +16,8 @@ Status: Draft implementation plan.
 
 Update 2026-07-05: 当前默认 `learned_graph_rgcn_retriever` 不再直接以 base E5 作为最终 R-GCN seed encoder。workflow 会先训练/复用 `dense_ft`，并把 `learned/dense_ft/checkpoints/best_model` 作为该方法的 `seed_checkpoint`；method-local proposal graph、learned edge gate、rank/edge/sparse loss 和 public method id 不变。
 
+Update 2026-07-08: 为了让 gold evidence 排得更靠前，而不是仅被判为正类，当前默认训练目标新增 task-local pairwise rank loss。`rank_loss_weight` 降为 `0.5`，`pairwise_rank_loss_weight` 设为 `1.0`，hard negatives 通过 `pairwise_negative_type_weights` 获得更高排序惩罚。
+
 ## 1. 决策摘要
 
 新增 public method：
@@ -41,7 +43,7 @@ dense_ft_rgcn_graph_retriever
 learned_graph_rgcn_retriever
   graph: method-specific high-recall proposal graph
   seed/text encoder: dense_ft checkpoint
-  train loss: rank + edge + sparse
+  train loss: rank BCE + pairwise rank + edge + sparse
   learned: input projection + edge gate + typed R-GCN + evidence scorer
 ```
 
@@ -68,7 +70,7 @@ Workflow 层面必须按 method 维护独立依赖链。`learned_graph_rgcn_retr
 - 不替换现有 R-GCN method 的默认行为。
 - 不复制 `TrainableGraphRetrievalMethod`、checkpoint loader、Dense-FT trainer 或 dense retriever。
 - 不先做 full joint encoder finetuning。当前默认使用 Dense-FT checkpoint 作为 frozen text embedding provider。
-- 不做大规模超参数搜索。三个 loss weight 可配置，但默认固定为 `1.0 / 0.2 / 0.05`。
+- 不做大规模超参数搜索。loss weight 可配置，但当前默认固定为 `rank=0.5 / pairwise=1.0 / edge=0.2 / sparse=0.05`。
 - 不新增与现有 request-first 边界冲突的 generic wrapper，例如 `EvidenceRankingView`。
 
 ## 3. Loss 设计
@@ -77,6 +79,7 @@ Workflow 层面必须按 method 维护独立依赖链。`learned_graph_rgcn_retr
 
 ```text
 L = rank_loss_weight * L_rank
+  + pairwise_rank_loss_weight * L_pairwise
   + edge_loss_weight * L_edge
   + sparse_loss_weight * L_sparse
 ```
@@ -86,7 +89,15 @@ L = rank_loss_weight * L_rank
 ```json
 {
   "loss": {
-    "rank_loss_weight": 1.0,
+    "rank_loss_weight": 0.5,
+    "pairwise_rank_loss_weight": 1.0,
+    "pairwise_temperature": 1.0,
+    "pairwise_negative_type_weights": {
+      "easy_random": 0.5,
+      "hard_bm25": 1.2,
+      "hard_dense": 1.5,
+      "hard_graph_neighbor": 1.3
+    },
     "edge_loss_weight": 0.2,
     "sparse_loss_weight": 0.05
   }
@@ -105,7 +116,17 @@ rank_loss = F.binary_cross_entropy_with_logits(
 )
 ```
 
-它负责 evidence ranking 主任务。权重默认 `1.0`，不要把辅助 loss 设计成能压过主任务。
+它负责 evidence node 的二分类校准。当前权重默认 `0.5`，主排序压力由同题 pairwise rank loss 提供。
+
+### 3.1b `L_pairwise`
+
+`L_pairwise` 在同一个 task 内比较 gold evidence sample 和 negative sample：
+
+```python
+pairwise_loss = F.softplus(-(positive_logit - negative_logit) / temperature)
+```
+
+该项按 negative sample type 加权，并以 pair weight 总和归一化。当前默认让 `hard_dense`、`hard_graph_neighbor`、`hard_bm25` 比 `easy_random` 产生更高排序惩罚，直接优化“gold evidence 排得更靠前”这一目标。
 
 ### 3.2 `L_edge`
 

@@ -4,6 +4,13 @@ from dataclasses import dataclass, field
 
 from graph_memory.contracts.common import MethodName
 
+DEFAULT_PAIRWISE_NEGATIVE_TYPE_WEIGHTS: dict[str, float] = {
+    "easy_random": 1.0,
+    "hard_bm25": 1.0,
+    "hard_dense": 1.0,
+    "hard_graph_neighbor": 1.0,
+}
+
 
 @dataclass(frozen=True)
 class NodeFeatureConfig:
@@ -69,12 +76,20 @@ class RgcnLossConfig:
     rank_loss_weight: float = 1.0
     edge_loss_weight: float = 0.2
     sparse_loss_weight: float = 0.05
+    pairwise_rank_loss_weight: float = 0.0
+    pairwise_temperature: float = 1.0
+    pairwise_negative_type_weights: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_PAIRWISE_NEGATIVE_TYPE_WEIGHTS)
+    )
 
     def to_json_dict(self) -> dict[str, object]:
         return {
             "rank_loss_weight": self.rank_loss_weight,
             "edge_loss_weight": self.edge_loss_weight,
             "sparse_loss_weight": self.sparse_loss_weight,
+            "pairwise_rank_loss_weight": self.pairwise_rank_loss_weight,
+            "pairwise_temperature": self.pairwise_temperature,
+            "pairwise_negative_type_weights": dict(sorted(self.pairwise_negative_type_weights.items())),
         }
 
 

@@ -57,6 +57,16 @@ class RgcnLossSettings:
     rank_loss_weight: float = 1.0
     edge_loss_weight: float = 0.2
     sparse_loss_weight: float = 0.05
+    pairwise_rank_loss_weight: float = 0.0
+    pairwise_temperature: float = 1.0
+    pairwise_negative_type_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "easy_random": 1.0,
+            "hard_bm25": 1.0,
+            "hard_dense": 1.0,
+            "hard_graph_neighbor": 1.0,
+        }
+    )
 
 
 @dataclass(frozen=True)

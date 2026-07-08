@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Callable, TypeAlias
@@ -61,8 +62,10 @@ class RgcnTrainingResult:
 class RgcnLossComponents:
     total_loss: Tensor
     rank_loss: Tensor
+    pairwise_rank_loss: Tensor
     edge_loss: Tensor
     sparse_loss: Tensor
+    pairwise_pair_count: int
     edge_loss_sample_count: int
     mean_edge_gate: float
 
@@ -140,9 +143,11 @@ def train_graph_retriever(
         model.train()
         train_loss_total = 0.0
         train_rank_loss_total = 0.0
+        train_pairwise_rank_loss_total = 0.0
         train_edge_loss_total = 0.0
         train_sparse_loss_total = 0.0
         train_sample_count = 0
+        pairwise_pair_count = 0
         edge_loss_sample_count = 0
         mean_edge_gate_total = 0.0
         mean_edge_gate_count = 0
@@ -153,6 +158,8 @@ def train_graph_retriever(
             loss_components = _compute_loss_components(
                 output=output,
                 labels=moved_batch.labels,
+                sample_task_ids=moved_batch.sample_task_ids,
+                sample_types=moved_batch.sample_types,
                 learned_edges=moved_batch.learned_edges,
                 loss_config=training_config.loss_config,
                 pos_weight=pos_weight,
@@ -167,9 +174,13 @@ def train_graph_retriever(
             sample_count = int(moved_batch.labels.shape[0])
             train_loss_total += float(loss.detach().cpu()) * sample_count
             train_rank_loss_total += float(loss_components.rank_loss.detach().cpu()) * sample_count
+            train_pairwise_rank_loss_total += (
+                float(loss_components.pairwise_rank_loss.detach().cpu()) * loss_components.pairwise_pair_count
+            )
             train_edge_loss_total += float(loss_components.edge_loss.detach().cpu()) * sample_count
             train_sparse_loss_total += float(loss_components.sparse_loss.detach().cpu()) * sample_count
             train_sample_count += sample_count
+            pairwise_pair_count += loss_components.pairwise_pair_count
             edge_loss_sample_count += loss_components.edge_loss_sample_count
             if loss_components.mean_edge_gate == loss_components.mean_edge_gate:
                 mean_edge_gate_total += loss_components.mean_edge_gate
@@ -199,11 +210,20 @@ def train_graph_retriever(
                 "global_step": global_step,
                 "train_loss": train_loss_total / train_sample_count if train_sample_count else 0.0,
                 "train_rank_loss": train_rank_loss_total / train_sample_count if train_sample_count else 0.0,
+                "train_pairwise_rank_loss": (
+                    train_pairwise_rank_loss_total / pairwise_pair_count if pairwise_pair_count else 0.0
+                ),
                 "train_edge_loss": train_edge_loss_total / train_sample_count if train_sample_count else 0.0,
                 "train_sparse_loss": train_sparse_loss_total / train_sample_count if train_sample_count else 0.0,
+                "pairwise_pair_count": pairwise_pair_count,
                 "edge_loss_sample_count": edge_loss_sample_count,
                 "mean_edge_gate": mean_edge_gate_total / mean_edge_gate_count if mean_edge_gate_count else 0.0,
                 "rank_loss_weight": training_config.loss_config.rank_loss_weight,
+                "pairwise_rank_loss_weight": training_config.loss_config.pairwise_rank_loss_weight,
+                "pairwise_temperature": training_config.loss_config.pairwise_temperature,
+                "pairwise_negative_type_weights": dict(
+                    sorted(training_config.loss_config.pairwise_negative_type_weights.items())
+                ),
                 "edge_loss_weight": training_config.loss_config.edge_loss_weight,
                 "sparse_loss_weight": training_config.loss_config.sparse_loss_weight,
                 "dev_loss": dev_loss,
@@ -239,6 +259,8 @@ def _compute_loss_components(
     *,
     output: Tensor | EvidenceScoringOutput,
     labels: Tensor,
+    sample_task_ids: Sequence[str],
+    sample_types: Sequence[str],
     learned_edges: LearnedEdgeBatch | None,
     loss_config: RgcnLossConfig,
     pos_weight: Tensor | None,
@@ -254,6 +276,14 @@ def _compute_loss_components(
 
     rank_loss = F.binary_cross_entropy_with_logits(node_logits, labels, pos_weight=pos_weight)
     zero = rank_loss.new_tensor(0.0)
+    pairwise_rank_loss, pairwise_pair_count = _compute_pairwise_rank_loss(
+        node_logits=node_logits,
+        labels=labels,
+        sample_task_ids=sample_task_ids,
+        sample_types=sample_types,
+        loss_config=loss_config,
+        zero=zero,
+    )
     edge_loss = zero
     edge_loss_sample_count = 0
     if edge_gate_logits is not None and learned_edges is not None:
@@ -265,17 +295,71 @@ def _compute_loss_components(
     mean_edge_gate = float(edge_gates.mean().detach().cpu()) if edge_gates is not None and edge_gates.numel() else 0.0
     total_loss = (
         loss_config.rank_loss_weight * rank_loss
+        + loss_config.pairwise_rank_loss_weight * pairwise_rank_loss
         + loss_config.edge_loss_weight * edge_loss
         + loss_config.sparse_loss_weight * sparse_loss
     )
     return RgcnLossComponents(
         total_loss=total_loss,
         rank_loss=rank_loss,
+        pairwise_rank_loss=pairwise_rank_loss,
         edge_loss=edge_loss,
         sparse_loss=sparse_loss,
+        pairwise_pair_count=pairwise_pair_count,
         edge_loss_sample_count=edge_loss_sample_count,
         mean_edge_gate=mean_edge_gate,
     )
+
+
+def _compute_pairwise_rank_loss(
+    *,
+    node_logits: Tensor,
+    labels: Tensor,
+    sample_task_ids: Sequence[str],
+    sample_types: Sequence[str],
+    loss_config: RgcnLossConfig,
+    zero: Tensor,
+) -> tuple[Tensor, int]:
+    if loss_config.pairwise_rank_loss_weight <= 0.0:
+        return zero, 0
+    sample_count = int(labels.shape[0])
+    if node_logits.shape[0] != sample_count:
+        raise ValueError("node_logits length must match labels length for pairwise rank loss.")
+    if len(sample_task_ids) != sample_count:
+        raise ValueError("sample_task_ids length must match labels length for pairwise rank loss.")
+    if len(sample_types) != sample_count:
+        raise ValueError("sample_types length must match labels length for pairwise rank loss.")
+
+    positive_indices_by_task: dict[str, list[int]] = {}
+    negative_indices_by_task: dict[str, list[int]] = {}
+    for index, task_id in enumerate(sample_task_ids):
+        if bool(labels[index].detach() > 0.5):
+            positive_indices_by_task.setdefault(task_id, []).append(index)
+        else:
+            negative_indices_by_task.setdefault(task_id, []).append(index)
+
+    weighted_loss_sum = zero
+    pair_weight_sum = 0.0
+    pair_count = 0
+    for task_id, positive_indices in positive_indices_by_task.items():
+        negative_indices = negative_indices_by_task.get(task_id, [])
+        for positive_index in positive_indices:
+            for negative_index in negative_indices:
+                sample_type = sample_types[negative_index]
+                try:
+                    pair_weight = float(loss_config.pairwise_negative_type_weights[sample_type])
+                except KeyError as error:
+                    raise ValueError(f"Missing pairwise negative type weight for sample_type={sample_type!r}.") from error
+                pair_loss = F.softplus(
+                    -((node_logits[positive_index] - node_logits[negative_index]) / loss_config.pairwise_temperature)
+                )
+                weighted_loss_sum = weighted_loss_sum + pair_loss * pair_weight
+                pair_weight_sum += pair_weight
+                pair_count += 1
+
+    if pair_count == 0 or pair_weight_sum == 0.0:
+        return zero, pair_count
+    return weighted_loss_sum / pair_weight_sum, pair_count
 
 
 def _pos_weight(train_pairs: list[TrainPairRecord], device: torch.device) -> Tensor:

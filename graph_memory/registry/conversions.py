@@ -40,6 +40,15 @@ class LossSettingsLike(Protocol):
     @property
     def sparse_loss_weight(self) -> float: ...
 
+    @property
+    def pairwise_rank_loss_weight(self) -> float: ...
+
+    @property
+    def pairwise_temperature(self) -> float: ...
+
+    @property
+    def pairwise_negative_type_weights(self) -> dict[str, float]: ...
+
 
 def dense_config_from_encoder_settings(settings: DenseEncoderSettings) -> DenseConfig:
     return DenseConfig(
@@ -67,6 +76,9 @@ def rgcn_loss_config_from_settings(settings: LossSettingsLike) -> RgcnLossConfig
         rank_loss_weight=settings.rank_loss_weight,
         edge_loss_weight=settings.edge_loss_weight,
         sparse_loss_weight=settings.sparse_loss_weight,
+        pairwise_rank_loss_weight=settings.pairwise_rank_loss_weight,
+        pairwise_temperature=settings.pairwise_temperature,
+        pairwise_negative_type_weights=dict(settings.pairwise_negative_type_weights),
     )
 
 

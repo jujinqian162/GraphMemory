@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
-from graph_memory.contracts.common import ALLOWED_EDGE_TYPES, NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES
+from graph_memory.contracts.common import ALLOWED_EDGE_TYPES, NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES, NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES
 from graph_memory.validation.common import (
     ContractValidationError,
     _reject_unknown_fields,
@@ -50,6 +51,9 @@ RGCN_LOSS_CONFIG_FIELDS = {
     "rank_loss_weight",
     "edge_loss_weight",
     "sparse_loss_weight",
+    "pairwise_rank_loss_weight",
+    "pairwise_temperature",
+    "pairwise_negative_type_weights",
 }
 RGCN_CHECKPOINT_FIELDS = {
     "method_name",
@@ -146,6 +150,34 @@ def _validate_rgcn_loss_config(config: object) -> None:
     _required_finite_number(config_dict, "rank_loss_weight", "R-GCN loss config", minimum=0.0)
     _required_finite_number(config_dict, "edge_loss_weight", "R-GCN loss config", minimum=0.0)
     _required_finite_number(config_dict, "sparse_loss_weight", "R-GCN loss config", minimum=0.0)
+    _required_finite_number(config_dict, "pairwise_rank_loss_weight", "R-GCN loss config", minimum=0.0)
+    temperature = _required_finite_number(config_dict, "pairwise_temperature", "R-GCN loss config", minimum=0.0)
+    if temperature <= 0.0:
+        raise ContractValidationError("Invalid R-GCN loss config: pairwise_temperature must be > 0.0.")
+    _validate_pairwise_negative_type_weights(config_dict.get("pairwise_negative_type_weights"))
+
+
+def _validate_pairwise_negative_type_weights(value: object) -> None:
+    if not isinstance(value, Mapping):
+        raise ContractValidationError("Invalid R-GCN loss config: pairwise_negative_type_weights must be an object.")
+    keys = set(value)
+    unknown = sorted(keys - NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES)
+    if unknown:
+        raise ContractValidationError(
+            f"Invalid R-GCN loss config: unsupported pairwise_negative_type_weights entries={unknown}."
+        )
+    missing = sorted(NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES - keys)
+    if missing:
+        raise ContractValidationError(
+            f"Invalid R-GCN loss config: missing pairwise_negative_type_weights entries={missing}."
+        )
+    for sample_type, weight in value.items():
+        if not isinstance(sample_type, str):
+            raise ContractValidationError("Invalid R-GCN loss config: pairwise negative sample type keys must be strings.")
+        if not isinstance(weight, (int, float)) or isinstance(weight, bool) or not math.isfinite(float(weight)) or float(weight) < 0.0:
+            raise ContractValidationError(
+                f"Invalid R-GCN loss config: pairwise_negative_type_weights[{sample_type}] must be a finite non-negative number."
+            )
 
 
 def validate_graph_batch(batch: object) -> None:
