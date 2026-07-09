@@ -72,7 +72,7 @@ def test_repository_learned_graph_rgcn_method_config_loads_as_current_typed_conf
     assert config.encoder.model_name == "models/intfloat-e5-base-v2"
     assert config.proposal_graph.max_query_overlap == 80
     assert config.pairs.easy_random_per_positive == 1
-    assert config.train.loss.rank_loss_weight == 0.5
+    assert config.train.loss.rank_loss_weight == 1.0
     assert config.train.loss.pairwise_rank_loss_weight == 1.0
     assert config.train.loss.pairwise_temperature == 1.0
     assert config.train.loss.pairwise_negative_type_weights == {

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="440" viewBox="0 0 900 440">
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="450.0" y="32" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#111827">Connected Evidence Recall@10</text>
+<line x1="80" y1="345.0" x2="870" y2="345.0" stroke="#E5E7EB" stroke-width="1"/>
+<text x="68" y="349.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.0</text>
+<line x1="80" y1="290.0" x2="870" y2="290.0" stroke="#E5E7EB" stroke-width="1"/>
+<text x="68" y="294.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.2</text>
+<line x1="80" y1="235.0" x2="870" y2="235.0" stroke="#E5E7EB" stroke-width="1"/>
+<text x="68" y="239.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.4</text>
+<line x1="80" y1="180.0" x2="870" y2="180.0" stroke="#E5E7EB" stroke-width="1"/>
+<text x="68" y="184.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.6</text>
+<line x1="80" y1="125.0" x2="870" y2="125.0" stroke="#E5E7EB" stroke-width="1"/>
+<text x="68" y="129.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.8</text>
+<line x1="80" y1="70.0" x2="870" y2="70.0" stroke="#E5E7EB" stroke-width="1"/>
+<text x="68" y="74.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">1.0</text>
+<line x1="80" y1="70" x2="80" y2="345" stroke="#9CA3AF"/>
+<line x1="80" y1="345" x2="870" y2="345" stroke="#9CA3AF"/>
+<rect x="80.0" y="285.3" width="97.4" height="59.7" rx="3" fill="#6B7280"/>
+<text x="128.7" y="277.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.217</text>
+<text x="128.7" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">BM25</text>
+<rect x="195.4" y="235.9" width="97.4" height="109.1" rx="3" fill="#4B5563"/>
+<text x="244.1" y="227.9" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.397</text>
+<text x="244.1" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">Dense</text>
+<rect x="310.9" y="145.7" width="97.4" height="199.3" rx="3" fill="#2563EB"/>
+<text x="359.6" y="137.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.725</text>
+<text x="359.6" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">Dense-FT</text>
+<rect x="426.3" y="221.6" width="97.4" height="123.4" rx="3" fill="#0F766E"/>
+<text x="475.0" y="213.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.449</text>
+<text x="475.0" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">Dense Graph</text>
+<rect x="541.7" y="151.4" width="97.4" height="193.6" rx="3" fill="#7C3AED"/>
+<text x="590.4" y="143.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.704</text>
+<text x="590.4" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">R-GCN</text>
+<rect x="657.1" y="143.8" width="97.4" height="201.2" rx="3" fill="#C2410C"/>
+<text x="705.9" y="135.8" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.732</text>
+<text x="705.9" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">FT R-GCN</text>
+<rect x="772.6" y="117.0" width="97.4" height="228.0" rx="3" fill="#B91C1C"/>
+<text x="821.3" y="109.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">0.829</text>
+<text x="821.3" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#111827">Struct R-GCN</text>
+<text x="450.0" y="418" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#6B7280">Same metric compared across methods</text>
+</svg>

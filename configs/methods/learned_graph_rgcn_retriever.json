@@ -23,8 +23,8 @@
   },
   "train": {
     "loss": {
-      "rank_loss_weight": 0.5,
-      "pairwise_rank_loss_weight": 1.0,
+      "rank_loss_weight": 1.0,
+      "pairwise_rank_loss_weight": 0.2,
       "pairwise_temperature": 1.0,
       "pairwise_negative_type_weights": {
         "easy_random": 0.5,
