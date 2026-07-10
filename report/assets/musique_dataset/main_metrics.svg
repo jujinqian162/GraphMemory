@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="560" viewBox="0 0 1100 560">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="90" y="34" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">Main Retrieval Metrics</text>
+<line x1="90" x2="1070" y1="410.0" y2="410.0" stroke="#E5E7EB"/>
+<text x="78" y="414.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.00</text>
+<line x1="90" x2="1070" y1="321.2" y2="321.2" stroke="#E5E7EB"/>
+<text x="78" y="325.2" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.25</text>
+<line x1="90" x2="1070" y1="232.5" y2="232.5" stroke="#E5E7EB"/>
+<text x="78" y="236.5" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.50</text>
+<line x1="90" x2="1070" y1="143.8" y2="143.8" stroke="#E5E7EB"/>
+<text x="78" y="147.8" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">0.75</text>
+<line x1="90" x2="1070" y1="55.0" y2="55.0" stroke="#E5E7EB"/>
+<text x="78" y="59.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#4B5563">1.00</text>
+<text x="171.7" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Recall@2</text>
+<rect x="109.6" y="275.3" width="15.2" height="134.7" fill="#6B7280" rx="2"/>
+<text x="117.2" y="271.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 117.2 271.3)">0.379</text>
+<rect x="127.8" y="269.4" width="15.2" height="140.6" fill="#8B5CF6" rx="2"/>
+<text x="135.3" y="265.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 135.3 265.4)">0.396</text>
+<rect x="145.9" y="241.4" width="15.2" height="168.6" fill="#2563EB" rx="2"/>
+<text x="153.5" y="237.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 153.5 237.4)">0.475</text>
+<rect x="164.1" y="238.4" width="15.2" height="171.6" fill="#14B8A6" rx="2"/>
+<text x="171.7" y="234.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 171.7 234.4)">0.483</text>
+<rect x="182.2" y="214.3" width="15.2" height="195.7" fill="#F97316" rx="2"/>
+<text x="189.8" y="210.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 189.8 210.3)">0.551</text>
+<rect x="200.4" y="215.2" width="15.2" height="194.8" fill="#DB2777" rx="2"/>
+<text x="208.0" y="211.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 208.0 211.2)">0.549</text>
+<rect x="218.6" y="200.1" width="15.2" height="209.9" fill="#DC2626" rx="2"/>
+<text x="226.2" y="196.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 226.2 196.1)">0.591</text>
+<text x="335.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Recall@5</text>
+<rect x="272.9" y="214.0" width="15.2" height="196.0" fill="#6B7280" rx="2"/>
+<text x="280.5" y="210.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 280.5 210.0)">0.552</text>
+<rect x="291.1" y="195.3" width="15.2" height="214.7" fill="#8B5CF6" rx="2"/>
+<text x="298.7" y="191.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 298.7 191.3)">0.605</text>
+<rect x="309.3" y="166.3" width="15.2" height="243.7" fill="#2563EB" rx="2"/>
+<text x="316.8" y="162.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 316.8 162.3)">0.687</text>
+<rect x="327.4" y="157.3" width="15.2" height="252.7" fill="#14B8A6" rx="2"/>
+<text x="335.0" y="153.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 335.0 153.3)">0.712</text>
+<rect x="345.6" y="123.2" width="15.2" height="286.8" fill="#F97316" rx="2"/>
+<text x="353.2" y="119.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 353.2 119.2)">0.808</text>
+<rect x="363.7" y="125.2" width="15.2" height="284.8" fill="#DB2777" rx="2"/>
+<text x="371.3" y="121.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 371.3 121.2)">0.802</text>
+<rect x="381.9" y="112.2" width="15.2" height="297.8" fill="#DC2626" rx="2"/>
+<text x="389.5" y="108.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 389.5 108.2)">0.839</text>
+<text x="498.3" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Recall@10</text>
+<rect x="436.3" y="160.8" width="15.2" height="249.2" fill="#6B7280" rx="2"/>
+<text x="443.8" y="156.8" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 443.8 156.8)">0.702</text>
+<rect x="454.4" y="136.3" width="15.2" height="273.7" fill="#8B5CF6" rx="2"/>
+<text x="462.0" y="132.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 462.0 132.3)">0.771</text>
+<rect x="472.6" y="108.0" width="15.2" height="302.0" fill="#2563EB" rx="2"/>
+<text x="480.2" y="104.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 480.2 104.0)">0.851</text>
+<rect x="490.8" y="100.4" width="15.2" height="309.6" fill="#14B8A6" rx="2"/>
+<text x="498.3" y="96.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 498.3 96.4)">0.872</text>
+<rect x="508.9" y="77.2" width="15.2" height="332.8" fill="#F97316" rx="2"/>
+<text x="516.5" y="73.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 516.5 73.2)">0.938</text>
+<rect x="527.1" y="77.6" width="15.2" height="332.4" fill="#DB2777" rx="2"/>
+<text x="534.7" y="73.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 534.7 73.6)">0.936</text>
+<rect x="545.2" y="74.2" width="15.2" height="335.8" fill="#DC2626" rx="2"/>
+<text x="552.8" y="70.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 552.8 70.2)">0.946</text>
+<text x="661.7" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Full Support@5</text>
+<rect x="599.6" y="343.1" width="15.2" height="66.9" fill="#6B7280" rx="2"/>
+<text x="607.2" y="339.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 607.2 339.1)">0.188</text>
+<rect x="617.8" y="305.9" width="15.2" height="104.1" fill="#8B5CF6" rx="2"/>
+<text x="625.3" y="301.9" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 625.3 301.9)">0.293</text>
+<rect x="635.9" y="278.3" width="15.2" height="131.7" fill="#2563EB" rx="2"/>
+<text x="643.5" y="274.3" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 643.5 274.3)">0.371</text>
+<rect x="654.1" y="252.6" width="15.2" height="157.4" fill="#14B8A6" rx="2"/>
+<text x="661.7" y="248.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 661.7 248.6)">0.443</text>
+<rect x="672.2" y="202.6" width="15.2" height="207.4" fill="#F97316" rx="2"/>
+<text x="679.8" y="198.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 679.8 198.6)">0.584</text>
+<rect x="690.4" y="208.0" width="15.2" height="202.0" fill="#DB2777" rx="2"/>
+<text x="698.0" y="204.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 698.0 204.0)">0.569</text>
+<rect x="708.6" y="187.2" width="15.2" height="222.8" fill="#DC2626" rx="2"/>
+<text x="716.2" y="183.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 716.2 183.2)">0.628</text>
+<text x="825.0" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">Full Support@10</text>
+<rect x="762.9" y="275.4" width="15.2" height="134.6" fill="#6B7280" rx="2"/>
+<text x="770.5" y="271.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 770.5 271.4)">0.379</text>
+<rect x="781.1" y="222.0" width="15.2" height="188.0" fill="#8B5CF6" rx="2"/>
+<text x="788.7" y="218.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 788.7 218.0)">0.529</text>
+<rect x="799.3" y="182.0" width="15.2" height="228.0" fill="#2563EB" rx="2"/>
+<text x="806.8" y="178.0" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 806.8 178.0)">0.642</text>
+<rect x="817.4" y="163.1" width="15.2" height="246.9" fill="#14B8A6" rx="2"/>
+<text x="825.0" y="159.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 825.0 159.1)">0.695</text>
+<rect x="835.6" y="114.1" width="15.2" height="295.9" fill="#F97316" rx="2"/>
+<text x="843.2" y="110.1" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 843.2 110.1)">0.834</text>
+<rect x="853.7" y="113.7" width="15.2" height="296.3" fill="#DB2777" rx="2"/>
+<text x="861.3" y="109.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 861.3 109.7)">0.835</text>
+<rect x="871.9" y="106.7" width="15.2" height="303.3" fill="#DC2626" rx="2"/>
+<text x="879.5" y="102.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 879.5 102.7)">0.854</text>
+<text x="988.3" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#111827">MRR</text>
+<rect x="926.3" y="142.2" width="15.2" height="267.8" fill="#6B7280" rx="2"/>
+<text x="933.8" y="138.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 933.8 138.2)">0.754</text>
+<rect x="944.4" y="140.4" width="15.2" height="269.6" fill="#8B5CF6" rx="2"/>
+<text x="952.0" y="136.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 952.0 136.4)">0.759</text>
+<rect x="962.6" y="105.5" width="15.2" height="304.5" fill="#2563EB" rx="2"/>
+<text x="970.2" y="101.5" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 970.2 101.5)">0.858</text>
+<rect x="980.8" y="110.8" width="15.2" height="299.2" fill="#14B8A6" rx="2"/>
+<text x="988.3" y="106.8" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 988.3 106.8)">0.843</text>
+<rect x="998.9" y="85.2" width="15.2" height="324.8" fill="#F97316" rx="2"/>
+<text x="1006.5" y="81.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 1006.5 81.2)">0.915</text>
+<rect x="1017.1" y="96.8" width="15.2" height="313.2" fill="#DB2777" rx="2"/>
+<text x="1024.7" y="92.8" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 1024.7 92.8)">0.882</text>
+<rect x="1035.2" y="82.7" width="15.2" height="327.3" fill="#DC2626" rx="2"/>
+<text x="1042.8" y="78.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#374151" transform="rotate(-90 1042.8 78.7)">0.922</text>
+<rect x="90" y="490" width="14" height="14" fill="#6B7280" rx="2"/>
+<text x="112" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">BM25</text>
+<rect x="330" y="490" width="14" height="14" fill="#8B5CF6" rx="2"/>
+<text x="352" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">BM25 + Graph</text>
+<rect x="570" y="490" width="14" height="14" fill="#2563EB" rx="2"/>
+<text x="592" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense</text>
+<rect x="810" y="490" width="14" height="14" fill="#14B8A6" rx="2"/>
+<text x="832" y="502" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense + Graph</text>
+<rect x="90" y="516" width="14" height="14" fill="#F97316" rx="2"/>
+<text x="112" y="528" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense-FT</text>
+<rect x="330" y="516" width="14" height="14" fill="#DB2777" rx="2"/>
+<text x="352" y="528" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense-RGCN</text>
+<rect x="570" y="516" width="14" height="14" fill="#DC2626" rx="2"/>
+<text x="592" y="528" font-family="Arial, sans-serif" font-size="13" fill="#111827">Dense-FT-RGCN</text>
+</svg>
