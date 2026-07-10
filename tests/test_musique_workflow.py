@@ -87,3 +87,21 @@ def test_named_musique_config_exposes_trainable_methods_and_stage_configs(tmp_pa
         for stage in ("pairs", "train", "retrieve", "evaluate"):
             stage_config = read_json(manifest["stage_configs"][stage][method])
             assert stage_config["dataset"] == "musique"
+
+
+def test_musique_cloud_full_uses_memory_safe_dense_ft_batch_sizes(tmp_path: Path) -> None:
+    config = load_experiment_config("musique_evidence_retrieval")
+
+    manifest = initialize_experiment(
+        "musique-cloud-full",
+        config=config,
+        run_root=tmp_path,
+        profile="cloud-full",
+        methods=[DENSE_FT],
+        force=True,
+    )
+
+    dense_ft_config = manifest["effective_config"]["resolved_method_configs"][DENSE_FT]
+    trainer = dense_ft_config["train"]["trainer"]
+    assert trainer["train_batch_size"] == 16
+    assert trainer["eval_batch_size"] == 64
