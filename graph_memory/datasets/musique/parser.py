@@ -116,7 +116,7 @@ def _parse_question_decomposition(
         )
         steps.append(
             MuSiQueDecompositionStep(
-                step_id=_required_string(
+                step_id=_required_step_id(
                     step_record,
                     "id",
                     f"MuSiQue example id={raw_id} question_decomposition[{step_position}]",
@@ -155,6 +155,19 @@ def _required_string(record: Mapping[str, object], field_name: str, path: str) -
     if not isinstance(value, str) or not value:
         raise ValueError(f"{path} must contain a non-empty string {field_name}.")
     return value
+
+
+def _required_step_id(record: Mapping[str, object], field_name: str, path: str) -> str:
+    value = record.get(field_name)
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must contain a non-empty string or int {field_name}.")
+    if isinstance(value, str):
+        if not value:
+            raise ValueError(f"{path} must contain a non-empty string or int {field_name}.")
+        return value
+    if isinstance(value, int):
+        return str(value)
+    raise ValueError(f"{path} must contain a non-empty string or int {field_name}.")
 
 
 def _required_bool(record: Mapping[str, object], field_name: str, path: str) -> bool:

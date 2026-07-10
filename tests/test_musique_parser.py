@@ -34,13 +34,13 @@ def _raw_example() -> dict[str, object]:
         ],
         "question_decomposition": [
             {
-                "id": "1",
+                "id": 1,
                 "question": "Who directed Film A?",
                 "answer": "Ada Lovelace",
                 "paragraph_support_idx": 0,
             },
             {
-                "id": "2",
+                "id": 2,
                 "question": "Where was #1 born?",
                 "answer": "London",
                 "paragraph_support_idx": 1,
@@ -58,6 +58,7 @@ def test_parse_musique_example_preserves_official_fields() -> None:
     assert example.answerable is True
     assert example.paragraphs[0].idx == 0
     assert example.paragraphs[1].title == "Ada Lovelace"
+    assert example.question_decomposition[0].step_id == "1"
     assert example.question_decomposition[1].question == "Where was #1 born?"
     assert example.question_decomposition[1].paragraph_support_idx == 1
 
