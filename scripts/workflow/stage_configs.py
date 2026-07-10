@@ -462,7 +462,7 @@ def _memory_stream_importance_path(manifest: Mapping[str, Any], method: str) -> 
 
 def _dataset_id(manifest: Mapping[str, Any]) -> DatasetId:
     dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
-    if dataset not in {"hotpotqa", "twowiki"}:
+    if dataset not in {"hotpotqa", "twowiki", "musique"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return cast(DatasetId, dataset)
 

@@ -1,10 +1,10 @@
 # Execution-Provenance Graph Memory
 
-Current scope: HotpotQA evidence-tracing retrieval with flat baselines, graph reranking, Dense-FT, a trainable R-GCN graph retriever, and a Dense-FT-seeded R-GCN retriever.
+Current scope: request-first evidence retrieval on HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans with flat baselines, graph reranking, Dense-FT, a trainable R-GCN graph retriever, and a Dense-FT-seeded R-GCN retriever.
 
-The runnable HotpotQA stack includes leakage-safe data preparation, typed graph construction, BM25, frozen dense retrieval, BM25- and dense-seeded graph reranking, Dense-FT, checkpoint-backed `dense_rgcn_graph_retriever` training and retrieval, and `dense_ft_rgcn_graph_retriever` training seeded from the Dense-FT checkpoint. R-GCN edge/model ablations and unified result aggregation are implemented. Trainable methods use strict current-only method configs, stage configs, manifests, checkpoints, and model metadata; old trainable artifacts are not migrated.
+The runnable stack includes dataset-specific leakage-safe preparation, typed graph construction, BM25, frozen dense retrieval, BM25- and dense-seeded graph reranking, Dense-FT, checkpoint-backed `dense_rgcn_graph_retriever` training and retrieval, and `dense_ft_rgcn_graph_retriever` training seeded from the Dense-FT checkpoint. HotpotQA uses sentence-level evidence, 2WikiMultiHopQA uses sentence-level evidence and dependency supervision, and MuSiQue-Ans uses paragraph-level evidence and decomposition-derived dependency supervision. R-GCN edge/model ablations and unified result aggregation are implemented. Trainable methods use strict current-only method configs, stage configs, manifests, checkpoints, and model metadata; old trainable artifacts are not migrated.
 
-The original Phase 2 paper matrix is not complete yet. Memory Stream and GraphRAG-style baselines are still missing, and HotpotQA does not provide gold dependency paths, so `Path Recall@10` and `Edge Recall@10` remain `N/A`. MemGPT-style memory, answer generation, 2WikiMultiHopQA, MuSiQue, and tool-trajectory provenance experiments remain later work.
+The original Phase 2 paper matrix is not complete yet. Memory Stream and GraphRAG-style baselines are still missing, and HotpotQA does not provide gold dependency paths, so its `Path Recall@10` and `Edge Recall@10` remain `N/A`. MemGPT-style memory, answer generation, MuSiQue-Full answerability/sufficiency evaluation, and tool-trajectory provenance experiments remain later work.
 
 Start here:
 
@@ -18,6 +18,7 @@ Start here:
 - Model contracts: `docs/20-contracts/model-contracts.md`
 - Architecture: `docs/30-design/architecture.md`
 - Command runbook: `docs/40-operations/commands.md`
+- MuSiQue data and run guide: `docs/40-operations/musique.md`
 - Implementation handoff: `docs/40-operations/implementation-handoff.md`
 
 ## Quick Start

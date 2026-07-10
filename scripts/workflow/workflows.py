@@ -434,7 +434,7 @@ def _stage_config_command(
 
 def _dataset_id(manifest: dict[str, Any]) -> str:
     dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
-    if dataset not in {"hotpotqa", "twowiki"}:
+    if dataset not in {"hotpotqa", "twowiki", "musique"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return dataset
 
@@ -444,4 +444,6 @@ def _prepare_script(dataset: str) -> str:
         return "scripts/prepare_hotpotqa.py"
     if dataset == "twowiki":
         return "scripts/prepare_2wiki.py"
+    if dataset == "musique":
+        return "scripts/prepare_musique.py"
     raise ValueError(f"Unsupported workflow dataset: {dataset}")

@@ -466,7 +466,7 @@ def _same_path(left: object, right: str | Path) -> bool:
 
 def _dataset_id(manifest: Mapping[str, Any]) -> str:
     dataset = str(manifest["effective_config"].get("dataset", "hotpotqa"))
-    if dataset not in {"hotpotqa", "twowiki"}:
+    if dataset not in {"hotpotqa", "twowiki", "musique"}:
         raise ValueError(f"Unsupported workflow dataset: {dataset}")
     return dataset
 
@@ -476,6 +476,8 @@ def _prepare_script_name(dataset: str) -> str:
         return "prepare_hotpotqa.py"
     if dataset == "twowiki":
         return "prepare_2wiki.py"
+    if dataset == "musique":
+        return "prepare_musique.py"
     raise ValueError(f"Unsupported workflow dataset: {dataset}")
 
 

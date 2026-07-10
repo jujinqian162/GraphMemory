@@ -12,6 +12,13 @@ from graph_memory.datasets.hotpotqa.projectors import (
     HotpotQAToTextRankingRequest,
 )
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord, HotpotQARankingRecord
+from graph_memory.datasets.musique.projectors import (
+    MuSiQueToEvidenceEvaluationRequest,
+    MuSiQueToGraphBuildRequest,
+    MuSiQueToTemporalMemoryRankingRequest,
+    MuSiQueToTextRankingRequest,
+)
+from graph_memory.datasets.musique.records import MuSiQueLabelRecord, MuSiQueRankingRecord
 from graph_memory.datasets.twowiki.projectors import (
     TwoWikiToEvidenceEvaluationRequest,
     TwoWikiToGraphBuildRequest,
@@ -25,11 +32,13 @@ from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextRa
 from graph_memory.validation import (
     validate_hotpotqa_label_records,
     validate_hotpotqa_ranking_records,
+    validate_musique_label_records,
+    validate_musique_ranking_records,
     validate_twowiki_label_records,
     validate_twowiki_ranking_records,
 )
 
-DatasetId = Literal["hotpotqa", "twowiki"]
+DatasetId = Literal["hotpotqa", "twowiki", "musique"]
 
 
 def validate_ranking_records_for_dataset(dataset: DatasetId, records: object) -> None:
@@ -38,6 +47,9 @@ def validate_ranking_records_for_dataset(dataset: DatasetId, records: object) ->
         return
     if dataset == "twowiki":
         validate_twowiki_ranking_records(records)
+        return
+    if dataset == "musique":
+        validate_musique_ranking_records(records)
         return
     _unsupported_dataset(dataset)
 
@@ -49,6 +61,9 @@ def validate_label_records_for_dataset(dataset: DatasetId, labels: object, recor
     if dataset == "twowiki":
         validate_twowiki_label_records(labels, records_by_task_id)
         return
+    if dataset == "musique":
+        validate_musique_label_records(labels, records_by_task_id)
+        return
     _unsupported_dataset(dataset)
 
 
@@ -59,6 +74,9 @@ def text_ranking_requests_for_dataset(dataset: DatasetId, records: Sequence[obje
     if dataset == "twowiki":
         projector = TwoWikiToTextRankingRequest()
         return [projector.project(cast(TwoWikiRankingRecord, record)) for record in records]
+    if dataset == "musique":
+        projector = MuSiQueToTextRankingRequest()
+        return [projector.project(cast(MuSiQueRankingRecord, record)) for record in records]
     _unsupported_dataset(dataset)
 
 
@@ -74,6 +92,9 @@ def temporal_memory_requests_for_dataset(
     if dataset == "twowiki":
         projector = TwoWikiToTemporalMemoryRankingRequest()
         return [projector.project(cast(TwoWikiRankingRecord, record), importance) for record in records]
+    if dataset == "musique":
+        projector = MuSiQueToTemporalMemoryRankingRequest()
+        return [projector.project(cast(MuSiQueRankingRecord, record), importance) for record in records]
     _unsupported_dataset(dataset)
 
 
@@ -84,6 +105,9 @@ def graph_build_requests_for_dataset(dataset: DatasetId, records: Sequence[objec
     if dataset == "twowiki":
         projector = TwoWikiToGraphBuildRequest()
         return [projector.project(cast(TwoWikiRankingRecord, record)) for record in records]
+    if dataset == "musique":
+        projector = MuSiQueToGraphBuildRequest()
+        return [projector.project(cast(MuSiQueRankingRecord, record)) for record in records]
     _unsupported_dataset(dataset)
 
 
@@ -104,6 +128,12 @@ def evidence_evaluation_request_for_dataset(
         return TwoWikiToEvidenceEvaluationRequest().project(
             predictions=predictions,
             labels=cast(Sequence[TwoWikiLabelRecord], labels),
+            graphs=graphs,
+        )
+    if dataset == "musique":
+        return MuSiQueToEvidenceEvaluationRequest().project(
+            predictions=predictions,
+            labels=cast(Sequence[MuSiQueLabelRecord], labels),
             graphs=graphs,
         )
     _unsupported_dataset(dataset)

@@ -5,6 +5,7 @@ This layer is reserved for repeatable run procedures and practical project opera
 Expected documents:
 
 - `commands.md` for dataset preparation, graph construction, retrieval, tuning, evaluation, and aggregation commands.
+- `musique.md` for official MuSiQue-Ans download, expected raw paths, preparation, and experiment-runner commands.
 - `logging.md` for console output, structured run metadata, and debug artifact conventions.
 - `reproducibility.md` for seeds, config precedence, run summaries, and experiment traceability.
 - `debug-artifacts.md` for graph stats, score breakdowns, failure cases, and leakage checks.

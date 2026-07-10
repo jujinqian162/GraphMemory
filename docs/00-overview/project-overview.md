@@ -5,9 +5,9 @@
 | Field | Value |
 |---|---|
 | Project | Execution-Provenance Graph Memory |
-| Current scope | HotpotQA evidence-tracing retrieval with flat baselines, graph reranking, Dense-FT, and trainable R-GCN retrieval |
+| Current scope | Request-first evidence retrieval on HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans with flat baselines, graph reranking, Dense-FT, and trainable R-GCN retrieval |
 | Primary task | Retrieve complete supporting evidence nodes and connected evidence subgraphs. |
-| Primary dataset | HotpotQA distractor setting with labeled splits only. |
+| Primary datasets | HotpotQA distractor, 2WikiMultiHopQA, and MuSiQue-Ans labeled splits. |
 | Primary methods | BM25, frozen dense retrieval, Dense-FT, graph-aware reranking, checkpoint-backed R-GCN graph retrieval. |
 | Source material | `docs/archive/original-student-experiment-plan.md` |
 | Current implementation plans | `docs/10-plans/phase1-real-graph-memory.md`; `docs/10-plans/phase2-rgcn-trainable-retriever.md`; `docs/10-plans/dense-ft-implementation-plan.md` |
@@ -38,8 +38,8 @@ The key research question is not only whether a retriever finds one relevant sen
 | Phase 1 | HotpotQA + BM25 + frozen dense + graph rerank | Implemented runnable evidence retrieval system and main metrics. |
 | Implemented Phase 2 methods | Dense-FT; train-pair artifacts; R-GCN binary node scorer; checkpoint/model-directory retrieval; edge/model ablations | Implemented trainable retrieval paths, standard ranked results, and `ablation_results.csv`. |
 | Remaining Phase 2 paper scope | Add Memory Stream and GraphRAG-style baselines; produce one final comparison package across all required methods | Complete the original paper baseline matrix. |
-| Phase 3 | Add MemGPT-style memory, 2WikiMultiHopQA, tool trajectories | Generalization and agent-style provenance analysis. |
-| Optional | Add MuSiQue | Harder multi-hop stress test. |
+| Cross-dataset evidence retrieval | Add 2WikiMultiHopQA and MuSiQue-Ans through dataset-local adapters and shared request contracts | Implemented sentence- and paragraph-level multi-hop evaluation paths. |
+| Phase 3 | Add MemGPT-style memory and tool trajectories | Generalization and agent-style provenance analysis. |
 
 ## Current Implemented Boundary
 
@@ -66,13 +66,20 @@ The implemented trainable stack adds:
 - Experiment-runner stages for pair building, training, retrieval, evaluation, aggregation, resume, and artifact status.
 - R-GCN ablation orchestration for edge views, graph structure, edge typing/weighting, seed scores, and hard negatives.
 
+The implemented cross-dataset stack additionally provides:
+
+- 2WikiMultiHopQA sentence-level preparation, dependency supervision, named experiment configs, and workflow routing.
+- MuSiQue-Ans JSONL preparation with paragraph-level evidence IDs and decomposition-derived dependency edges.
+- Dataset-local projectors into the same text retrieval, temporal memory, graph build, graph ranking, and evidence evaluation requests.
+- Named MuSiQue smoke/quick/full profiles in `configs/experiments/musique_evidence_retrieval.json`.
+
 The broader Phase 2 paper scope still needs:
 
 - Memory Stream baseline.
 - GraphRAG-style baseline.
 - One final comparison package containing all required Phase 2 methods.
 
-The current HotpotQA graph evaluates evidence-node recovery and graph connectivity, but it does not contain gold execution dependency paths. Consequently, `Path Recall@10` and `Edge Recall@10` remain `N/A`. MemGPT-style memory, answer generation, 2WikiMultiHopQA, MuSiQue, and tool-trajectory experiments remain outside the implemented boundary.
+The current HotpotQA graph evaluates evidence-node recovery and graph connectivity, but it does not contain gold execution dependency paths. Consequently, HotpotQA `Path Recall@10` and `Edge Recall@10` remain `N/A`. 2WikiMultiHopQA and MuSiQue-Ans can provide dependency labels, but their evidence granularity differs: 2Wiki is sentence-level and MuSiQue is paragraph-level, so their retrieval metrics must not be compared without stating that difference. MemGPT-style memory, answer generation, MuSiQue-Full answerability/sufficiency evaluation, and tool-trajectory experiments remain outside the implemented boundary.
 
 ## Current Architecture Boundary
 
@@ -93,3 +100,4 @@ Start here, then read:
 5. `docs/10-plans/trainable-stack-zero-compatibility-refactor-plan.md` for the current trainable-stack boundary.
 6. `docs/20-contracts/data-contracts.md`, `docs/20-contracts/retrieval-contracts.md`, and `docs/20-contracts/model-contracts.md` for current artifact, retrieval, and model contracts.
 7. `docs/10-plans/engineering-quality-brainstorm.md` for evolving engineering decisions.
+8. `docs/40-operations/musique.md` for MuSiQue download, raw-path, and experiment-runner commands.

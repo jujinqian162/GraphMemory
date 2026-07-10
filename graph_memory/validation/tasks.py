@@ -35,6 +35,18 @@ TWOWIKI_LABEL_RECORD_FIELDS = {
     "debug",
 }
 
+MUSIQUE_RANKING_RECORD_FIELDS = {"task_id", "question", "candidate_paragraphs", "metadata", "debug"}
+MUSIQUE_CANDIDATE_PARAGRAPH_FIELDS = {"paragraph_id", "title", "paragraph_index", "position", "text"}
+MUSIQUE_LABEL_RECORD_FIELDS = {
+    "task_id",
+    "gold_answer",
+    "gold_answer_aliases",
+    "gold_evidence_paragraph_ids",
+    "gold_dependency_edges",
+    "metadata",
+    "debug",
+}
+
 def validate_hotpotqa_ranking_records(records: object) -> None:
     records = _require_record_list(records, "HotpotQA ranking records")
 
@@ -244,6 +256,121 @@ def validate_twowiki_label_records(records: object, records_by_task_id: object) 
                 )
 
 
+def validate_musique_ranking_records(records: object) -> None:
+    records = _require_record_list(records, "MuSiQue ranking records")
+
+    seen_task_ids: set[str] = set()
+    for index, ranking_record in enumerate(records):
+        if not isinstance(ranking_record, dict):
+            raise ContractValidationError(f"Invalid MuSiQue ranking records: record index={index} is not an object.")
+        task_id = _required_string(ranking_record, "task_id", "MuSiQue ranking record")
+        _reject_unknown_fields(ranking_record, MUSIQUE_RANKING_RECORD_FIELDS, "MuSiQue ranking record", task_id)
+        validate_no_label_fields(ranking_record, artifact_name="MuSiQue ranking record", task_id=task_id)
+        _require_unique(task_id, seen_task_ids, "MuSiQue ranking record task_id")
+        if not task_id.startswith("musique_"):
+            raise ContractValidationError(f"Invalid MuSiQue ranking record: task_id={task_id} must start with musique_.")
+        _required_string(ranking_record, "question", "MuSiQue ranking record", task_id)
+        _require_metadata_object(ranking_record, "MuSiQue ranking record", task_id)
+
+        candidate_paragraphs = ranking_record.get("candidate_paragraphs")
+        if not isinstance(candidate_paragraphs, list) or not candidate_paragraphs:
+            raise ContractValidationError(
+                f"Invalid MuSiQue ranking record: task_id={task_id} candidate_paragraphs must be non-empty."
+            )
+
+        seen_paragraph_ids: set[str] = set()
+        for expected_position, candidate_paragraph in enumerate(candidate_paragraphs):
+            if not isinstance(candidate_paragraph, dict):
+                raise ContractValidationError(
+                    "Invalid MuSiQue ranking record: "
+                    f"task_id={task_id} candidate paragraph index={expected_position} is not an object."
+                )
+            _reject_unknown_fields(
+                candidate_paragraph,
+                MUSIQUE_CANDIDATE_PARAGRAPH_FIELDS,
+                "MuSiQue candidate paragraph",
+                task_id,
+            )
+            paragraph_id = _required_string(candidate_paragraph, "paragraph_id", "MuSiQue candidate paragraph", task_id)
+            _require_unique(paragraph_id, seen_paragraph_ids, f"MuSiQue candidate paragraph id task_id={task_id}")
+            _required_string(candidate_paragraph, "title", "MuSiQue candidate paragraph", task_id)
+            _required_string(candidate_paragraph, "text", "MuSiQue candidate paragraph", task_id)
+            _required_int(candidate_paragraph, "paragraph_index", "MuSiQue candidate paragraph", task_id, minimum=0)
+            position = _required_int(candidate_paragraph, "position", "MuSiQue candidate paragraph", task_id, minimum=0)
+            if position != expected_position:
+                raise ContractValidationError(
+                    "Invalid MuSiQue ranking record: "
+                    f"task_id={task_id} paragraph_id={paragraph_id} position={position} expected {expected_position}."
+                )
+
+
+def validate_musique_label_records(records: object, records_by_task_id: object) -> None:
+    records = _require_record_list(records, "MuSiQue label records")
+    records_by_task_id = _require_record_map(records_by_task_id, "MuSiQue ranking records by task_id")
+
+    seen_task_ids: set[str] = set()
+    for index, label_record in enumerate(records):
+        if not isinstance(label_record, dict):
+            raise ContractValidationError(f"Invalid MuSiQue label records: record index={index} is not an object.")
+        task_id = _required_string(label_record, "task_id", "MuSiQue label record")
+        _reject_unknown_fields(label_record, MUSIQUE_LABEL_RECORD_FIELDS, "MuSiQue label record", task_id)
+        _require_unique(task_id, seen_task_ids, "MuSiQue label record task_id")
+        if task_id not in records_by_task_id:
+            raise ContractValidationError(f"Invalid MuSiQue label record: task_id={task_id} has no matching ranking record.")
+
+        _required_string(label_record, "gold_answer", "MuSiQue label record", task_id)
+        _require_metadata_object(label_record, "MuSiQue label record", task_id)
+        aliases = label_record.get("gold_answer_aliases")
+        if not isinstance(aliases, list):
+            raise ContractValidationError(
+                f"Invalid MuSiQue label record: task_id={task_id} gold_answer_aliases must be a list."
+            )
+        for alias_index, alias in enumerate(aliases):
+            if not isinstance(alias, str):
+                raise ContractValidationError(
+                    f"Invalid MuSiQue label record: task_id={task_id} gold_answer_aliases[{alias_index}] must be text."
+                )
+
+        gold_paragraph_ids = label_record.get("gold_evidence_paragraph_ids")
+        if not isinstance(gold_paragraph_ids, list) or not gold_paragraph_ids:
+            raise ContractValidationError(
+                "Invalid MuSiQue label record: "
+                f"task_id={task_id} gold_evidence_paragraph_ids must be a non-empty list."
+            )
+        if len(gold_paragraph_ids) != len(set(gold_paragraph_ids)):
+            raise ContractValidationError(
+                f"Invalid MuSiQue label record: task_id={task_id} duplicate gold evidence paragraph."
+            )
+
+        valid_paragraph_ids = _musique_candidate_paragraph_ids(records_by_task_id[task_id])
+        for paragraph_id in gold_paragraph_ids:
+            if not isinstance(paragraph_id, str) or paragraph_id not in valid_paragraph_ids:
+                raise ContractValidationError(
+                    "Invalid MuSiQue label record: "
+                    f"task_id={task_id} gold paragraph={paragraph_id} does not exist in ranking record."
+                )
+
+        dependency_edges = label_record.get("gold_dependency_edges")
+        if not isinstance(dependency_edges, list):
+            raise ContractValidationError(
+                f"Invalid MuSiQue label record: task_id={task_id} gold_dependency_edges must be a list."
+            )
+        for edge_index, edge in enumerate(dependency_edges):
+            if not isinstance(edge, list) or len(edge) != 2:
+                raise ContractValidationError(
+                    f"Invalid MuSiQue label record: task_id={task_id} gold_dependency_edges[{edge_index}] must be [source, target]."
+                )
+            source, target = edge
+            if not isinstance(source, str) or source not in valid_paragraph_ids:
+                raise ContractValidationError(
+                    f"Invalid MuSiQue label record: task_id={task_id} gold edge source={source} does not exist."
+                )
+            if not isinstance(target, str) or target not in valid_paragraph_ids:
+                raise ContractValidationError(
+                    f"Invalid MuSiQue label record: task_id={task_id} gold edge target={target} does not exist."
+                )
+
+
 def _require_metadata_object(record: ValidationRecord, artifact_name: str, task_id: str) -> None:
     metadata = record.get("metadata")
     if not isinstance(metadata, dict):
@@ -261,9 +388,22 @@ def _hotpotqa_candidate_sentence_ids(ranking_record: ValidationRecord) -> set[st
     }
 
 
+def _musique_candidate_paragraph_ids(ranking_record: ValidationRecord) -> set[str]:
+    candidate_paragraphs = ranking_record.get("candidate_paragraphs")
+    if not isinstance(candidate_paragraphs, list):
+        return set()
+    return {
+        candidate_paragraph["paragraph_id"]
+        for candidate_paragraph in candidate_paragraphs
+        if isinstance(candidate_paragraph, dict) and "paragraph_id" in candidate_paragraph
+    }
+
+
 __all__ = [
     "validate_hotpotqa_label_records",
     "validate_hotpotqa_ranking_records",
+    "validate_musique_label_records",
+    "validate_musique_ranking_records",
     "validate_no_label_fields",
     "validate_twowiki_label_records",
     "validate_twowiki_ranking_records",
