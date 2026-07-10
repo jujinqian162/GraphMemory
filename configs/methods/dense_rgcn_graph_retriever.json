@@ -25,7 +25,7 @@
     "trainer": {
       "batch_size": 8,
       "device": "cuda",
-      "epochs": 5,
+      "epochs": 15,
       "learning_rate": 0.0001,
       "max_grad_norm": 1.0,
       "optimizer_name": "AdamW",
@@ -46,7 +46,7 @@
         "trainer": {
           "batch_size": 8,
           "device": "cuda",
-          "epochs": 5
+          "epochs": 15
         }
       }
     },
@@ -78,7 +78,7 @@
         "trainer": {
           "batch_size": 16,
           "device": "cuda",
-          "epochs": 10
+          "epochs": 15
         }
       },
       "pairs": {
@@ -90,7 +90,7 @@
         "trainer": {
           "batch_size": 64,
           "device": "cuda",
-          "epochs": 5
+          "epochs": 15
         }
       }
     },
@@ -103,7 +103,7 @@
         "trainer": {
           "batch_size": 128,
           "device": "cuda",
-          "epochs": 10
+          "epochs": 15
         }
       },
       "pairs": {
