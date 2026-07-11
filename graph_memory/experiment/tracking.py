@@ -48,7 +48,7 @@ class TrackingAdapter:
             )
             experiment = self.client.get_experiment(experiment_id)
         if Path(
-            experiment.artifact_location.removeprefix("file:///")
+            experiment.artifact_location.removeprefix("file://")
         ).as_posix().lower() != (config.tracking.artifact_root.as_posix().lower()):
             raise ValueError(
                 "MLflow experiment artifact root mismatch: "
