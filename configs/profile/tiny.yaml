@@ -1,0 +1,23 @@
+name: tiny
+splits:
+  train: {kind: fixed, count: 5}
+  dev: {kind: fixed, count: 5}
+  test: {kind: fixed, count: 5}
+trainable:
+  rgcn:
+    hidden_dim: 32
+    num_layers: 1
+    batch_size: 1
+    epochs: 1
+    easy_random_per_positive: 1
+    hard_bm25_per_positive: 1
+    hard_dense_per_positive: 0
+    hard_graph_neighbor_per_positive: 1
+  dense_ft:
+    train_batch_size: 1
+    eval_batch_size: 4
+    epochs: 1
+    easy_random_per_positive: 2
+    hard_bm25_per_positive: 2
+    hard_dense_per_positive: 0
+    hard_graph_neighbor_per_positive: 1

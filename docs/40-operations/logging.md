@@ -210,45 +210,48 @@ Recommendation:
 
 Each runnable script must write a compact run summary near its main output.
 
-Suggested file names:
+The planner binds one adjacent YAML summary path for every stage invocation:
 
 ```text
-results/run_summary_{script}_{method}.json
-data/hotpotqa/processed/run_summary_{script}_{split}.json
+runs/<name>/artifacts/<stage>/<artifact>.run_summary.yaml
+runs/<name>/artifacts/aggregate/aggregate.run_summary.yaml
 ```
 
 Shape:
 
-```json
-{
-  "script": "run_retrieval.py",
-  "started_at": "2026-05-20T12:00:00+08:00",
-  "finished_at": "2026-05-20T12:05:00+08:00",
-  "status": "success",
-  "effective_config": {},
-  "inputs": {},
-  "outputs": {},
-  "counts": {},
-  "timings": {},
-  "environment": {},
-  "notes": []
-}
+```yaml
+stage: retrieve
+method: bm25
+split: test
+variant: null
+attempt: 1
+started_at: 2026-05-20T12:00:00+08:00
+finished_at: 2026-05-20T12:05:00+08:00
+status: success
+effective_config: {}
+inputs: []
+outputs: []
+counts: {}
+timings: {}
+error: null
+mlflow_child_run_id: null
 ```
 
 Required fields:
 
 | Field | Meaning |
 |---|---|
-| `script` | Script entry point. |
+| `stage`, `method`, `split`, `variant` | Typed invocation identity. |
+| `attempt` | Monotonic attempt number for this invocation. |
 | `started_at`, `finished_at` | Timestamped run boundaries. |
-| `status` | `success` or `failed`. |
-| `effective_config` | Defaults + config file + CLI overrides. |
-| `inputs` | Input artifact paths. |
-| `outputs` | Output artifact paths. |
+| `status` | `running`, `success`, or `failed`. |
+| `effective_config` | Fully resolved direct-stage YAML contract. |
+| `inputs` | Typed input artifact bindings. |
+| `outputs` | Typed output artifact bindings. |
 | `counts` | Number of examples, graphs, predictions, rows, etc. |
 | `timings` | Wall-clock durations for major stages. |
-| `environment` | Python version, platform, important dependency versions when available. |
-| `notes` | Explicit caveats such as missing optional metadata. |
+| `error` | Structured error record for failed attempts. |
+| `mlflow_child_run_id` | Optional observability link; never used for cache decisions. |
 
 ## Per-Script Logging Requirements
 

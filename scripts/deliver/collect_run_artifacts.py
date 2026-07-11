@@ -3,9 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from graph_memory.experiment.state import read_run_state
 
 DEFAULT_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
@@ -22,6 +27,10 @@ def collect_run_artifacts(
     source = Path(run_dir)
     if not source.exists() or not source.is_dir():
         raise FileNotFoundError(f"Run directory does not exist: {source}")
+    state_path = source / "run_state.yaml"
+    if not state_path.is_file():
+        raise ValueError(f"Typed run state is required for delivery: {state_path}")
+    state = read_run_state(state_path)
 
     output_dir = Path(output_root) / source.name
     copied: list[dict[str, Any]] = []
@@ -53,7 +62,13 @@ def collect_run_artifacts(
             relative_path = f"report/{path.relative_to(report_source).as_posix()}"
             size_bytes = path.stat().st_size
             if size_bytes > max_file_size_bytes:
-                skipped.append({"relative_path": relative_path, "size_bytes": size_bytes, "reason": "too_large"})
+                skipped.append(
+                    {
+                        "relative_path": relative_path,
+                        "size_bytes": size_bytes,
+                        "reason": "too_large",
+                    }
+                )
                 continue
             copied.append({"relative_path": relative_path, "size_bytes": size_bytes})
             total_copied_bytes += size_bytes
@@ -64,6 +79,8 @@ def collect_run_artifacts(
 
     manifest = {
         "source_run_dir": str(source.resolve()),
+        "run_name": state.name,
+        "run_mode": state.mode,
         "output_dir": str(output_dir.resolve()),
         "max_file_size_bytes": max_file_size_bytes,
         "dry_run": dry_run,
@@ -81,9 +98,15 @@ def collect_run_artifacts(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    run_dir = Path("runs") / args.name
+    from graph_memory.experiment.service import load_existing_experiment
+
+    existing = load_existing_experiment(
+        args.name,
+        repository_root=Path.cwd(),
+        job=args.job,
+    )
     manifest = collect_run_artifacts(
-        run_dir,
+        existing.layout.run_dir,
         output_root=args.output_root,
         max_file_size_bytes=_megabytes_to_bytes(args.max_file_size_mb),
         include_report=args.include_report,
@@ -106,21 +129,44 @@ def _build_parser() -> argparse.ArgumentParser:
             "Contract: --name <train_id> reads runs/<name> and writes results/<name> by default."
         )
     )
-    parser.add_argument("--name", required=True, help="Run name under runs/, e.g. rgcn_full_train.")
-    parser.add_argument("--output-root", default="results", help="Destination root; run name is appended.")
+    parser.add_argument(
+        "--name", required=True, help="Run name under runs/, e.g. rgcn_full_train."
+    )
+    parser.add_argument(
+        "--job", help="Multirun job directory when the name has multiple jobs."
+    )
+    parser.add_argument(
+        "--output-root",
+        default="results",
+        help="Destination root; run name is appended.",
+    )
     parser.add_argument(
         "--max-file-size-mb",
         type=float,
         default=DEFAULT_MAX_FILE_SIZE_BYTES / (1024 * 1024),
         help="Maximum size for files that match include rules.",
     )
-    parser.add_argument("--include-report", action="store_true", help="Also copy files from --report-dir under report/.")
-    parser.add_argument("--report-dir", default="report", help="Report directory used with --include-report.")
-    parser.add_argument("--dry-run", action="store_true", help="Print manifest summary without copying files.")
+    parser.add_argument(
+        "--include-report",
+        action="store_true",
+        help="Also copy files from --report-dir under report/.",
+    )
+    parser.add_argument(
+        "--report-dir",
+        default="report",
+        help="Report directory used with --include-report.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print manifest summary without copying files.",
+    )
     return parser
 
 
-def _classify_run_file(relative_path: str, size_bytes: int, max_file_size_bytes: int) -> str:
+def _classify_run_file(
+    relative_path: str, size_bytes: int, max_file_size_bytes: int
+) -> str:
     path = Path(relative_path)
     parts = path.parts
     name = path.name
@@ -143,13 +189,15 @@ def _known_exclusion(parts: tuple[str, ...], name: str) -> str | None:
         return "excluded_input"
     if top == "graphs" and name.endswith(".graphs.json"):
         return "excluded_graph"
-    if (top == "predictions" or "predictions" in parts) and name.endswith(".ranked.json"):
+    if (top == "predictions" or "predictions" in parts) and name.endswith(
+        ".ranked.json"
+    ):
         return "excluded_prediction"
     if "checkpoints" in parts or Path(name).suffix in {".pt", ".ckpt"}:
         return "excluded_checkpoint"
     if name == "train.pairs.json":
         return "excluded_train_pairs"
-    if name.endswith(".dev_selected.candidates.json"):
+    if name.endswith(".dev_candidates.json"):
         return "excluded_tuning_candidates"
     if Path(name).suffix in {".bin", ".safetensors", ".npy", ".npz"}:
         return "excluded_model_or_embedding"
@@ -157,16 +205,16 @@ def _known_exclusion(parts: tuple[str, ...], name: str) -> str | None:
 
 
 def _is_included(parts: tuple[str, ...], name: str, relative_path: str) -> bool:
-    if relative_path == "manifest.json":
+    if relative_path == "run_state.yaml":
         return True
-    if name.endswith(".run_summary.json"):
+    if name.endswith(".run_summary.yaml"):
         return True
     if _is_included_ablation_file(parts, name):
         return True
     if not parts:
         return False
     top = parts[0]
-    if top == "config" and name.endswith(".json"):
+    if top == "config" and name.endswith((".yaml", ".yml")):
         return True
     if top == "tables":
         return True
@@ -179,30 +227,31 @@ def _is_included(parts: tuple[str, ...], name: str, relative_path: str) -> bool:
     if top == "tuned" and name.endswith(".dev_selected.json"):
         return True
     if top == "learned" and name in {
-        "effective_method_config.json",
         "train_metrics.jsonl",
-        "train_run_summary.json",
         "train.pairs.summary.json",
-        "train.pairs.run_summary.json",
     }:
         return True
     return False
 
 
 def _is_included_ablation_file(parts: tuple[str, ...], name: str) -> bool:
+    if parts[:1] == ("ablations",) and name == "metrics_index.yaml":
+        return True
     if len(parts) < 4 or parts[0] != "ablations":
         return False
     if name in {
-        "effective_method_config.json",
         "train_metrics.jsonl",
-        "train_run_summary.json",
         "train.pairs.summary.json",
-        "train.pairs.run_summary.json",
+        "metrics_index.yaml",
     }:
         return True
     if "metrics" in parts and name.endswith(".csv"):
         return True
-    if "debug" in parts and name.startswith("failure_cases") and name.endswith(".jsonl"):
+    if (
+        "debug" in parts
+        and name.startswith("failure_cases")
+        and name.endswith(".jsonl")
+    ):
         return True
     return False
 

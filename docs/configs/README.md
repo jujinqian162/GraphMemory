@@ -1,40 +1,22 @@
-# Config Documentation
+# Experiment configuration
 
-本目录记录 `configs/` 下每个可编辑配置文件的中文说明。目标是让配置文件不再只能靠猜字段名使用，而是每个 JSON 文件都有一个一一对应的说明文件。
+The only active experiment configuration root is `configs/config.yaml`.
 
-## 命名规则
+| Path | Ownership |
+| --- | --- |
+| `config.yaml` | root composition, graph/search-space values, tracking, and Hydra runtime layout |
+| `dataset/*.yaml` | HotpotQA, 2WikiMultiHopQA, and MuSiQue sources/capacities |
+| `profile/*.yaml` | split count policies and trainable scale |
+| `method_configs/*.yaml` | all eight method-specific scientific contracts |
+| `dataset/hotpotqa-memory-stream.yaml` | complete importance-backed HotpotQA input contract |
 
-说明文件尽量镜像 `configs/` 的目录结构：
+Hydra composes plan/run values and closed Pydantic V2 models validate the resolved container. The root `name: ???` is OmegaConf's mandatory-value marker and is legal only there: callers must supply `name=<name>`. Status, inspect, and reset use closed `key=value` command models, so they need neither Hydra nor command YAML files.
 
-```text
-configs/experiments/hotpotqa_evidence_retrieval.json
-docs/configs/experiments/hotpotqa_evidence_retrieval.md
+Inspect current entries with:
 
-configs/methods/dense_rgcn_graph_retriever.json
-docs/configs/methods/dense_rgcn_graph_retriever.md
-
-configs/methods/dense_ft_rgcn_graph_retriever.json
-docs/configs/methods/dense_ft_rgcn_graph_retriever.md
+```powershell
+uv run python experiment/inspect.py kind=configs
+uv run python experiment/inspect.py kind=datasets
+uv run python experiment/inspect.py kind=profiles
+uv run python experiment/inspect.py kind=methods
 ```
-
-如果新增一个正式配置文件，应同时新增对应的 `docs/configs/.../*.md`，并在本页登记。
-
-## 当前配置说明
-
-| Config | Documentation | 用途 |
-|---|---|---|
-| `configs/experiments/hotpotqa_evidence_retrieval.json` | `experiments/hotpotqa_evidence_retrieval.md` | HotpotQA evidence retrieval 的默认 experiment runner 配置。 |
-| `configs/experiments/hotpoqa_dev_full.json` | `experiments/hotpoqa_dev_full.md` | 使用完整 dev 作为 test 区间的 HotpotQA dev-full 变体配置。 |
-| `configs/experiments/hotpotqa_rgcn_ablation_selected.json` | `experiments/hotpotqa_rgcn_ablation_selected.md` | 服务器上运行选定 R-GCN variants 的 ablation 配置。 |
-| `configs/methods/dense_rgcn_graph_retriever.json` | `methods/dense_rgcn_graph_retriever.md` | R-GCN trainable graph retriever 的当前方法配置。 |
-| `configs/methods/dense_ft.json` | `methods/dense_ft.md` | Dense-FT trainable retriever 的当前方法配置。 |
-| `configs/methods/dense_ft_rgcn_graph_retriever.json` | `methods/dense_ft_rgcn_graph_retriever.md` | 使用 Dense-FT checkpoint 作为 encoder seed 的 R-GCN trainable graph retriever 当前方法配置。 |
-| `configs/search_spaces/graph_rerank.json` | `search_spaces/graph_rerank.md` | BM25/dense graph rerank 的 tuning search space。 |
-
-## 维护原则
-
-- 说明文档写“这个 config 文件怎么填”，不要复制整段运行命令。
-- 如果字段已经在配置中存在但当前代码没有完全消费，必须明确标注“当前未完全接线”。
-- 如果字段有可选值，必须列出当前代码实际支持的值。
-- 如果字段会进入 run manifest 或 checkpoint，必须说明它影响复现或推理。
-- 如果字段只是 debug 或未来预留，不要写成正式实验结果的一部分。

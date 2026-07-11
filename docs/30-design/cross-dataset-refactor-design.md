@@ -284,7 +284,7 @@ Workflow planner 的职责是做 capability matching：
 
 ```text
 requested dataset + requested method + requested metric suite
-  -> resolve benchmark recipe and split policy
+  -> resolve benchmark dataset and split policy
   -> resolve dataset views
   -> validate asset coverage and label visibility
   -> insert required projections

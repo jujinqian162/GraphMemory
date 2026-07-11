@@ -1,0 +1,12 @@
+memory_stream:
+  method: memory_stream
+  encoder:
+    model_name: models/intfloat-e5-base-v2
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+    batch_size: 64
+  scoring:
+    relevance_weight: 1.0
+    recency_weight: 0.0
+    importance_weight: 0.01
+    recency_decay: 0.99

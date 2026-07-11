@@ -1,0 +1,3 @@
+bm25:
+  method: bm25
+

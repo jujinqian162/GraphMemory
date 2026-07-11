@@ -237,7 +237,7 @@ Rules:
 - Owns numeric validation for `relevance_weight`, `recency_weight`, `importance_weight`, and `recency_decay`.
 - Does not know search-space arrays, grid search, labels, or metrics.
 - The formal `MemoryStreamMethod` and tuning adapter must both call the same scoring functions.
-- Fixed tuning fields are represented as single-element arrays in `configs/search_spaces/memory_stream.json`, not as code branches.
+- Fixed tuning fields are represented as single-element lists in `configs/experiment/search_spaces/memory_stream.yaml`, not as code branches.
 
 ## SeedSignalProvider
 
@@ -337,10 +337,10 @@ RetrieveStageConfig
 
 Rules:
 
-- Scripts may expose CLI flags such as `--encoder_model`, `--query_prefix`, and `--checkpoint`, but `ConfigLoader.load(Registry.configs.RETRIEVE, argv)` converts those values into typed stage config before stage orchestration.
-- `RetrieveStageConfig` is the retrieval use-case boundary. It carries `io` plus method-specific `RetrievalJobSettings`, not a wide application request.
-- `RetrieveIO.selected_config` is a generic tuned-config artifact path. Script adapters parse it into a method-specific typed config before calling the stage runner.
-- Registry-owned `RetrievalJobSettings` are the retrieval build boundary. The selected settings object must be precise for the method family.
+- `scripts/run_retrieval.py` accepts only `--config <resolved-yaml>` and validates a method-discriminated stage model.
+- Each retrieval stage model contains only the paths and settings required by that method family; there is no wide optional wrapper.
+- Selected tuning configs and checkpoints are explicit typed inputs and are validated before runtime construction.
+- Registry-owned retrieval settings remain the runtime build boundary and must be precise for the method family.
 - `retrieval.execution.service.run_retrieval` only executes an already-built `RetrievalMethod`, measures latency, assembles ranked artifacts, and validates ranked results.
 - Retrieval execution does not construct dense runtime, parse graph config, load checkpoints, or accept loose `query_prefix` / `passage_prefix` parameters.
 

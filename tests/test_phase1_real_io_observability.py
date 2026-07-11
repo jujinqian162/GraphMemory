@@ -1,6 +1,5 @@
 from graph_memory.io import merge_config, read_json, write_csv, write_json
 from graph_memory.graphs.statistics import graph_statistics
-from graph_memory.observability import build_run_summary
 from graph_memory.contracts.graphs import MemoryGraph
 
 
@@ -35,41 +34,58 @@ def test_merge_config_prefers_cli_over_config_over_defaults():
     }
 
 
-def test_build_run_summary_contains_reproducibility_fields():
-    summary = build_run_summary(
-        script="run_retrieval.py",
-        started_at="2026-05-20T12:00:00+08:00",
-        finished_at="2026-05-20T12:01:00+08:00",
-        status="success",
-        effective_config={"method": "bm25"},
-        inputs={"tasks": "tasks.input.json"},
-        outputs={"predictions": "ranked_results_bm25.json"},
-        counts={"tasks": 1},
-        timings={"total_seconds": 60.0},
-        environment={"python": "3.12"},
-        notes=["debug disabled"],
-    )
-
-    assert summary["script"] == "run_retrieval.py"
-    assert summary["status"] == "success"
-    assert summary["effective_config"]["method"] == "bm25"
-    assert summary["inputs"]["tasks"] == "tasks.input.json"
-    assert summary["outputs"]["predictions"] == "ranked_results_bm25.json"
-
-
 def test_graph_statistics_counts_edges_and_isolated_memory_nodes():
     graphs: list[MemoryGraph] = [
         {
             "task_id": "hotpot_ex1",
             "nodes": [
                 {"id": "q", "node_type": "question", "text": "query"},
-                {"id": "m0", "node_type": "graph_item", "node_kind": "document_sentence", "text": "a", "source_ref": "A", "group_key": "document:A", "sequence_index": 0, "metadata": {"title": "A", "position": 0}},
-                {"id": "m1", "node_type": "graph_item", "node_kind": "document_sentence", "text": "b", "source_ref": "A", "group_key": "document:A", "sequence_index": 1, "metadata": {"title": "A", "position": 1}},
-                {"id": "m2", "node_type": "graph_item", "node_kind": "document_sentence", "text": "c", "source_ref": "B", "group_key": "document:B", "sequence_index": 0, "metadata": {"title": "B", "position": 2}},
+                {
+                    "id": "m0",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "a",
+                    "source_ref": "A",
+                    "group_key": "document:A",
+                    "sequence_index": 0,
+                    "metadata": {"title": "A", "position": 0},
+                },
+                {
+                    "id": "m1",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "b",
+                    "source_ref": "A",
+                    "group_key": "document:A",
+                    "sequence_index": 1,
+                    "metadata": {"title": "A", "position": 1},
+                },
+                {
+                    "id": "m2",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "c",
+                    "source_ref": "B",
+                    "group_key": "document:B",
+                    "sequence_index": 0,
+                    "metadata": {"title": "B", "position": 2},
+                },
             ],
             "edges": [
-                {"source": "m0", "target": "m1", "edge_type": "sequential", "weight": 1.0, "directed": False},
-                {"source": "q", "target": "m0", "edge_type": "query_overlap", "weight": 1.0, "directed": True},
+                {
+                    "source": "m0",
+                    "target": "m1",
+                    "edge_type": "sequential",
+                    "weight": 1.0,
+                    "directed": False,
+                },
+                {
+                    "source": "q",
+                    "target": "m0",
+                    "edge_type": "query_overlap",
+                    "weight": 1.0,
+                    "directed": True,
+                },
             ],
         }
     ]

@@ -1,0 +1,22 @@
+name: hotpotqa
+prepare_script: scripts/prepare_hotpotqa.py
+splits:
+  train:
+    kind: raw
+    source: data/hotpotqa/raw/train.json
+    offset: 0
+    capacity: 90025
+  dev:
+    kind: importance
+    source: data/hotpotqa/processed/dev_memory_tasks.input.json
+    labels_source: data/hotpotqa/processed/dev_memory_tasks.labels.json
+    importance_path: data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json
+    offset: 0
+    capacity: 1000
+  test:
+    kind: importance
+    source: data/hotpotqa/processed/dev_memory_tasks.input.json
+    labels_source: data/hotpotqa/processed/dev_memory_tasks.labels.json
+    importance_path: data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json
+    offset: 0
+    capacity: 1000

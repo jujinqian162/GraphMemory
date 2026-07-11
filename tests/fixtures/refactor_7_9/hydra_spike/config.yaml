@@ -1,0 +1,21 @@
+defaults:
+  - dataset: hotpotqa
+  - _self_
+
+name: ???
+seed: 13
+dataset_name: ${dataset.name}
+dataset_source: ${dataset.source}
+
+hydra:
+  job:
+    chdir: false
+    config:
+      override_dirname:
+        exclude_keys:
+          - name
+  run:
+    dir: ${oc.env:HYDRA_SPIKE_ROOT}/${name}
+  sweep:
+    dir: ${oc.env:HYDRA_SPIKE_ROOT}/${name}
+    subdir: ${hydra.job.num}_${hydra.job.override_dirname}

@@ -1,0 +1,18 @@
+name: musique
+prepare_script: scripts/prepare_musique.py
+splits:
+  train:
+    kind: raw
+    source: data/musique/raw/musique_ans_v1.0_train.jsonl
+    offset: 0
+    capacity: 19938
+  dev:
+    kind: raw
+    source: data/musique/raw/musique_ans_v1.0_dev.jsonl
+    offset: 0
+    capacity: 2417
+  test:
+    kind: raw
+    source: data/musique/raw/musique_ans_v1.0_dev.jsonl
+    offset: 500
+    capacity: 2417

@@ -1,0 +1,129 @@
+{
+  "hotpotqa_default": {
+    "config": null,
+    "dataset": "hotpotqa",
+    "methods": [
+      "bm25",
+      "dense",
+      "bm25_graph_rerank",
+      "dense_graph_rerank",
+      "dense_rgcn_graph_retriever",
+      "dense_ft",
+      "dense_ft_rgcn_graph_retriever"
+    ],
+    "raw": {
+      "dev": "data/hotpotqa/raw/dev.json",
+      "train": "data/hotpotqa/raw/train.json"
+    },
+    "splits": {
+      "train": {"source": "train", "max_examples": 1, "seed": 13, "offset": 0},
+      "dev": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 0},
+      "test": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 500}
+    },
+    "groups": [
+      {"stage": "prepare", "splits": ["train", "dev", "test"], "methods": [], "scripts": ["scripts/prepare_hotpotqa.py", "scripts/prepare_hotpotqa.py", "scripts/prepare_hotpotqa.py"]},
+      {"stage": "graphs", "splits": ["train", "dev", "test"], "methods": [], "scripts": ["scripts/build_graphs.py", "scripts/build_graphs.py", "scripts/build_graphs.py"]},
+      {"stage": "pairs", "splits": [], "methods": ["dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/build_train_pairs.py", "scripts/build_train_pairs.py", "scripts/build_train_pairs.py"]},
+      {"stage": "tune", "splits": [], "methods": ["bm25_graph_rerank", "dense_graph_rerank"], "scripts": ["scripts/tune_graph_rerank.py", "scripts/tune_graph_rerank.py"]},
+      {"stage": "train", "splits": [], "methods": ["dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/train_method.py", "scripts/train_method.py", "scripts/train_method.py"]},
+      {"stage": "retrieve", "splits": [], "methods": ["bm25", "dense", "bm25_graph_rerank", "dense_graph_rerank", "dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py"]},
+      {"stage": "evaluate", "splits": [], "methods": ["bm25", "dense", "bm25_graph_rerank", "dense_graph_rerank", "dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py"]},
+      {"stage": "aggregate", "splits": [], "methods": [], "scripts": ["scripts/aggregate_tables.py"]}
+    ]
+  },
+  "hotpotqa_all_methods": {
+    "config": null,
+    "dataset": "hotpotqa",
+    "methods": [
+      "bm25",
+      "dense",
+      "memory_stream",
+      "bm25_graph_rerank",
+      "dense_graph_rerank",
+      "dense_rgcn_graph_retriever",
+      "dense_ft",
+      "dense_ft_rgcn_graph_retriever"
+    ],
+    "raw": {
+      "dev": "data/hotpotqa/raw/dev.json",
+      "train": "data/hotpotqa/raw/train.json"
+    },
+    "splits": {
+      "train": {"source": "train", "max_examples": 1, "seed": 13, "offset": 0},
+      "dev": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 0},
+      "test": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 500}
+    },
+    "groups": [
+      {"stage": "prepare", "splits": ["train", "dev", "test"], "methods": [], "scripts": ["scripts/prepare_hotpotqa.py", "scripts/prepare_hotpotqa.py", "scripts/prepare_hotpotqa.py"]},
+      {"stage": "graphs", "splits": ["train", "dev", "test"], "methods": [], "scripts": ["scripts/build_graphs.py", "scripts/build_graphs.py", "scripts/build_graphs.py"]},
+      {"stage": "pairs", "splits": [], "methods": ["dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/build_train_pairs.py", "scripts/build_train_pairs.py", "scripts/build_train_pairs.py"]},
+      {"stage": "tune", "splits": [], "methods": ["memory_stream", "bm25_graph_rerank", "dense_graph_rerank"], "scripts": ["scripts/tune_memory_stream.py", "scripts/tune_graph_rerank.py", "scripts/tune_graph_rerank.py"]},
+      {"stage": "train", "splits": [], "methods": ["dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/train_method.py", "scripts/train_method.py", "scripts/train_method.py"]},
+      {"stage": "retrieve", "splits": [], "methods": ["bm25", "dense", "memory_stream", "bm25_graph_rerank", "dense_graph_rerank", "dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py"]},
+      {"stage": "evaluate", "splits": [], "methods": ["bm25", "dense", "memory_stream", "bm25_graph_rerank", "dense_graph_rerank", "dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"], "scripts": ["scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py"]},
+      {"stage": "aggregate", "splits": [], "methods": [], "scripts": ["scripts/aggregate_tables.py"]}
+    ]
+  },
+  "twowiki": {
+    "config": "configs/experiments/2wiki_evidence_retrieval.json",
+    "dataset": "twowiki",
+    "methods": ["bm25", "dense", "bm25_graph_rerank", "dense_graph_rerank", "dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"],
+    "raw": {"dev": "data/2wiki/raw/dev.json", "train": "data/2wiki/raw/train.json"},
+    "splits": {
+      "train": {"source": "train", "max_examples": 1, "seed": 13, "offset": 0},
+      "dev": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 0},
+      "test": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 500}
+    },
+    "same_groups_as": "hotpotqa_default",
+    "prepare_script": "scripts/prepare_2wiki.py"
+  },
+  "musique": {
+    "config": "configs/experiments/musique_evidence_retrieval.json",
+    "dataset": "musique",
+    "methods": ["bm25", "dense", "bm25_graph_rerank", "dense_graph_rerank", "dense_rgcn_graph_retriever", "dense_ft", "dense_ft_rgcn_graph_retriever"],
+    "raw": {"dev": "data/musique/raw/musique_ans_v1.0_dev.jsonl", "train": "data/musique/raw/musique_ans_v1.0_train.jsonl"},
+    "splits": {
+      "train": {"source": "train", "max_examples": 1, "seed": 13, "offset": 0},
+      "dev": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 0},
+      "test": {"source": "dev", "max_examples": 1, "seed": 13, "offset": 500}
+    },
+    "same_groups_as": "hotpotqa_default",
+    "prepare_script": "scripts/prepare_musique.py"
+  },
+  "memory_stream": {
+    "config": "configs/experiments/hotpotqa_memory_stream.json",
+    "dataset": "hotpotqa",
+    "methods": ["bm25", "dense", "memory_stream"],
+    "raw": {"dev": "data/hotpotqa/raw/dev.json", "train": "data/hotpotqa/raw/train.json"},
+    "splits": {
+      "train": {"source": "train", "max_examples": 1, "seed": 13, "offset": 0},
+      "dev": {"source": "importance", "max_examples": 1, "seed": 13, "offset": 0},
+      "test": {"source": "importance", "max_examples": 1, "seed": 13, "offset": 0}
+    },
+    "groups": [
+      {"stage": "prepare", "splits": ["train", "dev", "test"], "methods": [], "scripts": ["scripts/prepare_hotpotqa.py", "scripts/prepare_hotpotqa.py", "scripts/prepare_hotpotqa.py"]},
+      {"stage": "graphs", "splits": ["train", "dev", "test"], "methods": [], "scripts": ["scripts/build_graphs.py", "scripts/build_graphs.py", "scripts/build_graphs.py"]},
+      {"stage": "tune", "splits": [], "methods": ["memory_stream"], "scripts": ["scripts/tune_memory_stream.py"]},
+      {"stage": "retrieve", "splits": [], "methods": ["bm25", "dense", "memory_stream"], "scripts": ["scripts/run_retrieval.py", "scripts/run_retrieval.py", "scripts/run_retrieval.py"]},
+      {"stage": "evaluate", "splits": [], "methods": ["bm25", "dense", "memory_stream"], "scripts": ["scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py", "scripts/evaluate_retrieval.py"]},
+      {"stage": "aggregate", "splits": [], "methods": [], "scripts": ["scripts/aggregate_tables.py"]}
+    ]
+  },
+  "seeded_rgcn_dependency": [
+    ["pairs", "dense_ft"],
+    ["pairs", "dense_ft_rgcn_graph_retriever"],
+    ["train", "dense_ft"],
+    ["train", "dense_ft_rgcn_graph_retriever"],
+    ["retrieve", "dense_ft_rgcn_graph_retriever"],
+    ["evaluate", "dense_ft_rgcn_graph_retriever"]
+  ],
+  "common_effective": {
+    "profile": "smoke",
+    "seed": 13,
+    "top_k": 10,
+    "dense_encoder": "models/intfloat-e5-base-v2",
+    "query_prefix": "query: ",
+    "passage_prefix": "passage: ",
+    "graph": {"max_query_overlap": 20, "max_entity_neighbors": 10, "max_bridge_edges": 50, "use_spacy": false}
+  }
+}

@@ -1,0 +1,33 @@
+dense_rgcn_graph_retriever:
+  method: dense_rgcn_graph_retriever
+  encoder:
+    model_name: models/intfloat-e5-base-v2
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+    batch_size: 64
+  pairs:
+    random_seed: ${seed}
+    easy_random_per_positive: ${profile.trainable.rgcn.easy_random_per_positive}
+    hard_bm25_per_positive: ${profile.trainable.rgcn.hard_bm25_per_positive}
+    hard_dense_per_positive: ${profile.trainable.rgcn.hard_dense_per_positive}
+    hard_graph_neighbor_per_positive: ${profile.trainable.rgcn.hard_graph_neighbor_per_positive}
+    hard_pool_size: 30
+  train:
+    model:
+      hidden_dim: ${profile.trainable.rgcn.hidden_dim}
+      num_layers: ${profile.trainable.rgcn.num_layers}
+      dropout: 0.1
+      ablation: full_rgcn
+    trainer:
+      optimizer_name: AdamW
+      learning_rate: 0.0001
+      batch_size: ${profile.trainable.rgcn.batch_size}
+      max_grad_norm: 1.0
+      random_seed: ${seed}
+      pos_weight_enabled: true
+      epochs: ${profile.trainable.rgcn.epochs}
+      device: ${device}
+    selection:
+      best_metric: dev_composite
+      higher_is_better: true
+

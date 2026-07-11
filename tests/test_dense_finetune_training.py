@@ -7,12 +7,24 @@ from typing import Any, cast
 
 import pytest
 import scripts.train_method as train_method_script
-from graph_memory.config import CONFIG_LOADER
+from graph_memory.experiment.config import (
+    DenseEncoderConfig,
+    DenseFinetuneDataConfig,
+    DenseFinetuneSelectionConfig,
+    DenseFinetuneTrainConfig,
+    DenseFinetuneTrainerConfig,
+    PairSamplingConfig,
+)
+from graph_memory.experiment.persistence import write_yaml_atomic
+from graph_memory.experiment.stage_models import DenseFinetuneTrainStageConfig
+from graph_memory.experiment.state import read_stage_summary
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.datasets.hotpotqa.records import (
+    HotpotQARankingRecord,
+    HotpotQALabelRecord,
+)
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.contracts.training_pairs import TrainPairRecord
-from graph_memory.io import write_json
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
     DenseFinetuneSelectionSettings,
@@ -24,9 +36,6 @@ from graph_memory.models.dense_finetune.training import (
 )
 import graph_memory.models.dense_finetune.training as dense_ft_training
 from graph_memory.models.dense_finetune.data import DenseFinetuneDataSettings
-from graph_memory.registry.method_configs import DenseFinetuneMethodSettings
-from graph_memory.registry.retrieval import DenseEncoderSettings, RetrievalMethodId
-from graph_memory.registry.stage_configs import DenseFinetuneTrainIO, DenseFinetuneTrainStageConfig
 from scripts.train_method import main as train_method_main
 
 
@@ -71,7 +80,9 @@ def _evidence_label(label: HotpotQALabelRecord) -> EvidenceLabel:
         task_id=label["task_id"],
         gold_answer=label["gold_answer"],
         gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-        gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        gold_dependency_edges=tuple(
+            (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
+        ),
     )
 
 
@@ -94,29 +105,53 @@ def write_dense_ft_train_stage_config(
     model_dir: Path,
 ) -> None:
     config = DenseFinetuneTrainStageConfig(
-        method=RetrievalMethodId.DENSE_FT,
-        io=DenseFinetuneTrainIO(
-            train_tasks=train_tasks_path,
-            train_labels=train_labels_path,
-            train_pairs=train_pairs_path,
-            dev_tasks=dev_tasks_path,
-            dev_labels=dev_labels_path,
-            output_dir=output_dir,
-            model_dir=model_dir,
-            metrics=output_dir / "train_metrics.jsonl",
-            run_summary=output_dir / "train_run_summary.json",
+        stage="train",
+        method="dense_ft",
+        variant=None,
+        dataset="hotpotqa",
+        train_tasks=train_tasks_path,
+        train_labels=train_labels_path,
+        train_pairs=train_pairs_path,
+        dev_tasks=dev_tasks_path,
+        dev_labels=dev_labels_path,
+        output_dir=output_dir,
+        model_dir=model_dir,
+        metrics=output_dir / "train_metrics.jsonl",
+        summary=output_dir / "train.run_summary.yaml",
+        encoder=DenseEncoderConfig(
+            model_name="fake-e5",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
         ),
-        job=DenseFinetuneMethodSettings(
-            encoder=DenseEncoderSettings(
-                model_name="fake-e5",
-                query_prefix="query: ",
-                passage_prefix="passage: ",
-                batch_size=64,
+        pairs=PairSamplingConfig(
+            random_seed=13,
+            easy_random_per_positive=1,
+            hard_bm25_per_positive=1,
+            hard_dense_per_positive=1,
+            hard_graph_neighbor_per_positive=1,
+            hard_pool_size=30,
+        ),
+        train=DenseFinetuneTrainConfig(
+            data=DenseFinetuneDataConfig(hard_negatives_per_positive=1),
+            trainer=DenseFinetuneTrainerConfig(
+                learning_rate=2e-5,
+                train_batch_size=16,
+                eval_batch_size=64,
+                epochs=1,
+                warmup_steps=0,
+                max_grad_norm=1.0,
+                random_seed=13,
+                device="cpu",
+                use_amp=False,
             ),
-            trainer=DenseFinetuneTrainerSettings(device="cpu"),
+            selection=DenseFinetuneSelectionConfig(
+                best_metric="eval_dev_cos_sim_map@100",
+                higher_is_better=True,
+            ),
         ),
     )
-    write_json(path, CONFIG_LOADER.to_json(config))
+    write_yaml_atomic(path, config)
 
 
 class FakeSentenceTransformer:
@@ -244,7 +279,9 @@ class FakeTrainer:
         self.request.model.save(str(self.request.model_dir))
 
 
-def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(tmp_path: Path) -> None:
+def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(
+    tmp_path: Path,
+) -> None:
     captured: dict[str, Any] = {}
 
     def model_factory(model_name: str, device: str) -> FakeSentenceTransformer:
@@ -272,7 +309,9 @@ def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(t
             epochs=1,
             device="cpu",
         ),
-        selection=DenseFinetuneSelectionSettings(best_metric="eval_dev_cos_sim_map@100"),
+        selection=DenseFinetuneSelectionSettings(
+            best_metric="eval_dev_cos_sim_map@100"
+        ),
     )
     train_task = _task("train", query="train query")
     dev_task = _task("dev", query="dev query")
@@ -303,7 +342,9 @@ def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(t
     assert captured["device"] == "cpu"
     assert captured["model"].saved_to == tmp_path / "model"
 
-    metadata = json.loads((tmp_path / "model" / "dense_ft_model_config.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (tmp_path / "model" / "dense_ft_model_config.json").read_text(encoding="utf-8")
+    )
     assert metadata == {
         "method": "dense_ft",
         "base_model": "fake-e5",
@@ -340,7 +381,9 @@ def test_train_dense_finetune_returns_epoch_metric_records_and_writes_metadata(t
     )
 
 
-def test_sentence_transformers_27_trainer_builds_input_examples_and_calls_fit(monkeypatch, tmp_path: Path) -> None:
+def test_sentence_transformers_27_trainer_builds_input_examples_and_calls_fit(
+    monkeypatch, tmp_path: Path
+) -> None:
     captured: dict[str, Any] = {}
 
     class FakeInputExample:
@@ -348,7 +391,9 @@ def test_sentence_transformers_27_trainer_builds_input_examples_and_calls_fit(mo
             self.texts = texts
 
     class FakeDataLoader:
-        def __init__(self, dataset: list[FakeInputExample], *, shuffle: bool, batch_size: int) -> None:
+        def __init__(
+            self, dataset: list[FakeInputExample], *, shuffle: bool, batch_size: int
+        ) -> None:
             self.dataset = dataset
             self.shuffle = shuffle
             self.batch_size = batch_size
@@ -395,14 +440,20 @@ def test_sentence_transformers_27_trainer_builds_input_examples_and_calls_fit(mo
             device="cpu",
             use_amp=True,
         ),
-        selection=DenseFinetuneSelectionSettings(best_metric="eval_dev_cos_sim_map@100"),
+        selection=DenseFinetuneSelectionSettings(
+            best_metric="eval_dev_cos_sim_map@100"
+        ),
     )
 
     trainer = _build_sentence_transformers_fit_runner(
         DenseFinetuneTrainerRequest(
             model=model,
             train_rows=(
-                {"anchor": "Q: train", "positive": "P: positive", "negative": "P: negative"},
+                {
+                    "anchor": "Q: train",
+                    "positive": "P: positive",
+                    "negative": "P: negative",
+                },
             ),
             evaluator_payload=dense_ft_training.DenseFinetuneIREvaluatorPayload(
                 queries={"dev": "Q: dev"},
@@ -482,7 +533,9 @@ def _build_callback_trainer(
             self.texts = texts
 
     class FakeDataLoader:
-        def __init__(self, dataset: list[FakeInputExample], *, shuffle: bool, batch_size: int) -> None:
+        def __init__(
+            self, dataset: list[FakeInputExample], *, shuffle: bool, batch_size: int
+        ) -> None:
             self.dataset = dataset
             self.shuffle = shuffle
             self.batch_size = batch_size
@@ -500,7 +553,9 @@ def _build_callback_trainer(
             captured["evaluator"] = kwargs
 
         def __call__(self, model: object, **kwargs: object) -> float:
-            captured.setdefault("evaluation_calls", []).append({"model": model, **kwargs})
+            captured.setdefault("evaluation_calls", []).append(
+                {"model": model, **kwargs}
+            )
             return baseline_score
 
     monkeypatch.setattr(
@@ -531,7 +586,11 @@ def _build_callback_trainer(
         DenseFinetuneTrainerRequest(
             model=model,
             train_rows=(
-                {"anchor": "Q: train", "positive": "P: positive", "negative": "P: negative"},
+                {
+                    "anchor": "Q: train",
+                    "positive": "P: positive",
+                    "negative": "P: negative",
+                },
             ),
             evaluator_payload=dense_ft_training.DenseFinetuneIREvaluatorPayload(
                 queries={"dev": "Q: dev"},
@@ -627,7 +686,11 @@ def test_sentence_transformers_27_trainer_overwrites_best_model_when_epoch_impro
     trainer.train()
 
     assert (tmp_path / "model" / "state.txt").read_text(encoding="utf-8") == "epoch-2"
-    assert model.save_events == [tmp_path / "model", tmp_path / "model", tmp_path / "model"]
+    assert model.save_events == [
+        tmp_path / "model",
+        tmp_path / "model",
+        tmp_path / "model",
+    ]
     assert trainer.metric_records[-1]["best_epoch"] == 2
     assert trainer.metric_records[-1]["best_dev_metric"] == 0.7
 
@@ -653,7 +716,9 @@ def test_sentence_transformers_27_trainer_respects_lower_is_better_selection(
     assert trainer.metric_records[-1]["best_dev_metric"] == 0.4
 
 
-def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch, tmp_path: Path) -> None:
+def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(
+    monkeypatch, tmp_path: Path
+) -> None:
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_pairs_path = tmp_path / "train.pairs.json"
@@ -661,11 +726,15 @@ def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch,
     dev_labels_path = tmp_path / "dev.labels.json"
     output_dir = tmp_path / "dense_ft_run"
     model_dir = output_dir / "checkpoints" / "best_model"
-    config_path = tmp_path / "dense_ft_train_stage_config.json"
-    train_tasks_path.write_text(json.dumps([_task("train", query="train query")]), encoding="utf-8")
+    config_path = tmp_path / "dense_ft_train_stage_config.yaml"
+    train_tasks_path.write_text(
+        json.dumps([_task("train", query="train query")]), encoding="utf-8"
+    )
     train_labels_path.write_text(json.dumps([_labels("train")]), encoding="utf-8")
     train_pairs_path.write_text(json.dumps(_pairs("train")), encoding="utf-8")
-    dev_tasks_path.write_text(json.dumps([_task("dev", query="dev query")]), encoding="utf-8")
+    dev_tasks_path.write_text(
+        json.dumps([_task("dev", query="dev query")]), encoding="utf-8"
+    )
     dev_labels_path.write_text(json.dumps([_labels("dev")]), encoding="utf-8")
     write_dense_ft_train_stage_config(
         config_path,
@@ -699,10 +768,10 @@ def test_dense_ft_train_method_cli_writes_model_metrics_and_summary(monkeypatch,
     assert (model_dir / "modules.json").exists()
     assert (model_dir / "dense_ft_model_config.json").exists()
     assert (output_dir / "train_metrics.jsonl").exists()
-    summary = json.loads((output_dir / "train_run_summary.json").read_text(encoding="utf-8"))
-    assert summary["script"] == "train_method.py"
-    assert summary["effective_config"]["method"] == "dense_ft"
-    assert summary["outputs"]["best_checkpoint"] == str(model_dir)
-    assert "train_graphs" not in summary["inputs"]
-    assert "dev_graphs" not in summary["inputs"]
+    summary = read_stage_summary(output_dir / "train.run_summary.yaml")
+    assert summary.script.name == "train_method.py"
+    assert summary.effective_config["method"] == "dense_ft"
+    assert any(output.path == model_dir for output in summary.outputs)
+    assert all(input_.path.name != "train.graphs.json" for input_ in summary.inputs)
+    assert all(input_.path.name != "dev.graphs.json" for input_ in summary.inputs)
     assert "train_graph_retriever" not in inspect.getsource(train_method_script)

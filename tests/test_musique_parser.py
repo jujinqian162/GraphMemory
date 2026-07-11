@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from graph_memory.datasets.musique import parse_musique_example, parse_musique_examples
@@ -70,8 +72,21 @@ def test_parse_musique_examples_reports_record_index() -> None:
         parse_musique_examples(raw_records)
 
 
-@pytest.mark.parametrize("field_name", ["id", "question", "answer", "answer_aliases", "answerable", "paragraphs", "question_decomposition"])
-def test_parse_musique_example_fails_fast_when_required_field_is_missing(field_name: str) -> None:
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "id",
+        "question",
+        "answer",
+        "answer_aliases",
+        "answerable",
+        "paragraphs",
+        "question_decomposition",
+    ],
+)
+def test_parse_musique_example_fails_fast_when_required_field_is_missing(
+    field_name: str,
+) -> None:
     raw = _raw_example()
     raw.pop(field_name)
 
@@ -88,8 +103,8 @@ def test_parse_musique_example_rejects_full_unanswerable_records() -> None:
 
 def test_parse_musique_example_rejects_duplicate_paragraph_idx() -> None:
     raw = _raw_example()
-    paragraphs = list(raw["paragraphs"])  # type: ignore[arg-type]
-    paragraphs[1] = {**paragraphs[1], "idx": 0}  # type: ignore[index]
+    paragraphs = list(cast(list[dict[str, object]], raw["paragraphs"]))
+    paragraphs[1] = {**paragraphs[1], "idx": 0}
     raw["paragraphs"] = paragraphs
 
     with pytest.raises(ValueError, match="duplicate paragraph idx"):

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
 import torch
+from pydantic import TypeAdapter
 from torch import nn
 
-from graph_memory.config.converter import ConfigConverter
-from graph_memory.infrastructure.run_summary import now_iso
-from graph_memory.models.graph_retriever.config.records import RgcnModelConfig, RgcnTrainingConfig
+from graph_memory.models.graph_retriever.config.records import (
+    RgcnModelConfig,
+    RgcnTrainingConfig,
+)
 from graph_memory.validation import validate_rgcn_checkpoint_metadata
 
 
@@ -61,7 +64,7 @@ def save_rgcn_checkpoint(
         "best_dev_metric": float(best_dev_metric),
         "model_config": model_config.to_json_dict(),
         "training_config": training_config.to_json_dict(),
-        "created_at": now_iso(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     validate_rgcn_checkpoint_metadata(payload, expected_method=method_name)
     checkpoint_path = Path(path)
@@ -86,9 +89,12 @@ def load_rgcn_checkpoint(
         raise ValueError(f"R-GCN checkpoint must be a dictionary: {path}")
     typed_payload = cast(dict[str, Any], payload)
     validate_rgcn_checkpoint_metadata(typed_payload, expected_method=expected_method)
-    converter = ConfigConverter()
     return RgcnCheckpoint(
         payload=typed_payload,
-        model_config=converter.structure(typed_payload["model_config"], RgcnModelConfig),
-        training_config=converter.structure(typed_payload["training_config"], RgcnTrainingConfig),
+        model_config=TypeAdapter(RgcnModelConfig).validate_python(
+            typed_payload["model_config"]
+        ),
+        training_config=TypeAdapter(RgcnTrainingConfig).validate_python(
+            typed_payload["training_config"]
+        ),
     )

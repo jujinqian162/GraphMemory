@@ -5,11 +5,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from graph_memory.config import CONFIG_LOADER
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
-from graph_memory.io import read_json, write_json
 from graph_memory.models.dense_finetune.metadata import (
     DenseFinetuneModelMetadata,
     DenseFinetuneSelectionMetadata,
@@ -30,10 +28,8 @@ from graph_memory.registry.retrieval import (
     FlatRetrievalBuildPayload,
     RetrievalMethodId,
 )
-from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
 from graph_memory.retrieval.contracts import RetrievalMethodResult
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
-from scripts import run_retrieval
 
 
 class FakeEncoder:
@@ -137,7 +133,9 @@ def test_bm25_builder_provenance_omits_model_device_and_encoder() -> None:
     assert built.provenance.encoder is None
 
 
-def test_dense_ft_builder_provenance_uses_model_directory_device_and_metadata(tmp_path: Path) -> None:
+def test_dense_ft_builder_provenance_uses_model_directory_device_and_metadata(
+    tmp_path: Path,
+) -> None:
     model_dir = tmp_path / "best_model"
     write_dense_ft_model_metadata(
         model_dir=model_dir,
@@ -156,7 +154,9 @@ def test_dense_ft_builder_provenance_uses_model_directory_device_and_metadata(tm
 
     built = Registry.retrieval.build(
         DenseFinetunedRetrievalSettings(top_k=2, checkpoint=model_dir, device="cuda:7"),
-        FlatRetrievalBuildPayload(ranking_requests=retrieval_ranking_requests(), dense_encoder=FakeEncoder()),
+        FlatRetrievalBuildPayload(
+            ranking_requests=retrieval_ranking_requests(), dense_encoder=FakeEncoder()
+        ),
     )
 
     assert built.provenance.method is RetrievalMethodId.DENSE_FT
@@ -242,7 +242,10 @@ def test_rgcn_builder_provenance_uses_checkpoint_encoder_and_device(
             device="cuda:7",
         ),
         CheckpointGraphBuildPayload(
-            ranking_requests=[HotpotQAToTextRankingRequest().project(task_input) for task_input in task_inputs],
+            ranking_requests=[
+                HotpotQAToTextRankingRequest().project(task_input)
+                for task_input in task_inputs
+            ],
             graphs=graphs,
             text_embedding_provider=provider,
             seed_signal_provider=provider,
@@ -257,33 +260,3 @@ def test_rgcn_builder_provenance_uses_checkpoint_encoder_and_device(
     assert built.provenance.encoder.query_prefix == "Q: "
     assert built.provenance.encoder.passage_prefix == "P: "
     assert built.provenance.encoder.batch_size == 11
-
-
-def test_run_retrieval_summary_serializes_builder_provenance_for_bm25(tmp_path: Path) -> None:
-    tasks_path = tmp_path / "tasks.json"
-    output_path = tmp_path / "predictions.json"
-    summary_path = tmp_path / "predictions.run_summary.json"
-    config_path = tmp_path / "retrieve.json"
-    write_json(tasks_path, retrieval_task_inputs())
-    config = RetrieveStageConfig(
-        io=RetrieveIO(
-            tasks=tasks_path,
-            graphs=None,
-            output=output_path,
-            summary=summary_path,
-        ),
-        job=Bm25RetrievalSettings(top_k=2),
-    )
-    write_json(config_path, CONFIG_LOADER.to_json(config))
-
-    assert run_retrieval.main(["--config", str(config_path)]) == 0
-    summary = read_json(summary_path)
-
-    assert summary["effective_config"]["provenance"] == {
-        "method": "bm25",
-        "model": None,
-        "device": None,
-        "encoder": None,
-        "importance": None,
-    }
-    assert "encoder_model" not in summary["effective_config"]

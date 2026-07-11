@@ -9,23 +9,34 @@ from typing import cast
 from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
-from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.registry import Registry
-from graph_memory.registry.methods import EncoderSource, GraphInputSource, ModelSource, RetrievalLifecycle, SelectedConfigSource
-from graph_memory.registry.retrieval import (
-    Bm25RetrievalSettings,
-    DenseEncoderSettings,
-    DenseRetrievalSettings,
-    GraphRerankRetrievalSettings,
-    GraphRerankSettings,
-    RetrievalMethodId,
-    SeedRetrievalSettings,
+from graph_memory.datasets.hotpotqa.records import (
+    HotpotQARankingRecord,
+    HotpotQALabelRecord,
 )
-from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
+from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
+from graph_memory.experiment.config import DenseEncoderConfig
+from graph_memory.experiment.stage_models import (
+    Bm25GraphRerankRetrieveStageConfig,
+    Bm25RetrieveStageConfig,
+    DenseGraphRerankRetrieveStageConfig,
+    DenseRetrieveStageConfig,
+)
+from graph_memory.registry import Registry
+from graph_memory.registry.methods import (
+    EncoderSource,
+    GraphInputSource,
+    ModelSource,
+    RetrievalLifecycle,
+    SelectedConfigSource,
+)
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.stages.retrieve import run_retrieve_stage
-from graph_memory.retrieval.methods.graph_rerank.components import neighbor_propagation_scores
-from graph_memory.retrieval.methods.graph_rerank.engine import rank_graph_from_initial_scores
+from graph_memory.retrieval.methods.graph_rerank.components import (
+    neighbor_propagation_scores,
+)
+from graph_memory.retrieval.methods.graph_rerank.engine import (
+    rank_graph_from_initial_scores,
+)
 from graph_memory.retrieval.methods.graph_rerank.normalization import normalize_scores
 from graph_memory.graphs.views import induced_retrieved_subgraph
 from graph_memory.evaluation.service import evaluate_results
@@ -35,7 +46,9 @@ from graph_memory.retrieval.methods.graph_rerank.config import (
     GraphRerankConfig,
     ensure_graph_rerank_config,
 )
-from graph_memory.retrieval.tuning.graph_rerank import tune_graph_rerank as tune_graph_rerank_service
+from graph_memory.retrieval.tuning.graph_rerank import (
+    tune_graph_rerank as tune_graph_rerank_service,
+)
 from graph_memory.retrieval.tuning.graph_rerank_grid import (
     graph_rerank_grid,
     graph_rerank_grid_from_record,
@@ -49,7 +62,10 @@ from graph_memory.retrieval.tuning.selection import (
     retrieval_tuning_objective,
 )
 from graph_memory.tuning.grid_search import GridSearchRunner
-from graph_memory.validation import ContractValidationError, validate_graph_rerank_config
+from graph_memory.validation import (
+    ContractValidationError,
+    validate_graph_rerank_config,
+)
 
 
 class FakeEncoder:
@@ -78,7 +94,9 @@ class CountingFakeEncoder(FakeEncoder):
 
     def encode(self, texts, batch_size=64, normalize_embeddings=True):
         self.encode_calls += 1
-        return super().encode(texts, batch_size=batch_size, normalize_embeddings=normalize_embeddings)
+        return super().encode(
+            texts, batch_size=batch_size, normalize_embeddings=normalize_embeddings
+        )
 
 
 def run_retrieval(
@@ -93,72 +111,67 @@ def run_retrieval(
     dense_encoder=None,
     graph_config=None,
 ):
-    encoder = DenseEncoderSettings(
+    encoder = DenseEncoderConfig(
         model_name=encoder_model,
         query_prefix=query_prefix,
         passage_prefix=passage_prefix,
+        batch_size=64,
     )
     method_id = RetrievalMethodId(method)
     if method_id is RetrievalMethodId.BM25:
-        job = Bm25RetrievalSettings(top_k=top_k)
-    elif method_id is RetrievalMethodId.DENSE:
-        job = DenseRetrievalSettings(top_k=top_k, encoder=encoder)
-    elif method_id is RetrievalMethodId.BM25_GRAPH_RERANK:
-        rerank = ensure_graph_rerank_config(graph_config) if graph_config is not None else GraphRerankConfig()
-        job = GraphRerankRetrievalSettings(
-            method=method_id,
+        config = Bm25RetrieveStageConfig(
+            stage="retrieve",
+            method="bm25",
+            variant=None,
+            dataset="hotpotqa",
+            tasks=Path("memory_tasks.input.json"),
+            output=Path("ranked.json"),
+            summary=Path("ranked.run_summary.yaml"),
             top_k=top_k,
-            seed=SeedRetrievalSettings(
-                method=RetrievalMethodId.BM25,
-                encoder=None,
-            ),
-            rerank=GraphRerankSettings(
-                lambda_init=rerank.lambda_init,
-                lambda_query=rerank.lambda_query,
-                lambda_neighbor=rerank.lambda_neighbor,
-                lambda_bridge=rerank.lambda_bridge,
-                lambda_path=rerank.lambda_path,
-                seed_top_s=rerank.seed_top_s,
-                max_hops=rerank.max_hops,
-                neighbor_type_weights=dict(rerank.neighbor_type_weights),
-            ),
+        )
+    elif method_id is RetrievalMethodId.DENSE:
+        config = DenseRetrieveStageConfig(
+            stage="retrieve",
+            method="dense",
+            variant=None,
+            dataset="hotpotqa",
+            tasks=Path("memory_tasks.input.json"),
+            output=Path("ranked.json"),
+            summary=Path("ranked.run_summary.yaml"),
+            top_k=top_k,
+            encoder=encoder,
+        )
+    elif method_id is RetrievalMethodId.BM25_GRAPH_RERANK:
+        config = Bm25GraphRerankRetrieveStageConfig(
+            stage="retrieve",
+            method="bm25_graph_rerank",
+            variant=None,
+            dataset="hotpotqa",
+            tasks=Path("memory_tasks.input.json"),
+            graphs=Path("graphs.json"),
+            output=Path("ranked.json"),
+            summary=Path("ranked.run_summary.yaml"),
+            top_k=top_k,
+            selected_config=Path("selected_config.json"),
+            seed_method="bm25",
         )
     elif method_id is RetrievalMethodId.DENSE_GRAPH_RERANK:
-        rerank = ensure_graph_rerank_config(graph_config) if graph_config is not None else GraphRerankConfig()
-        job = GraphRerankRetrievalSettings(
-            method=method_id,
+        config = DenseGraphRerankRetrieveStageConfig(
+            stage="retrieve",
+            method="dense_graph_rerank",
+            variant=None,
+            dataset="hotpotqa",
+            tasks=Path("memory_tasks.input.json"),
+            graphs=Path("graphs.json"),
+            output=Path("ranked.json"),
+            summary=Path("ranked.run_summary.yaml"),
             top_k=top_k,
-            seed=SeedRetrievalSettings(
-                method=RetrievalMethodId.DENSE,
-                encoder=encoder,
-            ),
-            rerank=GraphRerankSettings(
-                lambda_init=rerank.lambda_init,
-                lambda_query=rerank.lambda_query,
-                lambda_neighbor=rerank.lambda_neighbor,
-                lambda_bridge=rerank.lambda_bridge,
-                lambda_path=rerank.lambda_path,
-                seed_top_s=rerank.seed_top_s,
-                max_hops=rerank.max_hops,
-                neighbor_type_weights=dict(rerank.neighbor_type_weights),
-            ),
+            selected_config=Path("selected_config.json"),
+            seed_method="dense",
+            encoder=encoder,
         )
     else:
         raise ValueError(f"Unsupported test method: {method}")
-    config = RetrieveStageConfig(
-        io=RetrieveIO(
-            tasks=Path("memory_tasks.input.json"),
-            graphs=None if graphs is None else Path("graphs.json"),
-            output=Path("ranked.json"),
-            summary=Path("ranked.run_summary.json"),
-            selected_config=(
-                None
-                if graph_config is None
-                else Path("selected_config.json")
-            ),
-        ),
-        job=job,
-    )
     result = run_retrieve_stage(
         config,
         task_inputs=task_inputs,
@@ -184,7 +197,10 @@ def tune_graph_rerank(
 ):
     return tune_graph_rerank_service(
         method=method,
-        ranking_requests=[HotpotQAToTextRankingRequest().project(task_input) for task_input in task_inputs],
+        ranking_requests=[
+            HotpotQAToTextRankingRequest().project(task_input)
+            for task_input in task_inputs
+        ],
         labels=evidence_labels(labels),
         graphs=graphs,
         grid=grid,
@@ -200,7 +216,9 @@ def tune_graph_rerank(
     )
 
 
-def rank_graph_for_test(initial_scores: dict[str, float], graph: MemoryGraph, config: GraphRerankConfig):
+def rank_graph_for_test(
+    initial_scores: dict[str, float], graph: MemoryGraph, config: GraphRerankConfig
+):
     return rank_graph_from_initial_scores(
         initial_scores,
         graph,
@@ -263,7 +281,9 @@ def evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
             task_id=label["task_id"],
             gold_answer=label["gold_answer"],
             gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+            gold_dependency_edges=tuple(
+                (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
+            ),
         )
         for label in labels
     ]
@@ -295,8 +315,20 @@ def retrieval_graphs() -> list[MemoryGraph]:
                 *_graph_nodes(task_input),
             ],
             "edges": [
-                {"source": "q", "target": "m0", "edge_type": "query_overlap", "weight": 1.0, "directed": True},
-                {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 2.0, "directed": False},
+                {
+                    "source": "q",
+                    "target": "m0",
+                    "edge_type": "query_overlap",
+                    "weight": 1.0,
+                    "directed": True,
+                },
+                {
+                    "source": "m0",
+                    "target": "m1",
+                    "edge_type": "bridge",
+                    "weight": 2.0,
+                    "directed": False,
+                },
             ],
         }
     ]
@@ -308,14 +340,31 @@ def test_retrieval_method_registry_drives_supported_methods_and_cli_choices():
     assert supported_methods == tuple(method.value for method in RetrievalMethodId)
     assert tuple(
         method.value
-        for method in Registry.methods.list_by_lifecycle(RetrievalLifecycle.GRAPH_RERANK)
+        for method in Registry.methods.list_by_lifecycle(
+            RetrievalLifecycle.GRAPH_RERANK
+        )
     ) == ("bm25_graph_rerank", "dense_graph_rerank")
     assert Registry.methods.get("bm25").dependencies.graphs is GraphInputSource.NONE
-    assert Registry.methods.get("dense").dependencies.selected_config is SelectedConfigSource.NONE
-    assert Registry.methods.get("dense").dependencies.encoder is EncoderSource.EXPERIMENT_CONFIG
-    assert Registry.methods.get("bm25_graph_rerank").dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
-    assert Registry.methods.get("dense_graph_rerank").seed_method is RetrievalMethodId.DENSE
-    assert Registry.methods.get("dense_rgcn_graph_retriever").dependencies.model is ModelSource.CHECKPOINT_FILE
+    assert (
+        Registry.methods.get("dense").dependencies.selected_config
+        is SelectedConfigSource.NONE
+    )
+    assert (
+        Registry.methods.get("dense").dependencies.encoder
+        is EncoderSource.EXPERIMENT_CONFIG
+    )
+    assert (
+        Registry.methods.get("bm25_graph_rerank").dependencies.graphs
+        is GraphInputSource.GRAPH_ARTIFACT
+    )
+    assert (
+        Registry.methods.get("dense_graph_rerank").seed_method
+        is RetrievalMethodId.DENSE
+    )
+    assert (
+        Registry.methods.get("dense_rgcn_graph_retriever").dependencies.model
+        is ModelSource.CHECKPOINT_FILE
+    )
     assert not hasattr(retrieval_module, "METHOD_REGISTRY")
     assert not hasattr(retrieval_module, "get_supported_methods")
     assert not hasattr(retrieval_module, "get_graph_rerank_methods")
@@ -334,7 +383,9 @@ def test_bm25_and_dense_emit_same_ranked_schema():
         )
 
         assert result[0]["method"] == method
-        assert len(result[0]["ranked_nodes"]) == len(retrieval_task_inputs()[0]["candidate_sentences"])
+        assert len(result[0]["ranked_nodes"]) == len(
+            retrieval_task_inputs()[0]["candidate_sentences"]
+        )
         assert "node_id" in result[0]["ranked_nodes"][0]
         assert "score" in result[0]["ranked_nodes"][0]
         assert len(result[0]["retrieved_subgraph"]["nodes"]) <= 2
@@ -378,7 +429,10 @@ def test_graph_rerank_config_uses_neighbor_type_weights_as_canonical_field():
 
 
 def test_deprecated_type_weights_record_is_rejected():
-    with pytest.raises(ValueError, match="type_weights is deprecated; use neighbor_type_weights instead"):
+    with pytest.raises(
+        ValueError,
+        match="type_weights is deprecated; use neighbor_type_weights instead",
+    ):
         ensure_graph_rerank_config(
             {
                 "lambda_init": 1.0,
@@ -399,7 +453,10 @@ def test_deprecated_type_weights_record_is_rejected():
 
 
 def test_type_weights_is_rejected_even_when_neighbor_type_weights_is_present():
-    with pytest.raises(ValueError, match="type_weights is deprecated; use neighbor_type_weights instead"):
+    with pytest.raises(
+        ValueError,
+        match="type_weights is deprecated; use neighbor_type_weights instead",
+    ):
         ensure_graph_rerank_config(
             {
                 "lambda_init": 1.0,
@@ -437,7 +494,12 @@ def test_graph_pipeline_requires_graph_for_every_task():
             task_inputs=[*task_inputs, second_task],
             graphs=retrieval_graphs(),
             top_k=2,
-            graph_config={"lambda_init": 1.0, "lambda_query": 0.1, "lambda_neighbor": 0.2, "lambda_bridge": 0.1},
+            graph_config={
+                "lambda_init": 1.0,
+                "lambda_query": 0.1,
+                "lambda_neighbor": 0.2,
+                "lambda_bridge": 0.1,
+            },
         )
 
 
@@ -446,7 +508,13 @@ def test_query_overlap_does_not_require_neighbor_type_weight_and_uses_lambda_que
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
-            {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
+            {
+                "source": "q",
+                "target": "m1",
+                "edge_type": "query_overlap",
+                "weight": 5.0,
+                "directed": True,
+            },
         ],
     }
     config = GraphRerankConfig(
@@ -491,7 +559,13 @@ def test_query_overlap_component_uses_lambda_query_only():
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
-            {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 5.0, "directed": True},
+            {
+                "source": "q",
+                "target": "m1",
+                "edge_type": "query_overlap",
+                "weight": 5.0,
+                "directed": True,
+            },
         ],
     }
     ranked = rank_graph_for_test(
@@ -513,7 +587,13 @@ def test_graph_rerank_uses_bridge_to_promote_connected_evidence():
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
-            {"source": "m0", "target": "m2", "edge_type": "bridge", "weight": 2.0, "directed": False}
+            {
+                "source": "m0",
+                "target": "m2",
+                "edge_type": "bridge",
+                "weight": 2.0,
+                "directed": False,
+            }
         ],
     }
     config = GraphRerankConfig(
@@ -548,8 +628,20 @@ def test_graph_rerank_normalizes_graph_components_before_combining():
             "task_id": "hotpot_ex1",
             "nodes": [],
             "edges": [
-                {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 10_000.0, "directed": True},
-                {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 10_000.0, "directed": False},
+                {
+                    "source": "q",
+                    "target": "m1",
+                    "edge_type": "query_overlap",
+                    "weight": 10_000.0,
+                    "directed": True,
+                },
+                {
+                    "source": "m0",
+                    "target": "m1",
+                    "edge_type": "bridge",
+                    "weight": 10_000.0,
+                    "directed": False,
+                },
             ],
         },
         GraphRerankConfig(
@@ -592,18 +684,31 @@ def test_retrieval_pipeline_normalizes_graph_components_before_combining():
         {
             "task_id": "hotpot_ex1",
             "nodes": [
-                {"id": "q", "node_type": "question", "text": task_inputs[0]["question"]},
+                {
+                    "id": "q",
+                    "node_type": "question",
+                    "text": task_inputs[0]["question"],
+                },
                 *_graph_nodes(task_inputs[0]),
             ],
             "edges": [
-                {"source": "q", "target": "m1", "edge_type": "query_overlap", "weight": 10_000.0, "directed": True},
+                {
+                    "source": "q",
+                    "target": "m1",
+                    "edge_type": "query_overlap",
+                    "weight": 10_000.0,
+                    "directed": True,
+                },
             ],
         }
     ]
 
     result = run_graph_rerank_from_seed_score_cache(
         method="dense_graph_rerank",
-        ranking_requests=[HotpotQAToTextRankingRequest().project(task_input) for task_input in task_inputs],
+        ranking_requests=[
+            HotpotQAToTextRankingRequest().project(task_input)
+            for task_input in task_inputs
+        ],
         graphs=graphs,
         seed_score_cache=SeedScoreCache(
             scores_by_task_id={"hotpot_ex1": {"m0": 1.0, "m1": 0.95}},
@@ -628,10 +733,34 @@ def test_neighbor_propagation_uses_weighted_average_not_edge_count():
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
-            {"source": "m0", "target": "m3", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
-            {"source": "m1", "target": "m3", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
-            {"source": "m2", "target": "m3", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
-            {"source": "m0", "target": "m4", "edge_type": "entity_overlap", "weight": 1.0, "directed": False},
+            {
+                "source": "m0",
+                "target": "m3",
+                "edge_type": "entity_overlap",
+                "weight": 1.0,
+                "directed": False,
+            },
+            {
+                "source": "m1",
+                "target": "m3",
+                "edge_type": "entity_overlap",
+                "weight": 1.0,
+                "directed": False,
+            },
+            {
+                "source": "m2",
+                "target": "m3",
+                "edge_type": "entity_overlap",
+                "weight": 1.0,
+                "directed": False,
+            },
+            {
+                "source": "m0",
+                "target": "m4",
+                "edge_type": "entity_overlap",
+                "weight": 1.0,
+                "directed": False,
+            },
         ],
     }
 
@@ -650,8 +779,20 @@ def test_induced_retrieved_subgraph_keeps_edges_inside_selected_nodes():
         "task_id": "hotpot_ex1",
         "nodes": [],
         "edges": [
-            {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 1.0, "directed": False},
-            {"source": "m1", "target": "m2", "edge_type": "bridge", "weight": 1.0, "directed": False},
+            {
+                "source": "m0",
+                "target": "m1",
+                "edge_type": "bridge",
+                "weight": 1.0,
+                "directed": False,
+            },
+            {
+                "source": "m1",
+                "target": "m2",
+                "edge_type": "bridge",
+                "weight": 1.0,
+                "directed": False,
+            },
         ],
     }
 
@@ -659,7 +800,13 @@ def test_induced_retrieved_subgraph_keeps_edges_inside_selected_nodes():
 
     assert subgraph["nodes"] == ["m0", "m1"]
     assert subgraph["edges"] == [
-        {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 1.0, "directed": False}
+        {
+            "source": "m0",
+            "target": "m1",
+            "edge_type": "bridge",
+            "weight": 1.0,
+            "directed": False,
+        }
     ]
 
 
@@ -681,9 +828,17 @@ def test_graph_rerank_retrieval_promotes_bridge_neighbor_and_emits_induced_edge(
 
     assert result[0]["method"] == "bm25_graph_rerank"
     assert len(result[0]["ranked_nodes"]) == 3
-    assert {ranked_node["node_id"] for ranked_node in result[0]["ranked_nodes"][:2]} == {"m0", "m1"}
+    assert {
+        ranked_node["node_id"] for ranked_node in result[0]["ranked_nodes"][:2]
+    } == {"m0", "m1"}
     assert result[0]["retrieved_subgraph"]["edges"] == [
-        {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 2.0, "directed": False}
+        {
+            "source": "m0",
+            "target": "m1",
+            "edge_type": "bridge",
+            "weight": 2.0,
+            "directed": False,
+        }
     ]
 
 
@@ -699,7 +854,9 @@ def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
         max_hops=1,
     )
     initial_scores = {"m0": 3.0, "m1": 0.1, "m2": 0.0}
-    direct_result = rank_graph_from_initial_scores(initial_scores, retrieval_graphs()[0], config, top_k=2)
+    direct_result = rank_graph_from_initial_scores(
+        initial_scores, retrieval_graphs()[0], config, top_k=2
+    )
     retrieval_result = run_graph_rerank_from_seed_score_cache(
         method="bm25_graph_rerank",
         ranking_requests=retrieval_ranking_requests(),
@@ -719,7 +876,17 @@ def test_rerank_entrypoint_matches_retrieval_cache_path_for_ranking_and_edges():
 
 
 def test_tuning_objective_weights_full_support_recall_and_connected_evidence():
-    row = cast(MetricRow, cast(object, {"Full Support@5": 0.6, "Recall@5": 0.5, "Connected Evidence Recall@10": 0.25}))
+    row = cast(
+        MetricRow,
+        cast(
+            object,
+            {
+                "Full Support@5": 0.6,
+                "Recall@5": 0.5,
+                "Connected Evidence Recall@10": 0.25,
+            },
+        ),
+    )
 
     assert retrieval_tuning_objective(row) == pytest.approx(0.5)
 
@@ -808,7 +975,10 @@ def test_graph_rerank_grid_from_record_reads_neighbor_type_weights_and_rejects_d
         "entity_overlap": 0.2,
         "bridge": 0.3,
     }
-    with pytest.raises(ValueError, match="type_weights is deprecated; use neighbor_type_weights instead"):
+    with pytest.raises(
+        ValueError,
+        match="type_weights is deprecated; use neighbor_type_weights instead",
+    ):
         graph_rerank_grid_from_record(
             {
                 "lambda_init": [1.0],
@@ -831,8 +1001,20 @@ def test_graph_rerank_grid_from_record_reads_neighbor_type_weights_and_rejects_d
 def test_dense_graph_rerank_tuning_reuses_seed_scores_across_grid():
     encoder = CountingFakeEncoder()
     grid = [
-        GraphRerankConfig(lambda_query=0.0, lambda_neighbor=0.05, lambda_bridge=0.0, seed_top_s=1, max_hops=1),
-        GraphRerankConfig(lambda_query=0.1, lambda_neighbor=0.05, lambda_bridge=0.0, seed_top_s=1, max_hops=1),
+        GraphRerankConfig(
+            lambda_query=0.0,
+            lambda_neighbor=0.05,
+            lambda_bridge=0.0,
+            seed_top_s=1,
+            max_hops=1,
+        ),
+        GraphRerankConfig(
+            lambda_query=0.1,
+            lambda_neighbor=0.05,
+            lambda_bridge=0.0,
+            seed_top_s=1,
+            max_hops=1,
+        ),
     ]
 
     tune_graph_rerank(
@@ -883,7 +1065,13 @@ def test_graph_rerank_tuning_runs_candidates_through_generic_grid_search(
 
 
 def test_tuning_candidate_metrics_match_normal_retrieval_path():
-    config = GraphRerankConfig(lambda_query=0.1, lambda_neighbor=0.05, lambda_bridge=0.0, seed_top_s=1, max_hops=1)
+    config = GraphRerankConfig(
+        lambda_query=0.1,
+        lambda_neighbor=0.05,
+        lambda_bridge=0.0,
+        seed_top_s=1,
+        max_hops=1,
+    )
     graphs = retrieval_graphs()
     _, candidate_rows = tune_graph_rerank(
         method="dense_graph_rerank",

@@ -32,7 +32,7 @@ scripts/
 
 The workflow runner and low-level scripts remain the user-facing entry points:
 
-- `scripts/experiment.py`
+- `graph_memory/experiment/{plan,run,status,inspect,reset}.py`
 - `scripts/prepare_hotpotqa.py`
 - `scripts/build_graphs.py`
 - `scripts/run_retrieval.py`
@@ -74,7 +74,7 @@ Only these root modules are retained as workflow integration ports:
 ```text
 graph_memory/io.py
 graph_memory/observability.py
-graph_memory/retrieval_registry.py
+graph_memory/registry/methods.py
 graph_memory/training_config.py
 graph_memory/experiment.py
 ```
@@ -144,13 +144,13 @@ These rules are enforced by `tests/test_core_refactor_final_boundaries.py`.
 
 ## Retrieval Boundary
 
-Public method metadata is implemented in `graph_memory/retrieval/catalog.py`. `graph_memory/retrieval_registry.py` is a thin workflow integration port that re-exports that catalog for scripts and workflow code.
+Public method metadata is implemented in `graph_memory/registry/methods.py`; experiment lifecycle and artifact requirements are projected into `graph_memory/experiment/registry.py` for planning.
 
 Complete retrieval runs are retrieve stage use cases:
 
 ```text
 scripts/run_retrieval.py
-  -> CONFIG_LOADER.load(Registry.configs.RETRIEVE, argv)
+  -> experiment.stage_cli.load_stage_execution(...)
   -> stages.retrieve.run_retrieve_stage
   -> registry.retrieval_builders
   -> retrieval.execution.service
@@ -163,8 +163,8 @@ registry.retrieval
   -> public method metadata and typed job settings
 registry.retrieval_builders
   -> method object construction from job settings and dependencies
-retrieval.catalog / retrieval_registry.py
-  -> compatibility projections for workflow-facing method metadata
+experiment.registry
+  -> lifecycle and artifact projections for typed workflow planning
 retrieval.requests
   -> shared dense and trainable runtime objects
 retrieval.execution.service
@@ -268,4 +268,4 @@ Scripts do not own:
 
 ## Future Extraction Rule
 
-Extract a package or submodule only when ownership is clear and the behavior has multiple independent implementations or has become hard to navigate. Do not introduce dynamic plugin discovery, a dependency-injection container, or a generic pipeline engine while the local static registry and explicit workflow recipes remain sufficient.
+Extract a package or submodule only when ownership is clear and the behavior has multiple independent implementations or has become hard to navigate. Do not introduce dynamic plugin discovery, a dependency-injection container, or a generic pipeline engine while the typed registry and explicit workflow planner remain sufficient.

@@ -40,7 +40,9 @@ def test_model_config_package_does_not_export_training_config_compat_helpers() -
         "device_from_training_config",
     )
 
-    assert [helper for helper in helper_names if hasattr(model_config_api, helper)] == []
+    assert [
+        helper for helper in helper_names if hasattr(model_config_api, helper)
+    ] == []
 
 
 def test_builder_id_is_removed() -> None:
@@ -58,7 +60,8 @@ def test_public_method_string_dispatch_is_bounded_to_current_registry() -> None:
         Path("graph_memory/registry/methods.py"),
         Path("graph_memory/registry/retrieval.py"),
         Path("graph_memory/registry/retrieval_builders.py"),
-        Path("graph_memory/registry/stage_configs.py"),
+        Path("graph_memory/experiment/config.py"),
+        Path("graph_memory/stages/retrieve.py"),
     }
     patterns = ("method ==", "method in {", "method in (")
 
@@ -84,7 +87,9 @@ def test_depreciate_tags_are_removed_from_production_code() -> None:
 
 
 def test_legacy_retrieval_build_request_modules_are_removed() -> None:
-    existing_paths = [str(path) for path in LEGACY_RETRIEVAL_BUILD_MODULES.values() if path.exists()]
+    existing_paths = [
+        str(path) for path in LEGACY_RETRIEVAL_BUILD_MODULES.values() if path.exists()
+    ]
     importable_modules = [
         module_name
         for module_name in LEGACY_RETRIEVAL_BUILD_MODULES

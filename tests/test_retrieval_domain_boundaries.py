@@ -76,9 +76,16 @@ def test_old_graph_rerank_import_paths_are_absent() -> None:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name in LEGACY_RERANK_IMPORTS:
-                        old_imports.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{alias.name}")
-            elif isinstance(node, ast.ImportFrom) and node.module in LEGACY_RERANK_IMPORTS:
-                old_imports.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{node.module}")
+                        old_imports.append(
+                            f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{alias.name}"
+                        )
+            elif (
+                isinstance(node, ast.ImportFrom)
+                and node.module in LEGACY_RERANK_IMPORTS
+            ):
+                old_imports.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{node.module}"
+                )
 
     assert old_imports == []
 
@@ -86,10 +93,16 @@ def test_old_graph_rerank_import_paths_are_absent() -> None:
 def test_old_graph_rerank_debug_and_convenience_exports_are_absent() -> None:
     from graph_memory.retrieval.methods import graph_rerank
 
-    source = (PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "engine.py").read_text(encoding="utf-8")
-    init_source = (PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "__init__.py").read_text(encoding="utf-8")
+    source = (
+        PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "engine.py"
+    ).read_text(encoding="utf-8")
+    init_source = (
+        PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "__init__.py"
+    ).read_text(encoding="utf-8")
 
-    assert not (PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "debug.py").exists()
+    assert not (
+        PACKAGE_ROOT / "retrieval" / "methods" / "graph_rerank" / "debug.py"
+    ).exists()
     for name in LEGACY_GRAPH_RERANK_EXPORTS:
         assert not hasattr(graph_rerank, name)
         assert f"def {name}(" not in source
@@ -119,15 +132,21 @@ def test_trainable_retrieval_uses_unified_retrieval_script_entry() -> None:
     assert not (REPO_ROOT / "scripts" / "run_trainable_retrieval.py").exists()
     assert not _has_module("scripts.run_trainable_retrieval")
 
+    from graph_memory.experiment.stage_cli import load_stage_execution
     from graph_memory.registry import Registry
 
-    parser = Registry.configs.RETRIEVE.parser_factory()
-    assert set(parser._option_string_actions) >= {"--config"}
-    assert "--method" not in parser._option_string_actions
-    assert Registry.methods.get("dense_rgcn_graph_retriever").identifier.value == "dense_rgcn_graph_retriever"
+    source = inspect.getsource(load_stage_execution)
+    assert 'parser.add_argument("--config"' in source
+    assert 'parser.add_argument("--method"' not in source
+    assert (
+        Registry.methods.get("dense_rgcn_graph_retriever").identifier.value
+        == "dense_rgcn_graph_retriever"
+    )
 
 
-def test_runtime_request_module_does_not_reintroduce_trainable_or_stage_request_objects() -> None:
+def test_runtime_request_module_does_not_reintroduce_trainable_or_stage_request_objects() -> (
+    None
+):
     source = (PACKAGE_ROOT / "retrieval" / "requests.py").read_text(encoding="utf-8")
 
     assert "class DenseRuntime" in source
@@ -136,7 +155,9 @@ def test_runtime_request_module_does_not_reintroduce_trainable_or_stage_request_
     assert "RetrievalMethodResolveRequest" not in source
 
 
-def test_retrieval_execution_runs_built_method_without_resolving_runtime_parameters() -> None:
+def test_retrieval_execution_runs_built_method_without_resolving_runtime_parameters() -> (
+    None
+):
     from graph_memory.retrieval.execution.service import run_retrieval
 
     parameter_names = set(inspect.signature(run_retrieval).parameters)
@@ -148,10 +169,16 @@ def test_retrieval_execution_runs_built_method_without_resolving_runtime_paramet
 def test_generic_grid_search_does_not_import_retrieval_domain() -> None:
     imports = _imported_modules(PACKAGE_ROOT / "tuning" / "grid_search.py")
 
-    assert not any(module == "graph_memory.retrieval" or module.startswith("graph_memory.retrieval.") for module in imports)
+    assert not any(
+        module == "graph_memory.retrieval"
+        or module.startswith("graph_memory.retrieval.")
+        for module in imports
+    )
 
 
-def test_generic_tuning_package_does_not_import_graph_or_memory_stream_adapters() -> None:
+def test_generic_tuning_package_does_not_import_graph_or_memory_stream_adapters() -> (
+    None
+):
     violations: list[str] = []
     for path in (PACKAGE_ROOT / "tuning").rglob("*.py"):
         for module in _imported_modules(path):
@@ -161,7 +188,9 @@ def test_generic_tuning_package_does_not_import_graph_or_memory_stream_adapters(
     assert violations == []
 
 
-def test_memory_stream_method_package_does_not_import_tuning_evaluation_or_cli() -> None:
+def test_memory_stream_method_package_does_not_import_tuning_evaluation_or_cli() -> (
+    None
+):
     violations: list[str] = []
     package_root = PACKAGE_ROOT / "retrieval" / "methods" / "memory_stream"
     forbidden_prefixes = (
@@ -171,7 +200,10 @@ def test_memory_stream_method_package_does_not_import_tuning_evaluation_or_cli()
     )
     for path in package_root.rglob("*.py"):
         for module in _imported_modules(path):
-            if any(module == prefix or module.startswith(f"{prefix}.") for prefix in forbidden_prefixes):
+            if any(
+                module == prefix or module.startswith(f"{prefix}.")
+                for prefix in forbidden_prefixes
+            ):
                 violations.append(f"{path.relative_to(REPO_ROOT)} imports {module}")
 
     assert violations == []

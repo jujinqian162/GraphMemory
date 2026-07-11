@@ -1,0 +1,18 @@
+name: hotpotqa
+prepare_script: scripts/prepare_hotpotqa.py
+splits:
+  train:
+    kind: raw
+    source: data/hotpotqa/raw/train.json
+    offset: 0
+    capacity: 90025
+  dev:
+    kind: raw
+    source: data/hotpotqa/raw/dev.json
+    offset: 0
+    capacity: 7369
+  test:
+    kind: raw
+    source: data/hotpotqa/raw/dev.json
+    offset: 500
+    capacity: 7369

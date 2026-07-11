@@ -2,7 +2,7 @@
 
 Current scope: request-first evidence retrieval on HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans with flat baselines, graph reranking, Dense-FT, a trainable R-GCN graph retriever, and a Dense-FT-seeded R-GCN retriever.
 
-The runnable stack includes dataset-specific leakage-safe preparation, typed graph construction, BM25, frozen dense retrieval, BM25- and dense-seeded graph reranking, Dense-FT, checkpoint-backed `dense_rgcn_graph_retriever` training and retrieval, and `dense_ft_rgcn_graph_retriever` training seeded from the Dense-FT checkpoint. HotpotQA uses sentence-level evidence, 2WikiMultiHopQA uses sentence-level evidence and dependency supervision, and MuSiQue-Ans uses paragraph-level evidence and decomposition-derived dependency supervision. R-GCN edge/model ablations and unified result aggregation are implemented. Trainable methods use strict current-only method configs, stage configs, manifests, checkpoints, and model metadata; old trainable artifacts are not migrated.
+The runnable stack includes dataset-specific leakage-safe preparation, typed graph construction, BM25, frozen dense retrieval, BM25- and dense-seeded graph reranking, Dense-FT, checkpoint-backed `dense_rgcn_graph_retriever` training and retrieval, and `dense_ft_rgcn_graph_retriever` training seeded from the Dense-FT checkpoint. HotpotQA uses sentence-level evidence, 2WikiMultiHopQA uses sentence-level evidence and dependency supervision, and MuSiQue-Ans uses paragraph-level evidence and decomposition-derived dependency supervision. R-GCN edge/model ablations and unified result aggregation are implemented. Hydra YAML and closed Pydantic models are the only experiment configuration contract; local typed state remains authoritative while MLflow mirrors execution metadata and curated small artifacts.
 
 The original Phase 2 paper matrix is not complete yet. Memory Stream and GraphRAG-style baselines are still missing, and HotpotQA does not provide gold dependency paths, so its `Path Recall@10` and `Edge Recall@10` remain `N/A`. MemGPT-style memory, answer generation, MuSiQue-Full answerability/sufficiency evaluation, and tool-trajectory provenance experiments remain later work.
 
@@ -29,13 +29,12 @@ Install dependencies with your preferred Python 3.12 environment manager, then r
 uv run pytest tests -q
 ```
 
-Use the experiment runner for normal runs:
+Use the Hydra experiment entrypoints for normal runs:
 
 ```powershell
-python scripts/experiment.py init quick_valid_100 --profile quick --methods bm25,dense,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
-python scripts/experiment.py plan quick_valid_100
-python scripts/experiment.py run quick_valid_100
-python scripts/experiment.py status quick_valid_100
+uv run python experiment/plan.py name=quick_valid_100 profile=quick
+uv run python experiment/run.py name=quick_valid_100 profile=quick
+uv run python experiment/status.py name=quick_valid_100
 ```
 
-Run artifacts are isolated under `runs/<experiment_name>/`. The low-level command sequence is maintained in `docs/40-operations/commands.md` for contract review and debugging.
+Run artifacts are isolated under `runs/<experiment_name>/`. Planning is implicit on both `plan` and `run`; low-level scripts accept exactly `--config <resolved-stage-yaml>`. See `docs/40-operations/commands.md` for overrides, status, reset, multirun, and MLflow UI commands.

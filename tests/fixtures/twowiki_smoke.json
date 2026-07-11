@@ -1,0 +1,14 @@
+[
+  {
+    "_id": "abc123",
+    "type": "compositional",
+    "question": "Who is Ada's mother?",
+    "context": [
+      ["Film A", ["Film A was directed by Ada.", "A distractor sentence."]],
+      ["Ada Lovelace", ["Ada was the daughter of Beth."]]
+    ],
+    "supporting_facts": [["Film A", 0], ["Ada Lovelace", 0]],
+    "evidences": [["Film A", "director", "Ada"], ["Ada", "mother", "Beth"]],
+    "answer": "Beth"
+  }
+]

@@ -7,7 +7,7 @@ from graph_memory.contracts.metrics import FailureCase, MetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
 from graph_memory.evaluation.suites import evidence_metric_suite
-from graph_memory.registry.stage_configs import EvaluateStageConfig
+from graph_memory.experiment.stage_models import EvaluateStageConfig
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ def run_evaluate_stage(
     metric_rows = suite.evaluate(request)
     failure_cases = suite.build_failure_cases(
         request,
-        top_k=10,
+        top_k=config.top_k,
         limit=config.failure_case_limit,
     )
     return EvaluateStageResult(metric_rows=metric_rows, failure_cases=failure_cases)

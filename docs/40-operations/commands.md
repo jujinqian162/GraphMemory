@@ -1,227 +1,136 @@
-# Commands
+# Experiment commands
 
-Date: 2026-06-12
+Date: 2026-07-11
 
-Status: current workflow and stage-config runbook.
+`plan` and `run` compose `configs/config.yaml` with Hydra. `status`, `inspect`, and `reset` parse only their closed `key=value` command models and create no Hydra job.
 
-## Purpose
-
-Normal experiments should use `scripts/experiment.py`. The workflow compiler writes a strict current manifest, resolved method configs, and complete low-level stage config files under `runs/<experiment>/config/stages/`.
-
-Low-level scripts for pair building, trainable training, retrieval, and evaluation do not reconstruct method-specific argv. They accept only:
+## Plan and run
 
 ```powershell
-python <script> --config <stage-config-json>
+uv run python experiment/plan.py name=quick_valid_100 profile=quick
+uv run python experiment/run.py name=quick_valid_100 profile=quick
 ```
 
-## Current Migration Rule
-
-Old trainable configs, manifests, checkpoints, Dense-FT model directories, and run artifacts are intentionally unsupported. Delete the old run directory or use a new run name, then rerun `init`/`run`. There is no forward reader, adapter, or conversion path.
-
-## Recommended Experiment Runner
-
-Initialize a quick run. Methods with a tuning adapter get a dev-only tune stage before test retrieval:
+The default config selects the approved seven-method HotpotQA workflow. Select methods, dataset, device, stage bounds, or cache behavior with Hydra overrides:
 
 ```powershell
-python scripts/experiment.py init quick_valid_100 `
-  --config configs/experiments/hotpotqa_evidence_retrieval.json `
-  --profile quick `
-  --methods bm25,dense,memory_stream,bm25_graph_rerank,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever `
-  --force
+uv run python experiment/plan.py `
+  name=twowiki_smoke dataset=2wiki profile=smoke device=cpu `
+  'methods=[bm25,bm25_graph_rerank]' stages.from=graphs stages.to=evaluate
+
+uv run python experiment/run.py `
+  name=dense_ft_only profile=quick device=cuda `
+  'methods=[dense_ft]' cache.enabled=false
 ```
 
-Plan without executing:
+An existing name may be reopened only with the identical resolved configuration and run mode. Use a new name or the reset command for a different configuration.
+
+Former root presets are ordinary copyable overrides:
 
 ```powershell
-python scripts/experiment.py plan quick_valid_100 `
-  --run-root runs `
-  --from pairs `
-  --to evaluate `
-  --methods dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
+# 2Wiki tiny
+uv run python experiment/run.py name=twowiki_tiny dataset=2wiki profile=tiny device=cpu `
+  'methods=[bm25,dense,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever]'
+
+# Complete HotpotQA dev window as test
+uv run python experiment/run.py name=hotpotqa_dev_full profile=cloud-full `
+  dataset.splits.test.offset=0
+
+# Memory Stream's importance-backed inputs; method/profile remain independent
+uv run python experiment/run.py name=memory_stream dataset=hotpotqa-memory-stream `
+  profile=memory-full 'methods=[bm25,dense,memory_stream]'
 ```
 
-Run a trainable path:
+## Status, inspection, and reset
 
 ```powershell
-python scripts/experiment.py run quick_valid_100 `
-  --run-root runs `
-  --methods dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever
+uv run python experiment/status.py name=quick_valid_100
+uv run python experiment/inspect.py kind=methods
+uv run python experiment/inspect.py kind=profiles
+uv run python experiment/inspect.py kind=ablations
+uv run python experiment/reset.py name=quick_valid_100
 ```
 
-Render the full selected plan instead of cache-pruned work:
+`status` derives `missing`, `complete`, `stale`, and `alias` from local artifacts plus matching typed stage summaries. MLflow state is never used as cache truth. `reset` is the only public destructive named-run operation and refuses paths outside the repository-owned run root.
+
+## Sequential multirun
+
+Hydra's BasicLauncher runs jobs sequentially. Each job has an independent typed state and MLflow parent:
 
 ```powershell
-python scripts/experiment.py plan quick_valid_100 `
-  --run-root runs `
-  --methods dense_ft `
-  --no-cache
+uv run python experiment/run.py -m `
+  name=seed_sweep profile=smoke device=cpu 'methods=[bm25]' seed=13,17
 ```
 
-Inspect artifact status:
+Jobs are stored as `runs/seed_sweep/<job-number>_<override-dirname>/`. Pass `job=<directory-name>` to `status` or `reset` when more than one job exists.
+
+## R-GCN ablations
 
 ```powershell
-python scripts/experiment.py status quick_valid_100
+uv run python experiment/plan.py `
+  name=rgcn_ablation_cloud profile=cloud-full `
+  'methods=[dense_rgcn_graph_retriever]' ablation.variants=all
+
+uv run python experiment/run.py `
+  name=rgcn_ablation_cloud profile=cloud-full `
+  'methods=[dense_rgcn_graph_retriever]' ablation.variants=all
 ```
 
-List current config entries:
+`full_rgcn` aliases the ordinary R-GCN result. Model variants reuse ordinary pair artifacts; `wo_hard_negatives` owns variant-specific pairs. With `ablation.only=true`, the ordinary baseline metric must already be complete under the same run identity.
+
+## Direct stage debugging
+
+Every low-level stage accepts exactly one resolved YAML contract:
 
 ```powershell
-python scripts/experiment.py configs list --kind methods
+uv run python scripts/prepare_hotpotqa.py --config runs/quick_valid_100/config/stages/prepare/train.yaml
+uv run python scripts/build_graphs.py --config runs/quick_valid_100/config/stages/graphs/train.yaml
+uv run python scripts/build_train_pairs.py --config runs/quick_valid_100/config/stages/pairs/dense_rgcn_graph_retriever.yaml
+uv run python scripts/train_method.py --config runs/quick_valid_100/config/stages/train/dense_ft.yaml
+uv run python scripts/run_retrieval.py --config runs/quick_valid_100/config/stages/retrieve/dense_rgcn_graph_retriever.yaml
+uv run python scripts/evaluate_retrieval.py --config runs/quick_valid_100/config/stages/evaluate/dense_rgcn_graph_retriever.yaml
+uv run python scripts/aggregate_tables.py --config runs/quick_valid_100/config/stages/aggregate/aggregate.yaml
 ```
 
-## Trainable Method Configs
+Do not add scientific flags to these commands. Change Hydra source groups or root overrides, plan with a new name, and use the generated YAML. A directly invoked stage writes local outputs and its YAML summary but creates no MLflow run.
 
-Current trainable method configs live under:
+## Old-to-new mapping
 
-```text
-configs/methods/dense_rgcn_graph_retriever.json
-configs/methods/dense_ft.json
-configs/methods/dense_ft_rgcn_graph_retriever.json
-```
+| Retired operation | Current operation |
+| --- | --- |
+| initialize then plan | `python experiment/plan.py name=<name> ...` |
+| initialize then run | `python experiment/run.py name=<name> ...` |
+| positional status | `python experiment/status.py name=<name>` |
+| config/method/profile listing | `python experiment/inspect.py kind=<kind>` |
+| forced reinitialization | `python experiment/reset.py name=<name>`, then plan or run |
+| disable cache flag | `cache.enabled=false` |
+| stage range flags | `stages.from=<stage> stages.to=<stage>` |
+| method CSV flag | `'methods=[bm25,dense]'` |
 
-Experiment configs reference them through `method_configs`. Field documentation:
+The retired positional CLI, JSON configuration trees, custom run roots, force behavior, and parameter-style stage commands have no compatibility adapters.
 
-```text
-docs/configs/methods/dense_rgcn_graph_retriever.md
-docs/configs/methods/dense_ft.md
-docs/configs/methods/dense_ft_rgcn_graph_retriever.md
-```
+## MLflow UI
 
-## R-GCN Ablations
-
-List registered variants:
+Tracking defaults use one repository-local SQLite database and artifact root. Start the UI from the repository root:
 
 ```powershell
-python scripts/experiment.py ablations list --method dense_rgcn_graph_retriever
+uv run mlflow ui `
+  --backend-store-uri sqlite:///runs/.mlflow/tracking.db `
+  --default-artifact-root ./runs/.mlflow/artifacts
 ```
 
-Initialize an ablation-enabled run:
+Open `http://127.0.0.1:5000`. Each Hydra job owns one parent run; each executed stage attempt owns one child. Cache hits create no child. Local outputs, `run_state.yaml`, and adjacent `*.run_summary.yaml` files remain the scientific source of truth.
+
+## Delivery and verification
 
 ```powershell
-python scripts/experiment.py init rgcn_ablation_cloud `
-  --config configs/experiments/hotpotqa_rgcn_ablation_selected.json `
-  --profile cloud-full `
-  --force
-```
-
-Plan or run selected variants:
-
-```powershell
-python scripts/experiment.py plan rgcn_ablation_cloud `
-  --ablations-only `
-  --variant wo_bridge `
-  --variant wo_hard_negatives
-```
-
-`full_rgcn` aliases the ordinary main R-GCN run. Model-only variants reuse main train pairs and start local work from `train`; `wo_hard_negatives` owns local pairs and starts from `pairs`. Before `--ablations-only`, complete the ordinary main R-GCN run under the same experiment name so baseline metrics exist.
-
-## Low-Level Stage Debugging
-
-Use stage config files generated by `init`. Examples:
-
-```powershell
-python scripts/build_train_pairs.py `
-  --config runs/quick_valid_100/config/stages/pairs.dense_rgcn_graph_retriever.json
-```
-
-```powershell
-python scripts/train_method.py `
-  --config runs/quick_valid_100/config/stages/train.dense_ft.json
-```
-
-```powershell
-python scripts/run_retrieval.py `
-  --config runs/quick_valid_100/config/stages/retrieve.dense_rgcn_graph_retriever.json
-```
-
-For `dense_ft_rgcn_graph_retriever`, the workflow compiler also writes and runs the `dense_ft` train dependency before R-GCN training. The low-level R-GCN train stage receives the Dense-FT model directory through `io.seed_checkpoint`; do not bypass that by hand-editing a checkpoint path unless you are debugging a generated stage config.
-
-```powershell
-python scripts/evaluate_retrieval.py `
-  --config runs/quick_valid_100/config/stages/evaluate.dense_ft.json
-```
-
-The stage config is the complete contract. To change R-GCN hyperparameters, Dense-FT trainer settings, pair sampling, checkpoint path, model directory, top-k, or device, edit the source method/experiment config and rerun `init --force`, or create a new run.
-
-## Prepare And Graph Build
-
-The prepare and graph scripts still take direct artifact arguments because they are not trainable method compatibility surfaces:
-
-```powershell
-python scripts/prepare_hotpotqa.py `
-  --input data/hotpotqa/raw/train.json `
-  --output_input data/hotpotqa/processed/train_memory_tasks.input.json `
-  --output_labels data/hotpotqa/processed/train_memory_tasks.labels.json `
-  --output_combined data/hotpotqa/processed/train_memory_tasks.json `
-  --max_examples 5000 `
-  --seed 13 `
-  --offset 0
-```
-
-```powershell
-python scripts/build_graphs.py `
-  --input data/hotpotqa/processed/train_memory_tasks.input.json `
-  --output data/hotpotqa/processed/train_graphs.json `
-  --max_query_overlap 20 `
-  --max_entity_neighbors 10 `
-  --max_bridge_edges 50
-```
-
-## Tune Selected Retrieval Configs
-
-Tuning uses the dev split only. The selected config artifact is later consumed by test retrieval through `RetrieveIO.selected_config`; test retrieval does not read dev labels or candidate metrics.
-
-Graph Rerank tuning:
-
-```powershell
-python scripts/tune_graph_rerank.py `
-  --method bm25_graph_rerank `
-  --tasks data/hotpotqa/processed/dev_memory_tasks.input.json `
-  --labels data/hotpotqa/processed/dev_memory_tasks.labels.json `
-  --graphs data/hotpotqa/processed/dev_graphs.json `
-  --output_config runs/manual_hotpotqa/tuned/bm25_graph_rerank.dev_selected.json `
-  --top_k 10 `
-  --grid_config configs/search_spaces/graph_rerank.json
-```
-
-Memory Stream tuning:
-
-```powershell
-python scripts/tune_memory_stream.py `
-  --tasks data/hotpotqa/processed/dev_memory_tasks.input.json `
-  --labels data/hotpotqa/processed/dev_memory_tasks.labels.json `
-  --graphs data/hotpotqa/processed/dev_graphs.json `
-  --importance data/hotpotqa/processed/memory_stream/dev.first_1000.importance.json `
-  --output_config runs/manual_hotpotqa/tuned/memory_stream.dev_selected.json `
-  --encoder_model intfloat/e5-base-v2 `
-  --query_prefix "query: " `
-  --passage_prefix "passage: " `
-  --top_k 10 `
-  --grid_config configs/search_spaces/memory_stream.json
-```
-
-Memory Stream search-space JSON controls fixed fields through single-element arrays. Keeping `relevance_weight` fixed at `1.0` is a config choice, not a code branch.
-
-## Aggregate Tables
-
-```powershell
-python scripts/aggregate_tables.py `
-  --input_dir runs/quick_valid_100/metrics `
-  --output_main runs/quick_valid_100/tables/main_results.csv `
-  --output_path runs/quick_valid_100/tables/path_results.csv `
-  --output_efficiency runs/quick_valid_100/tables/efficiency_results.csv
-```
-
-For ablations, let the workflow command builder supply `--ablation_index`, `--output_ablation`, and selected variants.
-
-## Verify
-
-```powershell
+uv run python scripts/deliver/collect_run_artifacts.py --name quick_valid_100
 uv run pytest -q
 uv run ruff check .
-uv run basedpyright
-openspec validate remove-trainable-stack-compatibility --strict
+uv run basedpyright --level error
+uv run python -m compileall -q graph_memory scripts tests
+openspec validate refactor-experiment-config-workflow --strict
 git diff --check
 ```
 
-On this Windows host, run `uv` commands outside the Codex filesystem sandbox so they use the normal user cache and environment.
+Delivery reads typed run state and copies resolved YAML, stage summaries, aggregate tables, metrics, selected tuning files, and compact failure artifacts. It excludes datasets, graphs, predictions, train pairs, checkpoints, and model directories.

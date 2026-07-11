@@ -1,0 +1,24 @@
+{
+  "prediction": {
+    "required": ["input_tokens", "latency_ms", "method", "ranked_nodes", "retrieved_subgraph", "task_id"],
+    "optional": ["debug", "metadata"],
+    "ranked_node": ["node_id", "score"],
+    "retrieved_subgraph": ["edges", "nodes"]
+  },
+  "failure_case": ["connected_gold_in_top_k", "debug_type", "failure_type", "gold_evidence_item_ids", "method", "missing_gold_nodes", "retrieved_top_k", "task_id"],
+  "selected_config": {
+    "graph_rerank": ["lambda_bridge", "lambda_init", "lambda_neighbor", "lambda_path", "lambda_query", "max_hops", "neighbor_type_weights", "seed_top_s"],
+    "memory_stream": ["importance_weight", "recency_decay", "recency_weight", "relevance_weight"]
+  },
+  "rgcn_checkpoint": ["best_dev_metric", "created_at", "epoch", "global_step", "method_name", "model_config", "model_state_dict", "optimizer_state_dict", "scheduler_state_dict", "training_config"],
+  "dense_ft_metadata": ["base_model", "batch_size", "device", "method", "passage_prefix", "query_prefix", "selection"],
+  "rgcn_train_metric": ["best_dev_metric", "dev_full_support_at_10", "dev_full_support_at_5", "dev_loss", "dev_mrr", "dev_recall_at_5", "epoch", "global_step", "grad_norm", "learning_rate", "negative_count_by_type", "positive_count", "train_loss"],
+  "dense_ft_train_metric": ["best_dev_metric", "best_epoch", "epoch", "eval_dev_cos_sim_map@100", "global_step", "train_loss"],
+  "wide_metric": ["Method", "Recall@2", "Recall@5", "Recall@10", "Evidence F1@5", "Evidence F1@10", "Full Support@5", "Full Support@10", "MRR", "Connected Evidence Recall@5", "Connected Evidence Recall@10", "Query-Evidence Connectivity@10", "Path Recall@10", "Edge Recall@10", "Retrieval Latency / Query", "Index Build Time", "Graph Construction Time", "Memory Size", "Avg Retrieved Nodes", "Avg Retrieved Edges"],
+  "aggregate": {
+    "main_results.csv": ["Method", "Recall@2", "Recall@5", "Recall@10", "Evidence F1@5", "Evidence F1@10", "Full Support@5", "Full Support@10", "MRR"],
+    "path_results.csv": ["Method", "Connected Evidence Recall@5", "Connected Evidence Recall@10", "Query-Evidence Connectivity@10", "Path Recall@10", "Edge Recall@10"],
+    "efficiency_results.csv": ["Method", "Index Build Time", "Graph Construction Time", "Retrieval Latency / Query", "Memory Size", "Avg Retrieved Nodes", "Avg Retrieved Edges"],
+    "ablation_results.csv": ["Method", "Variant", "Recall@5", "Full Support@5", "Connected Evidence Recall@10", "Path Recall@10", "Retrieval Latency / Query"]
+  }
+}

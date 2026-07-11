@@ -6,13 +6,16 @@ from typing_extensions import assert_never
 
 from graph_memory.models.dense_finetune.training import DenseFinetuneTrainingResult
 from graph_memory.models.graph_retriever.training import RgcnTrainingResult
-from graph_memory.registry import Registry
-from graph_memory.registry.stage_configs import (
+from graph_memory.experiment.stage_models import (
     DenseFinetuneTrainStageConfig,
     RgcnTrainStageConfig,
     TrainStageConfig,
 )
 from graph_memory.stages.train_payloads import TrainPayload
+from graph_memory.stages.trainers import (
+    DenseFinetuneMethodTrainer,
+    RgcnGraphRetrieverTrainer,
+)
 
 TrainingResult: TypeAlias = RgcnTrainingResult | DenseFinetuneTrainingResult
 
@@ -27,13 +30,13 @@ def run_train_stage(
     *,
     payload: TrainPayload,
 ) -> TrainStageResult:
-    trainer = Registry.training.build(config.job)
-    result = trainer.train(payload)
     if isinstance(config, RgcnTrainStageConfig):
+        result = RgcnGraphRetrieverTrainer(config).train(payload)
         if not isinstance(result, RgcnTrainingResult):
             raise TypeError(f"R-GCN training returned {type(result).__name__}.")
         return TrainStageResult(result=result)
     if isinstance(config, DenseFinetuneTrainStageConfig):
+        result = DenseFinetuneMethodTrainer(config).train(payload)
         if not isinstance(result, DenseFinetuneTrainingResult):
             raise TypeError(f"Dense-FT training returned {type(result).__name__}.")
         return TrainStageResult(result=result)

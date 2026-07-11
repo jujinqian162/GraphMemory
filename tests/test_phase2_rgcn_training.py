@@ -8,7 +8,10 @@ import pytest
 import torch
 
 from graph_memory.models.graph_retriever.batching import build_training_batches
-from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint, save_rgcn_checkpoint
+from graph_memory.models.graph_retriever.checkpoint import (
+    load_rgcn_checkpoint,
+    save_rgcn_checkpoint,
+)
 from graph_memory.models.dense_finetune.metadata import (
     DenseFinetuneModelMetadata,
     DenseFinetuneSelectionMetadata,
@@ -23,13 +26,25 @@ from graph_memory.models.graph_retriever.training import (
     RgcnTrainingResult,
     train_graph_retriever,
 )
-from graph_memory.config import CONFIG_LOADER
-from graph_memory.io import write_json
+from graph_memory.experiment.config import (
+    DenseEncoderConfig,
+    ModelSelectionConfig,
+    PairSamplingConfig,
+    RgcnModelConfig as ExperimentRgcnModelConfig,
+    RgcnTrainConfig,
+    RgcnTrainerConfig,
+)
+from graph_memory.experiment.persistence import write_yaml_atomic
+from graph_memory.experiment.state import read_stage_summary
+from graph_memory.experiment.stage_models import RgcnTrainStageConfig
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.datasets.hotpotqa.records import (
+    HotpotQARankingRecord,
+    HotpotQALabelRecord,
+)
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
@@ -37,14 +52,12 @@ from graph_memory.models.graph_retriever.config.records import (
     RgcnTrainingConfig,
 )
 from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
-from graph_memory.registry import Registry
-from graph_memory.registry.method_configs import RgcnMethodSettings, RgcnModelSettings, RgcnTrainerSettings
-from graph_memory.registry.retrieval import DenseEncoderSettings, RetrievalMethodId
-from graph_memory.registry.stage_configs import RgcnTrainIO, RgcnTrainStageConfig
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.stages.train_payloads import RgcnTrainPayload, TrainDependencies
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.stages.train import run_train_stage
+from graph_memory.stages.trainers import RgcnGraphRetrieverTrainer
 from graph_memory.validation import (
     ContractValidationError,
     validate_graph_batch,
@@ -62,7 +75,10 @@ class FakeRetriever:
     def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         scores = {"m0": 0.9, "m1": 0.2, "m2": 0.7}
         return sorted(
-            [RankedNode(node_id=candidate.item_id, score=scores[candidate.item_id]) for candidate in request.candidates],
+            [
+                RankedNode(node_id=candidate.item_id, score=scores[candidate.item_id])
+                for candidate in request.candidates
+            ],
             key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
         )
 
@@ -72,14 +88,23 @@ class FakeTextEmbeddingProvider(TextEmbeddingProvider):
     def embedding_dim(self) -> int:
         return 4
 
-    def encode_task_nodes(self, request: TextRankingRequest, node_ids: list[str]) -> torch.Tensor:
+    def encode_task_nodes(
+        self, request: TextRankingRequest, node_ids: list[str]
+    ) -> torch.Tensor:
         rows: list[list[float]] = []
         for node_id in node_ids:
             if node_id == "q":
                 rows.append([1.0, 0.0, 0.0, 0.0])
             else:
                 position = int(node_id[1:])
-                rows.append([0.0, 1.0 if position == 0 else 0.0, 1.0 if position == 1 else 0.0, 1.0 if position == 2 else 0.0])
+                rows.append(
+                    [
+                        0.0,
+                        1.0 if position == 0 else 0.0,
+                        1.0 if position == 1 else 0.0,
+                        1.0 if position == 2 else 0.0,
+                    ]
+                )
         return torch.tensor(rows, dtype=torch.float32)
 
 
@@ -137,7 +162,9 @@ def evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
             task_id=label["task_id"],
             gold_answer=label["gold_answer"],
             gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+            gold_dependency_edges=tuple(
+                (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
+            ),
         )
         for label in labels
     ]
@@ -164,10 +191,25 @@ def tiny_graphs() -> list[MemoryGraph]:
     return [
         {
             "task_id": task["task_id"],
-            "nodes": [{"id": "q", "node_type": "question", "text": task["question"]}, *_graph_nodes(task)],
+            "nodes": [
+                {"id": "q", "node_type": "question", "text": task["question"]},
+                *_graph_nodes(task),
+            ],
             "edges": [
-                {"source": "q", "target": "m0", "edge_type": "query_overlap", "weight": 1.0, "directed": True},
-                {"source": "m0", "target": "m2", "edge_type": "bridge", "weight": 0.8, "directed": False},
+                {
+                    "source": "q",
+                    "target": "m0",
+                    "edge_type": "query_overlap",
+                    "weight": 1.0,
+                    "directed": True,
+                },
+                {
+                    "source": "m0",
+                    "target": "m2",
+                    "edge_type": "bridge",
+                    "weight": 0.8,
+                    "directed": False,
+                },
             ],
         }
     ]
@@ -175,9 +217,24 @@ def tiny_graphs() -> list[MemoryGraph]:
 
 def tiny_pairs() -> list[TrainPairRecord]:
     return [
-        {"task_id": "hotpot_rgcn_train", "node_id": "m0", "label": 1, "sample_type": "positive"},
-        {"task_id": "hotpot_rgcn_train", "node_id": "m1", "label": 0, "sample_type": "easy_random"},
-        {"task_id": "hotpot_rgcn_train", "node_id": "m2", "label": 0, "sample_type": "hard_graph_neighbor"},
+        {
+            "task_id": "hotpot_rgcn_train",
+            "node_id": "m0",
+            "label": 1,
+            "sample_type": "positive",
+        },
+        {
+            "task_id": "hotpot_rgcn_train",
+            "node_id": "m1",
+            "label": 0,
+            "sample_type": "easy_random",
+        },
+        {
+            "task_id": "hotpot_rgcn_train",
+            "node_id": "m2",
+            "label": 0,
+            "sample_type": "hard_graph_neighbor",
+        },
     ]
 
 
@@ -225,7 +282,7 @@ def tiny_training_config() -> RgcnTrainingConfig:
 def make_rgcn_train_stage_config(
     *,
     train_tasks_path: Path = Path("train.input.json"),
-    train_labels_path: Path | None = Path("train.labels.json"),
+    train_labels_path: Path = Path("train.labels.json"),
     train_graphs_path: Path = Path("train.graphs.json"),
     train_pairs_path: Path = Path("train.pairs.json"),
     dev_tasks_path: Path = Path("dev.input.json"),
@@ -241,52 +298,74 @@ def make_rgcn_train_stage_config(
     device: str = "cpu",
 ) -> RgcnTrainStageConfig:
     return RgcnTrainStageConfig(
-        method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
-        io=RgcnTrainIO(
-            train_tasks=train_tasks_path,
-            train_labels=train_labels_path,
-            train_graphs=train_graphs_path,
-            train_pairs=train_pairs_path,
-            dev_tasks=dev_tasks_path,
-            dev_labels=dev_labels_path,
-            dev_graphs=dev_graphs_path,
-            output_dir=output_dir,
-            checkpoint_dir=output_dir / "checkpoints",
-            metrics=output_dir / "train_metrics.jsonl",
-            run_summary=output_dir / "train_run_summary.json",
+        stage="train",
+        method="dense_rgcn_graph_retriever",
+        variant=None,
+        dataset="hotpotqa",
+        train_tasks=train_tasks_path,
+        train_labels=train_labels_path,
+        train_graphs=train_graphs_path,
+        train_pairs=train_pairs_path,
+        dev_tasks=dev_tasks_path,
+        dev_labels=dev_labels_path,
+        dev_graphs=dev_graphs_path,
+        output_dir=output_dir,
+        checkpoint_dir=output_dir / "checkpoints",
+        metrics=output_dir / "train_metrics.jsonl",
+        summary=output_dir / "train.run_summary.yaml",
+        seed_checkpoint=None,
+        encoder=DenseEncoderConfig(
+            model_name="fake-encoder",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
         ),
-        job=RgcnMethodSettings(
-            encoder=DenseEncoderSettings(
-                model_name="fake-encoder",
-                query_prefix="query: ",
-                passage_prefix="passage: ",
-                batch_size=64,
-            ),
-            model=RgcnModelSettings(
+        pairs=PairSamplingConfig(
+            random_seed=13,
+            easy_random_per_positive=2,
+            hard_bm25_per_positive=2,
+            hard_dense_per_positive=0,
+            hard_graph_neighbor_per_positive=1,
+            hard_pool_size=30,
+        ),
+        train=RgcnTrainConfig(
+            model=ExperimentRgcnModelConfig(
                 hidden_dim=hidden_dim,
                 num_layers=num_layers,
                 dropout=dropout,
                 ablation="full_rgcn",
             ),
-            trainer=RgcnTrainerSettings(
+            trainer=RgcnTrainerConfig(
+                optimizer_name="AdamW",
                 epochs=epochs,
                 batch_size=batch_size,
                 learning_rate=learning_rate,
+                max_grad_norm=1.0,
+                random_seed=13,
+                pos_weight_enabled=False,
                 device=device,
+            ),
+            selection=ModelSelectionConfig(
+                best_metric="dev_composite",
+                higher_is_better=True,
             ),
         ),
     )
 
 
 def write_rgcn_train_stage_config(path: Path, config: RgcnTrainStageConfig) -> None:
-    write_json(path, CONFIG_LOADER.to_json(config))
+    write_yaml_atomic(path, config)
 
 
 def test_seed_signal_provider_and_feature_builder_share_rank_semantics():
     provider = RetrieverSeedSignalProvider(FakeRetriever())
-    signals = provider.score_task(HotpotQAToTextRankingRequest().project(tiny_task_inputs()[0]))
+    signals = provider.score_task(
+        HotpotQAToTextRankingRequest().project(tiny_task_inputs()[0])
+    )
 
-    assert [(signal.node_id, signal.rank, signal.rank_percentile) for signal in signals] == [
+    assert [
+        (signal.node_id, signal.rank, signal.rank_percentile) for signal in signals
+    ] == [
         ("m0", 1, 0.0),
         ("m2", 2, 0.5),
         ("m1", 3, 1.0),
@@ -298,7 +377,11 @@ def test_seed_signal_provider_and_feature_builder_share_rank_semantics():
         seed_signals=signals,
     )
 
-    assert graph_batch.node_feature_names == ("seed_score", "seed_rank_percentile", "is_question_node")
+    assert graph_batch.node_feature_names == (
+        "seed_score",
+        "seed_rank_percentile",
+        "is_question_node",
+    )
     assert graph_batch.scorer_feature_names == ("seed_score", "seed_rank_percentile")
     torch.testing.assert_close(
         graph_batch.node_features,
@@ -396,7 +479,9 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
     assert checkpoint.model_config == tiny_model_config()
 
 
-def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_path: Path):
+def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(
+    tmp_path: Path,
+):
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_graphs_path = tmp_path / "train.graphs.json"
@@ -405,7 +490,7 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_pa
     dev_labels_path = tmp_path / "dev.labels.json"
     dev_graphs_path = tmp_path / "dev.graphs.json"
     output_dir = tmp_path / "rgcn_run"
-    config_path = tmp_path / "rgcn_train_stage_config.json"
+    config_path = tmp_path / "rgcn_train_stage_config.yaml"
     train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -443,14 +528,16 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(tmp_pa
 
     assert exit_code == 0
     assert (output_dir / "train_metrics.jsonl").exists()
-    assert (output_dir / "train_run_summary.json").exists()
+    assert (output_dir / "train.run_summary.yaml").exists()
     assert (output_dir / "checkpoints" / "best.pt").exists()
-    run_summary = json.loads((output_dir / "train_run_summary.json").read_text(encoding="utf-8"))
-    assert run_summary["script"] == "train_method.py"
-    assert run_summary["effective_config"]["method"] == "dense_rgcn_graph_retriever"
+    run_summary = read_stage_summary(output_dir / "train.run_summary.yaml")
+    assert run_summary.script.name == "train_method.py"
+    assert run_summary.effective_config["method"] == "dense_rgcn_graph_retriever"
 
 
-def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_path: Path):
+def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(
+    tmp_path: Path,
+):
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_graphs_path = tmp_path / "train.graphs.json"
@@ -459,7 +546,7 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
     dev_labels_path = tmp_path / "dev.labels.json"
     dev_graphs_path = tmp_path / "dev.graphs.json"
     output_dir = tmp_path / "rgcn_run"
-    config_path = tmp_path / "rgcn_train_stage_config.json"
+    config_path = tmp_path / "rgcn_train_stage_config.yaml"
     train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -498,11 +585,11 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(tmp_
     )
 
     assert exit_code == 0
-    run_summary = json.loads((output_dir / "train_run_summary.json").read_text(encoding="utf-8"))
-    assert run_summary["status"] == "success"
-    assert run_summary["effective_config"]["model_config"]["hidden_dim"] == 8
-    assert run_summary["effective_config"]["training_config"]["batch_size"] == 1
-    assert run_summary["effective_config"]["training_config"]["epochs"] == 1
+    run_summary = read_stage_summary(output_dir / "train.run_summary.yaml")
+    assert run_summary.status == "success"
+    assert run_summary.effective_config["train"]["model"]["hidden_dim"] == 8
+    assert run_summary.effective_config["train"]["trainer"]["batch_size"] == 1
+    assert run_summary.effective_config["train"]["trainer"]["epochs"] == 1
 
 
 def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: Path):
@@ -514,7 +601,7 @@ def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: P
     dev_labels_path = tmp_path / "dev.labels.json"
     dev_graphs_path = tmp_path / "dev.graphs.json"
     output_dir = tmp_path / "rgcn_run"
-    config_path = tmp_path / "rgcn_train_stage_config.json"
+    config_path = tmp_path / "rgcn_train_stage_config.yaml"
     train_tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     train_labels_path.write_text(json.dumps(tiny_labels()), encoding="utf-8")
     train_graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -553,28 +640,20 @@ def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: P
     )
 
     assert exit_code == 0
-    run_summary = json.loads((output_dir / "train_run_summary.json").read_text(encoding="utf-8"))
-    assert run_summary["effective_config"]["model_config"]["hidden_dim"] == 8
-    assert run_summary["effective_config"]["training_config"]["epochs"] == 1
-    assert run_summary["effective_config"]["training_config"]["batch_size"] == 1
+    run_summary = read_stage_summary(output_dir / "train.run_summary.yaml")
+    assert run_summary.effective_config["train"]["model"]["hidden_dim"] == 8
+    assert run_summary.effective_config["train"]["trainer"]["epochs"] == 1
+    assert run_summary.effective_config["train"]["trainer"]["batch_size"] == 1
 
 
 def test_rgcn_trainer_preserves_dense_ft_seeded_method_identity() -> None:
-    settings = RgcnMethodSettings(
-        method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
-        encoder=DenseEncoderSettings(
-            model_name="fake-encoder",
-            query_prefix="query: ",
-            passage_prefix="passage: ",
-            batch_size=64,
-        ),
-        model=RgcnModelSettings(hidden_dim=8, num_layers=1, dropout=0.0),
-        trainer=RgcnTrainerSettings(epochs=1, batch_size=1, learning_rate=0.01, device="cpu"),
+    config = make_rgcn_train_stage_config().model_copy(
+        update={"method": "dense_ft_rgcn_graph_retriever"}
     )
 
     result = cast(
         RgcnTrainingResult,
-        Registry.training.build(settings).train(
+        RgcnGraphRetrieverTrainer(config).train(
             RgcnTrainPayload(
                 train_requests=tiny_ranking_requests(),
                 train_labels=evidence_labels(tiny_labels()),
@@ -591,7 +670,10 @@ def test_rgcn_trainer_preserves_dense_ft_seeded_method_identity() -> None:
         ),
     )
 
-    assert result.model_config.method_name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    assert (
+        result.model_config.method_name
+        == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    )
 
 
 def test_rgcn_trainer_uses_dense_ft_seed_checkpoint_metadata(tmp_path: Path) -> None:
@@ -610,21 +692,16 @@ def test_rgcn_trainer_uses_dense_ft_seed_checkpoint_metadata(tmp_path: Path) -> 
             ),
         ),
     )
-    settings = RgcnMethodSettings(
-        method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
-        encoder=DenseEncoderSettings(
-            model_name="unseeded-e5",
-            query_prefix="query: ",
-            passage_prefix="passage: ",
-            batch_size=64,
-        ),
-        model=RgcnModelSettings(hidden_dim=8, num_layers=1, dropout=0.0),
-        trainer=RgcnTrainerSettings(epochs=1, batch_size=1, learning_rate=0.01, device="cpu"),
+    config = make_rgcn_train_stage_config().model_copy(
+        update={
+            "method": "dense_ft_rgcn_graph_retriever",
+            "seed_checkpoint": seed_checkpoint,
+        }
     )
 
     result = cast(
         RgcnTrainingResult,
-        Registry.training.build(settings).train(
+        RgcnGraphRetrieverTrainer(config).train(
             RgcnTrainPayload(
                 train_requests=tiny_ranking_requests(),
                 train_labels=evidence_labels(tiny_labels()),
@@ -642,14 +719,19 @@ def test_rgcn_trainer_uses_dense_ft_seed_checkpoint_metadata(tmp_path: Path) -> 
         ),
     )
 
-    assert result.model_config.method_name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    assert (
+        result.model_config.method_name
+        == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    )
     assert result.model_config.encoder_model == str(seed_checkpoint)
     assert result.model_config.query_prefix == "seed query: "
     assert result.model_config.passage_prefix == "seed passage: "
     assert result.model_config.encoder_batch_size == 11
 
 
-def test_dense_ft_seeded_rgcn_checkpoint_validates_selected_method(tmp_path: Path) -> None:
+def test_dense_ft_seeded_rgcn_checkpoint_validates_selected_method(
+    tmp_path: Path,
+) -> None:
     model_config = replace(
         tiny_model_config(),
         method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
@@ -674,8 +756,13 @@ def test_dense_ft_seeded_rgcn_checkpoint_validates_selected_method(tmp_path: Pat
         checkpoint_path,
         expected_method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
     )
-    assert checkpoint.model_config.method_name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
-    with pytest.raises(ContractValidationError, match="expected_method=dense_rgcn_graph_retriever"):
+    assert (
+        checkpoint.model_config.method_name
+        == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    )
+    with pytest.raises(
+        ContractValidationError, match="expected_method=dense_rgcn_graph_retriever"
+    ):
         load_rgcn_checkpoint(
             checkpoint_path,
             expected_method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER.value,
@@ -685,7 +772,7 @@ def test_dense_ft_seeded_rgcn_checkpoint_validates_selected_method(tmp_path: Pat
 def test_training_registry_builds_trainer_from_settings_type() -> None:
     config = make_rgcn_train_stage_config()
 
-    trainer = Registry.training.build(config.job)
+    trainer = RgcnGraphRetrieverTrainer(config)
 
     assert callable(trainer.train)
 
@@ -701,7 +788,9 @@ def test_train_stage_uses_train_labels_for_pair_validation() -> None:
         }
     ]
 
-    with pytest.raises(ContractValidationError, match="positive node_id=m0 is not gold evidence"):
+    with pytest.raises(
+        ContractValidationError, match="positive node_id=m0 is not gold evidence"
+    ):
         run_train_stage(
             config,
             payload=RgcnTrainPayload(
@@ -724,11 +813,11 @@ def test_train_stage_runner_and_script_use_registry_boundary() -> None:
     stage_source = Path("graph_memory/stages/train.py").read_text(encoding="utf-8")
     script_source = inspect.getsource(train_method_script)
 
-    assert "Registry.training.build(" in stage_source
+    assert "RgcnGraphRetrieverTrainer(config).train" in stage_source
     assert "train_graph_retriever" not in stage_source
     assert "assert_never(config)" in stage_source
     assert "dense_rgcn_graph_retriever" not in stage_source
-    assert "CONFIG_LOADER.load(Registry.configs.TRAIN" in script_source
+    assert "load_stage_execution(" in script_source
     assert "run_train_stage(config, payload=payload)" in script_source
     assert "load_trainable_training_config" not in script_source
     assert "encoder_config_from_training_config" not in script_source

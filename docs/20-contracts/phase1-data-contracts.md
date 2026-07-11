@@ -28,7 +28,7 @@ This document is preserved for Phase 1 provenance and implementation history. Do
 | graph rerank config JSON | `tune_graph_rerank.py` or human | graph rerank retrieval | Fixed graph-rerank parameters selected on dev. |
 | per-method metric CSV | `evaluate_retrieval.py` | aggregation, reporting | Wide method-level metric rows used as aggregation input. |
 | aggregate result CSVs | `aggregate_tables.py` | paper tables, README | Final Phase 1 `main_results.csv`, `path_results.csv`, and `efficiency_results.csv` tables. |
-| `run_summary.json` | each runnable script | humans, debugging | Effective config, input/output paths, counts, timings, environment notes. |
+| `*.run_summary.yaml` | each runnable script | status, resume, humans | Typed identity, effective config, input/output bindings, counts, timings, and errors. |
 
 ## Shared ID Rules
 

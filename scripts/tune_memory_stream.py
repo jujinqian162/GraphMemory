@@ -1,34 +1,38 @@
 from __future__ import annotations
 
-import argparse
 import hashlib
 import logging
 import sys
 import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.contracts.graphs import MemoryGraph
-from graph_memory.contracts.common import JsonValue
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTemporalMemoryRankingRequest, HotpotQAToTextRankingRequest
-from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
-from graph_memory.io import read_json, write_json
-from graph_memory.observability import (
-    build_run_summary,
-    collect_environment,
-    now_iso,
-    write_run_summary,
+from graph_memory.datasets.hotpotqa.projectors import (
+    HotpotQAToTemporalMemoryRankingRequest,
+    HotpotQAToTextRankingRequest,
 )
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.datasets.hotpotqa.records import (
+    HotpotQARankingRecord,
+    HotpotQALabelRecord,
+)
+from graph_memory.io import read_json, write_json
+from graph_memory.experiment.stage_cli import load_stage_execution
+from graph_memory.experiment.stage_models import MemoryStreamTuneStageConfig
+from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.methods.memory_stream.contracts import (
     ImportanceArtifact,
 )
-from graph_memory.retrieval.requests import DenseRuntime, TemporalMemoryRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    DenseRuntime,
+    TemporalMemoryRankingRequest,
+    TextRankingRequest,
+)
 from graph_memory.retrieval.tuning import (
     memory_stream_grid_from_record,
     tune_memory_stream,
@@ -41,78 +45,42 @@ from graph_memory.validation import (
 )
 
 LOGGER = logging.getLogger("tune_memory_stream")
-DEFAULT_GRID_CONFIG = "configs/search_spaces/memory_stream.json"
-
-
-@dataclass(frozen=True)
-class TuneMemoryStreamArgs:
-    tasks: str
-    labels: str
-    graphs: str
-    importance: str
-    output_config: str
-    encoder_model: str
-    query_prefix: str
-    passage_prefix: str
-    top_k: int
-    grid_config: str
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+    execution = load_stage_execution(
+        None if argv is None else list(argv),
+        MemoryStreamTuneStageConfig,
+        description="Tune Memory Stream from a resolved stage YAML.",
+        script=Path(__file__),
+    )
+    config = execution.config
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s [%(name)s] %(message)s",
     )
 
-    started_at = now_iso()
     start_time = time.perf_counter()
-    output_config_path = Path(args.output_config)
-    summary_path = output_config_path.with_name(
-        f"{output_config_path.stem}.run_summary.json"
-    )
-    candidates_path = output_config_path.with_name(
-        f"{output_config_path.stem}.candidates.json"
-    )
+    output_config_path = config.selected_config
+    candidates_path = config.candidates
+    encoder = config.encoder
     dense_config = DenseConfig(
-        model_name=args.encoder_model,
-        query_prefix=args.query_prefix,
-        passage_prefix=args.passage_prefix,
+        model_name=encoder.model_name,
+        query_prefix=encoder.query_prefix,
+        passage_prefix=encoder.passage_prefix,
+        batch_size=encoder.batch_size,
     )
-    effective_config: dict[str, JsonValue] = {
-        "encoder_model": args.encoder_model,
-        "query_prefix": args.query_prefix,
-        "passage_prefix": args.passage_prefix,
-        "batch_size": dense_config.batch_size,
-        "top_k": args.top_k,
-        "grid_config": args.grid_config,
-    }
-    inputs = {
-        "tasks": args.tasks,
-        "labels": args.labels,
-        "graphs": args.graphs,
-        "importance": args.importance,
-        "grid_config": args.grid_config,
-    }
-    outputs = {
-        "selected_config": args.output_config,
-        "candidate_rows": str(candidates_path),
-        "run_summary": str(summary_path),
-    }
-
-    try:
-        task_inputs = cast(list[HotpotQARankingRecord], read_json(args.tasks))
-        labels = cast(list[HotpotQALabelRecord], read_json(args.labels))
-        graphs = cast(list[MemoryGraph], read_json(args.graphs))
-        importance_bytes = Path(args.importance).read_bytes()
+    with stage_lifecycle(execution.invocation) as observations:
+        task_inputs = cast(list[HotpotQARankingRecord], read_json(config.tasks))
+        labels = cast(list[HotpotQALabelRecord], read_json(config.labels))
+        graphs = cast(list[MemoryGraph], read_json(config.graphs))
+        importance_bytes = config.importance.read_bytes()
         importance_sha256 = hashlib.sha256(importance_bytes).hexdigest()
         importance_artifact = cast(
             ImportanceArtifact,
-            read_json(args.importance),
+            read_json(config.importance),
         )
-        grid = memory_stream_grid_from_record(
-            cast(Mapping[str, object], read_json(args.grid_config))
-        )
+        grid = memory_stream_grid_from_record(config.search_space.model_dump())
 
         validate_hotpotqa_ranking_records(task_inputs)
         inputs_by_task_id = {
@@ -125,70 +93,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_graphs(graphs, ranking_requests)
         _ = select_importance_records(importance_artifact, temporal_requests)
 
-        effective_config["importance_sha256"] = importance_sha256
         selected_config, candidate_rows = tune_memory_stream(
             temporal_requests=temporal_requests,
             labels=evidence_labels,
             graphs=graphs,
             importance_artifact=importance_artifact,
             grid=grid,
-            top_k=args.top_k,
+            top_k=config.top_k,
             dense_runtime=DenseRuntime(config=dense_config),
         )
         write_json(output_config_path, selected_config)
         write_json(candidates_path, candidate_rows)
-        effective_config["selected_scoring_config"] = cast(
-            JsonValue,
-            cast(object, selected_config),
-        )
-
-        summary = build_run_summary(
-            script="tune_memory_stream.py",
-            started_at=started_at,
-            finished_at=now_iso(),
-            status="success",
-            effective_config=effective_config,
-            inputs=inputs,
-            outputs=outputs,
-            counts={
-                "tasks": len(task_inputs),
-                "grid_size": len(grid),
-                "candidate_rows": len(candidate_rows),
-            },
-            timings={"total_seconds": time.perf_counter() - start_time},
-            environment=collect_environment(),
-            notes=[],
-        )
-        write_run_summary(summary_path, summary)
+        observations.count("tasks", len(task_inputs))
+        observations.count("grid_size", len(grid))
+        observations.count("candidate_rows", len(candidate_rows))
+        observations.count("importance_sha256", importance_sha256)
+        observations.count("selected_scoring_config", selected_config)
+        observations.timing("total_seconds", time.perf_counter() - start_time)
         LOGGER.info("selected config: %s", selected_config)
         LOGGER.info("wrote selected config: %s", output_config_path)
-        return 0
-    except Exception as error:
-        LOGGER.error("%s", error)
-        summary = build_run_summary(
-            script="tune_memory_stream.py",
-            started_at=started_at,
-            finished_at=now_iso(),
-            status="failed",
-            effective_config=effective_config,
-            inputs=inputs,
-            outputs=outputs,
-            counts={},
-            timings={"total_seconds": time.perf_counter() - start_time},
-            environment=collect_environment(),
-            notes=[],
-            error=str(error),
-        )
-        write_run_summary(summary_path, summary)
-        raise
+    return 0
 
 
-def _text_requests(records: Sequence[HotpotQARankingRecord]) -> list[TextRankingRequest]:
+def _text_requests(
+    records: Sequence[HotpotQARankingRecord],
+) -> list[TextRankingRequest]:
     projector = HotpotQAToTextRankingRequest()
     return [projector.project(record) for record in records]
 
 
-def _temporal_requests(records: Sequence[HotpotQARankingRecord]) -> list[TemporalMemoryRankingRequest]:
+def _temporal_requests(
+    records: Sequence[HotpotQARankingRecord],
+) -> list[TemporalMemoryRankingRequest]:
     projector = HotpotQAToTemporalMemoryRankingRequest()
     return [projector.project(record, {}) for record in records]
 
@@ -199,7 +135,9 @@ def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabe
             task_id=label["task_id"],
             gold_answer=label["gold_answer"],
             gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple(_dependency_edge(edge) for edge in label["gold_dependency_edges"]),
+            gold_dependency_edges=tuple(
+                _dependency_edge(edge) for edge in label["gold_dependency_edges"]
+            ),
         )
         for label in labels
     ]
@@ -207,64 +145,10 @@ def _evidence_labels(labels: Sequence[HotpotQALabelRecord]) -> list[EvidenceLabe
 
 def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
     if len(edge) != 2:
-        raise ValueError(f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}.")
+        raise ValueError(
+            f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}."
+        )
     return edge[0], edge[1]
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Tune Memory Stream scoring parameters on dev labels."
-    )
-    _ = parser.add_argument(
-        "--tasks",
-        required=True,
-        help="Path to dev HotpotQA ranking record JSON.",
-    )
-    _ = parser.add_argument(
-        "--labels",
-        required=True,
-        help="Path to dev HotpotQA label record JSON.",
-    )
-    _ = parser.add_argument(
-        "--graphs",
-        required=True,
-        help="Path to dev *_graphs.json.",
-    )
-    _ = parser.add_argument(
-        "--importance",
-        required=True,
-        help="Path to the aligned cleaned importance artifact.",
-    )
-    _ = parser.add_argument(
-        "--output_config",
-        required=True,
-        help="Path to write selected Memory Stream scoring config JSON.",
-    )
-    _ = parser.add_argument(
-        "--encoder_model",
-        default="intfloat/e5-base-v2",
-    )
-    _ = parser.add_argument("--query_prefix", default="query: ")
-    _ = parser.add_argument("--passage_prefix", default="passage: ")
-    _ = parser.add_argument("--top_k", type=int, default=10)
-    _ = parser.add_argument("--grid_config", default=DEFAULT_GRID_CONFIG)
-    return parser
-
-
-def parse_args(argv: Sequence[str] | None = None) -> TuneMemoryStreamArgs:
-    namespace = build_parser().parse_args(argv)
-    return TuneMemoryStreamArgs(
-        tasks=cast(str, namespace.tasks),
-        labels=cast(str, namespace.labels),
-        graphs=cast(str, namespace.graphs),
-        importance=cast(str, namespace.importance),
-        output_config=cast(str, namespace.output_config),
-        encoder_model=cast(str, namespace.encoder_model),
-        query_prefix=cast(str, namespace.query_prefix),
-        passage_prefix=cast(str, namespace.passage_prefix),
-        top_k=cast(int, namespace.top_k),
-        grid_config=cast(str, namespace.grid_config),
-    )
 
 
 if __name__ == "__main__":

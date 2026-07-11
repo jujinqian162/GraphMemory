@@ -28,7 +28,7 @@ This document defines disk artifact contracts for the Graph Memory project acros
 | graph rerank config JSON | `scripts/tune_graph_rerank.py` or human | graph rerank retrieval | Fixed graph-rerank parameters selected on dev. |
 | per-method metric CSV | `scripts/evaluate_retrieval.py` | aggregation, reporting | Wide method-level metric rows used as aggregation input. |
 | aggregate result CSVs | `scripts/aggregate_tables.py` | paper tables, README | Final `main_results.csv`, `path_results.csv`, and `efficiency_results.csv` tables. |
-| `run_summary.json` | each runnable script | humans, debugging | Effective config, paths, counts, timings, and environment notes. |
+| `*.run_summary.yaml` | each runnable script | status, resume, humans | Typed identity, effective config, bindings, attempt, status, counts, timings, errors, and tracking id. |
 
 ## Shared ID Rules
 

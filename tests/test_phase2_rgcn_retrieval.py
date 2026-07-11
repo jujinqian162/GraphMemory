@@ -6,9 +6,13 @@ from pathlib import Path
 
 import torch
 
-from graph_memory.config import CONFIG_LOADER
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToGraphRankingRequest, HotpotQAToTextRankingRequest
-from graph_memory.io import write_json
+from graph_memory.datasets.hotpotqa.projectors import (
+    HotpotQAToGraphRankingRequest,
+    HotpotQAToTextRankingRequest,
+)
+from graph_memory.experiment.persistence import write_yaml_atomic
+from graph_memory.experiment.stage_models import RgcnRetrieveStageConfig
+from graph_memory.experiment.state import read_stage_summary
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
@@ -16,8 +20,11 @@ from graph_memory.models.graph_retriever.config.defaults import default_model_co
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
 from graph_memory.registry import Registry
-from graph_memory.registry.retrieval import CheckpointGraphBuildPayload, CheckpointGraphRetrievalSettings, RetrievalMethodId
-from graph_memory.registry.stage_configs import RetrieveIO, RetrieveStageConfig
+from graph_memory.registry.retrieval import (
+    CheckpointGraphBuildPayload,
+    CheckpointGraphRetrievalSettings,
+    RetrievalMethodId,
+)
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
@@ -79,7 +86,7 @@ def run_retrieval(
             graphs=graphs,
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
-        )
+        ),
     )
     return execute_retrieval(
         retrieval_method=built.method,
@@ -117,7 +124,11 @@ def fake_checkpoint_providers(settings, payload):
     return (
         FakeTextEmbeddingProvider(),
         RetrieverSeedSignalProvider(FakeRetriever()),
-        load_rgcn_checkpoint(settings.checkpoint, expected_method=settings.method.value, map_location="cpu"),
+        load_rgcn_checkpoint(
+            settings.checkpoint,
+            expected_method=settings.method.value,
+            map_location="cpu",
+        ),
     )
 
 
@@ -131,21 +142,20 @@ def write_rgcn_retrieve_stage_config(
     top_k: int,
     device: str,
 ) -> None:
-    config = RetrieveStageConfig(
-        io=RetrieveIO(
-            tasks=tasks_path,
-            graphs=graphs_path,
-            output=output_path,
-            summary=output_path.with_name("ranked.run_summary.json"),
-        ),
-        job=CheckpointGraphRetrievalSettings(
-            top_k=top_k,
-            checkpoint=checkpoint_path,
-            device=device,
-        ),
+    config = RgcnRetrieveStageConfig(
+        stage="retrieve",
+        method="dense_rgcn_graph_retriever",
+        variant=None,
+        dataset="hotpotqa",
+        tasks=tasks_path,
+        graphs=graphs_path,
+        output=output_path,
+        summary=output_path.with_name("ranked.run_summary.yaml"),
+        top_k=top_k,
+        checkpoint=checkpoint_path,
+        device=device,
     )
-    write_json(path, CONFIG_LOADER.to_json(config))
-
+    write_yaml_atomic(path, config)
 
 
 def tiny_graph_ranking_request():
@@ -175,8 +185,13 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     top_node_ids = {node.node_id for node in ranked_nodes[:2]}
     assert {node.node_id for node in ranked_nodes} == {"m0", "m1", "m2"}
     assert all(math.isfinite(node.score) for node in ranked_nodes)
-    assert ranked_nodes == sorted(ranked_nodes, key=lambda node: (-node.score, node.node_id))
-    assert all(edge["source"] in top_node_ids and edge["target"] in top_node_ids for edge in retrieved_edges)
+    assert ranked_nodes == sorted(
+        ranked_nodes, key=lambda node: (-node.score, node.node_id)
+    )
+    assert all(
+        edge["source"] in top_node_ids and edge["target"] in top_node_ids
+        for edge in retrieved_edges
+    )
 
 
 def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
@@ -188,7 +203,9 @@ def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
     assert "dense_encoder" not in parameters
 
 
-def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_path: Path):
+def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
+    tmp_path: Path,
+):
     checkpoint_path = tmp_path / "best.pt"
     model_config = default_model_config(
         method_name="dense_rgcn_graph_retriever",
@@ -215,7 +232,9 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(tmp_
     assert all(edge["edge_type"] != "bridge" for edge in retrieved_edges)
 
 
-def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp_path: Path):
+def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
+    tmp_path: Path,
+):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
 
@@ -224,10 +243,6 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp
     assert definition.dependencies.model.value == "checkpoint_file"
     assert definition.seed_method is not None
     assert definition.seed_method.value == "dense"
-    parser_actions = Registry.configs.RETRIEVE.parser_factory()._option_string_actions
-    assert "--config" in parser_actions
-    assert "--method" not in parser_actions
-
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",
         task_inputs=tiny_task_inputs(),
@@ -245,7 +260,9 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(tmp
     ]
 
 
-def test_checkpoint_graph_builder_accepts_dense_ft_seeded_rgcn_checkpoint(tmp_path: Path):
+def test_checkpoint_graph_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
+    tmp_path: Path,
+):
     checkpoint_path = tmp_path / "best.pt"
     seeded_model_config = replace(
         tiny_model_config(),
@@ -284,7 +301,7 @@ def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path
     tasks_path = tmp_path / "test.input.json"
     graphs_path = tmp_path / "test.graphs.json"
     output_path = tmp_path / "ranked.json"
-    config_path = tmp_path / "rgcn_retrieve_stage_config.json"
+    config_path = tmp_path / "rgcn_retrieve_stage_config.yaml"
     write_tiny_checkpoint(checkpoint_path)
     tasks_path.write_text(json.dumps(tiny_task_inputs()), encoding="utf-8")
     graphs_path.write_text(json.dumps(tiny_graphs()), encoding="utf-8")
@@ -303,8 +320,12 @@ def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path
         assert device == "cuda:7"
         return TinyTrainableRetriever()
 
-    monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
-    monkeypatch.setattr(retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers)
+    monkeypatch.setattr(
+        TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint
+    )
+    monkeypatch.setattr(
+        retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers
+    )
 
     exit_code = run_retrieval_cli_main(
         [
@@ -315,13 +336,15 @@ def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path
 
     assert exit_code == 0
     predictions = json.loads(output_path.read_text(encoding="utf-8"))
-    run_summary = json.loads(output_path.with_name("ranked.run_summary.json").read_text(encoding="utf-8"))
+    run_summary = read_stage_summary(output_path.with_name("ranked.run_summary.yaml"))
     assert predictions[0]["method"] == "dense_rgcn_graph_retriever"
-    assert run_summary["status"] == "success"
-    assert "labels" not in run_summary["inputs"]
+    assert run_summary.status == "success"
+    assert all(input_.path.name != "labels.json" for input_ in run_summary.inputs)
 
 
-def test_run_retrieval_passes_device_to_trainable_retriever(monkeypatch, tmp_path: Path):
+def test_run_retrieval_passes_device_to_trainable_retriever(
+    monkeypatch, tmp_path: Path
+):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
     captured: dict[str, object] = {}
@@ -331,8 +354,12 @@ def test_run_retrieval_passes_device_to_trainable_retriever(monkeypatch, tmp_pat
         captured["device"] = device
         return TinyTrainableRetriever()
 
-    monkeypatch.setattr(TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint)
-    monkeypatch.setattr(retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers)
+    monkeypatch.setattr(
+        TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint
+    )
+    monkeypatch.setattr(
+        retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers
+    )
 
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",

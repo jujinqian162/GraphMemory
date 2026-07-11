@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from graph_memory.registry.ids import StrEnum
-from graph_memory.registry.method_configs import DenseFinetuneMethodConfig, RgcnMethodConfig
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     CheckpointGraphRetrievalSettings,
@@ -75,7 +74,6 @@ class MethodDefinition:
     lifecycle: RetrievalLifecycle
     retrieval_settings_type: type[object]
     dependencies: RetrievalDependencySpec
-    method_config_type: type[object] | None
     train_artifact: TrainArtifactSpec | None
     seed_method: RetrievalMethodId | None = None
     tuning: TuningKind | None = None
@@ -87,16 +85,24 @@ class MethodRegistry:
     definitions: Mapping[RetrievalMethodId, MethodDefinition]
 
     def list_ids(self) -> tuple[RetrievalMethodId, ...]:
-        return tuple(method for method in RetrievalMethodId if method in self.definitions)
+        return tuple(
+            method for method in RetrievalMethodId if method in self.definitions
+        )
 
     def get(self, method: str | RetrievalMethodId) -> MethodDefinition:
         try:
-            method_id = method if isinstance(method, RetrievalMethodId) else RetrievalMethodId(method)
+            method_id = (
+                method
+                if isinstance(method, RetrievalMethodId)
+                else RetrievalMethodId(method)
+            )
             return self.definitions[method_id]
         except (KeyError, ValueError) as error:
             raise ValueError(f"Unsupported retrieval method: {method}") from error
 
-    def list_by_lifecycle(self, lifecycle: RetrievalLifecycle) -> tuple[RetrievalMethodId, ...]:
+    def list_by_lifecycle(
+        self, lifecycle: RetrievalLifecycle
+    ) -> tuple[RetrievalMethodId, ...]:
         return tuple(
             method
             for method in self.list_ids()
@@ -107,7 +113,8 @@ class MethodRegistry:
         definition = self.get(method)
         return (
             definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
-            and definition.lifecycle in {RetrievalLifecycle.GRAPH_RERANK, RetrievalLifecycle.RGCN_TRAINABLE}
+            and definition.lifecycle
+            in {RetrievalLifecycle.GRAPH_RERANK, RetrievalLifecycle.RGCN_TRAINABLE}
         )
 
 
@@ -124,7 +131,6 @@ def build_method_registry() -> MethodRegistry:
             lifecycle=RetrievalLifecycle.STATELESS,
             retrieval_settings_type=Bm25RetrievalSettings,
             dependencies=no_dependencies,
-            method_config_type=None,
             train_artifact=None,
         ),
         MethodDefinition(
@@ -137,7 +143,6 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
-            method_config_type=None,
             train_artifact=None,
         ),
         MethodDefinition(
@@ -150,7 +155,6 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
-            method_config_type=None,
             train_artifact=None,
             seed_method=RetrievalMethodId.DENSE,
             tuning=TuningKind.MEMORY_STREAM,
@@ -165,7 +169,6 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.NONE,
                 encoder=EncoderSource.NONE,
             ),
-            method_config_type=None,
             train_artifact=None,
             seed_method=RetrievalMethodId.BM25,
             tuning=TuningKind.GRAPH_RERANK,
@@ -180,7 +183,6 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
-            method_config_type=None,
             train_artifact=None,
             seed_method=RetrievalMethodId.DENSE,
             tuning=TuningKind.GRAPH_RERANK,
@@ -195,7 +197,6 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.CHECKPOINT_FILE,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
             ),
-            method_config_type=RgcnMethodConfig,
             train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
             seed_method=RetrievalMethodId.DENSE,
         ),
@@ -209,7 +210,6 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.CHECKPOINT_FILE,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
             ),
-            method_config_type=RgcnMethodConfig,
             train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
             seed_method=RetrievalMethodId.DENSE_FT,
             train_dependencies=(RetrievalMethodId.DENSE_FT,),
@@ -224,12 +224,13 @@ def build_method_registry() -> MethodRegistry:
                 model=ModelSource.MODEL_DIRECTORY,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
             ),
-            method_config_type=DenseFinetuneMethodConfig,
             train_artifact=TrainArtifactSpec("best_model", ArtifactKind.DIRECTORY),
             seed_method=RetrievalMethodId.DENSE,
         ),
     )
-    return MethodRegistry({definition.identifier: definition for definition in definitions})
+    return MethodRegistry(
+        {definition.identifier: definition for definition in definitions}
+    )
 
 
 __all__ = [

@@ -1,0 +1,23 @@
+name: full
+splits:
+  train: {kind: fixed, count: 5000}
+  dev: {kind: fixed, count: 500}
+  test: {kind: fixed, count: 1000}
+trainable:
+  rgcn:
+    hidden_dim: 256
+    num_layers: 2
+    batch_size: 16
+    epochs: 15
+    easy_random_per_positive: 2
+    hard_bm25_per_positive: 2
+    hard_dense_per_positive: 2
+    hard_graph_neighbor_per_positive: 1
+  dense_ft:
+    train_batch_size: 32
+    eval_batch_size: 128
+    epochs: 1
+    easy_random_per_positive: 2
+    hard_bm25_per_positive: 2
+    hard_dense_per_positive: 0
+    hard_graph_neighbor_per_positive: 1
