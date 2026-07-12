@@ -129,7 +129,7 @@ uv run pytest -q
 uv run ruff check .
 uv run basedpyright --level error
 uv run python -m compileall -q graph_memory scripts tests
-openspec validate refactor-experiment-config-workflow --strict
+openspec validate simplify-experiment-config-workflow --strict
 git diff --check
 ```
 

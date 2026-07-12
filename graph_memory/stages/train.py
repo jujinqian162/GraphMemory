@@ -8,7 +8,8 @@ from graph_memory.models.dense_finetune.training import DenseFinetuneTrainingRes
 from graph_memory.models.graph_retriever.training import RgcnTrainingResult
 from graph_memory.experiment.stage_models import (
     DenseFinetuneTrainStageConfig,
-    RgcnTrainStageConfig,
+    OrdinaryRgcnTrainStageConfig,
+    SeededRgcnTrainStageConfig,
     TrainStageConfig,
 )
 from graph_memory.stages.train_payloads import TrainPayload
@@ -30,7 +31,7 @@ def run_train_stage(
     *,
     payload: TrainPayload,
 ) -> TrainStageResult:
-    if isinstance(config, RgcnTrainStageConfig):
+    if isinstance(config, (OrdinaryRgcnTrainStageConfig, SeededRgcnTrainStageConfig)):
         result = RgcnGraphRetrieverTrainer(config).train(payload)
         if not isinstance(result, RgcnTrainingResult):
             raise TypeError(f"R-GCN training returned {type(result).__name__}.")

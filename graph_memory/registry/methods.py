@@ -117,6 +117,32 @@ class MethodRegistry:
             in {RetrievalLifecycle.GRAPH_RERANK, RetrievalLifecycle.RGCN_TRAINABLE}
         )
 
+    def expand_train_dependencies(
+        self,
+        methods: tuple[RetrievalMethodId, ...],
+    ) -> tuple[RetrievalMethodId, ...]:
+        ordered: list[RetrievalMethodId] = []
+        visited: set[RetrievalMethodId] = set()
+        visiting: set[RetrievalMethodId] = set()
+
+        def visit(method: RetrievalMethodId) -> None:
+            if method in visited:
+                return
+            if method in visiting:
+                raise ValueError(f"train dependency cycle at method={method.value}")
+            visiting.add(method)
+            definition = self.definitions[method]
+            for dependency in definition.train_dependencies:
+                visit(dependency)
+            visiting.remove(method)
+            visited.add(method)
+            if definition.train_artifact is not None:
+                ordered.append(method)
+
+        for method in methods:
+            visit(method)
+        return tuple(ordered)
+
 
 def build_method_registry() -> MethodRegistry:
     no_dependencies = RetrievalDependencySpec(

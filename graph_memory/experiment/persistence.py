@@ -6,11 +6,10 @@ from pathlib import Path
 from typing import TypeAlias, TypeVar
 
 from omegaconf import OmegaConf
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 T = TypeVar("T", bound=BaseModel)
-YamlScalar: TypeAlias = str | int | float | bool | None
-YamlValue: TypeAlias = YamlScalar | list["YamlValue"] | dict[str, "YamlValue"]
+YamlValue: TypeAlias = JsonValue
 
 
 def write_yaml_atomic(path: Path, value: object) -> None:
@@ -36,6 +35,17 @@ def read_yaml(path: Path) -> YamlValue:
 
 def read_yaml_model(path: Path, model: type[T]) -> T:
     return model.model_validate(read_yaml(path))
+
+
+def as_yaml_object(value: object) -> dict[str, YamlValue]:
+    converted = _yaml_value(value)
+    if not isinstance(converted, dict):
+        raise TypeError("expected a YAML object")
+    return converted
+
+
+def as_yaml_value(value: object) -> YamlValue:
+    return _yaml_value(value)
 
 
 def _primitive(value: object) -> YamlValue:
@@ -89,5 +99,7 @@ def _write_text_atomic(path: Path, text: str) -> None:
 __all__ = [
     "read_yaml",
     "read_yaml_model",
+    "as_yaml_object",
+    "as_yaml_value",
     "write_yaml_atomic",
 ]

@@ -23,35 +23,28 @@ from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.dense_finetune.training import DenseFinetuneTrainingResult
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
-from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.training import RgcnTrainingResult
 from graph_memory.experiment.stage_cli import load_stage_execution
 from graph_memory.experiment.stage_models import (
     DenseFinetuneTrainStageConfig,
-    RgcnTrainStageConfig,
+    OrdinaryRgcnTrainStageConfig,
+    SeededRgcnTrainStageConfig,
     TrainStageConfig,
 )
 from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
     RgcnTrainPayload,
-    TrainDependencies,
     TrainPayload,
 )
 from graph_memory.retrieval.requests import TextRankingRequest
-from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.stages.train import TrainingResult, run_train_stage
 
 LOGGER = logging.getLogger("train_method")
 
 
-def main(
-    argv: Sequence[str] | None = None,
-    *,
-    text_embedding_provider: TextEmbeddingProvider | None = None,
-    seed_signal_provider: SeedSignalProvider | None = None,
-) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     execution = load_stage_execution(
         None if argv is None else list(argv),
         TypeAdapter(TrainStageConfig),
@@ -62,11 +55,10 @@ def main(
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s"
     )
-    dependencies = _injected_dependencies(text_embedding_provider, seed_signal_provider)
     start_time = time.perf_counter()
 
     with stage_lifecycle(execution.invocation) as observations:
-        payload = _load_payload(config, dependencies=dependencies)
+        payload = _load_payload(config)
         training_result = run_train_stage(config, payload=payload).result
         config.output_dir.mkdir(parents=True, exist_ok=True)
         metric_records = _metric_records(training_result)
@@ -77,30 +69,12 @@ def main(
         observations.timing("total_seconds", time.perf_counter() - start_time)
         LOGGER.info("wrote train output: %s", execution.invocation.primary_output.path)
         LOGGER.info("wrote metrics: %s", config.metrics)
-    LOGGER.info("wrote run summary: %s", config.summary)
+    LOGGER.info("wrote run summary: %s", execution.invocation.summary_path)
     return 0
 
 
-def _injected_dependencies(
-    text_embedding_provider: TextEmbeddingProvider | None,
-    seed_signal_provider: SeedSignalProvider | None,
-) -> TrainDependencies | None:
-    if text_embedding_provider is None and seed_signal_provider is None:
-        return None
-    if text_embedding_provider is None or seed_signal_provider is None:
-        raise ValueError(
-            "Train provider overrides require both text_embedding_provider and seed_signal_provider."
-        )
-    return TrainDependencies(
-        text_embedding_provider=text_embedding_provider,
-        seed_signal_provider=seed_signal_provider,
-    )
-
-
-def _load_payload(
-    config: TrainStageConfig, *, dependencies: TrainDependencies | None
-) -> TrainPayload:
-    if isinstance(config, RgcnTrainStageConfig):
+def _load_payload(config: TrainStageConfig) -> TrainPayload:
+    if isinstance(config, (OrdinaryRgcnTrainStageConfig, SeededRgcnTrainStageConfig)):
         train_records = cast(list[object], read_json(config.train_tasks))
         train_labels = _evidence_labels(
             config, cast(list[object], read_json(config.train_labels))
@@ -116,12 +90,14 @@ def _load_payload(
                 config, cast(list[object], read_json(config.dev_labels))
             ),
             dev_graphs=cast(list[MemoryGraph], read_json(config.dev_graphs)),
-            seed_checkpoint=config.seed_checkpoint,
-            dependencies=dependencies,
+            seed_checkpoint=(
+                config.seed_model_dir
+                if isinstance(config, SeededRgcnTrainStageConfig)
+                else None
+            ),
+            dependencies=None,
         )
     if isinstance(config, DenseFinetuneTrainStageConfig):
-        if dependencies is not None:
-            raise ValueError("Provider overrides are only valid for R-GCN training.")
         train_records = cast(list[object], read_json(config.train_tasks))
         dev_records = cast(list[object], read_json(config.dev_tasks))
         return DenseFinetuneTrainPayload(
@@ -155,7 +131,7 @@ def _evidence_labels(
 def _write_method_artifacts(
     config: TrainStageConfig, result: TrainingResult
 ) -> JsonObject:
-    if isinstance(config, RgcnTrainStageConfig):
+    if isinstance(config, (OrdinaryRgcnTrainStageConfig, SeededRgcnTrainStageConfig)):
         if not isinstance(result, RgcnTrainingResult):
             raise TypeError(f"R-GCN training returned {type(result).__name__}.")
         best_model = build_model_from_config(result.model_config)

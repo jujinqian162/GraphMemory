@@ -16,6 +16,16 @@
 时间戳、临时绝对根路径、环境版本字符串和测量型 latency/memory 数值不进入确定性内容比较；它们的
 字段存在性和类型仍须精确匹配。
 
+### 保留的 latency tie-break 例外
+
+既有 `phase1-evidence-evaluation` 契约要求：科学 objective 与 `Full Support@10` 相同的候选继续按
+实测 retrieval latency 决胜。因此，两个独立真实运行可能从科学指标完全相同的候选集合中选出不同
+config；这不是结构重构可以宣称消除的确定性路径。
+
+该例外只在以下条件全部满足时接受：高优先级科学指标逐值相等；候选 config 都来自同一 resolved
+search space；差异确实由实测 latency 次序触发；差异及其下游 graph-rerank 结果被明确记录。除此之外，
+selected config 仍必须精确相等。删除 latency tie-break 属于单独的行为变更，不能混入本次结构清理。
+
 ## 可容差比较
 
 只有实际重新训练得到的浮点 scalar 允许容差：相对误差 `1e-3`，绝对误差 `1e-4`。适用对象包括

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
 from graph_memory.experiment.config import (
+    AliasArtifactRef,
+    ArtifactBinding,
     ArtifactRef,
     ArtifactKind,
     Bm25GraphRerankMethodConfig,
@@ -23,35 +24,43 @@ from graph_memory.experiment.config import (
     SplitName,
 )
 from graph_memory.experiment.layout import RunLayout
-from graph_memory.experiment.persistence import read_yaml
-from graph_memory.experiment.registry import METHODS
+from graph_memory.experiment.invocation import StageInvocation
+from graph_memory.experiment.stage_status import inspect_invocation_status
 from graph_memory.experiment.stage_models import (
     AblationAggregateStageConfig,
     AblationSelection,
+    Bm25GraphRerankTuneStageConfig,
     Bm25GraphRerankRetrieveStageConfig,
     Bm25RetrieveStageConfig,
     DenseFinetuneRetrieveStageConfig,
     DenseFinetuneTrainStageConfig,
+    DenseGraphRerankTuneStageConfig,
     DenseGraphRerankRetrieveStageConfig,
     DenseRetrieveStageConfig,
     EvaluateStageConfig,
-    GraphRerankTuneStageConfig,
     GraphStageConfig,
     ImportancePrepareStageConfig,
     MemoryStreamRetrieveStageConfig,
     MemoryStreamTuneStageConfig,
     OrdinaryAggregateStageConfig,
+    OrdinaryRgcnTrainStageConfig,
     PairOutputs,
     PairStageConfig,
     PrepareOutputs,
     RawPrepareStageConfig,
     RetrieveStageConfig,
     RgcnRetrieveStageConfig,
-    RgcnTrainStageConfig,
+    SeededRgcnTrainStageConfig,
     StageConfig,
     TrainStageConfig,
 )
-from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES
+from graph_memory.registry.ablations import (
+    ABLATION_SUITE_PATCHES,
+    ExecutableAblationVariant,
+    PairSamplingPatch,
+    RgcnModelPatch,
+)
+from graph_memory.registry import Registry
 from graph_memory.registry.methods import (
     ArtifactKind as RegistryArtifactKind,
 )
@@ -70,36 +79,6 @@ STAGE_ORDER: tuple[PublicStageName, ...] = (
 
 
 @dataclass(frozen=True)
-class StageInvocation:
-    identifier: str
-    stage: PublicStageName
-    script: Path
-    config_path: Path
-    config: StageConfig
-    inputs: tuple[ArtifactRef, ...]
-    outputs: tuple[ArtifactRef, ...]
-    dependencies: tuple[str, ...]
-    method: RetrievalMethodId | None = None
-    split: SplitName | None = None
-    variant: str | None = None
-
-    @property
-    def argv(self) -> tuple[str, ...]:
-        return (
-            sys.executable,
-            str(self.script),
-            "--config",
-            str(self.config_path),
-        )
-
-    @property
-    def primary_output(self) -> ArtifactRef:
-        if not self.outputs:
-            raise ValueError(f"stage invocation has no outputs: {self.identifier}")
-        return self.outputs[0]
-
-
-@dataclass(frozen=True)
 class WorkflowPlan:
     invocations: tuple[StageInvocation, ...]
     aliases: tuple[StageAlias, ...] = ()
@@ -112,95 +91,15 @@ class StageAlias:
     stage: PublicStageName
     method: RetrievalMethodId
     variant: str
-    artifact: ArtifactRef
+    artifact: AliasArtifactRef
     source_invocation: StageInvocation
 
 
-class WorkflowPlanner:
+class _StageInvocationFactory:
     def __init__(self, config: ResolvedExperimentConfig, layout: RunLayout) -> None:
         self.config = config
         self.layout = layout
         self.methods = tuple(config.methods)
-        self.train_methods = METHODS.expand_train_dependencies(list(self.methods))
-
-    def build(self, *, validate_external: bool = True) -> WorkflowPlan:
-        ordinary = self._ordinary_invocations()
-        ordinary_by_id = {item.identifier: item for item in ordinary}
-        variants = self._selected_variants()
-        if not variants:
-            selected = self._select_range(ordinary)
-            if validate_external:
-                self._validate_external_dependencies(selected, ordinary)
-            return WorkflowPlan(invocations=selected)
-
-        aggregate = next(item for item in ordinary if item.stage == "aggregate")
-        ordinary_without_aggregate = tuple(
-            item for item in ordinary if item.stage != "aggregate"
-        )
-        variant_invocations: list[StageInvocation] = []
-        aliases: list[StageAlias] = []
-        selections: list[AblationSelection] = []
-
-        for method in dict.fromkeys(method for method, _ in variants):
-            aliases.extend(self._baseline_aliases(method, ordinary_by_id))
-
-        if self.config.ablation.only:
-            self._validate_ablation_baselines(variants)
-            ordinary_selected = tuple(
-                item
-                for item in ordinary_without_aggregate
-                if item.stage in {"prepare", "graphs"}
-            )
-        else:
-            ordinary_selected = ordinary_without_aggregate
-
-        for method, variant in variants:
-            selections.append(AblationSelection(method=method, variant="full_rgcn"))
-            selections.append(AblationSelection(method=method, variant=variant))
-            built, variant_aliases = self._variant_invocations(
-                method,
-                variant,
-                ordinary_by_id,
-            )
-            variant_invocations.extend(built)
-            aliases.extend(variant_aliases)
-
-        aggregate = self._aggregate_invocation(tuple(dict.fromkeys(selections)))
-        combined = (*ordinary_selected, *variant_invocations, aggregate)
-        selected = self._select_range(tuple(combined))
-        dependency_graph = (
-            *ordinary_without_aggregate,
-            *variant_invocations,
-            aggregate,
-        )
-        if validate_external:
-            self._validate_external_dependencies(selected, tuple(dependency_graph))
-        return WorkflowPlan(
-            invocations=selected,
-            aliases=tuple(aliases),
-            ablation_selections=tuple(dict.fromkeys(selections)),
-        )
-
-    def _ordinary_invocations(self) -> tuple[StageInvocation, ...]:
-        invocations: list[StageInvocation] = []
-        split_names: tuple[SplitName, ...] = ("train", "dev", "test")
-        for split in split_names:
-            invocations.append(self._prepare_invocation(split))
-        for split in split_names:
-            invocations.append(self._graph_invocation(split))
-        for method in self.train_methods:
-            invocations.append(self._pair_invocation(method))
-        for method in self.methods:
-            if METHODS.get(method).tuning is not None:
-                invocations.append(self._tune_invocation(method))
-        for method in self.train_methods:
-            invocations.append(self._train_invocation(method))
-        for method in self.methods:
-            invocations.append(self._retrieve_invocation(method))
-        for method in self.methods:
-            invocations.append(self._evaluate_invocation(method))
-        invocations.append(self._aggregate_invocation(()))
-        return tuple(invocations)
 
     def _prepare_invocation(self, split: SplitName) -> StageInvocation:
         split_config = self.config.dataset.splits[split]
@@ -210,7 +109,6 @@ class WorkflowPlanner:
             input=paths["input"].resolve(),
             labels=paths["labels"].resolve(),
             combined=paths["combined"].resolve(),
-            summary=summary.resolve(),
         )
         if split_config.kind == "importance":
             if self.config.dataset.name != "hotpotqa":
@@ -263,6 +161,7 @@ class WorkflowPlanner:
             split=split,
             script=self.config.dataset.prepare_script,
             config=config,
+            summary_path=summary.resolve(),
             inputs=inputs,
             outputs=output_refs,
             dependencies=(),
@@ -271,13 +170,13 @@ class WorkflowPlanner:
     def _graph_invocation(self, split: SplitName) -> StageInvocation:
         tasks = self.layout.inputs(split)["input"].resolve()
         output = self.layout.graph(split).resolve()
+        summary = self.layout.summary_for(output, stage="graphs").resolve()
         config = GraphStageConfig(
             stage="graphs",
             dataset=self.config.dataset.name,
             split=split,
             tasks=tasks,
             output=output,
-            summary=self.layout.summary_for(output, stage="graphs").resolve(),
             graph=self.config.graph,
         )
         return self._invocation(
@@ -285,6 +184,7 @@ class WorkflowPlanner:
             split=split,
             script=self.layout.repository_root / "scripts" / "build_graphs.py",
             config=config,
+            summary_path=summary,
             inputs=(self.layout.artifact(role="inputs", path=tasks),),
             outputs=(self.layout.artifact(role="graphs", path=output),),
             dependencies=(_identifier("prepare", split=split),),
@@ -310,6 +210,7 @@ class WorkflowPlanner:
         graphs = self.layout.graph("train").resolve()
         pairs = self.layout.train_pairs(method, variant=variant).resolve()
         pair_summary = self.layout.train_pair_summary(method, variant=variant).resolve()
+        summary = self.layout.summary_for(pairs, stage="pairs").resolve()
         config = PairStageConfig(
             stage="pairs",
             dataset=self.config.dataset.name,
@@ -328,7 +229,6 @@ class WorkflowPlanner:
             outputs=PairOutputs(
                 pairs=pairs,
                 pair_summary=pair_summary,
-                summary=self.layout.summary_for(pairs, stage="pairs").resolve(),
             ),
             sampling=config_method.pairs,
             hard_dense_encoder=config_method.encoder,
@@ -339,6 +239,7 @@ class WorkflowPlanner:
             variant=variant,
             script=self.layout.repository_root / "scripts" / "build_train_pairs.py",
             config=config,
+            summary_path=summary,
             inputs=(
                 self.layout.artifact(role="inputs", path=tasks),
                 self.layout.artifact(role="labels", path=labels),
@@ -362,31 +263,37 @@ class WorkflowPlanner:
         selected = self.layout.tuned(method).resolve()
         candidates = self.layout.tuned_candidates(method).resolve()
         summary = self.layout.summary_for(selected, stage="tune").resolve()
-        inputs: tuple[ArtifactRef, ...]
-        if isinstance(
-            method_config,
-            (Bm25GraphRerankMethodConfig, DenseGraphRerankMethodConfig),
-        ):
-            config: StageConfig = GraphRerankTuneStageConfig(
+        inputs: tuple[ArtifactBinding, ...]
+        if isinstance(method_config, Bm25GraphRerankMethodConfig):
+            config: StageConfig = Bm25GraphRerankTuneStageConfig(
                 stage="tune",
-                kind="graph_rerank",
                 dataset=self.config.dataset.name,
-                method=cast(
-                    Literal["bm25_graph_rerank", "dense_graph_rerank"],
-                    method.value,
-                ),
+                method="bm25_graph_rerank",
                 tasks=tasks,
                 labels=labels,
                 graphs=graphs,
                 selected_config=selected,
                 candidates=candidates,
-                summary=summary,
                 top_k=self.config.top_k,
-                seed_encoder=(
-                    method_config.encoder
-                    if isinstance(method_config, DenseGraphRerankMethodConfig)
-                    else None
-                ),
+                search_space=self.config.search_spaces.graph_rerank,
+            )
+            inputs = (
+                self.layout.artifact(role="inputs", path=tasks),
+                self.layout.artifact(role="labels", path=labels),
+                self.layout.artifact(role="graphs", path=graphs),
+            )
+        elif isinstance(method_config, DenseGraphRerankMethodConfig):
+            config = DenseGraphRerankTuneStageConfig(
+                stage="tune",
+                dataset=self.config.dataset.name,
+                method="dense_graph_rerank",
+                tasks=tasks,
+                labels=labels,
+                graphs=graphs,
+                selected_config=selected,
+                candidates=candidates,
+                top_k=self.config.top_k,
+                encoder=method_config.encoder,
                 search_space=self.config.search_spaces.graph_rerank,
             )
             inputs = (
@@ -413,7 +320,6 @@ class WorkflowPlanner:
                 importance=importance_split.importance_path,
                 selected_config=selected,
                 candidates=candidates,
-                summary=summary,
                 top_k=self.config.top_k,
                 encoder=method_config.encoder,
                 search_space=self.config.search_spaces.memory_stream,
@@ -439,6 +345,7 @@ class WorkflowPlanner:
                 )
             ),
             config=config,
+            summary_path=summary,
             inputs=inputs,
             outputs=(
                 self.layout.artifact(role="selected_config", path=selected),
@@ -462,12 +369,12 @@ class WorkflowPlanner:
         learned_root = self.layout.learned_root(method, variant=variant).resolve()
         metrics = self.layout.training_metrics(method, variant=variant).resolve()
         pair_path = self.layout.train_pairs(method, variant=pair_variant).resolve()
-        spec = METHODS.get(method)
-        if spec.train_artifact_kind is None:
+        spec = Registry.methods.get(method)
+        if spec.train_artifact is None:
             raise TypeError(f"train stage requires trainable method: {method.value}")
         kind: ArtifactKind = (
             "file"
-            if spec.train_artifact_kind is RegistryArtifactKind.FILE
+            if spec.train_artifact.kind is RegistryArtifactKind.FILE
             else "directory"
         )
         checkpoint = self.layout.checkpoint(
@@ -490,33 +397,47 @@ class WorkflowPlanner:
                 if method is RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER
                 else None
             )
-            config: TrainStageConfig = RgcnTrainStageConfig(
-                stage="train",
-                method=cast(
-                    Literal[
-                        "dense_rgcn_graph_retriever",
-                        "dense_ft_rgcn_graph_retriever",
-                    ],
-                    method.value,
-                ),
-                variant=variant,
-                dataset=self.config.dataset.name,
-                train_tasks=self.layout.inputs("train")["input"].resolve(),
-                train_labels=self.layout.inputs("train")["labels"].resolve(),
-                train_graphs=self.layout.graph("train").resolve(),
-                train_pairs=pair_path,
-                dev_tasks=self.layout.inputs("dev")["input"].resolve(),
-                dev_labels=self.layout.inputs("dev")["labels"].resolve(),
-                dev_graphs=self.layout.graph("dev").resolve(),
-                output_dir=learned_root,
-                checkpoint_dir=checkpoint.parent,
-                metrics=metrics,
-                summary=summary,
-                seed_checkpoint=seed_checkpoint,
-                encoder=config_method.encoder,
-                pairs=config_method.pairs,
-                train=config_method.train,
-            )
+            if seed_checkpoint is not None:
+                config: TrainStageConfig = SeededRgcnTrainStageConfig(
+                    stage="train",
+                    method="dense_ft_rgcn_graph_retriever",
+                    variant=variant,
+                    dataset=self.config.dataset.name,
+                    train_tasks=self.layout.inputs("train")["input"].resolve(),
+                    train_labels=self.layout.inputs("train")["labels"].resolve(),
+                    train_graphs=self.layout.graph("train").resolve(),
+                    train_pairs=pair_path,
+                    dev_tasks=self.layout.inputs("dev")["input"].resolve(),
+                    dev_labels=self.layout.inputs("dev")["labels"].resolve(),
+                    dev_graphs=self.layout.graph("dev").resolve(),
+                    output_dir=learned_root,
+                    checkpoint_dir=checkpoint.parent,
+                    metrics=metrics,
+                    seed_model_dir=seed_checkpoint,
+                    encoder=config_method.encoder,
+                    pairs=config_method.pairs,
+                    train=config_method.train,
+                )
+            else:
+                config = OrdinaryRgcnTrainStageConfig(
+                    stage="train",
+                    method="dense_rgcn_graph_retriever",
+                    variant=variant,
+                    dataset=self.config.dataset.name,
+                    train_tasks=self.layout.inputs("train")["input"].resolve(),
+                    train_labels=self.layout.inputs("train")["labels"].resolve(),
+                    train_graphs=self.layout.graph("train").resolve(),
+                    train_pairs=pair_path,
+                    dev_tasks=self.layout.inputs("dev")["input"].resolve(),
+                    dev_labels=self.layout.inputs("dev")["labels"].resolve(),
+                    dev_graphs=self.layout.graph("dev").resolve(),
+                    output_dir=learned_root,
+                    checkpoint_dir=checkpoint.parent,
+                    metrics=metrics,
+                    encoder=config_method.encoder,
+                    pairs=config_method.pairs,
+                    train=config_method.train,
+                )
             inputs = (
                 self.layout.artifact(
                     role="inputs", path=self.layout.inputs("train")["input"]
@@ -555,7 +476,6 @@ class WorkflowPlanner:
                 output_dir=learned_root,
                 model_dir=checkpoint,
                 metrics=metrics,
-                summary=summary,
                 encoder=config_method.encoder,
                 pairs=config_method.pairs,
                 train=config_method.train,
@@ -583,6 +503,7 @@ class WorkflowPlanner:
             variant=variant,
             script=self.layout.repository_root / "scripts" / "train_method.py",
             config=config,
+            summary_path=summary,
             inputs=inputs,
             outputs=(
                 self.layout.artifact(role="checkpoint", path=checkpoint, kind=kind),
@@ -603,7 +524,9 @@ class WorkflowPlanner:
         output = self.layout.prediction(method, variant=variant).resolve()
         summary = self.layout.summary_for(output, stage="retrieve").resolve()
         dependencies = [_identifier("prepare", split="test")]
-        inputs: list[ArtifactRef] = [self.layout.artifact(role="inputs", path=tasks)]
+        inputs: list[ArtifactBinding] = [
+            self.layout.artifact(role="inputs", path=tasks)
+        ]
         if isinstance(config_method, Bm25MethodConfig):
             config: RetrieveStageConfig = Bm25RetrieveStageConfig(
                 stage="retrieve",
@@ -612,7 +535,6 @@ class WorkflowPlanner:
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
             )
         elif isinstance(config_method, DenseMethodConfig):
@@ -623,7 +545,6 @@ class WorkflowPlanner:
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
                 encoder=config_method.encoder,
             )
@@ -646,7 +567,6 @@ class WorkflowPlanner:
                 dataset="hotpotqa",
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
             )
             inputs.extend(
@@ -669,7 +589,6 @@ class WorkflowPlanner:
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
             )
             inputs.extend(
@@ -698,7 +617,6 @@ class WorkflowPlanner:
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
             )
             inputs.extend(
@@ -736,7 +654,6 @@ class WorkflowPlanner:
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
             )
             inputs.extend(
@@ -764,7 +681,6 @@ class WorkflowPlanner:
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
-                summary=summary,
                 top_k=self.config.top_k,
             )
             inputs.append(
@@ -783,6 +699,7 @@ class WorkflowPlanner:
             variant=variant,
             script=self.layout.repository_root / "scripts" / "run_retrieval.py",
             config=config,
+            summary_path=summary,
             inputs=tuple(inputs),
             outputs=(self.layout.artifact(role="predictions", path=output),),
             dependencies=tuple(dependencies),
@@ -809,7 +726,6 @@ class WorkflowPlanner:
             graphs=graphs,
             metrics=metrics,
             failure_cases=failures,
-            summary=self.layout.summary_for(metrics, stage="evaluate").resolve(),
             failure_case_limit=50,
             top_k=self.config.top_k,
         )
@@ -819,6 +735,7 @@ class WorkflowPlanner:
             variant=variant,
             script=self.layout.repository_root / "scripts" / "evaluate_retrieval.py",
             config=config,
+            summary_path=self.layout.summary_for(metrics, stage="evaluate").resolve(),
             inputs=(
                 self.layout.artifact(role="predictions", path=predictions),
                 self.layout.artifact(role="labels", path=labels),
@@ -858,7 +775,6 @@ class WorkflowPlanner:
                 main=main,
                 path=path,
                 efficiency=efficiency,
-                summary=summary,
                 ablation_metrics=ablation_metrics,
                 ablation_index=self.layout.ablation_metrics_index.resolve(),
                 ablation=self.layout.table("ablation").resolve(),
@@ -872,7 +788,6 @@ class WorkflowPlanner:
                 main=main,
                 path=path,
                 efficiency=efficiency,
-                summary=summary,
             )
         )
         metrics = tuple(
@@ -922,6 +837,7 @@ class WorkflowPlanner:
             stage="aggregate",
             script=self.layout.repository_root / "scripts" / "aggregate_tables.py",
             config=config,
+            summary_path=summary,
             inputs=tuple(inputs),
             outputs=tuple(outputs),
             dependencies=tuple(dict.fromkeys(dependencies)),
@@ -955,7 +871,7 @@ class WorkflowPlanner:
                     stage="pairs",
                     method=method,
                     variant=variant,
-                    artifact=self.layout.artifact(
+                    artifact=self.layout.alias_artifact(
                         role="train_pairs",
                         path=self.layout.train_pairs(method, variant=variant),
                         alias_of=self.layout.train_pairs(method).resolve(),
@@ -984,11 +900,11 @@ class WorkflowPlanner:
         method: RetrievalMethodId,
         ordinary_by_id: dict[str, StageInvocation],
     ) -> tuple[StageAlias, ...]:
-        train_artifact_kind = METHODS.get(method).train_artifact_kind
-        if train_artifact_kind is None:
+        train_artifact = Registry.methods.get(method).train_artifact
+        if train_artifact is None:
             raise ValueError(f"ablation method has no checkpoint kind: {method.value}")
         checkpoint_kind: ArtifactKind = (
-            "file" if train_artifact_kind is RegistryArtifactKind.FILE else "directory"
+            "file" if train_artifact.kind is RegistryArtifactKind.FILE else "directory"
         )
         bindings: tuple[tuple[PublicStageName, Path, Path, ArtifactKind, str], ...] = (
             (
@@ -1028,7 +944,7 @@ class WorkflowPlanner:
                 stage=stage,
                 method=method,
                 variant="full_rgcn",
-                artifact=self.layout.artifact(
+                artifact=self.layout.alias_artifact(
                     role=role,
                     path=target,
                     kind=kind,
@@ -1038,6 +954,130 @@ class WorkflowPlanner:
             )
             for stage, target, source, kind, role in bindings
         )
+
+    def _invocation(
+        self,
+        *,
+        stage: PublicStageName,
+        script: Path,
+        config: StageConfig,
+        summary_path: Path,
+        inputs: tuple[ArtifactBinding, ...],
+        outputs: tuple[ArtifactBinding, ...],
+        dependencies: tuple[str, ...],
+        method: RetrievalMethodId | None = None,
+        split: SplitName | None = None,
+        variant: str | None = None,
+    ) -> StageInvocation:
+        identifier = _identifier(
+            stage,
+            method=method,
+            split=split,
+            variant=variant,
+        )
+        return StageInvocation(
+            identifier=identifier,
+            stage=stage,
+            method=method,
+            split=split,
+            variant=variant,
+            script=script.resolve(),
+            config_path=self.layout.stage_config(
+                stage,
+                method=method,
+                split=split,
+                variant=variant,
+            ).resolve(),
+            summary_path=summary_path.resolve(),
+            config=config,
+            inputs=inputs,
+            outputs=outputs,
+            dependencies=dependencies,
+        )
+
+
+class WorkflowPlanner:
+    def __init__(self, config: ResolvedExperimentConfig, layout: RunLayout) -> None:
+        self.config = config
+        self.layout = layout
+        self.methods = tuple(config.methods)
+        self.train_methods = Registry.methods.expand_train_dependencies(self.methods)
+        self.factory = _StageInvocationFactory(config, layout)
+
+    def build(self, *, validate_external: bool = True) -> WorkflowPlan:
+        ordinary = self._ordinary_invocations()
+        ordinary_by_id = {item.identifier: item for item in ordinary}
+        variants = self._selected_variants()
+        if not variants:
+            selected = self._select_range(ordinary)
+            if validate_external:
+                self._validate_external_dependencies(selected, ordinary)
+            return WorkflowPlan(invocations=selected)
+
+        ordinary_without_aggregate = tuple(
+            item for item in ordinary if item.stage != "aggregate"
+        )
+        variant_invocations: list[StageInvocation] = []
+        aliases: list[StageAlias] = []
+        selections: list[AblationSelection] = []
+
+        for method in dict.fromkeys(method for method, _ in variants):
+            aliases.extend(self.factory._baseline_aliases(method, ordinary_by_id))
+
+        if self.config.ablation.only:
+            self._validate_ablation_baselines(variants)
+            ordinary_selected = tuple(
+                item
+                for item in ordinary_without_aggregate
+                if item.stage in {"prepare", "graphs"}
+            )
+        else:
+            ordinary_selected = ordinary_without_aggregate
+
+        for method, variant in variants:
+            selections.append(AblationSelection(method=method, variant="full_rgcn"))
+            selections.append(AblationSelection(method=method, variant=variant))
+            built, variant_aliases = self.factory._variant_invocations(
+                method,
+                variant,
+                ordinary_by_id,
+            )
+            variant_invocations.extend(built)
+            aliases.extend(variant_aliases)
+
+        aggregate = self.factory._aggregate_invocation(tuple(dict.fromkeys(selections)))
+        combined = (*ordinary_selected, *variant_invocations, aggregate)
+        selected = self._select_range(tuple(combined))
+        dependency_graph = (
+            *ordinary_without_aggregate,
+            *variant_invocations,
+            aggregate,
+        )
+        if validate_external:
+            self._validate_external_dependencies(selected, tuple(dependency_graph))
+        return WorkflowPlan(
+            invocations=selected,
+            aliases=tuple(aliases),
+            ablation_selections=tuple(dict.fromkeys(selections)),
+        )
+
+    def _ordinary_invocations(self) -> tuple[StageInvocation, ...]:
+        split_names: tuple[SplitName, ...] = ("train", "dev", "test")
+        invocations = [
+            *(self.factory._prepare_invocation(split) for split in split_names),
+            *(self.factory._graph_invocation(split) for split in split_names),
+            *(self.factory._pair_invocation(method) for method in self.train_methods),
+            *(
+                self.factory._tune_invocation(method)
+                for method in self.methods
+                if Registry.methods.get(method).tuning is not None
+            ),
+            *(self.factory._train_invocation(method) for method in self.train_methods),
+            *(self.factory._retrieve_invocation(method) for method in self.methods),
+            *(self.factory._evaluate_invocation(method) for method in self.methods),
+            self.factory._aggregate_invocation(()),
+        ]
+        return tuple(invocations)
 
     def _selected_variants(self) -> tuple[tuple[RetrievalMethodId, str], ...]:
         selection = self.config.ablation.variants
@@ -1049,7 +1089,7 @@ class WorkflowPlanner:
         selected: list[tuple[RetrievalMethodId, str]] = []
         supported_names: set[str] = set()
         for method in self.methods:
-            suite = ABLATION_SUITE_PATCHES.get(method.value)
+            suite = ABLATION_SUITE_PATCHES.get(method)
             if suite is None:
                 continue
             for variant in suite.variants:
@@ -1074,8 +1114,8 @@ class WorkflowPlanner:
     ) -> None:
         for method in dict.fromkeys(method for method, _ in variants):
             metrics = self.layout.metric(method)
-            baseline = self._evaluate_invocation(method)
-            if _invocation_state(baseline) != "complete":
+            baseline = self.factory._evaluate_invocation(method)
+            if inspect_invocation_status(baseline).state != "complete":
                 raise ValueError(
                     f"ablation-only requires ordinary baseline metrics: {metrics}"
                 )
@@ -1118,51 +1158,13 @@ class WorkflowPlanner:
                 for output in dependency_item.outputs:
                     if output.path not in required_paths:
                         continue
-                    dependency_state = _invocation_state(dependency_item)
+                    dependency_state = inspect_invocation_status(dependency_item).state
                     if dependency_state != "complete":
                         raise ValueError(
                             f"stage={item.identifier} requires external dependency "
                             f"role={output.role} path={output.path} "
                             f"state={dependency_state}"
                         )
-
-    def _invocation(
-        self,
-        *,
-        stage: PublicStageName,
-        script: Path,
-        config: StageConfig,
-        inputs: tuple[ArtifactRef, ...],
-        outputs: tuple[ArtifactRef, ...],
-        dependencies: tuple[str, ...],
-        method: RetrievalMethodId | None = None,
-        split: SplitName | None = None,
-        variant: str | None = None,
-    ) -> StageInvocation:
-        identifier = _identifier(
-            stage,
-            method=method,
-            split=split,
-            variant=variant,
-        )
-        return StageInvocation(
-            identifier=identifier,
-            stage=stage,
-            method=method,
-            split=split,
-            variant=variant,
-            script=script.resolve(),
-            config_path=self.layout.stage_config(
-                stage,
-                method=method,
-                split=split,
-                variant=variant,
-            ).resolve(),
-            config=config,
-            inputs=inputs,
-            outputs=outputs,
-            dependencies=dependencies,
-        )
 
 
 def format_plan(plan: WorkflowPlan) -> str:
@@ -1196,77 +1198,14 @@ def format_invocation(item: StageInvocation, *, index: int) -> str:
 def _identifier(
     stage: PublicStageName,
     *,
-    method: str | RetrievalMethodId | None = None,
+    method: RetrievalMethodId | None = None,
     split: SplitName | None = None,
     variant: str | None = None,
 ) -> str:
-    method_name = method.value if isinstance(method, RetrievalMethodId) else method
+    method_name = None if method is None else method.value
     qualifier = method_name or split or "aggregate"
     base = f"{stage}:{qualifier}"
     return f"{base}:{variant}" if variant is not None else base
-
-
-def stage_identifier(
-    stage: PublicStageName,
-    *,
-    method: str | RetrievalMethodId | None = None,
-    split: SplitName | None = None,
-    variant: str | None = None,
-) -> str:
-    return _identifier(stage, method=method, split=split, variant=variant)
-
-
-def _invocation_state(
-    invocation: StageInvocation,
-) -> Literal["missing", "complete", "stale"]:
-    validity = tuple(
-        output.path.is_file() if output.kind == "file" else output.path.is_dir()
-        for output in invocation.outputs
-    )
-    if not any(validity):
-        return "missing"
-    if not all(validity):
-        return "stale"
-    summary_path = _stage_summary_path(invocation.config)
-    if not summary_path.is_file():
-        return "stale"
-    try:
-        summary = read_yaml(summary_path)
-    except (OSError, ValueError):
-        return "stale"
-    if not isinstance(summary, dict):
-        return "stale"
-    expected_method = invocation.method.value if invocation.method is not None else None
-    expected = {
-        "identifier": invocation.identifier,
-        "stage": invocation.stage,
-        "script": str(invocation.script.resolve()),
-        "method": expected_method,
-        "split": invocation.split,
-        "variant": invocation.variant,
-        "status": "success",
-        "effective_config": invocation.config.model_dump(mode="json", by_alias=True),
-        "inputs": [item.model_dump(mode="json") for item in invocation.inputs],
-        "outputs": [item.model_dump(mode="json") for item in invocation.outputs],
-    }
-    return (
-        "complete"
-        if all(summary.get(key) == value for key, value in expected.items())
-        and summary.get("ended_at") is not None
-        and summary.get("error") is None
-        else "stale"
-    )
-
-
-def _stage_summary_path(config: StageConfig) -> Path:
-    direct = getattr(config, "summary", None)
-    if isinstance(direct, Path):
-        return direct
-    outputs = getattr(config, "outputs", None)
-    nested = getattr(outputs, "summary", None)
-    if isinstance(nested, Path):
-        return nested
-    raise ValueError(f"stage config has no summary path: {config.stage}")
 
 
 def _external(
@@ -1277,7 +1216,6 @@ def _external(
         role=role,
         path=path.resolve(),
         kind="file",
-        alias_of=None,
     )
 
 
@@ -1285,34 +1223,34 @@ def _apply_rgcn_ablation(
     config: DenseRgcnMethodConfig | DenseFtRgcnMethodConfig,
     variant: str,
 ) -> tuple[DenseRgcnMethodConfig | DenseFtRgcnMethodConfig, PublicStageName]:
-    suite = ABLATION_SUITE_PATCHES[config.method]
+    suite = ABLATION_SUITE_PATCHES[RetrievalMethodId(config.method)]
     patch = next((item for item in suite.variants if item.identifier == variant), None)
-    if patch is None or patch.baseline_alias:
+    if not isinstance(patch, ExecutableAblationVariant):
         raise ValueError(f"unknown executable ablation variant={variant!r}")
-    if "pair_sampling" in patch.changed_dimensions:
-        pairs = config.pairs.model_copy(
-            update={
-                "hard_bm25_per_positive": 0,
-                "hard_dense_per_positive": 0,
-                "hard_graph_neighbor_per_positive": 0,
-            }
+    config_patch = patch.config_patch
+    if isinstance(config_patch, PairSamplingPatch):
+        pairs = config.pairs.model_copy(update=config_patch.updates())
+        return (
+            config.model_copy(update={"pairs": pairs}),
+            patch.earliest_invalidated_stage,
         )
-        return config.model_copy(update={"pairs": pairs}), "pairs"
-    model_updates: dict[str, object] = {"ablation": variant}
-    if variant == "wo_graph":
-        model_updates["num_layers"] = 0
-    model = config.train.model.model_copy(update=model_updates)
+    if not isinstance(config_patch, RgcnModelPatch):
+        raise TypeError(
+            f"unsupported R-GCN ablation patch: {type(config_patch).__name__}"
+        )
+    model = config.train.model.model_copy(update=config_patch.updates())
     train = config.train.model_copy(update={"model": model})
-    return config.model_copy(update={"train": train}), "train"
+    return (
+        config.model_copy(update={"train": train}),
+        patch.earliest_invalidated_stage,
+    )
 
 
 __all__ = [
     "STAGE_ORDER",
     "StageAlias",
-    "StageInvocation",
     "WorkflowPlan",
     "WorkflowPlanner",
     "format_plan",
     "format_invocation",
-    "stage_identifier",
 ]

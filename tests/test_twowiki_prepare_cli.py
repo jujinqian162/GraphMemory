@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from graph_memory.experiment.config import ArtifactRef
+from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.experiment.persistence import write_yaml_atomic
 from graph_memory.experiment.stage_models import PrepareOutputs, RawPrepareStageConfig
 from graph_memory.experiment.state import read_stage_summary
@@ -100,23 +104,51 @@ def _write_config(
     summary_path,
     strict: bool = False,
 ) -> None:
+    config = RawPrepareStageConfig(
+        stage="prepare",
+        kind="raw",
+        dataset="twowiki",
+        split="test",
+        source=raw_path,
+        outputs=PrepareOutputs(
+            input=input_path,
+            labels=label_path,
+            combined=combined_path,
+        ),
+        count=1,
+        seed=13,
+        offset=0,
+        strict_invalid_examples=strict,
+    )
     write_yaml_atomic(
         path,
-        RawPrepareStageConfig(
+        StageInvocation(
+            identifier="prepare:test",
             stage="prepare",
-            kind="raw",
-            dataset="twowiki",
-            split="test",
-            source=raw_path,
-            outputs=PrepareOutputs(
-                input=input_path,
-                labels=label_path,
-                combined=combined_path,
-                summary=summary_path,
+            script=Path(prepare_2wiki.__file__).resolve(),
+            config_path=path.resolve(),
+            summary_path=summary_path.resolve(),
+            config=config,
+            inputs=(
+                ArtifactRef(
+                    role="raw",
+                    path=raw_path.resolve(),
+                    kind="file",
+                ),
             ),
-            count=1,
-            seed=13,
-            offset=0,
-            strict_invalid_examples=strict,
+            outputs=tuple(
+                ArtifactRef(
+                    role=role,
+                    path=value.resolve(),
+                    kind="file",
+                )
+                for role, value in (
+                    ("inputs", input_path),
+                    ("labels", label_path),
+                    ("combined", combined_path),
+                )
+            ),
+            dependencies=(),
+            split="test",
         ),
     )

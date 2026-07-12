@@ -126,7 +126,6 @@ def run_retrieval(
             dataset="hotpotqa",
             tasks=Path("memory_tasks.input.json"),
             output=Path("ranked.json"),
-            summary=Path("ranked.run_summary.yaml"),
             top_k=top_k,
         )
     elif method_id is RetrievalMethodId.DENSE:
@@ -137,7 +136,6 @@ def run_retrieval(
             dataset="hotpotqa",
             tasks=Path("memory_tasks.input.json"),
             output=Path("ranked.json"),
-            summary=Path("ranked.run_summary.yaml"),
             top_k=top_k,
             encoder=encoder,
         )
@@ -150,7 +148,6 @@ def run_retrieval(
             tasks=Path("memory_tasks.input.json"),
             graphs=Path("graphs.json"),
             output=Path("ranked.json"),
-            summary=Path("ranked.run_summary.yaml"),
             top_k=top_k,
             selected_config=Path("selected_config.json"),
             seed_method="bm25",
@@ -164,7 +161,6 @@ def run_retrieval(
             tasks=Path("memory_tasks.input.json"),
             graphs=Path("graphs.json"),
             output=Path("ranked.json"),
-            summary=Path("ranked.run_summary.yaml"),
             top_k=top_k,
             selected_config=Path("selected_config.json"),
             seed_method="dense",

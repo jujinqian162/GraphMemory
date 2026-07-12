@@ -11,7 +11,7 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
 )
-from graph_memory.experiment.layout import RunLayout, RunMode
+from graph_memory.experiment.layout import MultirunIdentity, RunLayout, RunMode
 from graph_memory.experiment.persistence import (
     write_yaml_atomic,
 )
@@ -63,7 +63,7 @@ def initialize_experiment(
     write_yaml_atomic(layout.resolved_config, config)
     write_yaml_atomic(layout.overrides, list(overrides))
     for invocation in plan.invocations:
-        write_yaml_atomic(invocation.config_path, invocation.config)
+        write_yaml_atomic(invocation.config_path, invocation)
 
     if not layout.run_state.is_file():
         write_run_state(layout.run_state, state)
@@ -94,9 +94,10 @@ def initialize_from_hydra(
         else RunLayout(
             root,
             config.name,
-            mode="multirun",
-            job_num=int(runtime.job.num),
-            override_dirname=str(runtime.job.override_dirname),
+            identity=MultirunIdentity(
+                job_num=int(runtime.job.num),
+                override_dirname=str(runtime.job.override_dirname),
+            ),
         )
     )
     expected_output = layout.run_dir.resolve()
@@ -147,9 +148,10 @@ def load_existing_experiment(
         layout = RunLayout(
             root,
             name,
-            mode="multirun",
-            job_num=int(job_number),
-            override_dirname=override_dirname,
+            identity=MultirunIdentity(
+                job_num=int(job_number),
+                override_dirname=override_dirname,
+            ),
         )
         if layout.run_state.resolve() != state_path.resolve():
             raise ValueError(f"multirun job layout mismatch: {state_path}")

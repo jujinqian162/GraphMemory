@@ -5,19 +5,43 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from graph_memory.experiment.config import ArtifactRef, PublicStageName
+from graph_memory.experiment.config import (
+    AliasArtifactRef,
+    ArtifactRef,
+    PublicStageName,
+    SplitName,
+)
 from graph_memory.registry.retrieval import RetrievalMethodId
 
 RunMode = Literal["single", "multirun"]
 
 
 @dataclass(frozen=True)
+class SingleRunIdentity:
+    mode: Literal["single"] = "single"
+
+
+@dataclass(frozen=True)
+class MultirunIdentity:
+    job_num: int
+    override_dirname: str
+    mode: Literal["multirun"] = "multirun"
+
+    def __post_init__(self) -> None:
+        if self.job_num < 0:
+            raise ValueError("multirun identity requires a non-negative job_num")
+        if not self.override_dirname:
+            raise ValueError("multirun identity requires override_dirname")
+
+
+RunIdentity = SingleRunIdentity | MultirunIdentity
+
+
+@dataclass(frozen=True)
 class RunLayout:
     repository_root: Path
     name: str
-    mode: RunMode = "single"
-    job_num: int | None = None
-    override_dirname: str | None = None
+    identity: RunIdentity = SingleRunIdentity()
 
     def __post_init__(self) -> None:
         root = self.repository_root.resolve()
@@ -26,16 +50,10 @@ class RunLayout:
             raise ValueError(
                 "run name must start with an alphanumeric character and contain only letters, digits, '.', '_' or '-'"
             )
-        if self.mode == "single":
-            if self.job_num is not None or self.override_dirname is not None:
-                raise ValueError(
-                    "single run layout must not define multirun job identity"
-                )
-        else:
-            if self.job_num is None or self.job_num < 0:
-                raise ValueError("multirun layout requires a non-negative job_num")
-            if self.override_dirname is None or not self.override_dirname:
-                raise ValueError("multirun layout requires override_dirname")
+
+    @property
+    def mode(self) -> RunMode:
+        return self.identity.mode
 
     @property
     def runs_root(self) -> Path:
@@ -47,10 +65,10 @@ class RunLayout:
 
     @property
     def run_dir(self) -> Path:
-        if self.mode == "single":
+        if isinstance(self.identity, SingleRunIdentity):
             return self.named_root
-        suffix = _safe_override_dirname(self.override_dirname or "")
-        return self.named_root / f"{self.job_num}_{suffix}"
+        suffix = _safe_override_dirname(self.identity.override_dirname)
+        return self.named_root / f"{self.identity.job_num}_{suffix}"
 
     @property
     def resolved_config(self) -> Path:
@@ -72,8 +90,8 @@ class RunLayout:
         self,
         stage: PublicStageName,
         *,
-        method: str | RetrievalMethodId | None = None,
-        split: str | None = None,
+        method: RetrievalMethodId | None = None,
+        split: SplitName | None = None,
         variant: str | None = None,
     ) -> Path:
         qualifier = _unit_name(method=method, split=split)
@@ -92,7 +110,7 @@ class RunLayout:
             / f"{stage}.yaml"
         )
 
-    def inputs(self, split: str) -> dict[str, Path]:
+    def inputs(self, split: SplitName) -> dict[str, Path]:
         root = self.run_dir / "inputs"
         return {
             "input": root / f"{split}.input.json",
@@ -100,18 +118,18 @@ class RunLayout:
             "combined": root / f"{split}.combined.json",
         }
 
-    def graph(self, split: str) -> Path:
+    def graph(self, split: SplitName) -> Path:
         return self.run_dir / "graphs" / f"{split}.graphs.json"
 
-    def tuned(self, method: str | RetrievalMethodId) -> Path:
+    def tuned(self, method: RetrievalMethodId) -> Path:
         return self.run_dir / "tuned" / f"{_method_name(method)}.dev_selected.json"
 
-    def tuned_candidates(self, method: str | RetrievalMethodId) -> Path:
+    def tuned_candidates(self, method: RetrievalMethodId) -> Path:
         return self.run_dir / "tuned" / f"{_method_name(method)}.dev_candidates.json"
 
     def learned_root(
         self,
-        method: str | RetrievalMethodId,
+        method: RetrievalMethodId,
         *,
         variant: str | None = None,
     ) -> Path:
@@ -121,23 +139,23 @@ class RunLayout:
         return self.run_dir / "ablations" / method_name / variant / "learned"
 
     def train_pairs(
-        self, method: str | RetrievalMethodId, *, variant: str | None = None
+        self, method: RetrievalMethodId, *, variant: str | None = None
     ) -> Path:
         return self.learned_root(method, variant=variant) / "train.pairs.json"
 
     def train_pair_summary(
-        self, method: str | RetrievalMethodId, *, variant: str | None = None
+        self, method: RetrievalMethodId, *, variant: str | None = None
     ) -> Path:
         return self.learned_root(method, variant=variant) / "train.pairs.summary.json"
 
     def training_metrics(
-        self, method: str | RetrievalMethodId, *, variant: str | None = None
+        self, method: RetrievalMethodId, *, variant: str | None = None
     ) -> Path:
         return self.learned_root(method, variant=variant) / "train_metrics.jsonl"
 
     def checkpoint(
         self,
-        method: str | RetrievalMethodId,
+        method: RetrievalMethodId,
         *,
         kind: Literal["file", "directory"],
         variant: str | None = None,
@@ -146,7 +164,7 @@ class RunLayout:
         return root / ("best.pt" if kind == "file" else "best_model")
 
     def prediction(
-        self, method: str | RetrievalMethodId, *, variant: str | None = None
+        self, method: RetrievalMethodId, *, variant: str | None = None
     ) -> Path:
         method_name = _required_method_name(method)
         if variant is None:
@@ -160,9 +178,7 @@ class RunLayout:
             / "test.ranked.json"
         )
 
-    def metric(
-        self, method: str | RetrievalMethodId, *, variant: str | None = None
-    ) -> Path:
+    def metric(self, method: RetrievalMethodId, *, variant: str | None = None) -> Path:
         method_name = _required_method_name(method)
         if variant is None:
             return self.run_dir / "metrics" / f"test.{method_name}.metrics.csv"
@@ -176,7 +192,7 @@ class RunLayout:
         )
 
     def failure_cases(
-        self, method: str | RetrievalMethodId, *, variant: str | None = None
+        self, method: RetrievalMethodId, *, variant: str | None = None
     ) -> Path:
         method_name = _required_method_name(method)
         if variant is None:
@@ -210,11 +226,29 @@ class RunLayout:
         role: str,
         path: Path,
         kind: Literal["file", "directory"] = "file",
-        alias_of: Path | None = None,
     ) -> ArtifactRef:
         resolved = path.resolve()
         self._require_contained(resolved)
-        return ArtifactRef(role=role, path=resolved, kind=kind, alias_of=alias_of)
+        return ArtifactRef(role=role, path=resolved, kind=kind)
+
+    def alias_artifact(
+        self,
+        *,
+        role: str,
+        path: Path,
+        alias_of: Path,
+        kind: Literal["file", "directory"] = "file",
+    ) -> AliasArtifactRef:
+        resolved = path.resolve()
+        source = alias_of.resolve()
+        self._require_contained(resolved)
+        self._require_contained(source)
+        return AliasArtifactRef(
+            role=role,
+            path=resolved,
+            kind=kind,
+            alias_of=source,
+        )
 
     def _require_contained(self, path: Path) -> None:
         try:
@@ -223,20 +257,20 @@ class RunLayout:
             raise ValueError(f"run artifact escapes run directory: {path}") from error
 
 
-def _method_name(method: str | RetrievalMethodId | None) -> str | None:
+def _method_name(method: RetrievalMethodId | None) -> str | None:
     if method is None:
         return None
-    return method.value if isinstance(method, RetrievalMethodId) else method
+    return None if method is None else method.value
 
 
-def _required_method_name(method: str | RetrievalMethodId) -> str:
+def _required_method_name(method: RetrievalMethodId) -> str:
     value = _method_name(method)
     if value is None or not value:
         raise ValueError("method name is required")
     return value
 
 
-def _unit_name(*, method: str | RetrievalMethodId | None, split: str | None) -> str:
+def _unit_name(*, method: RetrievalMethodId | None, split: SplitName | None) -> str:
     method_name = _method_name(method)
     if method_name and split:
         raise ValueError("stage unit cannot have both method and split")
@@ -250,4 +284,10 @@ def _safe_override_dirname(value: str) -> str:
     return sanitized
 
 
-__all__ = ["RunLayout", "RunMode"]
+__all__ = [
+    "MultirunIdentity",
+    "RunIdentity",
+    "RunLayout",
+    "RunMode",
+    "SingleRunIdentity",
+]

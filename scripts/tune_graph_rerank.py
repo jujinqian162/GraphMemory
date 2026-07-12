@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from pydantic import TypeAdapter
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.datasets.selection import (
@@ -17,7 +19,10 @@ from graph_memory.datasets.selection import (
 )
 from graph_memory.io import read_json, write_json
 from graph_memory.experiment.stage_cli import load_stage_execution
-from graph_memory.experiment.stage_models import GraphRerankTuneStageConfig
+from graph_memory.experiment.stage_models import (
+    DenseGraphRerankTuneStageConfig,
+    GraphRerankTuneStageConfig,
+)
 from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.retrieval.requests import DenseRuntime
@@ -33,7 +38,7 @@ LOGGER = logging.getLogger("tune_graph_rerank")
 def main(argv: Sequence[str] | None = None) -> int:
     execution = load_stage_execution(
         None if argv is None else list(argv),
-        GraphRerankTuneStageConfig,
+        TypeAdapter(GraphRerankTuneStageConfig),
         description="Tune graph reranking from a resolved stage YAML.",
         script=Path(__file__),
     )
@@ -61,8 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         grid = graph_rerank_grid_from_record(config.search_space.model_dump())
         dense_runtime = None
-        if config.seed_encoder is not None:
-            encoder = config.seed_encoder
+        if isinstance(config, DenseGraphRerankTuneStageConfig):
+            encoder = config.encoder
             dense_runtime = DenseRuntime(
                 config=DenseConfig(
                     model_name=encoder.model_name,

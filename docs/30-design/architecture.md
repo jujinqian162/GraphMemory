@@ -18,7 +18,7 @@ Public script names, CLI arguments, retrieval method names, JSON/JSONL/CSV schem
 
 ## External Structure
 
-The public experiment structure remains stable:
+The public experiment structure is deliberately small:
 
 ```text
 data/
@@ -27,12 +27,24 @@ data/
     processed/
 results/
 runs/
+experiment/
+  plan.py
+  run.py
+  status.py
+  inspect.py
+  reset.py
 scripts/
+configs/
+  config.yaml
+  dataset/
+  profile/
+  method_configs/
+  search_spaces/
 ```
 
 The workflow runner and low-level scripts remain the user-facing entry points:
 
-- `graph_memory/experiment/{plan,run,status,inspect,reset}.py`
+- `experiment/{plan,run,status,inspect,reset}.py`
 - `scripts/prepare_hotpotqa.py`
 - `scripts/build_graphs.py`
 - `scripts/run_retrieval.py`
@@ -62,7 +74,7 @@ graph_memory/
   tuning/
   training_pairs/
   validation/
-  experiment.py
+  experiment/
   io.py
   observability.py
   retrieval_registry.py
@@ -76,7 +88,7 @@ graph_memory/io.py
 graph_memory/observability.py
 graph_memory/registry/methods.py
 graph_memory/training_config.py
-graph_memory/experiment.py
+graph_memory/experiment/
 ```
 
 They must stay thin. New core logic belongs in the domain package that owns the behavior.
@@ -144,7 +156,7 @@ These rules are enforced by `tests/test_core_refactor_final_boundaries.py`.
 
 ## Retrieval Boundary
 
-Public method metadata is implemented in `graph_memory/registry/methods.py`; experiment lifecycle and artifact requirements are projected into `graph_memory/experiment/registry.py` for planning.
+Public method metadata, lifecycle, dependencies, seed methods, tuning kinds, and train-artifact kinds are implemented once in `graph_memory/registry/methods.py`. Planning consumes that registry directly. Typed executable ablation patches and their earliest invalidated stage live in `graph_memory/registry/ablations.py`; there is no derived experiment registry.
 
 Complete retrieval runs are retrieve stage use cases:
 
@@ -163,8 +175,8 @@ registry.retrieval
   -> public method metadata and typed job settings
 registry.retrieval_builders
   -> method object construction from job settings and dependencies
-experiment.registry
-  -> lifecycle and artifact projections for typed workflow planning
+experiment.planning
+  -> workflow ordering and complete persisted stage invocation construction
 retrieval.requests
   -> shared dense and trainable runtime objects
 retrieval.execution.service

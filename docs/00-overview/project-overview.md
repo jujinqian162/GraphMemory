@@ -60,7 +60,7 @@ The implemented trainable stack adds:
 - Frozen-encoder R-GCN binary evidence node scoring.
 - Checkpoint save/load and `dense_rgcn_graph_retriever` inference.
 - SentenceTransformers-based Dense-FT training, model-directory metadata, and `dense_ft` inference.
-- Closed method groups under `configs/experiment/method_configs/`.
+- Closed method groups under `configs/method_configs/`.
 - Precompiled pair, train, retrieve, and evaluate stage configs consumed through `--config`.
 - Runtime-produced model, device, and encoder provenance in retrieval summaries.
 - Experiment-runner stages for pair building, training, retrieval, evaluation, aggregation, resume, and artifact status.
@@ -68,10 +68,10 @@ The implemented trainable stack adds:
 
 The implemented cross-dataset stack additionally provides:
 
-- 2WikiMultiHopQA sentence-level preparation, dependency supervision, named experiment configs, and workflow routing.
+- 2WikiMultiHopQA sentence-level preparation, dependency supervision, and Hydra dataset selection.
 - MuSiQue-Ans JSONL preparation with paragraph-level evidence IDs and decomposition-derived dependency edges.
 - Dataset-local projectors into the same text retrieval, temporal memory, graph build, graph ranking, and evidence evaluation requests.
-- MuSiQue dataset composition plus shared smoke/quick/full profiles under `configs/experiment/`.
+- MuSiQue dataset composition plus shared smoke/quick/full profiles under `configs/`.
 
 The broader Phase 2 paper scope still needs:
 
@@ -84,7 +84,7 @@ The current HotpotQA graph evaluates evidence-node recovery and graph connectivi
 ## Current Architecture Boundary
 
 - `graph_memory/registry/methods.py` is the source of truth for method lifecycle, dependencies, encoder/model sources, and train artifact shape.
-- Trainable method groups are strict current-only YAML under `configs/experiment/method_configs/`; old config schemas and migrations are unsupported.
+- Trainable method groups are strict current-only YAML under `configs/method_configs/`; old config schemas and migrations are unsupported.
 - Workflow manifests and generated stage configs are strict current contracts. Low-level trainable scripts consume complete stage configs only.
 - R-GCN checkpoints and Dense-FT model metadata are current-only artifacts. Old runs and artifacts must be deleted and regenerated.
 - Retrieval builders return the actual runtime provenance serialized into run summaries.

@@ -27,6 +27,7 @@ from graph_memory.models.graph_retriever.training import (
     train_graph_retriever,
 )
 from graph_memory.experiment.config import (
+    ArtifactRef,
     DenseEncoderConfig,
     ModelSelectionConfig,
     PairSamplingConfig,
@@ -34,9 +35,10 @@ from graph_memory.experiment.config import (
     RgcnTrainConfig,
     RgcnTrainerConfig,
 )
+from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.experiment.persistence import write_yaml_atomic
 from graph_memory.experiment.state import read_stage_summary
-from graph_memory.experiment.stage_models import RgcnTrainStageConfig
+from graph_memory.experiment.stage_models import OrdinaryRgcnTrainStageConfig
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
@@ -296,8 +298,8 @@ def make_rgcn_train_stage_config(
     batch_size: int = 1,
     learning_rate: float = 0.01,
     device: str = "cpu",
-) -> RgcnTrainStageConfig:
-    return RgcnTrainStageConfig(
+) -> OrdinaryRgcnTrainStageConfig:
+    return OrdinaryRgcnTrainStageConfig(
         stage="train",
         method="dense_rgcn_graph_retriever",
         variant=None,
@@ -312,8 +314,6 @@ def make_rgcn_train_stage_config(
         output_dir=output_dir,
         checkpoint_dir=output_dir / "checkpoints",
         metrics=output_dir / "train_metrics.jsonl",
-        summary=output_dir / "train.run_summary.yaml",
-        seed_checkpoint=None,
         encoder=DenseEncoderConfig(
             model_name="fake-encoder",
             query_prefix="query: ",
@@ -353,8 +353,55 @@ def make_rgcn_train_stage_config(
     )
 
 
-def write_rgcn_train_stage_config(path: Path, config: RgcnTrainStageConfig) -> None:
-    write_yaml_atomic(path, config)
+def write_rgcn_train_stage_config(
+    path: Path,
+    config: OrdinaryRgcnTrainStageConfig,
+) -> None:
+    invocation = StageInvocation(
+        identifier="train:dense_rgcn_graph_retriever",
+        stage="train",
+        script=Path(train_method_script.__file__).resolve(),
+        config_path=path.resolve(),
+        summary_path=(config.output_dir / "train.run_summary.yaml").resolve(),
+        config=config,
+        inputs=tuple(
+            ArtifactRef(role=role, path=value.resolve(), kind="file")
+            for role, value in (
+                ("inputs", config.train_tasks),
+                ("labels", config.train_labels),
+                ("graphs", config.train_graphs),
+                ("train_pairs", config.train_pairs),
+                ("dev_inputs", config.dev_tasks),
+                ("dev_labels", config.dev_labels),
+                ("dev_graphs", config.dev_graphs),
+            )
+        ),
+        outputs=(
+            ArtifactRef(
+                role="checkpoint",
+                path=(config.checkpoint_dir / "best.pt").resolve(),
+                kind="file",
+            ),
+            ArtifactRef(
+                role="train_metrics",
+                path=config.metrics.resolve(),
+                kind="file",
+            ),
+        ),
+        dependencies=(),
+        method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+    )
+    write_yaml_atomic(path, invocation)
+
+
+def _patch_cli_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "graph_memory.stages.trainers._build_rgcn_dependencies",
+        lambda _settings: TrainDependencies(
+            text_embedding_provider=FakeTextEmbeddingProvider(),
+            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        ),
+    )
 
 
 def test_seed_signal_provider_and_feature_builder_share_rank_semantics():
@@ -481,7 +528,9 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
 
 def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    _patch_cli_dependencies(monkeypatch)
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_graphs_path = tmp_path / "train.graphs.json"
@@ -522,8 +571,6 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(
             "--config",
             str(config_path),
         ],
-        text_embedding_provider=FakeTextEmbeddingProvider(),
-        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
     assert exit_code == 0
@@ -537,7 +584,9 @@ def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(
 
 def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    _patch_cli_dependencies(monkeypatch)
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_graphs_path = tmp_path / "train.graphs.json"
@@ -580,19 +629,24 @@ def test_train_graph_retriever_cli_reads_model_and_optimization_from_config(
             "--config",
             str(config_path),
         ],
-        text_embedding_provider=FakeTextEmbeddingProvider(),
-        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
     assert exit_code == 0
     run_summary = read_stage_summary(output_dir / "train.run_summary.yaml")
     assert run_summary.status == "success"
-    assert run_summary.effective_config["train"]["model"]["hidden_dim"] == 8
-    assert run_summary.effective_config["train"]["trainer"]["batch_size"] == 1
-    assert run_summary.effective_config["train"]["trainer"]["epochs"] == 1
+    train_config = cast(dict[str, object], run_summary.effective_config["train"])
+    model_config = cast(dict[str, object], train_config["model"])
+    trainer_config = cast(dict[str, object], train_config["trainer"])
+    assert model_config["hidden_dim"] == 8
+    assert trainer_config["batch_size"] == 1
+    assert trainer_config["epochs"] == 1
 
 
-def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: Path):
+def test_train_graph_retriever_stage_config_controls_training_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _patch_cli_dependencies(monkeypatch)
     train_tasks_path = tmp_path / "train.input.json"
     train_labels_path = tmp_path / "train.labels.json"
     train_graphs_path = tmp_path / "train.graphs.json"
@@ -635,15 +689,16 @@ def test_train_graph_retriever_stage_config_controls_training_values(tmp_path: P
             "--config",
             str(config_path),
         ],
-        text_embedding_provider=FakeTextEmbeddingProvider(),
-        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
     assert exit_code == 0
     run_summary = read_stage_summary(output_dir / "train.run_summary.yaml")
-    assert run_summary.effective_config["train"]["model"]["hidden_dim"] == 8
-    assert run_summary.effective_config["train"]["trainer"]["epochs"] == 1
-    assert run_summary.effective_config["train"]["trainer"]["batch_size"] == 1
+    train_config = cast(dict[str, object], run_summary.effective_config["train"])
+    model_config = cast(dict[str, object], train_config["model"])
+    trainer_config = cast(dict[str, object], train_config["trainer"])
+    assert model_config["hidden_dim"] == 8
+    assert trainer_config["epochs"] == 1
+    assert trainer_config["batch_size"] == 1
 
 
 def test_rgcn_trainer_preserves_dense_ft_seeded_method_identity() -> None:

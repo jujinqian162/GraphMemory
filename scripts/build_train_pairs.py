@@ -66,7 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         observations.timing("total_seconds", time.perf_counter() - start_time)
         LOGGER.info("wrote train pairs: %s", config.outputs.pairs)
         LOGGER.info("wrote train pair summary: %s", summary_path)
-    LOGGER.info("wrote run summary: %s", config.outputs.summary)
+    LOGGER.info("wrote run summary: %s", execution.invocation.summary_path)
     return 0
 
 

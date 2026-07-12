@@ -237,7 +237,7 @@ Rules:
 - Owns numeric validation for `relevance_weight`, `recency_weight`, `importance_weight`, and `recency_decay`.
 - Does not know search-space arrays, grid search, labels, or metrics.
 - The formal `MemoryStreamMethod` and tuning adapter must both call the same scoring functions.
-- Fixed tuning fields are represented as single-element lists in `configs/experiment/search_spaces/memory_stream.yaml`, not as code branches.
+- Fixed tuning fields are represented as single-element lists in `configs/search_spaces/memory_stream.yaml`, not as code branches.
 
 ## SeedSignalProvider
 

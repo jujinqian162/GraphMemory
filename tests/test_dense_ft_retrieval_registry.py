@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from graph_memory.experiment.config import ArtifactRef
+from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.experiment.persistence import write_yaml_atomic
 from graph_memory.experiment.stage_cli import load_stage_execution
 from graph_memory.experiment.stage_models import DenseFinetuneRetrieveStageConfig
@@ -55,7 +57,6 @@ def _stage_config(tmp_path: Path, checkpoint: Path) -> DenseFinetuneRetrieveStag
         dataset="hotpotqa",
         tasks=(tmp_path / "tasks.json").resolve(),
         output=(tmp_path / "predictions.json").resolve(),
-        summary=(tmp_path / "predictions.run_summary.yaml").resolve(),
         top_k=2,
         model_dir=checkpoint.resolve(),
         device="cpu",
@@ -77,12 +78,44 @@ def test_retrieve_stage_config_loads_dense_ft_from_complete_config(
     checkpoint = tmp_path / "best_model"
     config_path = tmp_path / "retrieve.yaml"
     expected = _stage_config(tmp_path, checkpoint)
-    write_yaml_atomic(config_path, expected)
+    summary = (tmp_path / "predictions.run_summary.yaml").resolve()
+    script = (tmp_path / "run_retrieval.py").resolve()
+    invocation = StageInvocation(
+        identifier="retrieve:dense_ft",
+        stage="retrieve",
+        script=script,
+        config_path=config_path.resolve(),
+        summary_path=summary,
+        config=expected,
+        inputs=(
+            ArtifactRef(
+                role="inputs",
+                path=expected.tasks,
+                kind="file",
+            ),
+            ArtifactRef(
+                role="checkpoint",
+                path=expected.model_dir,
+                kind="directory",
+            ),
+        ),
+        outputs=(
+            ArtifactRef(
+                role="predictions",
+                path=expected.output,
+                kind="file",
+            ),
+        ),
+        dependencies=("train:dense_ft",),
+        method=RetrievalMethodId.DENSE_FT,
+    )
+    write_yaml_atomic(config_path, invocation)
 
     config = load_stage_execution(
         ["--config", str(config_path)],
         DenseFinetuneRetrieveStageConfig,
         description="test",
+        script=script,
     ).config
 
     assert config == expected

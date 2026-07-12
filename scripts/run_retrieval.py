@@ -15,12 +15,14 @@ from graph_memory.datasets.selection import (
     text_ranking_requests_for_dataset,
     validate_ranking_records_for_dataset,
 )
+from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.experiment.stage_cli import load_stage_execution
 from graph_memory.experiment.stage_models import (
     Bm25GraphRerankRetrieveStageConfig,
     DenseGraphRerankRetrieveStageConfig,
     MemoryStreamRetrieveStageConfig,
     RetrieveStageConfig,
+    RgcnRetrieveStageConfig,
 )
 from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.io import read_json, write_json
@@ -63,8 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         importance_artifact, importance_sha256 = (
             _load_memory_stream_importance_if_required(config)
         )
-        graphs_path = getattr(config, "graphs", None)
-        graphs = read_json(graphs_path) if isinstance(graphs_path, Path) else []
+        graphs = _read_graphs(config)
         result = run_retrieve_stage(
             config,
             task_inputs=task_inputs,
@@ -92,7 +93,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "method=%s tasks=%s top_k=%s", config.method, len(task_inputs), config.top_k
         )
         LOGGER.info("wrote predictions: %s", config.output)
-    LOGGER.info("wrote run summary: %s", config.summary)
+    LOGGER.info("wrote run summary: %s", execution.invocation.summary_path)
     return 0
 
 
@@ -106,22 +107,40 @@ SelectedConfig = GraphRerankConfig | MemoryStreamScoringConfig
 
 
 def _read_selected_config(config: RetrieveStageConfig) -> SelectedConfig | None:
-    path = getattr(config, "selected_config", None)
-    if not isinstance(path, Path):
-        return None
-    value = read_json(path)
-    if not isinstance(value, Mapping):
-        raise ValueError(f"Selected config must be a JSON object: {path}")
     if isinstance(
         config,
         (Bm25GraphRerankRetrieveStageConfig, DenseGraphRerankRetrieveStageConfig),
     ):
+        value = read_json(config.selected_config)
+        if not isinstance(value, Mapping):
+            raise ValueError(
+                f"Selected config must be a JSON object: {config.selected_config}"
+            )
         return ensure_graph_rerank_config(value)
     if isinstance(config, MemoryStreamRetrieveStageConfig):
+        value = read_json(config.selected_config)
+        if not isinstance(value, Mapping):
+            raise ValueError(
+                f"Selected config must be a JSON object: {config.selected_config}"
+            )
         return parse_memory_stream_scoring_config(value)
-    raise ValueError(
-        f"Retrieval method={config.method} does not accept selected_config."
-    )
+    return None
+
+
+def _read_graphs(config: RetrieveStageConfig) -> list[MemoryGraph]:
+    if not isinstance(
+        config,
+        (
+            Bm25GraphRerankRetrieveStageConfig,
+            DenseGraphRerankRetrieveStageConfig,
+            RgcnRetrieveStageConfig,
+        ),
+    ):
+        return []
+    value = read_json(config.graphs)
+    if not isinstance(value, list):
+        raise ValueError(f"Graph artifact must be a JSON list: {config.graphs}")
+    return cast(list[MemoryGraph], value)
 
 
 def _load_memory_stream_importance_if_required(

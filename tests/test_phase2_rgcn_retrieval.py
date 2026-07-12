@@ -11,6 +11,8 @@ from graph_memory.datasets.hotpotqa.projectors import (
     HotpotQAToTextRankingRequest,
 )
 from graph_memory.experiment.persistence import write_yaml_atomic
+from graph_memory.experiment.config import ArtifactRef
+from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.experiment.stage_models import RgcnRetrieveStageConfig
 from graph_memory.experiment.state import read_stage_summary
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
@@ -30,6 +32,7 @@ from graph_memory.retrieval.execution.service import run_retrieval as execute_re
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.validation import validate_ranked_results
 from scripts.run_retrieval import main as run_retrieval_cli_main
+import scripts.run_retrieval as run_retrieval_script
 from tests.test_phase2_rgcn_training import (
     FakeRetriever,
     FakeTextEmbeddingProvider,
@@ -150,12 +153,47 @@ def write_rgcn_retrieve_stage_config(
         tasks=tasks_path,
         graphs=graphs_path,
         output=output_path,
-        summary=output_path.with_name("ranked.run_summary.yaml"),
         top_k=top_k,
         checkpoint=checkpoint_path,
         device=device,
     )
-    write_yaml_atomic(path, config)
+    write_yaml_atomic(
+        path,
+        StageInvocation(
+            identifier="retrieve:dense_rgcn_graph_retriever",
+            stage="retrieve",
+            script=Path(run_retrieval_script.__file__).resolve(),
+            config_path=path.resolve(),
+            summary_path=output_path.with_name("ranked.run_summary.yaml").resolve(),
+            config=config,
+            inputs=(
+                ArtifactRef(
+                    role="inputs",
+                    path=tasks_path.resolve(),
+                    kind="file",
+                ),
+                ArtifactRef(
+                    role="graphs",
+                    path=graphs_path.resolve(),
+                    kind="file",
+                ),
+                ArtifactRef(
+                    role="checkpoint",
+                    path=checkpoint_path.resolve(),
+                    kind="file",
+                ),
+            ),
+            outputs=(
+                ArtifactRef(
+                    role="predictions",
+                    path=output_path.resolve(),
+                    kind="file",
+                ),
+            ),
+            dependencies=(),
+            method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+        ),
+    )
 
 
 def tiny_graph_ranking_request():

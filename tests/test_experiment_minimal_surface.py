@@ -30,9 +30,7 @@ def test_audited_optional_modes_are_test_only_or_unused() -> None:
         if "tracking" in site.keywords
     )
     assert all(
-        site.is_test
-        for site in inventory["stage_lifecycle"]
-        if "hook" in site.keywords
+        site.is_test for site in inventory["stage_lifecycle"] if "hook" in site.keywords
     )
     assert all(
         "script" in site.keywords
@@ -70,7 +68,10 @@ def test_forbidden_config_and_tracking_surfaces_are_absent() -> None:
     config_files = tuple((ROOT / "configs").rglob("*.yaml"))
     assert not {path.name for path in config_files} & forbidden_names
     assert not (ROOT / "configs" / "tracking").exists()
-    assert all("method_configs@method_configs." not in path.read_text(encoding="utf-8") for path in config_files)
+    assert all(
+        "method_configs@method_configs." not in path.read_text(encoding="utf-8")
+        for path in config_files
+    )
 
     active_sources = [ROOT / "configs", ROOT / "graph_memory", ROOT / "experiment"]
     offenders = [
@@ -90,3 +91,41 @@ def test_fixed_tracking_paths_are_canonical() -> None:
     assert "runs/.mlflow/tracking.db" in root_config
     assert "runs/.mlflow/artifacts" in root_config
 
+
+def test_deleted_duplicate_and_dynamic_surfaces_do_not_return() -> None:
+    assert not (ROOT / "graph_memory/experiment/registry.py").exists()
+    experiment_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "graph_memory/experiment").glob("*.py")
+    )
+    script_sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in (ROOT / "scripts").glob("*.py")
+    )
+    combined = f"{experiment_sources}\n{script_sources}"
+    for forbidden in (
+        "ExperimentMethodRegistry",
+        "_artifact_bindings",
+        "invocation_from_stage_config",
+        "PrepareHotpotQAArgs",
+        "PrepareTwoWikiArgs",
+        "PrepareMuSiQueArgs",
+        'getattr(config, "graphs"',
+        'getattr(config, "selected_config"',
+        "override_dirname or",
+        "except BaseException:\n        raise",
+    ):
+        assert forbidden not in combined
+    persisted_sources = "\n".join(
+        (ROOT / "graph_memory/experiment" / name).read_text(encoding="utf-8")
+        for name in ("persistence.py", "state.py")
+    )
+    assert "dict[str, Any]" not in persisted_sources
+
+
+def test_package_modules_are_not_alternate_public_commands() -> None:
+    assert not (ROOT / "graph_memory/experiment/plan.py").exists()
+    assert not (ROOT / "graph_memory/experiment/run.py").exists()
+    for name in ("status.py", "inspect.py", "reset.py"):
+        source = (ROOT / "graph_memory/experiment" / name).read_text(encoding="utf-8")
+        assert "if __name__ ==" not in source
+        assert "@hydra.main" not in source

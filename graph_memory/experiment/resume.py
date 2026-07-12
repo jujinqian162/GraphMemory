@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from graph_memory.experiment.planning import StageInvocation, WorkflowPlan
+from graph_memory.experiment.invocation import StageInvocation
+from graph_memory.experiment.planning import WorkflowPlan
 from graph_memory.experiment.status import StatusRow, inspect_plan_status
 
 

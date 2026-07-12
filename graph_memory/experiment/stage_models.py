@@ -28,7 +28,6 @@ class PrepareOutputs(ClosedModel):
     input: Path
     labels: Path
     combined: Path
-    summary: Path
 
 
 class RawPrepareStageConfig(ClosedModel):
@@ -69,14 +68,12 @@ class GraphStageConfig(ClosedModel):
     split: SplitName
     tasks: Path
     output: Path
-    summary: Path
     graph: GraphBuildConfig
 
 
 class PairOutputs(ClosedModel):
     pairs: Path
     pair_summary: Path
-    summary: Path
 
 
 class PairStageConfig(ClosedModel):
@@ -96,20 +93,31 @@ class PairStageConfig(ClosedModel):
     hard_dense_encoder: DenseEncoderConfig
 
 
-class GraphRerankTuneStageConfig(ClosedModel):
+class GraphRerankTuneStageBase(ClosedModel):
     stage: Literal["tune"]
-    kind: Literal["graph_rerank"]
     dataset: DatasetName
-    method: Literal["bm25_graph_rerank", "dense_graph_rerank"]
     tasks: Path
     labels: Path
     graphs: Path
     selected_config: Path
     candidates: Path
-    summary: Path
     top_k: PositiveInt
-    seed_encoder: DenseEncoderConfig | None
     search_space: GraphRerankSearchSpace
+
+
+class Bm25GraphRerankTuneStageConfig(GraphRerankTuneStageBase):
+    method: Literal["bm25_graph_rerank"]
+
+
+class DenseGraphRerankTuneStageConfig(GraphRerankTuneStageBase):
+    method: Literal["dense_graph_rerank"]
+    encoder: DenseEncoderConfig
+
+
+GraphRerankTuneStageConfig: TypeAlias = Annotated[
+    Union[Bm25GraphRerankTuneStageConfig, DenseGraphRerankTuneStageConfig],
+    Field(discriminator="method"),
+]
 
 
 class MemoryStreamTuneStageConfig(ClosedModel):
@@ -123,21 +131,23 @@ class MemoryStreamTuneStageConfig(ClosedModel):
     importance: Path
     selected_config: Path
     candidates: Path
-    summary: Path
     top_k: PositiveInt
     encoder: DenseEncoderConfig
     search_space: MemoryStreamSearchSpace
 
 
 TuneStageConfig: TypeAlias = Annotated[
-    Union[GraphRerankTuneStageConfig, MemoryStreamTuneStageConfig],
-    Field(discriminator="kind"),
+    Union[
+        Bm25GraphRerankTuneStageConfig,
+        DenseGraphRerankTuneStageConfig,
+        MemoryStreamTuneStageConfig,
+    ],
+    Field(discriminator="method"),
 ]
 
 
-class RgcnTrainStageConfig(ClosedModel):
+class RgcnTrainStageBase(ClosedModel):
     stage: Literal["train"]
-    method: Literal["dense_rgcn_graph_retriever", "dense_ft_rgcn_graph_retriever"]
     variant: str | None
     dataset: DatasetName
     train_tasks: Path
@@ -150,11 +160,23 @@ class RgcnTrainStageConfig(ClosedModel):
     output_dir: Path
     checkpoint_dir: Path
     metrics: Path
-    summary: Path
-    seed_checkpoint: Path | None
     encoder: DenseEncoderConfig
     pairs: PairSamplingConfig
     train: RgcnTrainConfig
+
+
+class OrdinaryRgcnTrainStageConfig(RgcnTrainStageBase):
+    method: Literal["dense_rgcn_graph_retriever"]
+
+
+class SeededRgcnTrainStageConfig(RgcnTrainStageBase):
+    method: Literal["dense_ft_rgcn_graph_retriever"]
+    seed_model_dir: Path
+
+
+RgcnTrainStageConfig: TypeAlias = (
+    OrdinaryRgcnTrainStageConfig | SeededRgcnTrainStageConfig
+)
 
 
 class DenseFinetuneTrainStageConfig(ClosedModel):
@@ -170,14 +192,17 @@ class DenseFinetuneTrainStageConfig(ClosedModel):
     output_dir: Path
     model_dir: Path
     metrics: Path
-    summary: Path
     encoder: DenseEncoderConfig
     pairs: PairSamplingConfig
     train: DenseFinetuneTrainConfig
 
 
 TrainStageConfig: TypeAlias = Annotated[
-    Union[RgcnTrainStageConfig, DenseFinetuneTrainStageConfig],
+    Union[
+        OrdinaryRgcnTrainStageConfig,
+        SeededRgcnTrainStageConfig,
+        DenseFinetuneTrainStageConfig,
+    ],
     Field(discriminator="method"),
 ]
 
@@ -189,7 +214,6 @@ class Bm25RetrieveStageConfig(ClosedModel):
     dataset: DatasetName
     tasks: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
 
 
@@ -200,7 +224,6 @@ class DenseRetrieveStageConfig(ClosedModel):
     dataset: DatasetName
     tasks: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
     encoder: DenseEncoderConfig
 
@@ -212,7 +235,6 @@ class MemoryStreamRetrieveStageConfig(ClosedModel):
     dataset: Literal["hotpotqa"]
     tasks: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
     encoder: DenseEncoderConfig
     selected_config: Path
@@ -229,7 +251,6 @@ class Bm25GraphRerankRetrieveStageConfig(ClosedModel):
     tasks: Path
     graphs: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
     selected_config: Path
     seed_method: Literal["bm25"]
@@ -243,7 +264,6 @@ class DenseGraphRerankRetrieveStageConfig(ClosedModel):
     tasks: Path
     graphs: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
     selected_config: Path
     seed_method: Literal["dense"]
@@ -258,7 +278,6 @@ class RgcnRetrieveStageConfig(ClosedModel):
     tasks: Path
     graphs: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
     checkpoint: Path
     device: str
@@ -271,7 +290,6 @@ class DenseFinetuneRetrieveStageConfig(ClosedModel):
     dataset: DatasetName
     tasks: Path
     output: Path
-    summary: Path
     top_k: PositiveInt
     model_dir: Path
     device: str
@@ -301,7 +319,6 @@ class EvaluateStageConfig(ClosedModel):
     graphs: Path
     metrics: Path
     failure_cases: Path
-    summary: Path
     failure_case_limit: NonNegativeInt
     top_k: PositiveInt
 
@@ -317,7 +334,6 @@ class AggregateStageBase(ClosedModel):
     main: Path
     path: Path
     efficiency: Path
-    summary: Path
 
 
 class OrdinaryAggregateStageConfig(AggregateStageBase):
@@ -355,10 +371,12 @@ __all__ = [
     "AblationAggregateStageConfig",
     "AblationSelection",
     "Bm25GraphRerankRetrieveStageConfig",
+    "Bm25GraphRerankTuneStageConfig",
     "Bm25RetrieveStageConfig",
     "DenseFinetuneRetrieveStageConfig",
     "DenseFinetuneTrainStageConfig",
     "DenseGraphRerankRetrieveStageConfig",
+    "DenseGraphRerankTuneStageConfig",
     "DenseRetrieveStageConfig",
     "EvaluateStageConfig",
     "GraphRerankTuneStageConfig",
@@ -367,12 +385,14 @@ __all__ = [
     "MemoryStreamRetrieveStageConfig",
     "MemoryStreamTuneStageConfig",
     "OrdinaryAggregateStageConfig",
+    "OrdinaryRgcnTrainStageConfig",
     "PairStageConfig",
     "PrepareStageConfig",
     "RawPrepareStageConfig",
     "RetrieveStageConfig",
     "RgcnRetrieveStageConfig",
     "RgcnTrainStageConfig",
+    "SeededRgcnTrainStageConfig",
     "StageConfig",
     "TrainStageConfig",
     "TuneStageConfig",

@@ -67,7 +67,6 @@ ACTIVE_DOC_FORBIDDEN_TOKENS = (
     "configs/experiments",
     "configs/methods",
     "configs/profiles",
-    "configs/search_spaces",
     "manifest.json",
     "run_summary.json",
     "--no-cache",

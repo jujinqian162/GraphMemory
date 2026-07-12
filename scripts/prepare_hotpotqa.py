@@ -49,21 +49,6 @@ LOGGER = logging.getLogger("prepare_hotpotqa")
 
 
 @dataclass(frozen=True)
-class PrepareHotpotQAArgs:
-    source: str
-    input: str
-    input_labels: str | None
-    importance: str | None
-    output_input: str
-    output_labels: str
-    output_combined: str | None
-    max_examples: int | None
-    seed: int
-    offset: int
-    strict_invalid_examples: bool
-
-
-@dataclass(frozen=True)
 class ValidRawExamples:
     records: list[object]
     invalid_reason_counts: dict[str, int]
@@ -88,48 +73,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError(
             f"prepare_hotpotqa.py requires dataset=hotpotqa, got {config.dataset}"
         )
-    if isinstance(config, RawPrepareStageConfig):
-        args = PrepareHotpotQAArgs(
-            source="raw",
-            input=str(config.source),
-            input_labels=None,
-            importance=None,
-            output_input=str(config.outputs.input),
-            output_labels=str(config.outputs.labels),
-            output_combined=str(config.outputs.combined),
-            max_examples=config.count,
-            seed=config.seed,
-            offset=config.offset,
-            strict_invalid_examples=config.strict_invalid_examples,
-        )
-    elif isinstance(config, ImportancePrepareStageConfig):
-        args = PrepareHotpotQAArgs(
-            source="importance",
-            input=str(config.canonical_inputs),
-            input_labels=str(config.canonical_labels),
-            importance=str(config.importance),
-            output_input=str(config.outputs.input),
-            output_labels=str(config.outputs.labels),
-            output_combined=str(config.outputs.combined),
-            max_examples=config.count,
-            seed=0,
-            offset=config.offset,
-            strict_invalid_examples=False,
-        )
-    else:
-        raise TypeError(f"unsupported HotpotQA prepare config: {type(config).__name__}")
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s"
     )
 
     start_time = time.perf_counter()
     with stage_lifecycle(execution.invocation) as observations:
-        if args.source == "raw":
-            prepared = prepare_from_raw(args)
-        elif args.source == "importance":
-            prepared = prepare_from_importance(args)
+        if isinstance(config, RawPrepareStageConfig):
+            prepared = prepare_from_raw(config)
         else:
-            raise ValueError(f"Unsupported HotpotQA prepare source: {args.source}")
+            prepared = prepare_from_importance(config)
 
         task_inputs = prepared.task_inputs
         task_labels = prepared.task_labels
@@ -139,19 +92,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_hotpotqa_ranking_records(task_inputs)
         validate_hotpotqa_label_records(task_labels, inputs_by_task_id)
 
-        write_json(args.output_input, task_inputs)
-        write_json(args.output_labels, task_labels)
-        if args.output_combined is not None:
-            write_json(
-                args.output_combined,
-                combined_hotpotqa_records(task_inputs, task_labels),
-            )
-            LOGGER.info(
-                "wrote compatibility combined artifact: %s", args.output_combined
-            )
+        write_json(config.outputs.input, task_inputs)
+        write_json(config.outputs.labels, task_labels)
+        write_json(
+            config.outputs.combined,
+            combined_hotpotqa_records(task_inputs, task_labels),
+        )
+        LOGGER.info(
+            "wrote compatibility combined artifact: %s", config.outputs.combined
+        )
 
-        LOGGER.info("wrote inputs: %s", args.output_input)
-        LOGGER.info("wrote labels: %s", args.output_labels)
+        LOGGER.info("wrote inputs: %s", config.outputs.input)
+        LOGGER.info("wrote labels: %s", config.outputs.labels)
         counts = cast(
             JsonObject,
             {
@@ -163,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for key, value in counts.items():
             observations.count(key, value)
         observations.timing("total_seconds", time.perf_counter() - start_time)
-    LOGGER.info("wrote run summary: %s", config.outputs.summary)
+    LOGGER.info("wrote run summary: %s", execution.invocation.summary_path)
     return 0
 
 
@@ -201,14 +153,14 @@ def select_valid_raw_examples(
     )
 
 
-def prepare_from_raw(args: PrepareHotpotQAArgs) -> PreparedHotpotQARecords:
-    raw_records = read_json(args.input)
+def prepare_from_raw(config: RawPrepareStageConfig) -> PreparedHotpotQARecords:
+    raw_records = read_json(config.source)
     if not isinstance(raw_records, list):
         raise ValueError("HotpotQA raw input must be a JSON list.")
     LOGGER.info("read raw examples: %s", len(raw_records))
 
     valid_raw_examples = select_valid_raw_examples(
-        raw_records, strict=args.strict_invalid_examples
+        raw_records, strict=config.strict_invalid_examples
     )
     invalid_examples_dropped = len(raw_records) - len(valid_raw_examples.records)
     if invalid_examples_dropped:
@@ -216,15 +168,15 @@ def prepare_from_raw(args: PrepareHotpotQAArgs) -> PreparedHotpotQARecords:
 
     selected_records = select_examples(
         valid_raw_examples.records,
-        max_examples=args.max_examples,
-        seed=args.seed,
-        offset=args.offset,
+        count=config.count,
+        seed=config.seed,
+        offset=config.offset,
     )
     LOGGER.info(
         "selected examples: count=%s seed=%s offset=%s",
         len(selected_records),
-        args.seed,
-        args.offset,
+        config.seed,
+        config.offset,
     )
 
     parsed_examples = parse_hotpotqa_examples(selected_records)
@@ -243,15 +195,12 @@ def prepare_from_raw(args: PrepareHotpotQAArgs) -> PreparedHotpotQARecords:
     )
 
 
-def prepare_from_importance(args: PrepareHotpotQAArgs) -> PreparedHotpotQARecords:
-    if args.input_labels is None:
-        raise ValueError("--input_labels is required when --source importance.")
-    if args.importance is None:
-        raise ValueError("--importance is required when --source importance.")
-
-    canonical_inputs = read_json(args.input)
-    canonical_labels = read_json(args.input_labels)
-    importance_artifact = read_json(args.importance)
+def prepare_from_importance(
+    config: ImportancePrepareStageConfig,
+) -> PreparedHotpotQARecords:
+    canonical_inputs = read_json(config.canonical_inputs)
+    canonical_labels = read_json(config.canonical_labels)
+    importance_artifact = read_json(config.importance)
     if not isinstance(canonical_inputs, list):
         raise ValueError("Canonical input artifact must be a JSON list.")
     if not isinstance(canonical_labels, list):
@@ -285,8 +234,8 @@ def prepare_from_importance(args: PrepareHotpotQAArgs) -> PreparedHotpotQARecord
 
     selected_records = select_ordered_records(
         task_records,
-        max_examples=args.max_examples,
-        offset=args.offset,
+        count=config.count,
+        offset=config.offset,
     )
     selected_inputs: list[HotpotQARankingRecord] = []
     selected_labels: list[HotpotQALabelRecord] = []
@@ -311,7 +260,7 @@ def prepare_from_importance(args: PrepareHotpotQAArgs) -> PreparedHotpotQARecord
     LOGGER.info(
         "selected importance-backed examples: count=%s offset=%s",
         len(selected_inputs),
-        args.offset,
+        config.offset,
     )
     return PreparedHotpotQARecords(
         task_inputs=selected_inputs,
@@ -336,31 +285,19 @@ def _temporal_requests(
 
 
 def select_examples(
-    raw_records: Sequence[object], *, max_examples: int | None, seed: int, offset: int
+    raw_records: Sequence[object], *, count: int, seed: int, offset: int
 ) -> list[object]:
-    if max_examples is None:
-        if offset != 0:
-            raise ValueError(
-                "--offset requires --max_examples so the split size is explicit."
-            )
-        return list(raw_records)
-    return sample_split(raw_records, count=max_examples, seed=seed, offset=offset)
+    return sample_split(raw_records, count=count, seed=seed, offset=offset)
 
 
 def select_ordered_records(
-    records: Sequence[object], *, max_examples: int | None, offset: int
+    records: Sequence[object], *, count: int, offset: int
 ) -> list[object]:
     if offset < 0:
         raise ValueError("offset must be non-negative.")
-    if max_examples is None:
-        if offset != 0:
-            raise ValueError(
-                "--offset requires --max_examples so the split size is explicit."
-            )
-        return list(records)
-    if max_examples < 0:
-        raise ValueError("max_examples must be non-negative.")
-    end = offset + max_examples
+    if count < 0:
+        raise ValueError("count must be non-negative.")
+    end = offset + count
     if end > len(records):
         raise ValueError(
             f"Requested split offset+count={end} exceeds available examples={len(records)}."

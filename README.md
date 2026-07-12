@@ -35,6 +35,8 @@ Use the Hydra experiment entrypoints for normal runs:
 uv run python experiment/plan.py name=quick_valid_100 profile=quick
 uv run python experiment/run.py name=quick_valid_100 profile=quick
 uv run python experiment/status.py name=quick_valid_100
+uv run python experiment/inspect.py kind=methods
+uv run python experiment/reset.py name=quick_valid_100
 ```
 
 Run artifacts are isolated under `runs/<experiment_name>/`. Planning is implicit on both `plan` and `run`; low-level scripts accept exactly `--config <resolved-stage-yaml>`. See `docs/40-operations/commands.md` for overrides, status, reset, multirun, and MLflow UI commands.

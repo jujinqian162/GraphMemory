@@ -75,7 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         observations.timing("total_seconds", time.perf_counter() - start_time)
         LOGGER.info("wrote graphs: %s", stage_config.output)
         LOGGER.info("wrote graph stats: %s", stats_path)
-    LOGGER.info("wrote run summary: %s", stage_config.summary)
+    LOGGER.info("wrote run summary: %s", execution.invocation.summary_path)
     return 0
 
 

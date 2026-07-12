@@ -10,7 +10,7 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
 )
-from graph_memory.experiment.layout import RunLayout
+from graph_memory.experiment.layout import MultirunIdentity, RunLayout
 from graph_memory.experiment.persistence import (
     read_yaml,
     write_yaml_atomic,
@@ -19,12 +19,14 @@ from graph_memory.experiment.planning import WorkflowPlanner
 from graph_memory.experiment.resume import prune_completed_prefix
 from graph_memory.experiment.service import initialize_experiment
 from graph_memory.experiment.state import (
+    FailedStageRunSummary,
+    RunningStageRunSummary,
     StageRunSummary,
+    SuccessfulStageRunSummary,
     create_run_state,
     read_run_state,
     read_stage_summary,
     stage_lifecycle,
-    summary_path_for,
     validate_run_identity,
     write_run_state,
     write_stage_summary,
@@ -94,7 +96,9 @@ def test_run_state_round_trip_and_identity_reuse_checks(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="mode mismatch"):
         validate_run_identity(
             layout=RunLayout(
-                tmp_path, "state-test", mode="multirun", job_num=0, override_dirname="x"
+                tmp_path,
+                "state-test",
+                identity=MultirunIdentity(job_num=0, override_dirname="x"),
             ),
             config=config,
             existing=loaded,
@@ -163,7 +167,7 @@ def test_stage_lifecycle_writes_running_success_and_failed_attempts(
         observations.count("examples", 3)
         observations.timing("load_seconds", 0.25)
     assert [summary.status for summary in seen] == ["running", "success"]
-    summary = read_stage_summary(summary_path_for(invocation))
+    summary = read_stage_summary(invocation.summary_path)
     assert summary.status == "success"
     assert summary.counts == {"examples": 3}
     assert inspect_invocation_status(invocation).state == "complete"
@@ -171,11 +175,25 @@ def test_stage_lifecycle_writes_running_success_and_failed_attempts(
     with pytest.raises(RuntimeError, match="boom"):
         with stage_lifecycle(invocation):
             raise RuntimeError("boom")
-    failed = read_stage_summary(summary_path_for(invocation))
+    failed = read_stage_summary(invocation.summary_path)
     assert failed.status == "failed"
     assert failed.attempt == 2
-    assert failed.error and failed.error.type == "RuntimeError"
+    assert failed.error.type == "RuntimeError"
     assert inspect_invocation_status(invocation).state == "stale"
+
+    running_data = seen[0].model_dump()
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        RunningStageRunSummary.model_validate(
+            {**running_data, "ended_at": summary.ended_at}
+        )
+    success_data = summary.model_dump()
+    success_data.pop("ended_at")
+    with pytest.raises(ValueError, match="ended_at"):
+        SuccessfulStageRunSummary.model_validate(success_data)
+    failed_data = failed.model_dump()
+    failed_data.pop("error")
+    with pytest.raises(ValueError, match="error"):
+        FailedStageRunSummary.model_validate(failed_data)
 
 
 def test_status_requires_all_outputs_matching_success_summary_and_artifact_kind(
@@ -286,9 +304,9 @@ def test_matching_outputs_with_mismatched_summary_are_stale(tmp_path: Path) -> N
     _materialize_outputs(invocation)
     with stage_lifecycle(invocation):
         pass
-    summary = read_stage_summary(summary_path_for(invocation))
+    summary = read_stage_summary(invocation.summary_path)
     write_stage_summary(
-        summary_path_for(invocation),
+        invocation.summary_path,
         summary.model_copy(update={"effective_config": {"stage": "prepare"}}),
     )
     row = inspect_invocation_status(invocation)

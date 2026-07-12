@@ -17,13 +17,13 @@ runs/<name>/
 
 `run_state.yaml` fixes the resolved typed config, mode, selected methods/stages, artifact bindings, and MLflow parent id. Each stage summary fixes identity, effective config, input/output bindings, attempt, timestamps, counts, timings, error, and child run id. A cache hit requires valid outputs and an exactly matching successful summary.
 
-Hydra groups under `configs/experiment/` own scientific defaults. Dataset groups own sources and capacities; profile groups own count policies and trainable scale; method groups own method-specific settings; search-space groups own tuning candidates; tracking defaults own the shared SQLite and artifact locations. Pydantic validation rejects unknown or unresolved values before planning.
+Hydra groups under `configs/` own scientific defaults. `configs/config.yaml` is the only root. Dataset groups own sources and capacities, profile groups own count policies and trainable scale, method groups own method-specific settings, and search-space groups own tuning candidates. Fixed tracking paths resolve to `runs/.mlflow/tracking.db` and `runs/.mlflow/artifacts/`. Pydantic validation rejects unknown or unresolved values before planning.
 
 Use a fresh name for changed configuration:
 
 ```powershell
-uv run python -m graph_memory.experiment.plan name=hotpot_smoke_13 profile=smoke seed=13 device=cpu
-uv run python -m graph_memory.experiment.run name=hotpot_smoke_13 profile=smoke seed=13 device=cpu
+uv run python experiment/plan.py name=hotpot_smoke_13 profile=smoke seed=13 device=cpu
+uv run python experiment/run.py name=hotpot_smoke_13 profile=smoke seed=13 device=cpu
 ```
 
 Reusing the name with different overrides fails. `cache.enabled=false` reruns the selected ordered plan without weakening summary validation. Interrupted runs resume only after the longest continuous complete/alias prefix.

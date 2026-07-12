@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeAlias, Union
+from typing import Annotated, Literal, TypeAlias, Union, cast
 
 from omegaconf import DictConfig, OmegaConf
 from pydantic import (
@@ -11,6 +11,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    JsonValue,
     StrictBool,
     field_validator,
     model_validator,
@@ -76,7 +77,13 @@ class ArtifactRef(ClosedModel):
     role: str = Field(min_length=1)
     path: Path
     kind: ArtifactKind
-    alias_of: Path | None
+
+
+class AliasArtifactRef(ArtifactRef):
+    alias_of: Path
+
+
+ArtifactBinding: TypeAlias = ArtifactRef | AliasArtifactRef
 
 
 class DatasetSplitBase(ClosedModel):
@@ -523,8 +530,11 @@ class ResolvedExperimentConfig(ClosedModel):
     search_spaces: SearchSpacesConfig
     tracking: ResolvedTrackingConfig
 
-    def normalized(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", by_alias=True)
+    def normalized(self) -> dict[str, JsonValue]:
+        return cast(
+            dict[str, JsonValue],
+            self.model_dump(mode="json", by_alias=True),
+        )
 
 
 def validate_composed_config(config: DictConfig) -> ExperimentConfig:
@@ -609,6 +619,8 @@ def _absolute_path(root: Path, value: Path) -> Path:
 __all__ = [
     "AblationConfig",
     "AllAvailableCountPolicy",
+    "AliasArtifactRef",
+    "ArtifactBinding",
     "ArtifactRef",
     "Bm25GraphRerankMethodConfig",
     "Bm25MethodConfig",

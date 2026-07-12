@@ -11,16 +11,20 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
 )
-from graph_memory.experiment.layout import RunLayout
+from graph_memory.experiment.layout import MultirunIdentity, RunLayout
 from graph_memory.experiment.planning import WorkflowPlanner, format_plan
-from graph_memory.experiment.registry import METHODS
+from graph_memory.registry import Registry
+from graph_memory.registry.ablations import (
+    ABLATION_SUITE_PATCHES,
+    ExecutableAblationVariant,
+)
 from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.experiment.stage_models import (
     AblationSelection,
     Bm25RetrieveStageConfig,
     DenseGraphRerankRetrieveStageConfig,
     PairStageConfig,
-    RgcnTrainStageConfig,
+    OrdinaryRgcnTrainStageConfig,
 )
 from graph_memory.registry.methods import ArtifactKind
 from graph_memory.registry.retrieval import RetrievalMethodId
@@ -100,46 +104,54 @@ def test_run_layout_owns_single_multirun_variant_and_artifact_paths(
     multi = RunLayout(
         tmp_path,
         "sweep",
-        mode="multirun",
-        job_num=2,
-        override_dirname="dataset=2wiki,seed=14",
+        identity=MultirunIdentity(
+            job_num=2,
+            override_dirname="dataset=2wiki,seed=14",
+        ),
     )
 
     assert single.run_dir == tmp_path.resolve() / "runs" / "demo"
     assert single.resolved_config == single.run_dir / "config/resolved.yaml"
     assert (
-        single.stage_config("retrieve", method="dense")
+        single.stage_config("retrieve", method=RetrievalMethodId.DENSE)
         == single.run_dir / "config/stages/retrieve/dense.yaml"
     )
     assert (
         single.stage_config(
             "train",
-            method="dense_rgcn_graph_retriever",
+            method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
             variant="wo_graph",
         )
         == single.run_dir
         / "config/stages/ablations/dense_rgcn_graph_retriever/wo_graph/train.yaml"
     )
     assert multi.run_dir.name == "2_dataset=2wiki,seed=14"
-    assert single.checkpoint("dense_ft", kind="directory").name == "best_model"
     assert (
-        single.checkpoint("dense_rgcn_graph_retriever", kind="file").name == "best.pt"
+        single.checkpoint(RetrievalMethodId.DENSE_FT, kind="directory").name
+        == "best_model"
+    )
+    assert (
+        single.checkpoint(
+            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
+            kind="file",
+        ).name
+        == "best.pt"
     )
     with pytest.raises(ValueError, match="run name"):
         RunLayout(tmp_path, "../escape")
 
 
 def test_typed_method_registry_projects_all_eight_runtime_contracts() -> None:
-    assert METHODS.list_ids() == tuple(RetrievalMethodId)
-    seeded = METHODS.get(RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER)
+    assert Registry.methods.list_ids() == tuple(RetrievalMethodId)
+    seeded = Registry.methods.get(RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER)
     assert seeded.train_dependencies == (RetrievalMethodId.DENSE_FT,)
-    assert seeded.train_artifact_kind is ArtifactKind.FILE
-    assert (
-        METHODS.get(RetrievalMethodId.DENSE_FT).train_artifact_kind
-        is ArtifactKind.DIRECTORY
-    )
-    assert METHODS.expand_train_dependencies(
-        [RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER]
+    assert seeded.train_artifact is not None
+    assert seeded.train_artifact.kind is ArtifactKind.FILE
+    dense_ft = Registry.methods.get(RetrievalMethodId.DENSE_FT)
+    assert dense_ft.train_artifact is not None
+    assert dense_ft.train_artifact.kind is ArtifactKind.DIRECTORY
+    assert Registry.methods.expand_train_dependencies(
+        (RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,)
     ) == (
         RetrievalMethodId.DENSE_FT,
         RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
@@ -228,7 +240,6 @@ def test_method_discriminated_stage_configs_do_not_carry_unrelated_fields(
         "dataset",
         "tasks",
         "output",
-        "summary",
         "top_k",
     }
     assert isinstance(dense_graph, DenseGraphRerankRetrieveStageConfig)
@@ -302,7 +313,7 @@ def test_ablation_planning_preserves_invalidation_alias_and_variant_namespaces(
         for item in plan.invocations
         if item.variant == "wo_hard_negatives" and item.stage == "pairs"
     )
-    assert isinstance(wo_graph_train, RgcnTrainStageConfig)
+    assert isinstance(wo_graph_train, OrdinaryRgcnTrainStageConfig)
     assert wo_graph_train.train is not None
     assert wo_graph_train.train.model.ablation == "wo_graph"
     assert wo_graph_train.train.model.num_layers == 0
@@ -333,6 +344,30 @@ def test_ablation_planning_preserves_invalidation_alias_and_variant_namespaces(
             variant="wo_hard_negatives",
         ),
     )
+
+
+def test_all_registered_executable_ablation_variants_are_plannable(
+    tmp_path: Path,
+) -> None:
+    method = RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
+    config = _resolved(
+        overrides=[
+            "methods=[dense_rgcn_graph_retriever]",
+            "ablation.variants=all",
+        ]
+    )
+    plan = WorkflowPlanner(config, RunLayout(tmp_path, "planning-test")).build()
+    expected = {
+        variant.identifier
+        for variant in ABLATION_SUITE_PATCHES[method].variants
+        if isinstance(variant, ExecutableAblationVariant)
+    }
+    planned = {
+        item.variant
+        for item in plan.invocations
+        if item.variant is not None and item.stage == "train"
+    }
+    assert planned == expected
 
 
 def test_ablation_only_requires_ordinary_baseline_metric(tmp_path: Path) -> None:

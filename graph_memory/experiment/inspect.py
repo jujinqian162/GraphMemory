@@ -5,7 +5,7 @@ from typing import Literal
 
 from graph_memory.experiment.config import ClosedModel
 from graph_memory.experiment.planning import STAGE_ORDER
-from graph_memory.experiment.registry import METHODS
+from graph_memory.registry import Registry
 from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES
 
 InspectionKind = Literal[
@@ -27,7 +27,7 @@ def inspect_catalog(kind: InspectionKind, *, repository_root: Path) -> object:
     if kind == "stages":
         return list(STAGE_ORDER)
     if kind == "methods":
-        return [_method_row(method) for method in METHODS.list_ids()]
+        return [_method_row(method) for method in Registry.methods.list_ids()]
     if kind in {"datasets", "profiles"}:
         directory = config_root / ("dataset" if kind == "datasets" else "profile")
         return sorted(path.stem for path in directory.glob("*.yaml"))
@@ -49,16 +49,15 @@ def inspect_catalog(kind: InspectionKind, *, repository_root: Path) -> object:
 
 
 def _method_row(method) -> dict[str, object]:
-    spec = METHODS.get(method)
+    spec = Registry.methods.get(method)
     return {
         "method": method.value,
         "lifecycle": spec.lifecycle.value,
         "tuning": (None if spec.tuning is None else spec.tuning.value),
         "train_artifact_kind": (
-            None if spec.train_artifact_kind is None else spec.train_artifact_kind.value
+            None if spec.train_artifact is None else spec.train_artifact.kind.value
         ),
         "train_dependencies": [
             dependency.value for dependency in spec.train_dependencies
         ],
     }
-

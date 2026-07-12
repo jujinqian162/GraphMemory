@@ -243,3 +243,22 @@ Rollback before deletion is a repository revert to the current uncommitted refac
 ## Open Questions
 
 None. The correction deliberately chooses the smallest single path. If implementation discovers a genuinely required second mode, it must first identify a production caller and update this design rather than add an optional parameter or fallback inline.
+
+## Implementation Validation (2026-07-12)
+
+The completed implementation passed the full `407`-test suite, Ruff, basedpyright at error level, compileall, `git diff --check`, strict OpenSpec validation, and an isolated locked Python 3.10 verification run (`36 passed`). Focused config, planning, direct-stage, status/resume, tracking, negative-contract, and forbidden-surface tests are included in the full suite.
+
+Fresh real workflows completed as follows:
+
+- HotpotQA default seven-method quick: `verify-refactor-default7-quick-20260712`, `29/29`;
+- HotpotQA all-eight Memory Stream smoke: `verify-refactor-all8-smoke-20260712`, `32/32`;
+- HotpotQA R-GCN ablation smoke: `verify-refactor-rgcn-ablation-20260712`, `19/19` planned results with 14 executed stages plus aliases;
+- 2Wiki and MuSiQue complete supported-method smoke: `verify-refactor-2wiki-all7-smoke-20260712` and `verify-refactor-musique-all7-smoke-20260712`, each `29/29`;
+- cache-disabled execution was run twice under `verify-refactor-cache-disabled-20260712`, both times `9/9` with no skips;
+- an interrupted completed-prefix run resumed under `verify-refactor-completed-prefix-resume-20260712`, executing only the remaining four stages and reporting `skipped=7`;
+- a real two-job sequential Hydra multirun completed under `verify-refactor-multirun-20260712`; both jobs completed `9/9`, used distinct MLflow parents, and each parent owned nine metric-bearing child runs;
+- offline delivery for `verify-refactor-all8-smoke-20260712` copied 92 curated artifacts to `results/`.
+
+The old and new default quick runs have byte-identical prepared inputs, labels, and graphs. BM25, Dense, and every trainable method have identical logical aggregate metrics; all trainable ranking orders are identical, exceeding the declared scalar tolerance requirement. `path_results.csv` is identical. Runtime latency columns differ as expected.
+
+Graph-rerank comparison reproduced the repository's retained Phase 1 latency tie-break limitation: tied dev candidates had identical higher-priority scientific metrics, but runtime latency selected `max_hops=2` versus `1` for BM25 graph rerank and `seed_top_s=30` versus `20` for Dense graph rerank. This known measurement-driven exception is now explicit in `docs/10-plans/refactor-7-9-parity-contract.md`; changing the Phase 1 tie-break is deliberately outside this structural cleanup.

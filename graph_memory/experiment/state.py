@@ -6,22 +6,43 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Literal, Protocol, TypeAlias, Union
 
-from pydantic import Field
+from pydantic import Field, RootModel
 
 from graph_memory.experiment.config import (
-    ArtifactRef,
+    AliasArtifactRef,
+    ArtifactBinding,
     ClosedModel,
     PublicStageName,
     ResolvedExperimentConfig,
 )
 from graph_memory.experiment.layout import RunLayout, RunMode
-from graph_memory.experiment.persistence import read_yaml_model, write_yaml_atomic
-from graph_memory.experiment.planning import StageInvocation, WorkflowPlan
+from graph_memory.experiment.persistence import (
+    YamlValue,
+    as_yaml_object,
+    as_yaml_value,
+    read_yaml,
+    read_yaml_model,
+    write_yaml_atomic,
+)
+from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.registry.retrieval import RetrievalMethodId
 
 StageAttemptStatus = Literal["running", "success", "failed"]
+
+
+class StageAliasLike(Protocol):
+    @property
+    def artifact(self) -> AliasArtifactRef: ...
+
+
+class WorkflowPlanLike(Protocol):
+    @property
+    def invocations(self) -> tuple[StageInvocation, ...]: ...
+
+    @property
+    def aliases(self) -> tuple[StageAliasLike, ...]: ...
 
 
 class ErrorRecord(ClosedModel):
@@ -42,11 +63,11 @@ class RunState(ClosedModel):
     selected_methods: tuple[RetrievalMethodId, ...]
     selected_stages: tuple[PublicStageName, ...]
     plan: tuple[str, ...]
-    artifacts: tuple[ArtifactRef, ...]
+    artifacts: tuple[ArtifactBinding, ...]
     mlflow_parent_run_id: str | None = None
 
 
-class StageRunSummary(ClosedModel):
+class StageRunSummaryBase(ClosedModel):
     version: Literal[1] = 1
     identifier: str
     stage: PublicStageName
@@ -54,26 +75,52 @@ class StageRunSummary(ClosedModel):
     method: RetrievalMethodId | None
     split: str | None
     variant: str | None
-    status: StageAttemptStatus
     attempt: int = Field(ge=1)
     started_at: datetime
-    ended_at: datetime | None
-    effective_config: dict[str, Any]
-    inputs: tuple[ArtifactRef, ...]
-    outputs: tuple[ArtifactRef, ...]
-    counts: dict[str, Any]
+    effective_config: dict[str, YamlValue]
+    inputs: tuple[ArtifactBinding, ...]
+    outputs: tuple[ArtifactBinding, ...]
+    counts: dict[str, YamlValue]
     timings: dict[str, float]
-    error: ErrorRecord | None
     mlflow_child_run_id: str | None = None
+
+
+class RunningStageRunSummary(StageRunSummaryBase):
+    status: Literal["running"]
+
+
+class SuccessfulStageRunSummary(StageRunSummaryBase):
+    status: Literal["success"]
+    ended_at: datetime
+
+
+class FailedStageRunSummary(StageRunSummaryBase):
+    status: Literal["failed"]
+    ended_at: datetime
+    error: ErrorRecord
+
+
+StageRunSummary: TypeAlias = Annotated[
+    Union[
+        RunningStageRunSummary,
+        SuccessfulStageRunSummary,
+        FailedStageRunSummary,
+    ],
+    Field(discriminator="status"),
+]
+
+
+class StageRunSummaryDocument(RootModel[StageRunSummary]):
+    pass
 
 
 @dataclass
 class StageObservations:
-    counts: dict[str, Any] = field(default_factory=dict)
+    counts: dict[str, YamlValue] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
 
-    def count(self, name: str, value: Any) -> None:
-        self.counts[name] = value
+    def count(self, name: str, value: object) -> None:
+        self.counts[name] = as_yaml_value(value)
 
     def timing(self, name: str, seconds: float) -> None:
         self.timings[name] = seconds
@@ -83,7 +130,7 @@ def create_run_state(
     *,
     layout: RunLayout,
     config: ResolvedExperimentConfig,
-    plan: WorkflowPlan,
+    plan: WorkflowPlanLike,
 ) -> RunState:
     now = _now()
     stages: tuple[PublicStageName, ...] = tuple(
@@ -129,7 +176,10 @@ def update_run_state(
     *,
     mlflow_parent_run_id: str | None = None,
 ) -> RunState:
-    if mlflow_parent_run_id is None or mlflow_parent_run_id == state.mlflow_parent_run_id:
+    if (
+        mlflow_parent_run_id is None
+        or mlflow_parent_run_id == state.mlflow_parent_run_id
+    ):
         return state
     updated = state.model_copy(
         update={
@@ -184,7 +234,7 @@ def assert_named_root_mode(layout: RunLayout) -> None:
 
 
 def read_stage_summary(path: Path) -> StageRunSummary:
-    return read_yaml_model(path, StageRunSummary)
+    return StageRunSummaryDocument.model_validate(read_yaml(path)).root
 
 
 def write_stage_summary(path: Path, summary: StageRunSummary) -> None:
@@ -195,7 +245,7 @@ def write_stage_summary(path: Path, summary: StageRunSummary) -> None:
 def stage_lifecycle(
     invocation: StageInvocation,
 ) -> Iterator[StageObservations]:
-    destination = summary_path_for(invocation)
+    destination = invocation.summary_path
     attempt = _next_attempt(destination)
     started = _now()
     observations = StageObservations()
@@ -250,24 +300,45 @@ def _stage_summary(
     observations: StageObservations,
     error: ErrorRecord | None,
 ) -> StageRunSummary:
-    return StageRunSummary(
+    common = dict(
         identifier=invocation.identifier,
         stage=invocation.stage,
         script=invocation.script,
         method=invocation.method,
         split=invocation.split,
         variant=invocation.variant,
-        status=status,
         attempt=attempt,
         started_at=started_at,
-        ended_at=ended_at,
-        effective_config=invocation.config.model_dump(mode="json", by_alias=True),
+        effective_config=as_yaml_object(
+            invocation.config.model_dump(mode="json", by_alias=True)
+        ),
         inputs=invocation.inputs,
         outputs=invocation.outputs,
         counts=dict(observations.counts),
         timings=dict(observations.timings),
-        error=error,
         mlflow_child_run_id=None,
+    )
+    if status == "running":
+        return RunningStageRunSummary.model_validate({"status": "running", **common})
+    if ended_at is None:
+        raise ValueError(
+            f"terminal stage summary requires ended_at: {invocation.identifier}"
+        )
+    if status == "success":
+        return SuccessfulStageRunSummary.model_validate(
+            {"status": "success", "ended_at": ended_at, **common}
+        )
+    if error is None:
+        raise ValueError(
+            f"failed stage summary requires error: {invocation.identifier}"
+        )
+    return FailedStageRunSummary.model_validate(
+        {
+            "status": "failed",
+            "ended_at": ended_at,
+            "error": error,
+            **common,
+        }
     )
 
 
@@ -275,17 +346,6 @@ def _next_attempt(path: Path) -> int:
     if not path.is_file():
         return 1
     return read_stage_summary(path).attempt + 1
-
-
-def summary_path_for(invocation: StageInvocation) -> Path:
-    value = getattr(invocation.config, "summary", None)
-    if isinstance(value, Path):
-        return value
-    outputs = getattr(invocation.config, "outputs", None)
-    nested = getattr(outputs, "summary", None)
-    if isinstance(nested, Path):
-        return nested
-    raise ValueError(f"stage config has no summary path: {invocation.identifier}")
 
 
 def _validate_declared_outputs(invocation: StageInvocation) -> None:
@@ -298,11 +358,14 @@ def _validate_declared_outputs(invocation: StageInvocation) -> None:
             )
 
 
-def _unique_artifacts(artifacts: Iterator[ArtifactRef]) -> tuple[ArtifactRef, ...]:
-    result: list[ArtifactRef] = []
+def _unique_artifacts(
+    artifacts: Iterator[ArtifactBinding],
+) -> tuple[ArtifactBinding, ...]:
+    result: list[ArtifactBinding] = []
     seen: set[tuple[str, Path, str, Path | None]] = set()
     for artifact in artifacts:
-        key = (artifact.role, artifact.path, artifact.kind, artifact.alias_of)
+        source = artifact.alias_of if isinstance(artifact, AliasArtifactRef) else None
+        key = (artifact.role, artifact.path, artifact.kind, source)
         if key not in seen:
             seen.add(key)
             result.append(artifact)
@@ -323,7 +386,6 @@ __all__ = [
     "read_run_state",
     "read_stage_summary",
     "stage_lifecycle",
-    "summary_path_for",
     "update_run_state",
     "validate_run_identity",
     "write_run_state",

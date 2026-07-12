@@ -35,18 +35,6 @@ LOGGER = logging.getLogger("prepare_2wiki")
 
 
 @dataclass(frozen=True)
-class PrepareTwoWikiArgs:
-    input: str
-    output_input: str
-    output_labels: str
-    output_combined: str | None
-    max_examples: int | None
-    seed: int
-    offset: int
-    strict_invalid_examples: bool
-
-
-@dataclass(frozen=True)
 class ValidRawExamples:
     records: list[object]
     invalid_reason_counts: dict[str, int]
@@ -71,23 +59,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError(
             f"prepare_2wiki.py requires dataset=twowiki, got {config.dataset}"
         )
-    args = PrepareTwoWikiArgs(
-        input=str(config.source),
-        output_input=str(config.outputs.input),
-        output_labels=str(config.outputs.labels),
-        output_combined=str(config.outputs.combined),
-        max_examples=config.count,
-        seed=config.seed,
-        offset=config.offset,
-        strict_invalid_examples=config.strict_invalid_examples,
-    )
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s"
     )
 
     start_time = time.perf_counter()
     with stage_lifecycle(execution.invocation) as observations:
-        prepared = prepare_from_raw(args)
+        prepared = prepare_from_raw(config)
         task_inputs = prepared.task_inputs
         task_labels = prepared.task_labels
         inputs_by_task_id = {
@@ -96,13 +74,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_twowiki_ranking_records(task_inputs)
         validate_twowiki_label_records(task_labels, inputs_by_task_id)
 
-        write_json(args.output_input, task_inputs)
-        write_json(args.output_labels, task_labels)
-        if args.output_combined is not None:
-            write_json(
-                args.output_combined, combined_twowiki_records(task_inputs, task_labels)
-            )
-            LOGGER.info("wrote combined inspection artifact: %s", args.output_combined)
+        write_json(config.outputs.input, task_inputs)
+        write_json(config.outputs.labels, task_labels)
+        write_json(
+            config.outputs.combined,
+            combined_twowiki_records(task_inputs, task_labels),
+        )
+        LOGGER.info("wrote combined inspection artifact: %s", config.outputs.combined)
 
         counts = cast(
             JsonObject,
@@ -120,9 +98,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         for key, value in counts.items():
             observations.count(key, value)
         observations.timing("total_seconds", time.perf_counter() - start_time)
-        LOGGER.info("wrote inputs: %s", args.output_input)
-        LOGGER.info("wrote labels: %s", args.output_labels)
-    LOGGER.info("wrote run summary: %s", config.outputs.summary)
+        LOGGER.info("wrote inputs: %s", config.outputs.input)
+        LOGGER.info("wrote labels: %s", config.outputs.labels)
+    LOGGER.info("wrote run summary: %s", execution.invocation.summary_path)
     return 0
 
 
@@ -159,14 +137,14 @@ def select_valid_raw_examples(
     )
 
 
-def prepare_from_raw(args: PrepareTwoWikiArgs) -> PreparedTwoWikiRecords:
-    raw_records = read_json(args.input)
+def prepare_from_raw(config: RawPrepareStageConfig) -> PreparedTwoWikiRecords:
+    raw_records = read_json(config.source)
     if not isinstance(raw_records, list):
         raise ValueError("2Wiki raw input must be a JSON list.")
     LOGGER.info("read raw examples: %s", len(raw_records))
 
     valid_raw_examples = select_valid_raw_examples(
-        raw_records, strict=args.strict_invalid_examples
+        raw_records, strict=config.strict_invalid_examples
     )
     invalid_examples_dropped = len(raw_records) - len(valid_raw_examples.records)
     if invalid_examples_dropped:
@@ -174,15 +152,15 @@ def prepare_from_raw(args: PrepareTwoWikiArgs) -> PreparedTwoWikiRecords:
 
     selected_records = select_examples(
         valid_raw_examples.records,
-        max_examples=args.max_examples,
-        seed=args.seed,
-        offset=args.offset,
+        count=config.count,
+        seed=config.seed,
+        offset=config.offset,
     )
     LOGGER.info(
         "selected examples: count=%s seed=%s offset=%s",
         len(selected_records),
-        args.seed,
-        args.offset,
+        config.seed,
+        config.offset,
     )
 
     parsed_examples = parse_twowiki_examples(selected_records)
@@ -202,15 +180,9 @@ def prepare_from_raw(args: PrepareTwoWikiArgs) -> PreparedTwoWikiRecords:
 
 
 def select_examples(
-    raw_records: Sequence[object], *, max_examples: int | None, seed: int, offset: int
+    raw_records: Sequence[object], *, count: int, seed: int, offset: int
 ) -> list[object]:
-    if max_examples is None:
-        if offset != 0:
-            raise ValueError(
-                "--offset requires --max_examples so the split size is explicit."
-            )
-        return list(raw_records)
-    return sample_split(raw_records, count=max_examples, seed=seed, offset=offset)
+    return sample_split(raw_records, count=count, seed=seed, offset=offset)
 
 
 if __name__ == "__main__":

@@ -7,13 +7,15 @@ import math
 import platform
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from mlflow import MlflowClient
 from mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME
 
 from graph_memory.experiment.config import ResolvedExperimentConfig
-from graph_memory.experiment.planning import StageInvocation
-from graph_memory.experiment.state import StageRunSummary
+from graph_memory.experiment.invocation import StageInvocation
+from graph_memory.experiment.state import FailedStageRunSummary, StageRunSummary
 
 ALLOWLISTED_ARTIFACT_ROLES = frozenset(
     {
@@ -47,9 +49,10 @@ class TrackingAdapter:
                 artifact_location=config.tracking.artifact_root.as_uri(),
             )
             experiment = self.client.get_experiment(experiment_id)
-        if Path(
-            experiment.artifact_location.removeprefix("file://")
-        ).as_posix().lower() != (config.tracking.artifact_root.as_posix().lower()):
+        tracked_artifact_root = Path(
+            url2pathname(urlparse(experiment.artifact_location).path)
+        ).resolve()
+        if tracked_artifact_root != config.tracking.artifact_root.resolve():
             raise ValueError(
                 "MLflow experiment artifact root mismatch: "
                 f"expected={config.tracking.artifact_root} actual={experiment.artifact_location}"
@@ -118,7 +121,7 @@ class TrackingAdapter:
         ).items():
             self.client.log_param(run_id, key, value)
         self.client.set_tag(run_id, "graph_memory.status", summary.status)
-        if summary.error is not None:
+        if isinstance(summary, FailedStageRunSummary):
             self.client.set_tag(run_id, "graph_memory.error_type", summary.error.type)
             self.client.set_tag(
                 run_id, "graph_memory.error_message", summary.error.message
@@ -126,12 +129,12 @@ class TrackingAdapter:
         for name, value in summary.timings.items():
             self.client.log_metric(run_id, _metric_name(f"timing.{name}"), float(value))
         for name, value in summary.counts.items():
-            if _is_metric(value):
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
                 self.client.log_metric(
                     run_id, _metric_name(f"count.{name}"), float(value)
                 )
 
-        summary_path = _summary_path(invocation)
+        summary_path = invocation.summary_path
         curated = (
             ("resolved_config", resolved_config),
             ("overrides", overrides),
@@ -210,19 +213,19 @@ class TrackingAdapter:
                     continue
                 with output.path.open("r", encoding="utf-8-sig", newline="") as stream:
                     rows = list(csv.DictReader(stream))
-                if len(rows) != 1:
-                    continue
-                for name, value in rows[0].items():
-                    try:
-                        number = float(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if math.isfinite(number):
-                        self.client.log_metric(
-                            run_id,
-                            _metric_name(f"{invocation.stage}.{name}"),
-                            number,
-                        )
+                for index, row in enumerate(rows):
+                    prefix = _table_metric_prefix(invocation, row, index=index)
+                    for name, value in row.items():
+                        try:
+                            number = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if math.isfinite(number):
+                            self.client.log_metric(
+                                run_id,
+                                _metric_name(f"{prefix}.{name}"),
+                                number,
+                            )
         if invocation.stage == "tune":
             self._log_tuning_selection(run_id, invocation)
 
@@ -273,12 +276,6 @@ class TrackingAdapter:
                 )
 
 
-def _summary_path(invocation: StageInvocation) -> Path:
-    from graph_memory.experiment.state import summary_path_for
-
-    return summary_path_for(invocation)
-
-
 def _flatten(prefix: str, value: object) -> dict[str, str]:
     if isinstance(value, dict):
         result: dict[str, str] = {}
@@ -310,6 +307,21 @@ def _is_metric(value: object) -> bool:
 
 def _metric_name(value: str) -> str:
     return value.replace(" ", "_").replace("@", "_at_")
+
+
+def _table_metric_prefix(
+    invocation: StageInvocation,
+    row: dict[str, str | None],
+    *,
+    index: int,
+) -> str:
+    method = (
+        invocation.method.value
+        if invocation.method is not None
+        else row.get("Method") or f"row_{index}"
+    )
+    variant = invocation.variant or row.get("Variant") or "ordinary"
+    return f"{invocation.stage}.method.{method}.variant.{variant}"
 
 
 def _provenance() -> dict[str, str]:

@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 import scripts.train_method as train_method_script
 from graph_memory.experiment.config import (
+    ArtifactRef,
     DenseEncoderConfig,
     DenseFinetuneDataConfig,
     DenseFinetuneSelectionConfig,
@@ -15,9 +16,11 @@ from graph_memory.experiment.config import (
     DenseFinetuneTrainerConfig,
     PairSamplingConfig,
 )
+from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.experiment.persistence import write_yaml_atomic
 from graph_memory.experiment.stage_models import DenseFinetuneTrainStageConfig
 from graph_memory.experiment.state import read_stage_summary
+from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQARankingRecord,
@@ -117,7 +120,6 @@ def write_dense_ft_train_stage_config(
         output_dir=output_dir,
         model_dir=model_dir,
         metrics=output_dir / "train_metrics.jsonl",
-        summary=output_dir / "train.run_summary.yaml",
         encoder=DenseEncoderConfig(
             model_name="fake-e5",
             query_prefix="query: ",
@@ -151,7 +153,45 @@ def write_dense_ft_train_stage_config(
             ),
         ),
     )
-    write_yaml_atomic(path, config)
+    write_yaml_atomic(
+        path,
+        StageInvocation(
+            identifier="train:dense_ft",
+            stage="train",
+            script=Path(train_method_script.__file__).resolve(),
+            config_path=path.resolve(),
+            summary_path=(output_dir / "train.run_summary.yaml").resolve(),
+            config=config,
+            inputs=tuple(
+                ArtifactRef(
+                    role=role,
+                    path=value.resolve(),
+                    kind="file",
+                )
+                for role, value in (
+                    ("inputs", train_tasks_path),
+                    ("labels", train_labels_path),
+                    ("train_pairs", train_pairs_path),
+                    ("dev_inputs", dev_tasks_path),
+                    ("dev_labels", dev_labels_path),
+                )
+            ),
+            outputs=(
+                ArtifactRef(
+                    role="checkpoint",
+                    path=model_dir.resolve(),
+                    kind="directory",
+                ),
+                ArtifactRef(
+                    role="train_metrics",
+                    path=config.metrics.resolve(),
+                    kind="file",
+                ),
+            ),
+            dependencies=(),
+            method=RetrievalMethodId.DENSE_FT,
+        ),
+    )
 
 
 class FakeSentenceTransformer:

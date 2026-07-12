@@ -14,9 +14,10 @@ from graph_memory.experiment.config import (
 )
 from graph_memory.experiment.execution import execute_experiment
 from graph_memory.experiment import execution as execution_module
-from graph_memory.experiment.layout import RunLayout
+from graph_memory.experiment.layout import MultirunIdentity, RunLayout
+from graph_memory.experiment.planning import WorkflowPlanner
 from graph_memory.experiment.service import initialize_experiment
-from graph_memory.experiment.state import read_stage_summary, summary_path_for
+from graph_memory.experiment.state import read_stage_summary
 from graph_memory.experiment.status import inspect_invocation_status
 from graph_memory.experiment.tracking import TrackingAdapter
 
@@ -141,7 +142,7 @@ def test_tracking_failure_after_output_marks_summary_failed_and_stops(
         with pytest.raises(RuntimeError, match="tracking write failed"):
             execute_experiment(initialized)
         first = initialized.plan.invocations[0]
-        summary = read_stage_summary(summary_path_for(first))
+        summary = read_stage_summary(first.summary_path)
         assert summary.status == "failed"
         assert summary.error and summary.error.type == "RuntimeError"
         assert inspect_invocation_status(first).state == "stale"
@@ -221,3 +222,80 @@ def test_tuning_selection_logs_selected_params_and_best_metrics(tmp_path: Path) 
         assert run.data.metrics["tune.best.full_support_recall_at_10"] == 0.5
     finally:
         shutil.rmtree(layout.run_dir, ignore_errors=True)
+
+
+def test_aggregate_tracking_logs_every_numeric_row_with_method_variant_identity(
+    tmp_path: Path,
+) -> None:
+    name = f"tracking-table-{tmp_path.name}"
+    config = _config(tmp_path, name, methods="[bm25,dense]", stages_to="aggregate")
+    layout = RunLayout(tmp_path, name)
+    aggregate = next(
+        item
+        for item in WorkflowPlanner(config, layout).build().invocations
+        if item.stage == "aggregate"
+    )
+    main = next(
+        output.path for output in aggregate.outputs if output.role == "main_table"
+    )
+    main.parent.mkdir(parents=True, exist_ok=True)
+    main.write_text(
+        "Method,Recall@5\nbm25,0.25\ndense,0.5\n",
+        encoding="utf-8",
+    )
+
+    adapter = TrackingAdapter(config)
+    parent = adapter.start_parent()
+    child = adapter.start_child(parent, aggregate)
+    adapter._log_local_metrics(child, aggregate)
+
+    metrics = adapter.client.get_run(child).data.metrics
+    assert metrics["aggregate.method.bm25.variant.ordinary.Recall_at_5"] == 0.25
+    assert metrics["aggregate.method.dense.variant.ordinary.Recall_at_5"] == 0.5
+
+
+def test_shared_store_separates_cross_name_and_sequential_multirun_parents(
+    tmp_path: Path,
+) -> None:
+    sweep_name = f"tracking-sweep-{tmp_path.name}"
+    other_name = f"tracking-other-{tmp_path.name}"
+    sweep_config = _config(tmp_path, sweep_name)
+    other_config = _config(tmp_path, other_name)
+    layouts = (
+        RunLayout(
+            ROOT,
+            sweep_name,
+            identity=MultirunIdentity(job_num=0, override_dirname="seed=0"),
+        ),
+        RunLayout(
+            ROOT,
+            sweep_name,
+            identity=MultirunIdentity(job_num=1, override_dirname="seed=1"),
+        ),
+        RunLayout(ROOT, other_name),
+    )
+    try:
+        for config, layout in (
+            (sweep_config, layouts[0]),
+            (sweep_config, layouts[1]),
+            (other_config, layouts[2]),
+        ):
+            execute_experiment(initialize_experiment(config, layout=layout))
+
+        adapter = TrackingAdapter(sweep_config)
+        runs = adapter.client.search_runs([adapter.experiment_id])
+        parents = [
+            run for run in runs if run.data.tags["graph_memory.run_kind"] == "parent"
+        ]
+        children = [
+            run for run in runs if run.data.tags["graph_memory.run_kind"] == "stage"
+        ]
+        assert len(parents) == 3
+        assert len({run.info.run_id for run in parents}) == 3
+        assert len(children) == 9
+        assert {run.data.tags["mlflow.parentRunId"] for run in children} == {
+            run.info.run_id for run in parents
+        }
+    finally:
+        shutil.rmtree(layouts[0].named_root, ignore_errors=True)
+        shutil.rmtree(layouts[2].named_root, ignore_errors=True)

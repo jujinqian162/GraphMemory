@@ -6,15 +6,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from graph_memory.experiment.persistence import write_yaml_atomic
-from graph_memory.experiment.planning import StageInvocation, format_invocation
+from graph_memory.experiment.invocation import StageInvocation
+from graph_memory.experiment.planning import format_invocation
 from graph_memory.experiment.resume import ResumeDecision, resume_plan
 from graph_memory.experiment.service import InitializedExperiment
 from graph_memory.experiment.state import (
     ErrorRecord,
+    FailedStageRunSummary,
     RunState,
     StageRunSummary,
     read_stage_summary,
-    summary_path_for,
     update_run_state,
     write_stage_summary,
 )
@@ -105,7 +106,7 @@ def _summary_with_child(
     invocation: StageInvocation,
     child_run_id: str,
 ) -> StageRunSummary | None:
-    path = summary_path_for(invocation)
+    path = invocation.summary_path
     if not path.is_file():
         return None
     summary = read_stage_summary(path).model_copy(
@@ -120,15 +121,16 @@ def _mark_tracking_or_execution_failure(
     child_run_id: str,
     error: BaseException,
 ) -> None:
-    path = summary_path_for(invocation)
+    path = invocation.summary_path
     if not path.is_file():
         return
     try:
         summary = read_stage_summary(path)
     except (OSError, ValueError):
         return
-    failed = summary.model_copy(
-        update={
+    failed = FailedStageRunSummary.model_validate(
+        {
+            **summary.model_dump(exclude={"status", "ended_at", "error"}),
             "status": "failed",
             "ended_at": datetime.now(timezone.utc),
             "error": ErrorRecord(
