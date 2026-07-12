@@ -87,6 +87,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         observations.count("tasks", len(task_inputs))
         observations.count("predictions", len(predictions))
         observations.count("provenance_method", result.provenance.method.value)
+        if isinstance(config, RgcnRetrieveStageConfig) and predictions:
+            metadata = predictions[0].get("metadata", {})
+            observations.count("decoder_config", metadata.get("decoder_config", {}))
+            observations.count(
+                "beam_search_config", metadata.get("beam_search_config", {})
+            )
+            observations.count("retrieval_device", result.provenance.device)
         observations.timing("total_seconds", time.perf_counter() - start_time)
         observations.timing("avg_latency_ms", avg_latency)
         LOGGER.info(

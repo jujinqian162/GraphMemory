@@ -15,9 +15,10 @@ def assemble_ranked_result(
     top_k: int,
     latency_ms: float,
     retrieved_edges: list[GraphEdge],
+    metadata: dict[str, object] | None = None,
 ) -> RankedResult:
     top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:top_k]]
-    return {
+    result: RankedResult = {
         "task_id": text_request.task_id,
         "method": method,
         "ranked_nodes": [
@@ -31,9 +32,16 @@ def assemble_ranked_result(
         "latency_ms": latency_ms,
         "input_tokens": _approx_input_tokens(text_request),
     }
+    if metadata:
+        result["metadata"] = metadata
+    return result
 
 
 def _approx_input_tokens(text_request: TextRankingRequest) -> int:
     query_tokens = content_tokens(text_request.query_text)
-    memory_tokens = [token for candidate in text_request.candidates for token in content_tokens(candidate.text)]
+    memory_tokens = [
+        token
+        for candidate in text_request.candidates
+        for token in content_tokens(candidate.text)
+    ]
     return len(query_tokens) + len(memory_tokens)

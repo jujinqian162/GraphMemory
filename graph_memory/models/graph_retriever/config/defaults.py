@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from graph_memory.models.graph_retriever.config.records import NodeFeatureConfig, RgcnModelConfig
+from graph_memory.models.graph_retriever.config.records import (
+    BeamDecoderConfig,
+    BeamSearchConfig,
+    NodeFeatureConfig,
+    RgcnModelConfig,
+)
 
 
 def default_model_config(
@@ -15,6 +20,8 @@ def default_model_config(
     num_layers: int = 2,
     dropout: float = 0.1,
     ablation_name: str = "full_rgcn",
+    decoder_config: BeamDecoderConfig | None = None,
+    beam_search_config: BeamSearchConfig | None = None,
 ) -> RgcnModelConfig:
     """
     Build the default trainable model config for one ablation name.
@@ -46,7 +53,9 @@ def default_model_config(
     elif ablation_name == "wo_edge_weight":
         edge_weight_policy = "uniform"
     elif ablation_name == "wo_seed_score":
-        feature_config = NodeFeatureConfig(node_feature_names=("is_question_node",), scorer_feature_names=())
+        feature_config = NodeFeatureConfig(
+            node_feature_names=("is_question_node",), scorer_feature_names=()
+        )
 
     return RgcnModelConfig(
         method_name=method_name,
@@ -73,4 +82,6 @@ def default_model_config(
         edge_weight_policy=edge_weight_policy,
         enabled_edge_types=enabled_edge_types,
         ablation_name=canonical_ablation,
+        decoder_config=decoder_config or BeamDecoderConfig(hidden_dim=hidden_dim),
+        beam_search_config=beam_search_config or BeamSearchConfig(),
     )

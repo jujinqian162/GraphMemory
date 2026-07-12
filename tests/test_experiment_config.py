@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -188,4 +189,64 @@ def test_ablation_values_and_explicit_2wiki_overrides_are_closed() -> None:
     with pytest.raises(ValidationError, match="baseline alias"):
         primitive = _compose().model_dump(mode="python", by_alias=True)
         primitive["ablation"]["variants"] = ["full_rgcn"]
+        ExperimentConfig.model_validate(primitive)
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["dense_rgcn_graph_retriever", "dense_ft_rgcn_graph_retriever"],
+)
+def test_rgcn_methods_require_typed_beam_training_config(method_name: str) -> None:
+    config = _compose()
+    train = getattr(config.method_configs, method_name).train
+
+    assert train.decoder.hidden_dim > 0
+    assert train.beam.training_beam_size == 2
+    assert train.beam.inference_beam_size == 2
+    assert train.beam.max_steps == 5
+    assert train.beam.deduplicate_selected_sets is True
+    assert train.loss.next_action_loss_weight == pytest.approx(1.0)
+    assert train.loss.stop_loss_weight == pytest.approx(1.0)
+    assert train.loss.aux_node_loss_weight == pytest.approx(0.2)
+    assert train.optimizer_phases.decoder_learning_rate > 0
+    assert train.optimizer_phases.rgcn_learning_rate > 0
+
+    primitive = config.model_dump(mode="python", by_alias=True)
+    for field_name in ("decoder", "beam", "loss", "optimizer_phases"):
+        incomplete = deepcopy(primitive)
+        del incomplete["method_configs"][method_name]["train"][field_name]
+        with pytest.raises(ValidationError, match=field_name):
+            ExperimentConfig.model_validate(incomplete)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("training_beam_size", 0),
+        ("inference_beam_size", 0),
+        ("max_steps", 0),
+        ("max_steps", 6),
+    ],
+)
+def test_rgcn_beam_config_rejects_invalid_bounds(field_name: str, value: int) -> None:
+    primitive = _compose().model_dump(mode="python", by_alias=True)
+    primitive["method_configs"]["dense_rgcn_graph_retriever"]["train"]["beam"][
+        field_name
+    ] = value
+
+    with pytest.raises(ValidationError):
+        ExperimentConfig.model_validate(primitive)
+
+
+def test_rgcn_beam_config_rejects_unknown_fields_and_mismatched_beam_sizes() -> None:
+    primitive = _compose().model_dump(mode="python", by_alias=True)
+    beam = primitive["method_configs"]["dense_rgcn_graph_retriever"]["train"]["beam"]
+    beam["legacy_width"] = 2
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ExperimentConfig.model_validate(primitive)
+
+    primitive = _compose().model_dump(mode="python", by_alias=True)
+    beam = primitive["method_configs"]["dense_rgcn_graph_retriever"]["train"]["beam"]
+    beam["inference_beam_size"] = 4
+    with pytest.raises(ValidationError, match="must match"):
         ExperimentConfig.model_validate(primitive)

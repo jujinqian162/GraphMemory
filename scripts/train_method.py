@@ -177,6 +177,18 @@ def _result_counts(payload: TrainPayload, result: TrainingResult) -> JsonObject:
     if isinstance(result, RgcnTrainingResult):
         counts["epochs"] = result.training_config.epochs
         counts["global_step"] = result.global_step
+        counts["decoder_config"] = cast(
+            JsonValue, result.model_config.decoder_config.to_json_dict()
+        )
+        counts["beam_search_config"] = cast(
+            JsonValue, result.model_config.beam_search_config.to_json_dict()
+        )
+        counts["beam_loss_config"] = cast(
+            JsonValue, result.training_config.beam_loss_config.to_json_dict()
+        )
+        counts["optimizer_phase_config"] = cast(
+            JsonValue, result.training_config.optimizer_phase_config.to_json_dict()
+        )
     elif isinstance(result, DenseFinetuneTrainingResult):
         pass
     else:

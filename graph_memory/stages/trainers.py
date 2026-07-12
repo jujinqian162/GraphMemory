@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +39,12 @@ class RgcnGraphRetrieverTrainer:
             default_model_config,
         )
         from graph_memory.models.graph_retriever.training import train_graph_retriever
+        from graph_memory.models.graph_retriever.config.records import (
+            BeamDecoderConfig,
+            BeamLossConfig,
+            BeamSearchConfig,
+            OptimizerPhaseConfig,
+        )
 
         if not isinstance(payload, RgcnTrainPayload):
             raise TypeError(
@@ -60,6 +66,8 @@ class RgcnGraphRetrieverTrainer:
             num_layers=settings.model.num_layers,
             dropout=settings.model.dropout,
             ablation_name=settings.model.ablation,
+            decoder_config=BeamDecoderConfig(**settings.decoder.model_dump()),
+            beam_search_config=BeamSearchConfig(**settings.beam.model_dump()),
         )
         return train_graph_retriever(
             train_requests=payload.train_requests,
@@ -70,8 +78,12 @@ class RgcnGraphRetrieverTrainer:
             dev_labels=payload.dev_labels,
             dev_graphs=payload.dev_graphs,
             model_config=model_config,
-            training_config=rgcn_training_config_from_trainer_settings(
-                settings.trainer
+            training_config=replace(
+                rgcn_training_config_from_trainer_settings(settings.trainer),
+                beam_loss_config=BeamLossConfig(**settings.loss.model_dump()),
+                optimizer_phase_config=OptimizerPhaseConfig(
+                    **settings.optimizer_phases.model_dump()
+                ),
             ),
             text_embedding_provider=deps.text_embedding_provider,
             seed_signal_provider=deps.seed_signal_provider,

@@ -35,16 +35,20 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
         graph_encoder = IdentityGraphEncoder()
     elif model_config.graph_encoder_type == "rgcn":
         if model_config.message_transform_type == "typed":
+
             def transform_factory() -> TypedRelationTransform:
                 return TypedRelationTransform(
                     hidden_dim=model_config.hidden_dim,
                     num_relations=len(model_config.relation_vocab),
                 )
         elif model_config.message_transform_type == "shared":
+
             def transform_factory() -> SharedRelationTransform:
                 return SharedRelationTransform(hidden_dim=model_config.hidden_dim)
         else:
-            raise ValueError(f"Unsupported message_transform_type: {model_config.message_transform_type}")
+            raise ValueError(
+                f"Unsupported message_transform_type: {model_config.message_transform_type}"
+            )
         graph_encoder = RGCNGraphEncoder(
             hidden_dim=model_config.hidden_dim,
             num_relations=len(model_config.relation_vocab),
@@ -53,7 +57,9 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
             dropout=model_config.dropout,
         )
     else:
-        raise ValueError(f"Unsupported graph_encoder_type: {model_config.graph_encoder_type}")
+        raise ValueError(
+            f"Unsupported graph_encoder_type: {model_config.graph_encoder_type}"
+        )
 
     return EvidenceScoringModel(
         encoder_dim=model_config.encoder_dim,
@@ -62,4 +68,11 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
         graph_encoder=graph_encoder,
         scorer_feature_dim=len(model_config.feature_config.scorer_feature_names),
         dropout=model_config.dropout,
+        decoder_hidden_dim=model_config.decoder_config.hidden_dim,
+        step_embedding_dim=model_config.decoder_config.step_embedding_dim,
+        frontier_relation_dim=model_config.decoder_config.frontier_relation_dim,
+        num_relations=len(model_config.relation_vocab),
+        max_steps=model_config.beam_search_config.max_steps,
+        training_beam_size=model_config.beam_search_config.training_beam_size,
+        length_penalty_alpha=model_config.beam_search_config.length_penalty_alpha,
     )

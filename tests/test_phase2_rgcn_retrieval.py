@@ -223,9 +223,10 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     top_node_ids = {node.node_id for node in ranked_nodes[:2]}
     assert {node.node_id for node in ranked_nodes} == {"m0", "m1", "m2"}
     assert all(math.isfinite(node.score) for node in ranked_nodes)
-    assert ranked_nodes == sorted(
-        ranked_nodes, key=lambda node: (-node.score, node.node_id)
-    )
+    assert len({node.node_id for node in ranked_nodes}) == len(ranked_nodes)
+    assert result.trace.metadata["beam_size"] == 2
+    assert result.trace.metadata["max_steps"] == 5
+    assert isinstance(result.trace.metadata["selected_sequence"], list)
     assert all(
         edge["source"] in top_node_ids and edge["target"] in top_node_ids
         for edge in retrieved_edges
@@ -296,6 +297,9 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
     assert predictions[0]["retrieved_subgraph"]["nodes"] == [
         ranked_node["node_id"] for ranked_node in predictions[0]["ranked_nodes"][:2]
     ]
+    metadata = predictions[0].get("metadata", {})
+    assert metadata["beam_size"] == 2
+    assert metadata["max_steps"] == 5
 
 
 def test_checkpoint_graph_builder_accepts_dense_ft_seeded_rgcn_checkpoint(

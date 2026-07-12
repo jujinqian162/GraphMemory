@@ -71,6 +71,8 @@ Jobs are stored as `runs/rgcn_layers/0_num_layers=2`, `1_num_layers=3`, and `2_n
 
 ## R-GCN ablations
 
+R-GCN training and checkpoint-backed retrieval use the same configured beam width. The default is beam `2` with at most five unique evidence selections and set-level deduplication. A learned `STOP` action ends the selected prefix; base R-GCN logits complete the ranking. Existing pre-beam R-GCN checkpoints are incompatible and require retraining.
+
 ```powershell
 uv run python experiment/plan.py `
   name=rgcn_ablation_full profile=full `

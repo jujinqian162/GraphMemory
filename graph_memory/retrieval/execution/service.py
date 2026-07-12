@@ -31,6 +31,7 @@ def run_retrieval(
                 top_k=top_k,
                 latency_ms=latency_ms,
                 retrieved_edges=result.trace.retrieved_edges,
+                metadata=result.trace.metadata,
             )
         )
 

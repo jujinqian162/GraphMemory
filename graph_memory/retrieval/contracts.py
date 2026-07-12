@@ -17,6 +17,7 @@ class RankedNode:
 @dataclass(frozen=True)
 class RetrievalTrace:
     retrieved_edges: list[GraphEdge] = field(default_factory=list)
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -27,22 +28,18 @@ class RetrievalMethodResult:
 
 class SeedRanker(Protocol):
     @property
-    def method_name(self) -> str:
-        ...
+    def method_name(self) -> str: ...
 
-    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
-        ...
+    def rank(self, request: TextRankingRequest) -> list[RankedNode]: ...
 
 
 class RetrievalMethod(Protocol):
     @property
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     def rank_task(
         self,
         request: RankingMethodRequest,
         *,
         top_k: int,
-    ) -> RetrievalMethodResult:
-        ...
+    ) -> RetrievalMethodResult: ...

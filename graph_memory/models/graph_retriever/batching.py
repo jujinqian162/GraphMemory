@@ -16,7 +16,10 @@ from graph_memory.models.graph_retriever.contracts import (
     TextEmbeddingProvider,
     build_task_feature_groups,
 )
-from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
+from graph_memory.models.graph_retriever.internals.contracts import (
+    GraphBatch,
+    TrainingBatch,
+)
 from graph_memory.models.graph_retriever.internals.features import NodeFeatureBuilder
 from graph_memory.models.graph_retriever.internals.tensorization import (
     ArtifactEdgeWeightPolicy,
@@ -46,7 +49,9 @@ class TaskBatchInputs:
     label: EvidenceLabel | None = None
 
 
-def build_edge_tensorizer(model_config: RgcnModelConfig) -> EdgeTensorizer: #TAG: Distribute
+def build_edge_tensorizer(
+    model_config: RgcnModelConfig,
+) -> EdgeTensorizer:  # TAG: Distribute
     """
     Build the edge tensorizer selected by model config.
     根据 model config 构造 edge tensorizer。
@@ -57,7 +62,9 @@ def build_edge_tensorizer(model_config: RgcnModelConfig) -> EdgeTensorizer: #TAG
     elif model_config.edge_weight_policy == "artifact":
         edge_weight_policy = ArtifactEdgeWeightPolicy()
     else:
-        raise ValueError(f"Unsupported edge_weight_policy: {model_config.edge_weight_policy}")
+        raise ValueError(
+            f"Unsupported edge_weight_policy: {model_config.edge_weight_policy}"
+        )
     return EdgeTensorizer(
         relation_vocab=model_config.relation_vocab,
         enabled_edge_types=frozenset(model_config.enabled_edge_types),
@@ -74,6 +81,7 @@ def build_training_batches(
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
+    labels: list[EvidenceLabel] | None = None,
 ) -> list[TrainingBatch]:
     """
     Build supervised TrainingBatch objects grouped by task graph.
@@ -82,16 +90,26 @@ def build_training_batches(
 
     requests_by_task_id = {request.task_id: request for request in ranking_requests}
     validate_graphs(graphs, ranking_requests)
-    validate_task_id_alignment("training batch graphs", set(requests_by_task_id), {graph["task_id"] for graph in graphs})
+    validate_task_id_alignment(
+        "training batch graphs",
+        set(requests_by_task_id),
+        {graph["task_id"] for graph in graphs},
+    )
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
     pairs_by_task_id: dict[TaskId, list[TrainPairRecord]] = defaultdict(list)
+    labels_by_task_id = {label.task_id: label for label in labels or []}
     for pair in pairs:
         if pair["node_id"] == "q":
             raise ValueError("Training pairs must not contain node_id=q.")
         pairs_by_task_id[pair["task_id"]].append(pair)
 
     task_batches = [
-        TaskBatchInputs(text_request=request, graph=graphs_by_task_id[request.task_id], pairs=pairs_by_task_id[request.task_id])
+        TaskBatchInputs(
+            text_request=request,
+            graph=graphs_by_task_id[request.task_id],
+            pairs=pairs_by_task_id[request.task_id],
+            label=labels_by_task_id.get(request.task_id),
+        )
         for request in ranking_requests
         if pairs_by_task_id[request.task_id]
     ]
@@ -124,9 +142,15 @@ def build_full_ranking_batches(
 
     requests_by_task_id = {request.task_id: request for request in ranking_requests}
     validate_graphs(graphs, ranking_requests)
-    validate_task_id_alignment("full ranking graphs", set(requests_by_task_id), {graph["task_id"] for graph in graphs})
+    validate_task_id_alignment(
+        "full ranking graphs",
+        set(requests_by_task_id),
+        {graph["task_id"] for graph in graphs},
+    )
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
-    labels_by_task_id = {label.task_id: label for label in labels} if labels is not None else {}
+    labels_by_task_id = (
+        {label.task_id: label for label in labels} if labels is not None else {}
+    )
     task_batches = [
         TaskBatchInputs(
             text_request=request,
@@ -148,7 +172,9 @@ def build_full_ranking_batches(
     ]
 
 
-def move_training_batch(batch: TrainingBatch, device: torch.device | str) -> TrainingBatch:
+def move_training_batch(
+    batch: TrainingBatch, device: torch.device | str
+) -> TrainingBatch:
     """
     Move tensor fields in a TrainingBatch to a device while preserving metadata.
     将 TrainingBatch 中的 tensor 字段移动到指定 device，同时保留 metadata。
@@ -175,6 +201,24 @@ def move_training_batch(batch: TrainingBatch, device: torch.device | str) -> Tra
         sample_task_ids=batch.sample_task_ids,
         sample_node_ids=batch.sample_node_ids,
         sample_types=batch.sample_types,
+        candidate_node_indices=(
+            None
+            if batch.candidate_node_indices is None
+            else batch.candidate_node_indices.to(device)
+        ),
+        candidate_query_indices=(
+            None
+            if batch.candidate_query_indices is None
+            else batch.candidate_query_indices.to(device)
+        ),
+        candidate_node_features=(
+            None
+            if batch.candidate_node_features is None
+            else batch.candidate_node_features.to(device)
+        ),
+        candidate_task_offsets=batch.candidate_task_offsets,
+        candidate_node_ids_by_task=batch.candidate_node_ids_by_task,
+        evidence_labels=batch.evidence_labels,
     )
 
 
@@ -204,6 +248,12 @@ def _build_batch(
     sample_task_ids: list[str] = []
     sample_node_ids: list[str] = []
     sample_types: list[TrainPairSampleType] = []
+    candidate_node_indices: list[int] = []
+    candidate_query_indices: list[int] = []
+    candidate_node_features: list[Tensor] = []
+    candidate_task_offsets = [0]
+    candidate_node_ids_by_task: list[list[str]] = []
+    evidence_labels: list[EvidenceLabel | None] = []
 
     requests = [
         DenseTaskEncodingRequest(
@@ -223,7 +273,9 @@ def _build_batch(
         text_request = task.text_request
         task_id = text_request.task_id
         node_ids = [str(node["id"]) for node in task.graph["nodes"]]
-        local_index_by_node_id = {node_id: index for index, node_id in enumerate(node_ids)}
+        local_index_by_node_id = {
+            node_id: index for index, node_id in enumerate(node_ids)
+        }
         if "q" not in local_index_by_node_id:
             raise ValueError(f"Graph task_id={task_id} is missing q node.")
 
@@ -244,10 +296,25 @@ def _build_batch(
         query_node_indices.append(query_index)
         task_ids.append(task_id)
         node_ids_by_task.append(node_ids)
+        task_candidate_ids = [
+            candidate.item_id for candidate in text_request.candidates
+        ]
+        candidate_node_ids_by_task.append(task_candidate_ids)
+        evidence_labels.append(task.label)
+        for candidate_id in task_candidate_ids:
+            local_node_index = local_index_by_node_id[candidate_id]
+            candidate_node_indices.append(node_offset + local_node_index)
+            candidate_query_indices.append(query_index)
+            candidate_node_features.append(features.scorer_features[local_node_index])
+        candidate_task_offsets.append(len(candidate_node_indices))
 
         rows: list[TrainPairRecord]
         if include_all_memory_nodes:
-            gold_nodes = set(task.label.gold_evidence_item_ids) if task.label is not None else set()
+            gold_nodes = (
+                set(task.label.gold_evidence_item_ids)
+                if task.label is not None
+                else set()
+            )
             rows = []
             for candidate in text_request.candidates:
                 if candidate.item_id in gold_nodes:
@@ -287,9 +354,15 @@ def _build_batch(
     graph_batch = GraphBatch(
         node_embeddings=torch.cat(node_embeddings, dim=0),
         node_features=torch.cat(node_features, dim=0),
-        edge_index=torch.cat(edge_indices, dim=1) if edge_indices else torch.empty((2, 0), dtype=torch.long),
-        relation_ids=torch.cat(relation_ids, dim=0) if relation_ids else torch.empty((0,), dtype=torch.long),
-        edge_weights=torch.cat(edge_weights, dim=0) if edge_weights else torch.empty((0,), dtype=torch.float32),
+        edge_index=torch.cat(edge_indices, dim=1)
+        if edge_indices
+        else torch.empty((2, 0), dtype=torch.long),
+        relation_ids=torch.cat(relation_ids, dim=0)
+        if relation_ids
+        else torch.empty((0,), dtype=torch.long),
+        edge_weights=torch.cat(edge_weights, dim=0)
+        if edge_weights
+        else torch.empty((0,), dtype=torch.float32),
         query_node_indices=torch.tensor(query_node_indices, dtype=torch.long),
         task_node_offsets=task_node_offsets,
         task_ids=task_ids,
@@ -310,6 +383,16 @@ def _build_batch(
         sample_task_ids=sample_task_ids,
         sample_node_ids=sample_node_ids,
         sample_types=sample_types,
+        candidate_node_indices=torch.tensor(candidate_node_indices, dtype=torch.long),
+        candidate_query_indices=torch.tensor(candidate_query_indices, dtype=torch.long),
+        candidate_node_features=(
+            torch.stack(candidate_node_features)
+            if candidate_node_features
+            else torch.empty((0, scorer_feature_dim), dtype=torch.float32)
+        ),
+        candidate_task_offsets=candidate_task_offsets,
+        candidate_node_ids_by_task=candidate_node_ids_by_task,
+        evidence_labels=evidence_labels,
     )
     validate_training_batch(training_batch)
     return training_batch

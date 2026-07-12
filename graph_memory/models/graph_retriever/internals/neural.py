@@ -6,7 +6,13 @@ from typing import Protocol
 import torch
 from torch import Tensor, nn
 
-from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
+from dataclasses import dataclass
+
+from graph_memory.models.graph_retriever.internals.contracts import (
+    EncodedGraphState,
+    GraphBatch,
+    TrainingBatch,
+)
 
 
 class GraphEncoder(Protocol):
@@ -19,8 +25,9 @@ class GraphEncoder(Protocol):
       forward：返回编码后的 node states，第一维必须与输入 node states 一致。
     """
 
-    def forward(self, batch: GraphBatch, node_states: Tensor) -> Tensor:
-        ...
+    def forward(self, batch: GraphBatch, node_states: Tensor) -> Tensor: ...
+
+    def __call__(self, batch: GraphBatch, node_states: Tensor) -> Tensor: ...
 
 
 class IdentityGraphEncoder(nn.Module):
@@ -50,8 +57,7 @@ class MessageTransform(Protocol):
       forward：根据 relation id 转换 message edge 的 source node state。
     """
 
-    def forward(self, source_states: Tensor, relation_ids: Tensor) -> Tensor:
-        ...
+    def forward(self, source_states: Tensor, relation_ids: Tensor) -> Tensor: ...
 
 
 MessageTransformFactory = Callable[[], MessageTransform]
@@ -129,7 +135,9 @@ class RelationalGraphConvLayer(nn.Module):
       layer_norm：message 组合后的 layer normalization。
     """
 
-    def __init__(self, *, hidden_dim: int, message_transform: MessageTransform, dropout: float) -> None:
+    def __init__(
+        self, *, hidden_dim: int, message_transform: MessageTransform, dropout: float
+    ) -> None:
         super().__init__()
         self.message_transform = message_transform
         self.self_linear = nn.Linear(hidden_dim, hidden_dim)
@@ -210,7 +218,9 @@ class EvidenceNodeScorer(nn.Module):
       network：作用在 `[h_node, h_query, h_node * h_query, sample_node_features]` 上的 MLP。
     """
 
-    def __init__(self, *, hidden_dim: int, scorer_feature_dim: int, dropout: float) -> None:
+    def __init__(
+        self, *, hidden_dim: int, scorer_feature_dim: int, dropout: float
+    ) -> None:
         super().__init__()
         input_dim = hidden_dim * 3 + scorer_feature_dim
         self.network = nn.Sequential(
@@ -220,9 +230,25 @@ class EvidenceNodeScorer(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    def forward(self, *, node_states: Tensor, query_states: Tensor, sample_node_features: Tensor) -> Tensor:
-        scorer_input = torch.cat([node_states, query_states, node_states * query_states, sample_node_features], dim=1)
+    def forward(
+        self, *, node_states: Tensor, query_states: Tensor, sample_node_features: Tensor
+    ) -> Tensor:
+        scorer_input = torch.cat(
+            [
+                node_states,
+                query_states,
+                node_states * query_states,
+                sample_node_features,
+            ],
+            dim=1,
+        )
         return self.network(scorer_input).squeeze(-1)
+
+
+@dataclass(frozen=True)
+class DecoderActionScores:
+    candidate_logits: Tensor
+    stop_logit: Tensor
 
 
 class EvidenceScoringModel(nn.Module):
@@ -248,6 +274,13 @@ class EvidenceScoringModel(nn.Module):
         graph_encoder: GraphEncoder,
         scorer_feature_dim: int,
         dropout: float,
+        decoder_hidden_dim: int | None = None,
+        step_embedding_dim: int = 16,
+        frontier_relation_dim: int = 4,
+        num_relations: int = 7,
+        max_steps: int = 5,
+        training_beam_size: int = 2,
+        length_penalty_alpha: float = 1.0,
     ) -> None:
         super().__init__()
         self.input_projection = nn.Sequential(
@@ -256,27 +289,283 @@ class EvidenceScoringModel(nn.Module):
             nn.Dropout(dropout),
         )
         self.graph_encoder = graph_encoder
-        self.scorer = EvidenceNodeScorer(hidden_dim=hidden_dim, scorer_feature_dim=scorer_feature_dim, dropout=dropout)
+        self.scorer = EvidenceNodeScorer(
+            hidden_dim=hidden_dim,
+            scorer_feature_dim=scorer_feature_dim,
+            dropout=dropout,
+        )
+        decoder_dim = decoder_hidden_dim or hidden_dim
+        self.step_embedding = nn.Embedding(max_steps + 1, step_embedding_dim)
+        self.frontier_projection = nn.Linear(num_relations * 2, frontier_relation_dim)
+        self.first_hop_scorer = _decoder_head(
+            hidden_dim * 3 + scorer_feature_dim + 1,
+            decoder_dim,
+            dropout,
+        )
+        self.subsequent_hop_scorer = _decoder_head(
+            hidden_dim * 5
+            + scorer_feature_dim
+            + 1
+            + frontier_relation_dim
+            + step_embedding_dim,
+            decoder_dim,
+            dropout,
+        )
+        self.stop_scorer = _decoder_head(
+            hidden_dim * 3 + step_embedding_dim,
+            decoder_dim,
+            dropout,
+        )
+        self.max_steps = max_steps
+        self.num_relations = num_relations
+        self.training_beam_size = training_beam_size
+        self.length_penalty_alpha = length_penalty_alpha
 
     def forward(self, batch: TrainingBatch) -> Tensor:
-        graph_batch = batch.graph_batch
-        h0 = self.input_projection(torch.cat([graph_batch.node_embeddings, graph_batch.node_features], dim=1))
-        h = self.graph_encoder.forward(graph_batch, h0)
-        node_states = h[batch.sample_node_indices]
-        query_states = h[batch.sample_query_indices]
-        return self.scorer(
-            node_states=node_states,
-            query_states=query_states,
+        encoded = self.encode_graph(batch)
+        return self.base_score(
+            node_states=encoded.node_states[batch.sample_node_indices],
+            query_states=encoded.node_states[batch.sample_query_indices],
             sample_node_features=batch.sample_node_features,
         )
 
+    def base_score(
+        self,
+        *,
+        node_states: Tensor,
+        query_states: Tensor,
+        sample_node_features: Tensor,
+    ) -> Tensor:
+        return self.scorer(
+            node_states=node_states,
+            query_states=query_states,
+            sample_node_features=sample_node_features,
+        )
 
-def _relation_degree_norm(*, target_indices: Tensor, relation_ids: Tensor, num_nodes: int) -> Tensor:
-    norm = torch.empty(target_indices.shape[0], dtype=torch.float32, device=target_indices.device)
+    def encode_graph(self, batch: TrainingBatch) -> EncodedGraphState:
+        graph_batch = batch.graph_batch
+        h0 = self.input_projection(
+            torch.cat([graph_batch.node_embeddings, graph_batch.node_features], dim=1)
+        )
+        node_states = self.graph_encoder(graph_batch, h0)
+        candidate_node_indices = (
+            batch.candidate_node_indices
+            if batch.candidate_node_indices is not None
+            else batch.sample_node_indices
+        )
+        candidate_query_indices = (
+            batch.candidate_query_indices
+            if batch.candidate_query_indices is not None
+            else batch.sample_query_indices
+        )
+        candidate_node_features = (
+            batch.candidate_node_features
+            if batch.candidate_node_features is not None
+            else batch.sample_node_features
+        )
+        candidate_offsets, candidate_ids = _candidate_metadata(batch)
+        base_logits = self.base_score(
+            node_states=node_states[candidate_node_indices],
+            query_states=node_states[candidate_query_indices],
+            sample_node_features=candidate_node_features,
+        )
+        return EncodedGraphState(
+            graph_batch=graph_batch,
+            node_states=node_states,
+            question_node_indices=graph_batch.query_node_indices,
+            task_node_offsets=graph_batch.task_node_offsets,
+            task_ids=graph_batch.task_ids,
+            node_ids_by_task=graph_batch.node_ids_by_task,
+            candidate_node_indices=candidate_node_indices,
+            candidate_query_indices=candidate_query_indices,
+            candidate_node_features=candidate_node_features,
+            candidate_task_offsets=candidate_offsets,
+            candidate_node_ids_by_task=candidate_ids,
+            base_node_logits=base_logits,
+        )
+
+    def selected_context(
+        self,
+        encoded: EncodedGraphState,
+        *,
+        task_index: int,
+        selected_local_indices: tuple[int, ...],
+    ) -> tuple[Tensor, Tensor]:
+        query_state = encoded.node_states[encoded.question_node_indices[task_index]]
+        if not selected_local_indices:
+            zero = torch.zeros_like(query_state)
+            return zero, zero
+        candidates = encoded.candidate_states_for_task(task_index)
+        selected = candidates[
+            torch.tensor(
+                selected_local_indices, dtype=torch.long, device=candidates.device
+            )
+        ]
+        weights = torch.softmax(
+            selected @ query_state / (query_state.shape[0] ** 0.5), dim=0
+        )
+        return torch.sum(selected * weights.unsqueeze(1), dim=0), selected[-1]
+
+    def score_decoder_actions(
+        self,
+        encoded: EncodedGraphState,
+        *,
+        task_index: int,
+        selected_local_indices: tuple[int, ...],
+    ) -> DecoderActionScores:
+        start = encoded.candidate_task_offsets[task_index]
+        end = encoded.candidate_task_offsets[task_index + 1]
+        candidate_states = encoded.candidate_states_for_task(task_index)
+        query_state = encoded.node_states[encoded.question_node_indices[task_index]]
+        query_states = query_state.unsqueeze(0).expand(candidate_states.shape[0], -1)
+        features = encoded.candidate_node_features[start:end]
+        base_logits = encoded.base_node_logits[start:end]
+        common = torch.cat(
+            [
+                candidate_states,
+                query_states,
+                candidate_states * query_states,
+                features,
+                base_logits.unsqueeze(1),
+            ],
+            dim=1,
+        )
+        selected_context, last_state = self.selected_context(
+            encoded,
+            task_index=task_index,
+            selected_local_indices=selected_local_indices,
+        )
+        step_index = min(len(selected_local_indices), self.max_steps)
+        step = self.step_embedding(
+            torch.tensor(step_index, dtype=torch.long, device=candidate_states.device)
+        )
+        if not selected_local_indices:
+            candidate_logits = self.first_hop_scorer(common).squeeze(-1)
+        else:
+            frontier = self.frontier_projection(
+                _frontier_features(
+                    encoded,
+                    task_index=task_index,
+                    selected_local_indices=selected_local_indices,
+                    num_relations=self.num_relations,
+                )
+            )
+            expanded = torch.cat(
+                [
+                    common,
+                    selected_context.unsqueeze(0).expand(candidate_states.shape[0], -1),
+                    last_state.unsqueeze(0).expand(candidate_states.shape[0], -1),
+                    frontier,
+                    step.unsqueeze(0).expand(candidate_states.shape[0], -1),
+                ],
+                dim=1,
+            )
+            candidate_logits = self.subsequent_hop_scorer(expanded).squeeze(-1)
+        stop_input = torch.cat([query_state, selected_context, last_state, step], dim=0)
+        stop_logit = self.stop_scorer(stop_input.unsqueeze(0)).squeeze()
+        return DecoderActionScores(
+            candidate_logits=candidate_logits, stop_logit=stop_logit
+        )
+
+
+def _decoder_head(input_dim: int, hidden_dim: int, dropout: float) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Linear(input_dim, hidden_dim),
+        nn.ReLU(),
+        nn.Dropout(dropout),
+        nn.Linear(hidden_dim, 1),
+    )
+
+
+def _candidate_metadata(batch: TrainingBatch) -> tuple[list[int], list[list[str]]]:
+    if (
+        batch.candidate_task_offsets is not None
+        and batch.candidate_node_ids_by_task is not None
+    ):
+        return batch.candidate_task_offsets, batch.candidate_node_ids_by_task
+    offsets = [0]
+    node_ids_by_task: list[list[str]] = []
+    for task_id in batch.graph_batch.task_ids:
+        node_ids = [
+            node_id
+            for sample_task_id, node_id in zip(
+                batch.sample_task_ids, batch.sample_node_ids, strict=True
+            )
+            if sample_task_id == task_id
+        ]
+        node_ids_by_task.append(node_ids)
+        offsets.append(offsets[-1] + len(node_ids))
+    return offsets, node_ids_by_task
+
+
+def _frontier_features(
+    encoded: EncodedGraphState,
+    *,
+    task_index: int,
+    selected_local_indices: tuple[int, ...],
+    num_relations: int,
+) -> Tensor:
+    start = encoded.candidate_task_offsets[task_index]
+    end = encoded.candidate_task_offsets[task_index + 1]
+    candidate_globals = encoded.candidate_node_indices[start:end]
+    selected_globals = candidate_globals[
+        torch.tensor(
+            selected_local_indices, dtype=torch.long, device=candidate_globals.device
+        )
+    ]
+    features = torch.zeros(
+        (end - start, num_relations * 2),
+        dtype=encoded.node_states.dtype,
+        device=encoded.node_states.device,
+    )
+    edge_index = encoded.graph_batch.edge_index
+    if edge_index.numel() == 0:
+        return features
+    global_to_local = torch.full(
+        (encoded.node_states.shape[0],),
+        -1,
+        dtype=torch.long,
+        device=encoded.node_states.device,
+    )
+    global_to_local[candidate_globals] = torch.arange(
+        candidate_globals.shape[0], device=candidate_globals.device
+    )
+    source, target = edge_index[0], edge_index[1]
+    relations = encoded.graph_batch.relation_ids
+    weights = encoded.graph_batch.edge_weights
+
+    forward_mask = torch.isin(source, selected_globals) & (global_to_local[target] >= 0)
+    features.index_put_(
+        (global_to_local[target[forward_mask]], relations[forward_mask]),
+        weights[forward_mask],
+        accumulate=True,
+    )
+    reverse_mask = torch.isin(target, selected_globals) & (global_to_local[source] >= 0)
+    features.index_put_(
+        (
+            global_to_local[source[reverse_mask]],
+            num_relations + relations[reverse_mask],
+        ),
+        weights[reverse_mask],
+        accumulate=True,
+    )
+    return features
+
+
+def _relation_degree_norm(
+    *, target_indices: Tensor, relation_ids: Tensor, num_nodes: int
+) -> Tensor:
+    norm = torch.empty(
+        target_indices.shape[0], dtype=torch.float32, device=target_indices.device
+    )
     for relation_id in torch.unique(relation_ids):
         mask = relation_ids == relation_id
         relation_targets = target_indices[mask]
-        counts = torch.zeros(num_nodes, dtype=torch.float32, device=target_indices.device)
-        counts.index_add_(0, relation_targets, torch.ones_like(relation_targets, dtype=torch.float32))
+        counts = torch.zeros(
+            num_nodes, dtype=torch.float32, device=target_indices.device
+        )
+        counts.index_add_(
+            0, relation_targets, torch.ones_like(relation_targets, dtype=torch.float32)
+        )
         norm[mask] = 1.0 / counts[relation_targets].clamp_min(1.0)
     return norm

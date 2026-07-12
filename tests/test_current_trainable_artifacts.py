@@ -46,7 +46,9 @@ def _rgcn_model_config() -> RgcnModelConfig:
     )
 
 
-def test_rgcn_checkpoint_has_no_version_and_rejects_versioned_payload(tmp_path: Path) -> None:
+def test_rgcn_checkpoint_has_no_version_and_rejects_versioned_payload(
+    tmp_path: Path,
+) -> None:
     checkpoint_path = tmp_path / "best.pt"
     model = torch.nn.Linear(4, 1)
     save_rgcn_checkpoint(
@@ -74,14 +76,48 @@ def test_rgcn_checkpoint_has_no_version_and_rejects_versioned_payload(tmp_path: 
     versioned_payload["checkpoint_version"] = 1
     torch.save(versioned_payload, versioned_path)
 
-    with pytest.raises(ContractValidationError, match="unknown fields.*checkpoint_version"):
+    with pytest.raises(
+        ContractValidationError, match="unknown fields.*checkpoint_version"
+    ):
         load_rgcn_checkpoint(
             versioned_path,
             expected_method="dense_rgcn_graph_retriever",
         )
 
 
-def test_dense_ft_metadata_round_trip_has_no_version_and_records_device(tmp_path: Path) -> None:
+def test_pre_beam_rgcn_checkpoint_requires_retraining(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "current.pt"
+    payload = save_rgcn_checkpoint(
+        checkpoint_path,
+        method_name="dense_rgcn_graph_retriever",
+        model=torch.nn.Linear(2, 1),
+        optimizer_state_dict={},
+        scheduler_state_dict={},
+        epoch=1,
+        global_step=1,
+        best_dev_metric=0.5,
+        model_config=_rgcn_model_config(),
+        training_config=RgcnTrainingConfig(),
+    )
+    legacy = dict(payload)
+    legacy["model_config"] = dict(legacy["model_config"])
+    del legacy["model_config"]["decoder_config"]
+    del legacy["model_config"]["beam_search_config"]
+    legacy_path = tmp_path / "legacy.pt"
+    torch.save(legacy, legacy_path)
+
+    with pytest.raises(
+        ContractValidationError, match="decoder_config.*retrain|decoder_config"
+    ):
+        load_rgcn_checkpoint(
+            legacy_path,
+            expected_method="dense_rgcn_graph_retriever",
+        )
+
+
+def test_dense_ft_metadata_round_trip_has_no_version_and_records_device(
+    tmp_path: Path,
+) -> None:
     model_dir = tmp_path / "best_model"
     metadata = DenseFinetuneModelMetadata(
         base_model="fake-base",
@@ -95,7 +131,9 @@ def test_dense_ft_metadata_round_trip_has_no_version_and_records_device(tmp_path
         ),
     )
 
-    metadata_path = write_dense_ft_model_metadata(model_dir=model_dir, metadata=metadata)
+    metadata_path = write_dense_ft_model_metadata(
+        model_dir=model_dir, metadata=metadata
+    )
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
 
     assert metadata_path == model_dir / DENSE_FT_METADATA_FILENAME

@@ -34,6 +34,10 @@ from graph_memory.experiment.config import (
     RgcnModelConfig as ExperimentRgcnModelConfig,
     RgcnTrainConfig,
     RgcnTrainerConfig,
+    RgcnDecoderConfig,
+    RgcnBeamSearchConfig,
+    RgcnBeamLossConfig,
+    RgcnOptimizerPhaseConfig,
 )
 from graph_memory.experiment.invocation import StageInvocation
 from graph_memory.experiment.persistence import write_yaml_atomic
@@ -345,6 +349,28 @@ def make_rgcn_train_stage_config(
                 pos_weight_enabled=False,
                 device=device,
             ),
+            decoder=RgcnDecoderConfig(
+                hidden_dim=hidden_dim,
+                step_embedding_dim=16,
+                frontier_relation_dim=4,
+            ),
+            beam=RgcnBeamSearchConfig(
+                training_beam_size=2,
+                inference_beam_size=2,
+                max_steps=5,
+                length_penalty_alpha=1.0,
+                deduplicate_selected_sets=True,
+            ),
+            loss=RgcnBeamLossConfig(
+                next_action_loss_weight=1.0,
+                stop_loss_weight=1.0,
+                aux_node_loss_weight=0.2,
+            ),
+            optimizer_phases=RgcnOptimizerPhaseConfig(
+                decoder_warmup_epochs=0,
+                decoder_learning_rate=learning_rate,
+                rgcn_learning_rate=learning_rate,
+            ),
             selection=ModelSelectionConfig(
                 best_metric="dev_composite",
                 higher_is_better=True,
@@ -516,6 +542,18 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
     negative_counts = result.metric_records[-1]["negative_count_by_type"]
     assert isinstance(negative_counts, dict)
     assert "hard_graph_neighbor" in negative_counts
+    for metric_name in (
+        "next_action_loss",
+        "stop_loss",
+        "aux_node_loss",
+        "retained_hypotheses",
+        "oracle_reachable_rate",
+        "premature_stop_rate",
+        "average_selected_length",
+        "beam_size",
+        "max_steps",
+    ):
+        assert metric_name in result.metric_records[-1]
     assert (checkpoint_dir / "best.pt").exists()
 
     checkpoint = load_rgcn_checkpoint(

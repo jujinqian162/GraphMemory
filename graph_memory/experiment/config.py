@@ -254,6 +254,38 @@ class RgcnTrainerConfig(ClosedModel):
     device: Device
 
 
+class RgcnDecoderConfig(ClosedModel):
+    hidden_dim: PositiveInt
+    step_embedding_dim: PositiveInt
+    frontier_relation_dim: PositiveInt
+
+
+class RgcnBeamSearchConfig(ClosedModel):
+    training_beam_size: Annotated[ScientificInt, Field(gt=0, le=4)]
+    inference_beam_size: Annotated[ScientificInt, Field(gt=0, le=4)]
+    max_steps: Annotated[ScientificInt, Field(gt=0, le=5)]
+    length_penalty_alpha: NonNegativeFloat
+    deduplicate_selected_sets: StrictBool
+
+    @model_validator(mode="after")
+    def validate_matching_beam_sizes(self) -> RgcnBeamSearchConfig:
+        if self.training_beam_size != self.inference_beam_size:
+            raise ValueError("training and inference beam sizes must match")
+        return self
+
+
+class RgcnBeamLossConfig(ClosedModel):
+    next_action_loss_weight: NonNegativeFloat
+    stop_loss_weight: NonNegativeFloat
+    aux_node_loss_weight: NonNegativeFloat
+
+
+class RgcnOptimizerPhaseConfig(ClosedModel):
+    decoder_warmup_epochs: NonNegativeInt
+    decoder_learning_rate: PositiveFloat
+    rgcn_learning_rate: PositiveFloat
+
+
 class ModelSelectionConfig(ClosedModel):
     best_metric: str = Field(min_length=1)
     higher_is_better: StrictBool
@@ -262,6 +294,10 @@ class ModelSelectionConfig(ClosedModel):
 class RgcnTrainConfig(ClosedModel):
     model: RgcnModelConfig
     trainer: RgcnTrainerConfig
+    decoder: RgcnDecoderConfig
+    beam: RgcnBeamSearchConfig
+    loss: RgcnBeamLossConfig
+    optimizer_phases: RgcnOptimizerPhaseConfig
     selection: ModelSelectionConfig
 
 
@@ -646,6 +682,10 @@ __all__ = [
     "PublicStageName",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",
+    "RgcnBeamLossConfig",
+    "RgcnBeamSearchConfig",
+    "RgcnDecoderConfig",
+    "RgcnOptimizerPhaseConfig",
     "ScientificFloat",
     "ScientificInt",
     "SearchSpacesConfig",
