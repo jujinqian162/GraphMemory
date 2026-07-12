@@ -18,6 +18,7 @@ def main() -> None:
     target = reset_named_run(
         command.name,
         repository_root=SCRIPT_DIRECTORY.parent,
+        job=command.job,
     )
     print(f"reset={target}")
 

@@ -20,6 +20,7 @@ def main() -> None:
     catalog = inspect_catalog(
         command.kind,
         repository_root=SCRIPT_DIRECTORY.parent,
+        name=command.name,
     )
     print(json.dumps(catalog, ensure_ascii=False, indent=2))
 

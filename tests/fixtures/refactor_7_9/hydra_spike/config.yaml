@@ -6,6 +6,11 @@ name: ???
 seed: 13
 dataset_name: ${dataset.name}
 dataset_source: ${dataset.source}
+method_configs:
+  dense_rgcn_graph_retriever:
+    train:
+      model:
+        num_layers: 2
 
 hydra:
   job:
@@ -14,8 +19,9 @@ hydra:
       override_dirname:
         exclude_keys:
           - name
+          - dataset
   run:
     dir: ${oc.env:HYDRA_SPIKE_ROOT}/${name}
   sweep:
     dir: ${oc.env:HYDRA_SPIKE_ROOT}/${name}
-    subdir: ${hydra.job.num}_${hydra.job.override_dirname}
+    subdir: ${hydra.job.num}_${concise_override:${hydra.job.override_dirname}}

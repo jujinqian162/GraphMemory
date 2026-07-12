@@ -15,14 +15,21 @@ InspectionKind = Literal[
     "profiles",
     "configs",
     "ablations",
+    "jobs",
 ]
 
 
 class InspectCommandConfig(ClosedModel):
     kind: InspectionKind
+    name: str | None = None
 
 
-def inspect_catalog(kind: InspectionKind, *, repository_root: Path) -> object:
+def inspect_catalog(
+    kind: InspectionKind,
+    *,
+    repository_root: Path,
+    name: str | None = None,
+) -> object:
     config_root = repository_root.resolve() / "configs"
     if kind == "stages":
         return list(STAGE_ORDER)
@@ -45,6 +52,17 @@ def inspect_catalog(kind: InspectionKind, *, repository_root: Path) -> object:
             ]
             for method, suite in ABLATION_SUITE_PATCHES.items()
         }
+    if kind == "jobs":
+        if name is None:
+            raise ValueError("inspect kind=jobs requires name=<multirun-name>")
+        from graph_memory.experiment.layout import RunLayout
+
+        named_root = RunLayout(repository_root, name).named_root
+        return sorted(
+            path.parent.name
+            for path in named_root.glob("*/run_state.yaml")
+            if path.is_file()
+        )
     raise ValueError(f"unsupported inspection kind: {kind}")
 
 

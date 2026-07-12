@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
+
+from omegaconf import OmegaConf
 
 from graph_memory.experiment.config import (
     AliasArtifactRef,
@@ -14,6 +16,9 @@ from graph_memory.experiment.config import (
 from graph_memory.registry.retrieval import RetrievalMethodId
 
 RunMode = Literal["single", "multirun"]
+ROOT_IDENTITY_OVERRIDE_KEYS: Final = frozenset(
+    {"name", "dataset", "profile", "methods"}
+)
 
 
 @dataclass(frozen=True)
@@ -24,14 +29,18 @@ class SingleRunIdentity:
 @dataclass(frozen=True)
 class MultirunIdentity:
     job_num: int
-    override_dirname: str
+    suffix: str
     mode: Literal["multirun"] = "multirun"
 
     def __post_init__(self) -> None:
         if self.job_num < 0:
             raise ValueError("multirun identity requires a non-negative job_num")
-        if not self.override_dirname:
-            raise ValueError("multirun identity requires override_dirname")
+        if not self.suffix:
+            raise ValueError("multirun identity requires a concise suffix")
+        if _sanitize_path_component(self.suffix) != self.suffix:
+            raise ValueError(
+                f"multirun identity suffix is not a sanitized path component: {self.suffix!r}"
+            )
 
 
 RunIdentity = SingleRunIdentity | MultirunIdentity
@@ -67,8 +76,7 @@ class RunLayout:
     def run_dir(self) -> Path:
         if isinstance(self.identity, SingleRunIdentity):
             return self.named_root
-        suffix = _safe_override_dirname(self.identity.override_dirname)
-        return self.named_root / f"{self.identity.job_num}_{suffix}"
+        return self.named_root / f"{self.identity.job_num}_{self.identity.suffix}"
 
     @property
     def resolved_config(self) -> Path:
@@ -277,17 +285,90 @@ def _unit_name(*, method: RetrievalMethodId | None, split: SplitName | None) -> 
     return method_name or split or "aggregate"
 
 
-def _safe_override_dirname(value: str) -> str:
+def concise_override_dirname(
+    override_dirname: str,
+    *,
+    excluded_root_keys: frozenset[str] = ROOT_IDENTITY_OVERRIDE_KEYS,
+) -> str:
+    assignments: list[str] = []
+    leaf_paths: dict[str, str] = {}
+    for assignment in _split_override_assignments(override_dirname):
+        path, separator, value = assignment.partition("=")
+        if not separator or not path:
+            raise ValueError(f"invalid Hydra override assignment: {assignment!r}")
+        normalized_path = path.lstrip("+~")
+        if normalized_path.split(".", maxsplit=1)[0] in excluded_root_keys:
+            continue
+        leaf = normalized_path.rsplit(".", maxsplit=1)[-1]
+        previous = leaf_paths.get(leaf)
+        if previous is not None and previous != normalized_path:
+            raise ValueError(
+                "ambiguous concise override leaf "
+                f"{leaf!r}: both {previous!r} and {normalized_path!r} collapse to it"
+            )
+        leaf_paths[leaf] = normalized_path
+        assignments.append(f"{leaf}={_sanitize_path_component(value)}")
+    if not assignments:
+        raise ValueError(
+            "Hydra multirun has no job-discriminating overrides after identity exclusions"
+        )
+    return ",".join(assignments)
+
+
+def _split_override_assignments(value: str) -> tuple[str, ...]:
+    assignments: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in {"'", '"'}:
+            quote = character
+        elif character in "[({":
+            depth += 1
+        elif character in "])}":
+            depth = max(0, depth - 1)
+        elif character == "," and depth == 0:
+            assignments.append(value[start:index])
+            start = index + 1
+    assignments.append(value[start:])
+    return tuple(item for item in assignments if item)
+
+
+def _sanitize_path_component(value: str) -> str:
     sanitized = re.sub(r'[<>:"/\\|?*]', "_", value).strip(" .")
     if not sanitized:
-        raise ValueError("override_dirname has no usable path characters")
+        raise ValueError("override value has no usable path characters")
     return sanitized
+
+
+def _register_resolver() -> None:
+    if not OmegaConf.has_resolver("concise_override"):
+        OmegaConf.register_new_resolver(
+            "concise_override",
+            lambda value: concise_override_dirname(str(value)),
+        )
+
+
+_register_resolver()
 
 
 __all__ = [
     "MultirunIdentity",
+    "ROOT_IDENTITY_OVERRIDE_KEYS",
     "RunIdentity",
     "RunLayout",
     "RunMode",
     "SingleRunIdentity",
+    "concise_override_dirname",
 ]

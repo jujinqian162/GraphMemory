@@ -98,7 +98,7 @@ def test_run_state_round_trip_and_identity_reuse_checks(tmp_path: Path) -> None:
             layout=RunLayout(
                 tmp_path,
                 "state-test",
-                identity=MultirunIdentity(job_num=0, override_dirname="x"),
+                identity=MultirunIdentity(job_num=0, suffix="x"),
             ),
             config=config,
             existing=loaded,

@@ -11,8 +11,13 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
 )
-from graph_memory.experiment.layout import MultirunIdentity, RunLayout
+from graph_memory.experiment.layout import (
+    MultirunIdentity,
+    RunLayout,
+    concise_override_dirname,
+)
 from graph_memory.experiment.planning import WorkflowPlanner, format_plan
+from graph_memory.experiment.service import initialize_experiment
 from graph_memory.registry import Registry
 from graph_memory.registry.ablations import (
     ABLATION_SUITE_PATCHES,
@@ -106,7 +111,7 @@ def test_run_layout_owns_single_multirun_variant_and_artifact_paths(
         "sweep",
         identity=MultirunIdentity(
             job_num=2,
-            override_dirname="dataset=2wiki,seed=14",
+            suffix="num_layers=4",
         ),
     )
 
@@ -125,7 +130,7 @@ def test_run_layout_owns_single_multirun_variant_and_artifact_paths(
         == single.run_dir
         / "config/stages/ablations/dense_rgcn_graph_retriever/wo_graph/train.yaml"
     )
-    assert multi.run_dir.name == "2_dataset=2wiki,seed=14"
+    assert multi.run_dir.name == "2_num_layers=4"
     assert (
         single.checkpoint(RetrievalMethodId.DENSE_FT, kind="directory").name
         == "best_model"
@@ -139,6 +144,43 @@ def test_run_layout_owns_single_multirun_variant_and_artifact_paths(
     )
     with pytest.raises(ValueError, match="run name"):
         RunLayout(tmp_path, "../escape")
+
+
+def test_concise_override_dirname_is_deterministic_and_excludes_identity_keys() -> None:
+    assert concise_override_dirname(
+        "name=sweep,dataset=hotpotqa,profile=full,methods=[dense],"
+        "method_configs.dense_rgcn_graph_retriever.train.model.num_layers=3,"
+        "method_configs.dense_rgcn_graph_retriever.train.trainer.learning_rate=1e-3"
+    ) == "num_layers=3,learning_rate=1e-3"
+
+
+def test_concise_override_dirname_sanitizes_values_and_rejects_leaf_collisions() -> None:
+    assert concise_override_dirname("model.output=a/b:c") == "output=a_b_c"
+    with pytest.raises(ValueError, match="ambiguous.*num_layers"):
+        concise_override_dirname("encoder.num_layers=2,model.num_layers=3")
+
+
+def test_initialize_persists_complete_overrides_below_concise_layout(
+    tmp_path: Path,
+) -> None:
+    config = _resolved()
+    layout = RunLayout(
+        tmp_path,
+        config.name,
+        identity=MultirunIdentity(job_num=0, suffix="num_layers=2"),
+    )
+    overrides = (
+        "name=planning-test",
+        "dataset=hotpotqa",
+        "method_configs.dense_rgcn_graph_retriever.train.model.num_layers=2",
+    )
+
+    initialize_experiment(config, layout=layout, overrides=overrides)
+
+    assert layout.run_dir.name == "0_num_layers=2"
+    assert "dataset=hotpotqa" in layout.overrides.read_text(encoding="utf-8")
+    assert "num_layers=2" in layout.overrides.read_text(encoding="utf-8")
+    assert layout.resolved_config.is_file()
 
 
 def test_typed_method_registry_projects_all_eight_runtime_contracts() -> None:

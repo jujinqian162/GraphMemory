@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from graph_memory.experiment.state import read_run_state
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_run_and_status_entrypoints_resume_without_new_children(tmp_path: Path) -> None:
+def test_shared_only_run_and_status_resume_without_baseline_children(tmp_path: Path) -> None:
     name = f"entrypoint-{tmp_path.name}"
     run_root = ROOT / "runs" / name
     command = _run_command(name, tmp_path=tmp_path)
@@ -57,7 +58,9 @@ def test_run_and_status_entrypoints_resume_without_new_children(tmp_path: Path) 
         )
         experiment = client.get_experiment_by_name("graph-memory")
         assert experiment is not None
-        assert len(client.search_runs([experiment.experiment_id])) == 4
+        runs = client.search_runs([experiment.experiment_id])
+        assert len(runs) == 1
+        assert runs[0].data.tags["graph_memory.run_kind"] == "parent"
     finally:
         shutil.rmtree(run_root, ignore_errors=True)
 
@@ -77,11 +80,75 @@ def test_run_entrypoint_executes_sequential_hydra_multirun(tmp_path: Path) -> No
         assert completed.returncode == 0, completed.stderr
         states = sorted(named_root.glob("*/run_state.yaml"))
         assert len(states) == 2
+        assert [path.parent.name for path in states] == ["0_seed=13", "1_seed=17"]
         loaded = [read_run_state(path) for path in states]
         assert [state.config.seed for state in loaded] == [13, 17]
         assert all(state.mode == "multirun" for state in loaded)
         assert all(state.mlflow_parent_run_id is not None for state in loaded)
         assert completed.stdout.find("seed=13") < completed.stdout.find("seed=17")
+        assert (named_root / "multirun.yaml").is_file()
+        assert all(
+            (path.parent / "config/resolved.yaml").is_file()
+            and (path.parent / "config/overrides.yaml").is_file()
+            for path in states
+        )
+
+        ambiguous = subprocess.run(
+            [sys.executable, "experiment/status.py", f"name={name}"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert ambiguous.returncode != 0
+        assert "0_seed=13" in ambiguous.stderr
+        assert "1_seed=17" in ambiguous.stderr
+
+        selected = subprocess.run(
+            [
+                sys.executable,
+                "experiment/status.py",
+                f"name={name}",
+                "job=0_seed=13",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert selected.returncode == 0, selected.stderr
+        assert "prepare train complete" in selected.stdout
+
+        inspected = subprocess.run(
+            [
+                sys.executable,
+                "experiment/inspect.py",
+                "kind=jobs",
+                f"name={name}",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert inspected.returncode == 0, inspected.stderr
+        assert json.loads(inspected.stdout) == ["0_seed=13", "1_seed=17"]
+
+        reset = subprocess.run(
+            [
+                sys.executable,
+                "experiment/reset.py",
+                f"name={name}",
+                "job=0_seed=13",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert reset.returncode == 0, reset.stderr
+        assert not (named_root / "0_seed=13").exists()
+        assert (named_root / "1_seed=17").is_dir()
     finally:
         shutil.rmtree(named_root, ignore_errors=True)
 
@@ -187,7 +254,7 @@ def _run_command(
             [
                 "seed=13,17",
                 "hydra.job.config.override_dirname.exclude_keys="
-                "[name,profile,methods,device,stages.to,tracking.database,"
+                "[name,dataset,profile,methods,device,stages.to,tracking.database,"
                 "tracking.artifact_root,dataset.splits.train.source,"
                 "dataset.splits.dev.source,dataset.splits.test.source,"
                 "dataset.splits.train.offset,dataset.splits.dev.offset,"

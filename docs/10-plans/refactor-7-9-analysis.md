@@ -208,7 +208,7 @@ scripts/workflow/status.py -> resume.py
 | `--force` | 删除；唯一 destructive 操作是 `experiment/reset.py name=...` |
 | `--no-cache` | 改为 `cache.enabled=false`；忽略 completed-prefix，仍写原语义的 stage run summary |
 | `--from` / `--to` | 改为 `stages.from=<stage>` / `stages.to=<stage>` |
-| list subcommands | 改为 `experiment/inspect.py kind=stages|methods|datasets|profiles|configs|ablations`；删除 recipe list |
+| list subcommands | 改为 `experiment/inspect.py kind=stages|methods|datasets|profiles|configs|ablations|jobs`；删除 recipe list |
 | JSON effective/stage configs | 改为 resolved YAML 和 Pydantic stage YAML |
 | `manifest.json` 和相邻 `*.run_summary.json` | 保留现有职责，分别收敛为 typed `RunState` 与 `StageRunSummary`，不增加新 cache record |
 
@@ -276,8 +276,8 @@ uv run python experiment/run.py name=rgcn-ablation methods='[dense_rgcn_graph_re
 - `experiment/plan.py`：compose、validate、解析 DAG、检查 cache、打印计划；不启动 MLflow run。
 - `experiment/run.py`：与 plan 共享同一个 planner，然后执行。
 - `experiment/status.py`：按 artifact 和 typed run summary 展示 `missing/complete/stale/alias`。
-- `experiment/inspect.py`：替代现有 stages/methods/configs/profiles/ablations 列表命令；不提供 recipes。
-- `experiment/reset.py`：删除一个指定 named run；这是唯一 destructive 入口。
+- `experiment/inspect.py`：替代现有 stages/methods/configs/profiles/ablations 列表命令，并以 `kind=jobs name=<sweep>` 列出 concise selectors；不提供 recipes。
+- `experiment/reset.py`：删除一个指定 named run 或 exact multirun job selector；这是唯一 destructive 入口。
 
 不保留独立 `init`。`plan` 和 `run` 在 run 不存在时创建目录、resolved config、`RunState` 和 stage
 configs；`plan` 的这些本地写入是其唯一副作用，不创建 MLflow run、不执行 stage。普通 run 参数
@@ -746,10 +746,11 @@ runs/
     tracking.db
     artifacts/
   <name>/
-    # single-run mode
     .hydra/
-    state/run.json
-    stage-configs/...
+    run_state.yaml
+    config/resolved.yaml
+    config/overrides.yaml
+    config/stages/...
     inputs/...
     graphs/...
     learned/...
@@ -758,17 +759,16 @@ runs/
     metrics/...
     tables/...
     debug/...
-    # 每个主 artifact 相邻保留 typed *.run_summary.json
+    # 每个主 artifact 相邻保留 typed *.run_summary.yaml
 
   <sweep-name>/
-    # multirun mode
-    state/sweep.json
-    multirun/
-      <job-num>-<override-dirname>/
-        .hydra/
-        state/run.json
-        stage-configs/...
-        ...
+    multirun.yaml
+    0_num_layers=2/
+      .hydra/
+      run_state.yaml
+      config/resolved.yaml
+      config/overrides.yaml
+      ...
 ```
 
 Hydra 明确配置：
@@ -778,8 +778,8 @@ hydra:
   run:
     dir: runs/${name}
   sweep:
-    dir: runs/${name}/multirun
-    subdir: '${hydra.job.num}-${hydra.job.override_dirname}'
+    dir: runs/${name}
+    subdir: '${hydra.job.num}_${concise_override:${hydra.job.override_dirname}}'
   job:
     chdir: false
 ```
@@ -795,11 +795,14 @@ hydra:
 4. 重建必须走显式 `experiment/reset.py name=...`；
 5. 不计算 config hash、source hash 或 artifact digest。
 
-`state/run.json` 与 `state/sweep.json` 都包含固定的 `mode`。同一个 `<name>` 不能在 single-run 和
+`run_state.yaml` 包含固定的 `mode`。同一个 `<name>` 不能在 single-run 和
 multirun 两种 mode 间复用；mode 不匹配时必须 reset 或更换 name。
 
-multirun 中 `<name>` 是 sweep 名，不是每个 job 的唯一 id。每个 job 直接使用 Hydra 的 job number
-和 override dirname 建立独立目录，不注册自定义 resolver，也不为 multirun 新增额外 cache identity。
+multirun 中 `<name>` 是 sweep 名，不是每个 job 的唯一 id。`layout.py` 的唯一 formatter 在 Hydra
+composition 前注册，并同时供 `hydra.sweep.subdir` 与 `RunLayout` 使用。它排除固定 root identity
+overrides，把嵌套 sweep path 收敛为 leaf key，保留确定性 assignment 顺序，清洗非法路径字符，并在
+leaf key 冲突时直接失败。完整 resolved config 与 override list 仍保存在每个 job 内；concise leaf
+只是 selector，不是配置序列化格式，也不增加额外 cache identity。
 
 ## Cache 与中断恢复：保持当前能力
 
@@ -853,31 +856,39 @@ file store 或自动切换 backend。`plan/status/inspect/reset` 不创建 MLflo
 ### Run 层级
 
 - 一个 Hydra single-run/multirun job = 一个 MLflow parent run；
-- 一个实际执行的 stage/method/split/variant attempt = 一个 nested child run；
-- tuning 的全部 candidate 不要各建一个 child run，写 candidate table artifact，并把 best candidate
-  作为 params/metrics；
-- resume 精确相同配置时复用 parent run id，新的 stage attempt 建新 child run；
+- 一个 user-visible selected baseline 或 executable ablation variant = 一个 nested child run；
+- prepare、graphs、aggregate 是 parent 的 workflow/result observations，不创建 child；
+- pairs、tune、train、retrieve、evaluate 都写入所属 baseline 的同一个 child；
+- tuning candidate table 是 artifact，selected config 是 parameters，tuning 分数不进入 model metrics；
+- resume 精确相同配置时复用 parent 和唯一 baseline child，cache hit 也从本地事实源补全该 child；
 - config 变化必须是新 job，不能在同一个 MLflow run 中改参数。
 
 ### 记录内容
 
-MLflow 记录：
+parent 只记录 name、dataset、profile、seed、device、methods、top-k、stage bounds、cache、ablation 和
+multirun identity 等 concise parameters；resolved config/overrides 放在 `config/`，aggregate CSV 放在
+`results/`，shared summaries 放在 `workflow/`。aggregate 成功后，所有 baseline results 合并为一个
+`mlflow.note.content` Overview 表。MLflow 3.14 只保证该 plain-text Markdown 内容可持久化；即使 UI
+渲染有限，`results/*.csv` 仍是 durable fallback。parent 没有 native result metrics、training series、
+saved chart config 或 repository-generated comparison image。
 
-- flattened scientific params；
-- dataset/profile/method/seed/device/top-k；
-- git commit、dirty flag、Python 和 dependency version；
-- stage counts/timings；
-- train loss/dev metrics（epoch 为 step）；
-- tuning best metric 和 candidate table；
-- retrieval/evaluation/aggregate metrics；
-- exception 和 stage status；
-- resolved Hydra config、override list、selected config、最终 tables、报告图等小型/精选 artifacts。
+baseline child 记录 method-relative encoder/pairs/tuning/model/trainer/scoring parameters、统一的 `final.*`
+数值和 trainable method 的 epoch-indexed `train.*` series。counts、timings、status、error、artifact path/kind/
+size 只进入 tags、parameters、Overview 或 summary artifacts，不冒充 model metrics。相同 evaluation 值不从
+aggregate 再写一份；`N/A`、non-numeric、NaN 和 infinity 不写 numeric metric。用户在 MLflow Compare Runs
+中选择 baseline children，直接比较相同的 `final.*` keys。
 
-本地 workflow artifacts 是科学结果和交付的事实源；MLflow 是其参数、指标和精选小文件的可查询镜像，
-不是唯一存储。artifact policy 使用固定 allowlist：resolved config、override list、stage run summary、selected
-tuning config、candidate table、最终 CSV、报告图和小型 failure summary 可以上传。raw/processed dataset、
-完整 graph、train pairs、完整 predictions、checkpoint/model directory 禁止上传，只记录 path、size、
-kind 和 role。本轮不提供“上传全部 artifact”的 fallback 开关。
+本地 workflow artifacts 是科学结果和交付的事实源；MLflow 是其精选展示镜像，不是唯一存储。
+resolved config、override list、selected tuning config、candidate table、train metrics、evaluation CSV、最终
+tables、stage summaries 和小型 failure summary 可以按 `config/`、`tuning/`、`training/`、`evaluation/`、
+`workflow/`、`dependencies/` 上传。raw/processed dataset、完整 graph、train pairs、完整 predictions、
+checkpoint/model directory 禁止上传，只记录 path、size、kind 和 role。本轮不提供“上传全部 artifact”的
+fallback 开关。隐藏 Dense-FT prerequisite 的 summaries/references 放到 dependent baseline 的
+`dependencies/dense_ft/`；若 Dense-FT 也被显式选择，则它拥有独立 child，dependent child 只记录引用。
+
+切换不增加 schema/version tag、compatibility reader、legacy branch、dual write、old-run migration 或
+database rewrite。existing SQLite rows 保持历史记录；former local run name 必须改用新 name，或先执行
+normal explicit reset，再运行新 projection。
 
 ## 引入 MLflow 后可以删除什么
 
@@ -973,7 +984,7 @@ resume 语义。
 | 冲突 | 当前事实 | 锁定决策 |
 |---|---|---|
 | Python 版本 | `.python-version` 是 3.12，服务器是 3.10；现有测试主要检查声明和部分 AST | 在真实 Python 3.10 环境运行完整 smoke、Hydra composition、Pydantic、MLflow 和类型测试 |
-| multirun 同名 | 一个 name 对应多个 Hydra jobs | 直接使用 Hydra `job.num + override_dirname` 子目录，不增加自定义 identity resolver |
+| multirun 同名 | 一个 name 对应多个 Hydra jobs | 注册唯一 concise formatter；Hydra 与 `RunLayout` 共同产生 `<job-num>_<varying-leaf>=<value>` |
 | single/multirun 复用 name | 两种 mode 的根目录语义不同 | `RunState.mode` 固定；mode 不匹配时拒绝，必须 reset 或改名 |
 | `dataset=2wiki` | 当前 dataset 字符串还伴随多组 raw/split/adapter 配置 | dataset 必须是 config group，不能只覆写一个 scalar |
 | profile | dataset count 和 method training profile 分散在多份 JSON | dataset 提供已验证 logical-window capacity，profile 提供 `fixed`/`all_available` policy；typed resolver 合成并对越界 fail fast |
@@ -986,7 +997,7 @@ resume 语义。
 | method 动态选择 | 临时 `methods=[...]` 和隐藏 Dense-FT dependency 都需要 config | 用 Hydra multi-select 一次组合八份 `method_configs`，普通 `methods` 列表只决定执行；不使用 `method@...` |
 | MLflow 存储 | 每个 named run 一套 store 会失去跨 run 比较 | 全局 SQLite metadata + artifact root；BasicLauncher 顺序执行，workflow artifact 仍在 run dir |
 | 指标事实源 | direct script 无 parent context 仍必须独立工作 | 本地 metric JSON/JSONL 是事实源，MLflow 只镜像，不删除 `train_metrics.jsonl` |
-| 大 artifact | `log_artifact` 会形成 MLflow 管理的副本 | 大数据只登记 path/size/kind/role；精选 config/table/plot 才上传 |
+| 大 artifact | `log_artifact` 会形成 MLflow 管理的副本 | 大数据只登记 path/size/kind/role；精选 config/table/summary 才上传，不生成 comparison plot |
 | cache correctness | MLflow FINISHED 不证明本地输出匹配输入 | 保留 artifact + typed run summary 检查和 completed-prefix resume，不新增 cache 能力 |
 | code/raw 原地变化 | 当前 summary 未必识别同路径内容变化 | 接受现有边界；使用新 run name、reset 或 `cache.enabled=false` 明确重跑 |
 | config 变化恢复 | MLflow param 和旧 artifact 不应在同 run 被改写 | 新旧 resolved Pydantic config 直接比较；不同即改名或 reset，绝不混用 |
@@ -1043,9 +1054,11 @@ resume 语义。
 ### MLflow
 
 - 一个 Hydra job 对应一个 parent run。
-- executed stages 有 child runs；cache hit 不伪装成新的成功执行。
+- 每个 selected baseline/executable variant 对应一个稳定 child；shared stages 没有 child。
+- fully cached baseline 仍从 authoritative local files 填充 child；exact resume 复用唯一 child。
 - epoch metrics 使用正确 step。
-- tuning candidate table、best config、test metrics、aggregate tables 可在 UI 找到。
+- parent Overview、tuning candidate table、selected config、baseline final metrics 和 aggregate tables 可在 UI 找到。
+- parent metrics 为空；baseline children 共享 `final.*` keys，并可直接 Compare Runs。
 - MLflow 不复制默认禁止的大型 artifacts。
 - run state 记录 MLflow ids；experiment run 的 MLflow 初始化或写入失败即失败，不静默丢 tracking。
 - direct script 没有 parent context 时仍写完整本地 metric artifacts，不创建孤立 MLflow run。
@@ -1108,10 +1121,10 @@ resume 语义。
   不引入 recipe 概念；
 - `method_configs` 使用 Hydra multi-select 组合，`methods` 普通列表决定执行；
 - `runs/${name}` 是稳定的 single-run identity，日期不参与路径和 cache identity；
-- single-run 和 multirun 使用不同 mode，multirun 直接使用 Hydra job num/override dirname；
+- single-run 和 multirun 使用不同 mode，multirun 使用 Hydra job num 加 concise varying-leaf suffix；
 - cache 保持 artifact + typed run summary + completed-prefix resume，不增加任何能力；
 - 大 artifact 不默认复制进 MLflow；
-- 本地 metric artifacts 是事实源，MLflow 是可查询镜像；
+- 本地 metric artifacts 是事实源，MLflow 是 parent/baseline presentation mirror；
 - root seed 统一所有 RNG 入口，本轮明确不启用 strict deterministic algorithms；
 - direct script 只接受 resolved stage YAML；
 - 不保留旧 JSON/argparse/config compatibility；

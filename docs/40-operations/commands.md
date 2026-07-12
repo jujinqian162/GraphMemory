@@ -1,6 +1,6 @@
 # Experiment commands
 
-Date: 2026-07-11
+Date: 2026-07-12
 
 `plan` and `run` compose `configs/config.yaml` with Hydra. `status`, `inspect`, and `reset` parse only their closed `key=value` command models and create no Hydra job.
 
@@ -48,10 +48,13 @@ uv run python experiment/status.py name=quick_valid_100
 uv run python experiment/inspect.py kind=methods
 uv run python experiment/inspect.py kind=profiles
 uv run python experiment/inspect.py kind=ablations
+uv run python experiment/inspect.py kind=jobs name=rgcn_layers
+uv run python experiment/status.py name=rgcn_layers job=0_num_layers=2
+uv run python experiment/reset.py name=rgcn_layers job=0_num_layers=2
 uv run python experiment/reset.py name=quick_valid_100
 ```
 
-`status` derives `missing`, `complete`, `stale`, and `alias` from local artifacts plus matching typed stage summaries. MLflow state is never used as cache truth. `reset` is the only public destructive named-run operation and refuses paths outside the repository-owned run root.
+`status` derives `missing`, `complete`, `stale`, and `alias` from local artifacts plus matching typed stage summaries. MLflow state is never used as cache truth. `inspect kind=jobs` lists concise multirun selectors. `reset` is the only public destructive run operation; it can remove a whole name or one exact `job=...` child and refuses paths outside the repository-owned run root.
 
 ## Sequential multirun
 
@@ -59,10 +62,12 @@ Hydra's BasicLauncher runs jobs sequentially. Each job has an independent typed 
 
 ```powershell
 uv run python experiment/run.py -m `
-  name=seed_sweep profile=smoke device=cpu 'methods=[bm25]' seed=13,17
+  name=rgcn_layers profile=smoke device=cpu `
+  'methods=[dense_rgcn_graph_retriever]' `
+  method_configs.dense_rgcn_graph_retriever.train.model.num_layers=2,3,4
 ```
 
-Jobs are stored as `runs/seed_sweep/<job-number>_<override-dirname>/`. Pass `job=<directory-name>` to `status` or `reset` when more than one job exists.
+Jobs are stored as `runs/rgcn_layers/0_num_layers=2`, `1_num_layers=3`, and `2_num_layers=4`. Fixed identity overrides such as `name`, `dataset`, `profile`, and `methods` do not expand every leaf. `multirun.yaml` catalogs the sweep, while every job retains its complete `config/resolved.yaml` and `config/overrides.yaml`. Use the exact concise selector with `status` or `reset`, and list selectors with `inspect kind=jobs name=rgcn_layers`.
 
 ## R-GCN ablations
 
@@ -119,7 +124,19 @@ uv run mlflow ui `
   --default-artifact-root ./runs/.mlflow/artifacts
 ```
 
-Open `http://127.0.0.1:5000`. Each Hydra job owns one parent run; each executed stage attempt owns one child. Cache hits create no child. Local outputs, `run_state.yaml`, and adjacent `*.run_summary.yaml` files remain the scientific source of truth.
+Open `http://127.0.0.1:5000`. Each Hydra job owns one parent summary run. Its Overview contains the readable all-baseline result table when aggregation is available; `config/`, `results/`, and `workflow/` contain job-level artifacts. MLflow 3.14 stores this table in `mlflow.note.content`; plain-text Markdown rendering is accepted, and the CSVs under `results/` remain the durable fallback.
+
+Each user-selected baseline, including each executable ablation variant, owns one child. Search child parameters such as `train.trainer.epochs`, `encoder.model_name`, or `scoring.*` without a `method_configs.<method>` prefix. Common `final.*` metrics make children directly comparable, and trainable children additionally expose epoch-indexed `train.*` series. Shared prepare/graph/aggregate stages do not create children. Cached and resumed stages populate or reuse the same baseline child.
+
+To compare methods or multirun jobs in MLflow:
+
+1. Open the `graph-memory` experiment and filter `tags.graph_memory.run_kind = baseline`.
+2. Select baseline children from the desired parents/jobs.
+3. Choose Compare Runs and use the shared `final.*` columns; trainable curves use `train.*`.
+
+Parent runs intentionally have no native result metrics, training series, saved chart configuration, or repository-generated comparison image. Counts, timings, statuses, errors, and artifact sizes remain in tags and YAML summaries. Local outputs, `run_state.yaml`, adjacent `*.run_summary.yaml`, and result CSVs remain the scientific source of truth.
+
+The cutover is direct. Existing SQLite rows remain untouched historical records. Do not reuse a local name created by the former stage-child organization: choose a fresh name or run the normal explicit reset first. There is no compatibility reader, dual-write path, old-run migration, or database rewrite.
 
 ## Delivery and verification
 
@@ -129,7 +146,7 @@ uv run pytest -q
 uv run ruff check .
 uv run basedpyright --level error
 uv run python -m compileall -q graph_memory scripts tests
-openspec validate simplify-experiment-config-workflow --strict
+openspec validate reorganize-mlflow-experiment-tracking --strict
 git diff --check
 ```
 

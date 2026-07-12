@@ -11,7 +11,12 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
 )
-from graph_memory.experiment.layout import MultirunIdentity, RunLayout, RunMode
+from graph_memory.experiment.layout import (
+    MultirunIdentity,
+    RunLayout,
+    RunMode,
+    concise_override_dirname,
+)
 from graph_memory.experiment.persistence import (
     write_yaml_atomic,
 )
@@ -96,7 +101,7 @@ def initialize_from_hydra(
             config.name,
             identity=MultirunIdentity(
                 job_num=int(runtime.job.num),
-                override_dirname=str(runtime.job.override_dirname),
+                suffix=concise_override_dirname(str(runtime.job.override_dirname)),
             ),
         )
     )
@@ -142,15 +147,15 @@ def load_existing_experiment(
             )
         state_path = candidates[0]
         leaf = state_path.parent.name
-        job_number, separator, override_dirname = leaf.partition("_")
-        if not separator or not job_number.isdigit() or not override_dirname:
+        job_number, separator, suffix = leaf.partition("_")
+        if not separator or not job_number.isdigit() or not suffix:
             raise ValueError(f"invalid multirun job directory: {leaf}")
         layout = RunLayout(
             root,
             name,
             identity=MultirunIdentity(
                 job_num=int(job_number),
-                override_dirname=override_dirname,
+                suffix=suffix,
             ),
         )
         if layout.run_state.resolve() != state_path.resolve():

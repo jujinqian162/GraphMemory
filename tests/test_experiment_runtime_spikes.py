@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -74,8 +75,47 @@ def test_hydra_spike_uses_basic_launcher_without_chdir_and_sequential_multirun(
         row["cwd"] == Path(__file__).parents[1].resolve().as_posix() for row in rows
     )
     assert all(row["launcher"].endswith("BasicLauncher") for row in rows)
-    assert rows[0]["output_dir"].endswith("/spike/0_dataset=twowiki,seed=1")
-    assert rows[1]["output_dir"].endswith("/spike/1_dataset=twowiki,seed=2")
+    assert rows[0]["output_dir"].endswith("/spike/0_seed=1")
+    assert rows[1]["output_dir"].endswith("/spike/1_seed=2")
+
+
+def test_hydra_134_concise_num_layers_multirun_matches_run_layout(
+    tmp_path: Path,
+) -> None:
+    assert importlib.metadata.version("hydra-core") == "1.3.4"
+    log_path = tmp_path / "multirun.jsonl"
+    output_root = tmp_path / "outputs"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(FIXTURE_ROOT / "hydra_spike_app.py"),
+            "-m",
+            "name=layers",
+            "dataset=twowiki",
+            "method_configs.dense_rgcn_graph_retriever.train.model.num_layers=2,3,4",
+        ],
+        cwd=Path(__file__).parents[1],
+        env={
+            **os.environ,
+            "HYDRA_SPIKE_LOG": str(log_path),
+            "HYDRA_SPIKE_ROOT": str(output_root),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rows = [
+        json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()
+    ]
+    expected = ["0_num_layers=2", "1_num_layers=3", "2_num_layers=4"]
+    assert [Path(row["output_dir"]).name for row in rows] == expected
+    assert [Path(row["layout_dir"]).name for row in rows] == expected
+    assert [row["suffix"] for row in rows] == [
+        "num_layers=2",
+        "num_layers=3",
+        "num_layers=4",
+    ]
 
 
 def test_mlflow_sqlite_spike_persists_parent_children_and_curated_artifact(
@@ -119,4 +159,30 @@ def test_mlflow_sqlite_spike_persists_parent_children_and_curated_artifact(
     assert resumed_run.data.metrics["recall_at_5"] == 1.0
     assert [item.path for item in client.list_artifacts(parent_id, "curated")] == [
         "curated/resolved_config.yaml"
+    ]
+
+
+def test_mlflow_314_note_content_accepts_plain_text_markdown_table_and_csv_fallback(
+    tmp_path: Path,
+) -> None:
+    assert mlflow.__version__ == "3.14.0"
+    database = (tmp_path / "mlflow.db").resolve()
+    artifact_root = (tmp_path / "artifacts").resolve()
+    tracking_uri = f"sqlite:///{database.as_posix()}"
+    client = MlflowClient(tracking_uri=tracking_uri)
+    experiment_id = client.create_experiment(
+        "mlflow-note-spike",
+        artifact_location=artifact_root.as_uri(),
+    )
+    run_id = client.create_run(experiment_id).info.run_id
+    table = "Final baseline results\n\n| Method | Recall@10 |\n| --- | --- |\n| bm25 | 0.5 |"
+    result_csv = tmp_path / "main_results.csv"
+    result_csv.write_text("Method,Recall@10\nbm25,0.5\n", encoding="utf-8")
+
+    client.set_tag(run_id, "mlflow.note.content", table)
+    client.log_artifact(run_id, str(result_csv), artifact_path="results")
+
+    assert client.get_run(run_id).data.tags["mlflow.note.content"] == table
+    assert [item.path for item in client.list_artifacts(run_id, "results")] == [
+        "results/main_results.csv"
     ]

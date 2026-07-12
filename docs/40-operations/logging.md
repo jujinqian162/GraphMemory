@@ -22,7 +22,7 @@ Logging should support debugging, auditability, and experiment reproduction with
 | Output | Format | Purpose |
 |---|---|---|
 | Console log | human-readable text | Show progress, counts, paths, and failures. |
-| Run summary | JSON | Reproduce and audit a run. |
+| Run summary | YAML | Reproduce and audit a stage attempt. |
 | Debug records | JSON/JSONL | Inspect selected task-level details. |
 | Result artifacts | JSON/CSV | Scientific outputs consumed by later steps. |
 
@@ -213,8 +213,8 @@ Each runnable script must write a compact run summary near its main output.
 The planner binds one adjacent YAML summary path for every stage invocation:
 
 ```text
-runs/<name>/artifacts/<stage>/<artifact>.run_summary.yaml
-runs/<name>/artifacts/aggregate/aggregate.run_summary.yaml
+runs/<name>/**/<artifact>.run_summary.yaml
+runs/<name>/tables/main_results.run_summary.yaml
 ```
 
 Shape:
@@ -226,7 +226,7 @@ split: test
 variant: null
 attempt: 1
 started_at: 2026-05-20T12:00:00+08:00
-finished_at: 2026-05-20T12:05:00+08:00
+ended_at: 2026-05-20T12:05:00+08:00
 status: success
 effective_config: {}
 inputs: []
@@ -243,7 +243,7 @@ Required fields:
 |---|---|
 | `stage`, `method`, `split`, `variant` | Typed invocation identity. |
 | `attempt` | Monotonic attempt number for this invocation. |
-| `started_at`, `finished_at` | Timestamped run boundaries. |
+| `started_at`, `ended_at` | Timestamped run boundaries. |
 | `status` | `running`, `success`, or `failed`. |
 | `effective_config` | Fully resolved direct-stage YAML contract. |
 | `inputs` | Typed input artifact bindings. |
@@ -251,7 +251,9 @@ Required fields:
 | `counts` | Number of examples, graphs, predictions, rows, etc. |
 | `timings` | Wall-clock durations for major stages. |
 | `error` | Structured error record for failed attempts. |
-| `mlflow_child_run_id` | Optional observability link; never used for cache decisions. |
+| `mlflow_child_run_id` | Optional owning baseline-child link for method stages; shared stages keep it null. Never used for cache decisions. |
+
+MLflow does not mirror these operational fields as model metrics. Counts, timings, status, errors, paths, kinds, and sizes remain in tags and summary artifacts. Native MLflow metrics are limited to comparable `final.*` values and genuine epoch-indexed `train.*` series. The parent Overview and aggregate CSV artifacts present cross-baseline results without parent metrics or generated comparison plots.
 
 ## Per-Script Logging Requirements
 
