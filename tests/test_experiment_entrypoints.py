@@ -229,6 +229,7 @@ def _run_command(
     command.extend(
         [
             f"name={name}",
+            "dataset=hotpotqa",
             "profile=smoke",
             "methods=[bm25]",
             "device=cpu",

@@ -47,6 +47,7 @@ def _config(
     source = (ROOT / "tests/fixtures/hotpotqa_smoke.json").as_posix()
     overrides = [
         f"name={name}",
+        "dataset=hotpotqa",
         "profile=smoke",
         f"methods={methods}",
         "device=cpu",

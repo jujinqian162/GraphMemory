@@ -30,7 +30,7 @@ def test_inspection_exposes_only_supported_typed_catalog_kinds() -> None:
     configs = inspect_catalog("configs", repository_root=ROOT)
     ablations = inspect_catalog("ablations", repository_root=ROOT)
     assert isinstance(datasets, list) and "hotpotqa" in datasets
-    assert isinstance(profiles, list) and "smoke" in profiles
+    assert profiles == ["full", "quick", "smoke"]
     assert isinstance(configs, list) and "config" in configs
     assert isinstance(ablations, dict) and "dense_rgcn_graph_retriever" in ablations
     jobs_root = ROOT / "runs" / "inspect-jobs"

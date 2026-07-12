@@ -38,8 +38,10 @@ def test_default_composition_is_closed_complete_and_resolvable() -> None:
     config = _compose()
     resolved = resolve_experiment_config(config, repository_root=REPO_ROOT)
 
-    assert config.dataset.name == "hotpotqa"
-    assert config.profile.name == "quick"
+    assert config.dataset.name == "musique"
+    assert config.profile.name == "full"
+    assert config.profile.trainable.rgcn.num_layers == 3
+    assert config.profile.trainable.rgcn.hard_dense_per_positive == 1
     assert [method.value for method in config.methods] == [
         "bm25",
         "dense",
@@ -92,17 +94,17 @@ def test_scientific_integer_rejects_bool_string_and_float_coercion(
         ExperimentConfig.model_validate(primitive)
 
 
-def test_dataset_group_and_cloud_full_policy_resolve_complete_windows() -> None:
+def test_dataset_group_and_full_policy_resolve_complete_windows() -> None:
     hotpot = resolve_experiment_config(
-        _compose(overrides=["profile=cloud-full"]),
+        _compose(overrides=["dataset=hotpotqa", "profile=full"]),
         repository_root=REPO_ROOT,
     )
     twowiki = resolve_experiment_config(
-        _compose(overrides=["dataset=2wiki", "profile=cloud-full"]),
+        _compose(overrides=["dataset=2wiki", "profile=full"]),
         repository_root=REPO_ROOT,
     )
     musique = resolve_experiment_config(
-        _compose(overrides=["dataset=musique", "profile=cloud-full"]),
+        _compose(overrides=["dataset=musique", "profile=full"]),
         repository_root=REPO_ROOT,
     )
 
@@ -126,7 +128,7 @@ def test_dataset_group_and_cloud_full_policy_resolve_complete_windows() -> None:
 
 
 def test_fixed_count_beyond_dataset_capacity_fails_during_resolution() -> None:
-    config = _compose(overrides=["profile=cloud-full"])
+    config = _compose(overrides=["dataset=hotpotqa", "profile=full"])
     primitive = config.model_dump(mode="python", by_alias=True)
     primitive["profile"]["splits"]["test"] = {"kind": "fixed", "count": 7000}
     invalid = ExperimentConfig.model_validate(primitive)
@@ -164,12 +166,12 @@ def test_ablation_values_and_explicit_2wiki_overrides_are_closed() -> None:
     config = _compose(
         overrides=[
             "dataset=2wiki",
-            "profile=tiny",
+            "profile=smoke",
             "methods=[bm25,dense,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever]",
         ]
     )
     assert config.dataset.name == "twowiki"
-    assert config.profile.name == "tiny"
+    assert config.profile.name == "smoke"
     assert [method.value for method in config.methods] == [
         "bm25",
         "dense",

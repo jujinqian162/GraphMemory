@@ -1,6 +1,6 @@
 defaults:
-  - dataset: hotpotqa
-  - profile: quick
+  - dataset: musique
+  - profile: full
   - method_configs:
       - bm25
       - dense
@@ -44,7 +44,7 @@ search_spaces:
     lambda_neighbor: [0.0, 0.05, 0.1, 0.2, 0.4]
     lambda_path: [0.0]
     lambda_query: [0.0, 0.05, 0.1, 0.2]
-    max_hops: [1, 2]
+    max_hops: [1, 2, 3]
     seed_top_s: [20, 30]
     neighbor_type_weights:
       bridge: 1.0

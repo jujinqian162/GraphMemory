@@ -39,6 +39,7 @@ def _smoke_config(name: str):
             config_name="config",
             overrides=[
                 f"name={name}",
+                "dataset=hotpotqa",
                 "profile=smoke",
                 "methods=[bm25]",
                 "device=cpu",

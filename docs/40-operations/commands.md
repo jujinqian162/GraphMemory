@@ -11,7 +11,7 @@ uv run python experiment/plan.py name=quick_valid_100 profile=quick
 uv run python experiment/run.py name=quick_valid_100 profile=quick
 ```
 
-The default config selects the approved seven-method HotpotQA workflow. Select methods, dataset, device, stage bounds, or cache behavior with Hydra overrides:
+The default config selects the approved seven-method MuSiQue full workflow. Select methods, dataset, profile, device, stage bounds, or cache behavior with Hydra overrides:
 
 ```powershell
 uv run python experiment/plan.py `
@@ -28,17 +28,17 @@ An existing name may be reopened only with the identical resolved configuration 
 Former root presets are ordinary copyable overrides:
 
 ```powershell
-# 2Wiki tiny
-uv run python experiment/run.py name=twowiki_tiny dataset=2wiki profile=tiny device=cpu `
+# 2Wiki smoke
+uv run python experiment/run.py name=twowiki_smoke dataset=2wiki profile=smoke device=cpu `
   'methods=[bm25,dense,dense_graph_rerank,dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever]'
 
-# Complete HotpotQA dev window as test
-uv run python experiment/run.py name=hotpotqa_dev_full profile=cloud-full `
+# Full HotpotQA dataset
+uv run python experiment/run.py name=hotpotqa_full dataset=hotpotqa profile=full `
   dataset.splits.test.offset=0
 
 # Memory Stream's importance-backed inputs; method/profile remain independent
 uv run python experiment/run.py name=memory_stream dataset=hotpotqa-memory-stream `
-  profile=memory-full 'methods=[bm25,dense,memory_stream]'
+  profile=full 'methods=[bm25,dense,memory_stream]'
 ```
 
 ## Status, inspection, and reset
@@ -73,11 +73,11 @@ Jobs are stored as `runs/rgcn_layers/0_num_layers=2`, `1_num_layers=3`, and `2_n
 
 ```powershell
 uv run python experiment/plan.py `
-  name=rgcn_ablation_cloud profile=cloud-full `
+  name=rgcn_ablation_full profile=full `
   'methods=[dense_rgcn_graph_retriever]' ablation.variants=all
 
 uv run python experiment/run.py `
-  name=rgcn_ablation_cloud profile=cloud-full `
+  name=rgcn_ablation_full profile=full `
   'methods=[dense_rgcn_graph_retriever]' ablation.variants=all
 ```
 
