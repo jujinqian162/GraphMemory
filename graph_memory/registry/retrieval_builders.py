@@ -285,6 +285,7 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
             model_name=checkpoint.model_config.encoder_model,
             query_prefix=checkpoint.model_config.query_prefix,
             passage_prefix=checkpoint.model_config.passage_prefix,
+            device=settings.device,
             encoder=cast(SentenceEncoder | None, payload.dense_encoder),
         )
         return joint_provider, joint_provider, checkpoint
@@ -295,6 +296,7 @@ def _checkpoint_graph_providers(settings: CheckpointGraphRetrievalSettings, payl
             model_name=checkpoint.model_config.encoder_model,
             query_prefix=checkpoint.model_config.query_prefix,
             passage_prefix=checkpoint.model_config.passage_prefix,
+            device=settings.device,
             encoder=cast(SentenceEncoder | None, payload.dense_encoder),
         )
 

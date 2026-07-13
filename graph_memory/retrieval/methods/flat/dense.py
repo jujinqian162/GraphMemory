@@ -21,6 +21,7 @@ class DenseConfig:
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
     batch_size: int = 64
+    device: str | None = None
 
 
 class DenseTaskRetriever:
@@ -34,6 +35,7 @@ class DenseTaskRetriever:
         passage_prefix: str = "passage: ",
         config: DenseConfigLike | None = None,
         encoder: SentenceEncoder | None = None,
+        device: str | None = None,
     ) -> None:
         self.config = config or DenseConfig(
             model_name=model_name,
@@ -41,7 +43,11 @@ class DenseTaskRetriever:
             passage_prefix=passage_prefix,
             batch_size=batch_size,
         )
-        self.encoder = encoder if encoder is not None else self._load_encoder(self.config.model_name)
+        self.encoder = (
+            encoder
+            if encoder is not None
+            else self._load_encoder(self.config.model_name, device)
+        )
         self.encoding_service = DenseEncodingService(
             encoder=self.encoder,
             query_prefix=self.config.query_prefix,
@@ -80,9 +86,12 @@ class DenseTaskRetriever:
         return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
 
     @staticmethod
-    def _load_encoder(model_name: str) -> SentenceEncoder:
+    def _load_encoder(model_name: str, device: str | None) -> SentenceEncoder:
         try:
-            return cast(SentenceEncoder, cast(object, load_sentence_transformer(model_name)))
+            return cast(
+                SentenceEncoder,
+                cast(object, load_sentence_transformer(model_name, device=device)),
+            )
         except RuntimeError as error:
             raise RuntimeError(
                 "sentence-transformers is required for dense retrieval unless a test encoder is provided."

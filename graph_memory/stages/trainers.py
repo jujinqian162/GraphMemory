@@ -54,7 +54,9 @@ class RgcnGraphRetrieverTrainer:
         encoder_settings = _effective_rgcn_encoder_settings(
             self.config.encoder, payload.seed_checkpoint
         )
-        deps = payload.dependencies or _build_rgcn_dependencies(encoder_settings)
+        deps = payload.dependencies or _build_rgcn_dependencies(
+            encoder_settings, device=settings.trainer.device
+        )
         model_config = default_model_config(
             method_name=self.config.method,
             encoder_model=encoder_settings.model_name,
@@ -147,6 +149,8 @@ def _effective_rgcn_encoder_settings(
 
 def _build_rgcn_dependencies(
     encoder_settings: DenseEncoderSettings,
+    *,
+    device: str,
 ) -> TrainDependencies:
     from graph_memory.models.graph_retriever.text_embeddings import (
         DenseGraphFeatureProvider,
@@ -157,6 +161,7 @@ def _build_rgcn_dependencies(
         query_prefix=encoder_settings.query_prefix,
         passage_prefix=encoder_settings.passage_prefix,
         batch_size=encoder_settings.batch_size,
+        device=device,
     )
     return TrainDependencies(
         text_embedding_provider=text_embedding_provider,

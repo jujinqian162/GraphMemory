@@ -232,6 +232,7 @@ class _StageInvocationFactory:
             ),
             sampling=config_method.pairs,
             hard_dense_encoder=config_method.encoder,
+            device=config_method.train.trainer.device,
         )
         return self._invocation(
             stage="pairs",

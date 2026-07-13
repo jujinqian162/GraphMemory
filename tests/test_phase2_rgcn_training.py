@@ -423,7 +423,7 @@ def write_rgcn_train_stage_config(
 def _patch_cli_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "graph_memory.stages.trainers._build_rgcn_dependencies",
-        lambda _settings: TrainDependencies(
+        lambda _settings, *, device: TrainDependencies(
             text_embedding_provider=FakeTextEmbeddingProvider(),
             seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
         ),

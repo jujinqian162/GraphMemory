@@ -26,12 +26,17 @@ class DenseGraphFeatureProvider:
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
     batch_size: int = 64
+    device: str | None = None
     encoder: SentenceEncoder | None = None
     embedding_dim: int = field(init=False, default=0)
     encoding_service: DenseEncodingService = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        encoder = self.encoder if self.encoder is not None else self._load_encoder(self.model_name)
+        encoder = (
+            self.encoder
+            if self.encoder is not None
+            else self._load_encoder(self.model_name, self.device)
+        )
         object.__setattr__(self, "encoder", encoder)
         service = DenseEncodingService(
             encoder=encoder,
@@ -119,9 +124,12 @@ class DenseGraphFeatureProvider:
         return seed_signals_from_ranked_nodes(request, ranked_nodes)
 
     @staticmethod
-    def _load_encoder(model_name: str) -> SentenceEncoder:
+    def _load_encoder(model_name: str, device: str | None) -> SentenceEncoder:
         try:
-            return cast(SentenceEncoder, cast(object, load_sentence_transformer(model_name)))
+            return cast(
+                SentenceEncoder,
+                cast(object, load_sentence_transformer(model_name, device=device)),
+            )
         except RuntimeError as error:
             raise RuntimeError(
                 "sentence-transformers is required for trainable retrieval unless an embedding provider is injected."

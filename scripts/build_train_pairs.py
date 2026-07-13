@@ -107,6 +107,7 @@ def _dense_config_from_config(config: PairStageConfig) -> DenseConfig | None:
         query_prefix=encoder.query_prefix,
         passage_prefix=encoder.passage_prefix,
         batch_size=encoder.batch_size,
+        device=config.device,
     )
 
 

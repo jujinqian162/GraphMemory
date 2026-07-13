@@ -395,3 +395,41 @@ def test_frozen_feature_reuse_does_not_cross_training_invocations() -> None:
         )
 
     assert len(encoder.calls) == 4
+
+
+def test_dense_graph_feature_provider_passes_explicit_device_to_loader(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    encoder = RecordingEncoder({})
+
+    def fake_loader(model_name: str, *, device: str | None = None):
+        captured.update(model_name=model_name, device=device)
+        return encoder
+
+    monkeypatch.setattr(
+        "graph_memory.models.graph_retriever.text_embeddings.load_sentence_transformer",
+        fake_loader,
+    )
+
+    provider = DenseGraphFeatureProvider(model_name="fake-encoder", device="cuda:2")
+
+    assert provider.encoder is encoder
+    assert captured == {"model_name": "fake-encoder", "device": "cuda:2"}
+
+
+def test_dense_task_retriever_passes_explicit_device_to_loader(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    encoder = RecordingEncoder({})
+
+    def fake_loader(model_name: str, *, device: str | None = None):
+        captured.update(model_name=model_name, device=device)
+        return encoder
+
+    monkeypatch.setattr(
+        "graph_memory.retrieval.methods.flat.dense.load_sentence_transformer",
+        fake_loader,
+    )
+
+    retriever = DenseTaskRetriever(model_name="fake-encoder", device="cuda:2")
+
+    assert retriever.encoder is encoder
+    assert captured == {"model_name": "fake-encoder", "device": "cuda:2"}

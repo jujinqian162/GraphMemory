@@ -179,7 +179,10 @@ def _build_default_samplers(
         else:
             retriever = dense_retriever
             if retriever is None and dense_config is not None:
-                retriever = DenseTaskRetriever(config=dense_config)
+                retriever = DenseTaskRetriever(
+                    config=dense_config,
+                    device=dense_config.device,
+                )
             else:
                 retriever = retriever or DenseTaskRetriever()
             dense_provider = RetrieverSeedSignalProvider(retriever)

@@ -8,6 +8,7 @@ from pydantic import Field
 from graph_memory.experiment.config import (
     ClosedModel,
     DatasetName,
+    Device,
     DenseEncoderConfig,
     DenseFinetuneTrainConfig,
     GraphBuildConfig,
@@ -91,6 +92,7 @@ class PairStageConfig(ClosedModel):
     outputs: PairOutputs
     sampling: PairSamplingConfig
     hard_dense_encoder: DenseEncoderConfig
+    device: Device
 
 
 class GraphRerankTuneStageBase(ClosedModel):
