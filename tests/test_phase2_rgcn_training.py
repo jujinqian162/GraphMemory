@@ -12,6 +12,7 @@ from graph_memory.models.graph_retriever.checkpoint import (
     load_rgcn_checkpoint,
     save_rgcn_checkpoint,
 )
+from graph_memory.models.graph_retriever.dev_evaluation import DevLossMetrics
 from graph_memory.models.dense_finetune.metadata import (
     DenseFinetuneModelMetadata,
     DenseFinetuneSelectionMetadata,
@@ -54,9 +55,11 @@ from graph_memory.datasets.hotpotqa.records import (
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
+    OptimizerPhaseConfig,
     RgcnModelConfig,
     RgcnTrainingConfig,
 )
+from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
 from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
 from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.stages.train_payloads import RgcnTrainPayload, TrainDependencies
@@ -554,6 +557,17 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
         "max_steps",
     ):
         assert metric_name in result.metric_records[-1]
+    metric_record = result.metric_records[-1]
+    assert metric_record["dev_loss"] == pytest.approx(
+        cast(float, metric_record["dev_next_action_loss"])
+        + cast(float, metric_record["dev_stop_loss"])
+        + 0.2 * cast(float, metric_record["dev_aux_node_loss"])
+    )
+    assert cast(float, metric_record["dev_next_action_loss"]) > 0.0
+    assert cast(float, metric_record["dev_stop_loss"]) > 0.0
+    assert metric_record["selected_metric_name"] == "dev_composite"
+    assert metric_record["selected_metric_value"] == metric_record["dev_composite"]
+    assert metric_record["best_selected_metric_value"] == result.best_dev_metric
     assert (checkpoint_dir / "best.pt").exists()
 
     checkpoint = load_rgcn_checkpoint(
@@ -562,6 +576,127 @@ def test_train_graph_retriever_writes_metrics_and_best_checkpoint(tmp_path: Path
     )
     validate_rgcn_checkpoint_metadata(checkpoint.payload)
     assert checkpoint.model_config == tiny_model_config()
+
+
+@pytest.mark.parametrize(
+    ("settings", "support_values", "loss_values", "expected_best_epoch"),
+    [
+        (
+            RgcnSelectionSettings(best_metric="dev_full_support_at_5"),
+            [0.9, 0.1],
+            [2.0, 1.0],
+            1,
+        ),
+        (
+            RgcnSelectionSettings(
+                best_metric="dev_full_support_at_5", higher_is_better=False
+            ),
+            [0.9, 0.1],
+            [2.0, 1.0],
+            2,
+        ),
+        (
+            RgcnSelectionSettings(best_metric="dev_loss", higher_is_better=False),
+            [0.5, 0.5],
+            [2.0, 1.0],
+            2,
+        ),
+    ],
+)
+def test_checkpoint_selection_honors_configured_metric_and_direction(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: RgcnSelectionSettings,
+    support_values: list[float],
+    loss_values: list[float],
+    expected_best_epoch: int,
+) -> None:
+    import graph_memory.models.graph_retriever.training as training_module
+
+    remaining_support = iter(support_values)
+    remaining_losses = iter(loss_values)
+
+    def fake_predict_dev_from_batches(**_kwargs):
+        loss = next(remaining_losses)
+        return [], DevLossMetrics(
+            total_loss=loss,
+            next_action_loss=0.4 * loss,
+            stop_loss=0.4 * loss,
+            aux_node_loss=loss,
+        )
+
+    def fake_evaluate_results(_request):
+        support = next(remaining_support)
+        return [
+            {
+                "Full Support@5": support,
+                "Full Support@10": support,
+                "Recall@5": support,
+                "MRR": support,
+            }
+        ]
+
+    monkeypatch.setattr(
+        training_module, "predict_dev_from_batches", fake_predict_dev_from_batches
+    )
+    monkeypatch.setattr(training_module, "evaluate_results", fake_evaluate_results)
+
+    result = train_graph_retriever(
+        train_requests=tiny_ranking_requests(),
+        train_graphs=tiny_graphs(),
+        train_pairs=tiny_pairs(),
+        dev_requests=tiny_ranking_requests(),
+        dev_labels=evidence_labels(tiny_labels()),
+        dev_graphs=tiny_graphs(),
+        model_config=tiny_model_config(),
+        training_config=tiny_training_config(),
+        text_embedding_provider=FakeTextEmbeddingProvider(),
+        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        selection_settings=settings,
+    )
+
+    assert result.best_epoch == expected_best_epoch
+    assert result.metric_records[-1]["selected_metric_name"] == settings.best_metric
+
+
+def test_legacy_trainer_learning_rate_does_not_control_optimizer_groups() -> None:
+    phase_config = OptimizerPhaseConfig(
+        decoder_warmup_epochs=0,
+        decoder_learning_rate=0.002,
+        rgcn_learning_rate=0.003,
+    )
+    group_rates: list[dict[str, float]] = []
+    for legacy_learning_rate in (0.01, 0.9):
+        result = train_graph_retriever(
+            train_requests=tiny_ranking_requests(),
+            train_graphs=tiny_graphs(),
+            train_pairs=tiny_pairs(),
+            dev_requests=tiny_ranking_requests(),
+            dev_labels=evidence_labels(tiny_labels()),
+            dev_graphs=tiny_graphs(),
+            model_config=tiny_model_config(),
+            training_config=replace(
+                tiny_training_config(),
+                epochs=1,
+                learning_rate=legacy_learning_rate,
+                optimizer_phase_config=phase_config,
+            ),
+            text_embedding_provider=FakeTextEmbeddingProvider(),
+            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        )
+        param_groups = cast(
+            list[dict[str, object]], result.optimizer_state_dict["param_groups"]
+        )
+        group_rates.append(
+            {
+                cast(str, group["name"]): cast(float, group["lr"])
+                for group in param_groups
+            }
+        )
+
+    assert group_rates == [
+        {"rgcn": 0.003, "decoder": 0.002},
+        {"rgcn": 0.003, "decoder": 0.002},
+    ]
 
 
 def test_train_graph_retriever_cli_writes_metrics_summary_and_checkpoints(
@@ -766,6 +901,56 @@ def test_rgcn_trainer_preserves_dense_ft_seeded_method_identity() -> None:
     assert (
         result.model_config.method_name
         == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    )
+
+
+def test_rgcn_trainer_passes_typed_selection_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import graph_memory.models.graph_retriever.training as training_module
+
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    def fake_train_graph_retriever(**kwargs):
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(
+        training_module, "train_graph_retriever", fake_train_graph_retriever
+    )
+    base_config = make_rgcn_train_stage_config()
+    config = base_config.model_copy(
+        update={
+            "train": base_config.train.model_copy(
+                update={
+                    "selection": ModelSelectionConfig(
+                        best_metric="dev_loss", higher_is_better=False
+                    )
+                }
+            )
+        }
+    )
+
+    result = RgcnGraphRetrieverTrainer(config).train(
+        RgcnTrainPayload(
+            train_requests=tiny_ranking_requests(),
+            train_labels=evidence_labels(tiny_labels()),
+            train_graphs=tiny_graphs(),
+            train_pairs=tiny_pairs(),
+            dev_requests=tiny_ranking_requests(),
+            dev_labels=evidence_labels(tiny_labels()),
+            dev_graphs=tiny_graphs(),
+            dependencies=TrainDependencies(
+                text_embedding_provider=FakeTextEmbeddingProvider(),
+                seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+            ),
+        )
+    )
+
+    assert result is sentinel
+    assert captured["selection_settings"] == RgcnSelectionSettings(
+        best_metric="dev_loss", higher_is_better=False
     )
 
 

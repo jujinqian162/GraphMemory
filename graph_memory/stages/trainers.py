@@ -45,6 +45,9 @@ class RgcnGraphRetrieverTrainer:
             BeamSearchConfig,
             OptimizerPhaseConfig,
         )
+        from graph_memory.models.graph_retriever.selection import (
+            RgcnSelectionSettings,
+        )
 
         if not isinstance(payload, RgcnTrainPayload):
             raise TypeError(
@@ -89,6 +92,7 @@ class RgcnGraphRetrieverTrainer:
             ),
             text_embedding_provider=deps.text_embedding_provider,
             seed_signal_provider=deps.seed_signal_provider,
+            selection_settings=RgcnSelectionSettings(**settings.selection.model_dump()),
             device=settings.trainer.device,
         )
 

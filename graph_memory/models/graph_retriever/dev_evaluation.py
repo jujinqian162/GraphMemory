@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 
 from graph_memory.contracts.graphs import MemoryGraph
 from graph_memory.contracts.metrics import MetricRow
@@ -15,7 +15,11 @@ from graph_memory.models.graph_retriever.batching import (
     build_full_ranking_batches,
     move_training_batch,
 )
-from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
+from graph_memory.models.graph_retriever.beam_loss import compute_beam_loss
+from graph_memory.models.graph_retriever.config.records import (
+    RgcnModelConfig,
+    RgcnTrainingConfig,
+)
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
 from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
@@ -26,6 +30,14 @@ from graph_memory.models.graph_retriever.decoder import (
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
+
+
+@dataclass(frozen=True)
+class DevLossMetrics:
+    total_loss: float
+    next_action_loss: float
+    stop_loss: float
+    aux_node_loss: float
 
 
 def predict_dev(
@@ -39,7 +51,9 @@ def predict_dev(
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
     device: torch.device,
-) -> tuple[list[RankedResult], float]:
+    training_config: RgcnTrainingConfig,
+    pos_weight: torch.Tensor | None = None,
+) -> tuple[list[RankedResult], DevLossMetrics]:
     batches = build_full_ranking_batches(
         ranking_requests=ranking_requests,
         graphs=graphs,
@@ -55,8 +69,10 @@ def predict_dev(
         labels=labels,
         graphs=graphs,
         model_config=model_config,
+        training_config=training_config,
         batches=batches,
         device=device,
+        pos_weight=pos_weight,
     )
 
 
@@ -67,14 +83,21 @@ def predict_dev_from_batches(
     labels: list[EvidenceLabel],
     graphs: list[MemoryGraph],
     model_config: RgcnModelConfig,
+    training_config: RgcnTrainingConfig,
     batches: Sequence[TrainingBatch],
     device: torch.device,
-) -> tuple[list[RankedResult], float]:
+    pos_weight: torch.Tensor | None = None,
+) -> tuple[list[RankedResult], DevLossMetrics]:
     labels_by_task_id = {label.task_id: label for label in labels}
     graph_by_task_id = {graph["task_id"]: graph for graph in graphs}
     logits_by_task_id: dict[str, list[RankedNode]] = defaultdict(list)
     metadata_by_task_id: dict[str, dict[str, object]] = {}
-    loss_total = 0.0
+    loss_totals = {
+        "total_loss": 0.0,
+        "next_action_loss": 0.0,
+        "stop_loss": 0.0,
+        "aux_node_loss": 0.0,
+    }
     sample_count = 0
 
     model.eval()
@@ -82,14 +105,20 @@ def predict_dev_from_batches(
         for batch in batches:
             moved_batch = move_training_batch(batch, device)
             encoded = model.encode_graph(moved_batch)
-            logits = model.base_score(
-                node_states=encoded.node_states[moved_batch.sample_node_indices],
-                query_states=encoded.node_states[moved_batch.sample_query_indices],
-                sample_node_features=moved_batch.sample_node_features,
+            breakdown = compute_beam_loss(
+                model=model,
+                batch=moved_batch,
+                labels=labels,
+                loss_config=training_config.beam_loss_config,
+                beam_search_config=model_config.beam_search_config,
+                pos_weight=pos_weight,
+                encoded=encoded,
             )
-            loss = F.binary_cross_entropy_with_logits(logits, moved_batch.labels)
-            loss_total += float(loss.detach().cpu()) * int(moved_batch.labels.shape[0])
-            sample_count += int(moved_batch.labels.shape[0])
+            batch_sample_count = int(moved_batch.labels.shape[0])
+            for key in loss_totals:
+                value = getattr(breakdown, key)
+                loss_totals[key] += float(value.detach().cpu()) * batch_sample_count
+            sample_count += batch_sample_count
             for task_index, task_id in enumerate(encoded.task_ids):
                 candidate_ids = tuple(encoded.candidate_node_ids_by_task[task_index])
                 beam_result = run_beam_search(
@@ -165,7 +194,13 @@ def predict_dev_from_batches(
             raise ValueError(
                 f"Dev labels must contain gold evidence nodes for task_id={task_id}."
             )
-    return predictions, loss_total / sample_count if sample_count else 0.0
+    denominator = sample_count if sample_count else 1
+    return predictions, DevLossMetrics(
+        total_loss=loss_totals["total_loss"] / denominator,
+        next_action_loss=loss_totals["next_action_loss"] / denominator,
+        stop_loss=loss_totals["stop_loss"] / denominator,
+        aux_node_loss=loss_totals["aux_node_loss"] / denominator,
+    )
 
 
 def best_metric(row: MetricRow) -> float:

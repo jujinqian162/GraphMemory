@@ -13,9 +13,11 @@ from pydantic import ValidationError
 
 from graph_memory.experiment.config import (
     ExperimentConfig,
+    ModelSelectionConfig,
     resolve_experiment_config,
     validate_composed_config,
 )
+from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
 
 
 REPO_ROOT = Path(__file__).parents[1]
@@ -210,13 +212,45 @@ def test_rgcn_methods_require_typed_beam_training_config(method_name: str) -> No
     assert train.loss.aux_node_loss_weight == pytest.approx(0.2)
     assert train.optimizer_phases.decoder_learning_rate > 0
     assert train.optimizer_phases.rgcn_learning_rate > 0
+    assert train.selection.best_metric == "dev_composite"
+    assert train.selection.higher_is_better is True
 
     primitive = config.model_dump(mode="python", by_alias=True)
-    for field_name in ("decoder", "beam", "loss", "optimizer_phases"):
+    for field_name in ("decoder", "beam", "loss", "optimizer_phases", "selection"):
         incomplete = deepcopy(primitive)
         del incomplete["method_configs"][method_name]["train"][field_name]
         with pytest.raises(ValidationError, match=field_name):
             ExperimentConfig.model_validate(incomplete)
+
+
+@pytest.mark.parametrize(
+    "metric_name",
+    [
+        "dev_composite",
+        "dev_full_support_at_5",
+        "dev_full_support_at_10",
+        "dev_recall_at_5",
+        "dev_mrr",
+        "dev_loss",
+    ],
+)
+def test_rgcn_selection_accepts_only_supported_metrics(
+    metric_name: RgcnSelectionMetric,
+) -> None:
+    selection = ModelSelectionConfig(
+        best_metric=metric_name,
+        higher_is_better=metric_name != "dev_loss",
+    )
+
+    assert selection.best_metric == metric_name
+
+    with pytest.raises(ValidationError):
+        ModelSelectionConfig.model_validate(
+            {
+                "best_metric": "full_support_at_5",
+                "higher_is_better": True,
+            }
+        )
 
 
 @pytest.mark.parametrize(

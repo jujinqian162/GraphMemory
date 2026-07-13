@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Callable, TypeAlias
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor, nn
 
 from graph_memory.contracts.graphs import MemoryGraph
@@ -18,20 +17,26 @@ from graph_memory.models.graph_retriever.batching import (
     build_training_batches,
     move_training_batch,
 )
+from graph_memory.models.graph_retriever.beam_loss import (
+    BeamLossBreakdown,
+    compute_beam_loss,
+)
 from graph_memory.models.graph_retriever.config.records import (
+    BeamSearchConfig,
     RgcnModelConfig,
     RgcnTrainingConfig,
 )
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-from graph_memory.models.graph_retriever.dev_evaluation import (
-    best_metric as select_best_metric,
-)
 from graph_memory.models.graph_retriever.dev_evaluation import predict_dev_from_batches
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
 from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
-from graph_memory.models.graph_retriever.decoder import BeamHypothesis
-from graph_memory.models.graph_retriever.oracle import DynamicEvidenceOracle
+from graph_memory.models.graph_retriever.selection import (
+    RgcnSelectionSettings,
+    build_selection_metrics,
+    is_selection_improvement,
+    resolve_selection_metric,
+)
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.validation import (
@@ -64,18 +69,6 @@ class RgcnTrainingResult:
     best_dev_metric: float
 
 
-@dataclass(frozen=True)
-class BeamLossBreakdown:
-    total_loss: Tensor
-    next_action_loss: Tensor
-    stop_loss: Tensor
-    aux_node_loss: Tensor
-    retained_hypotheses: float
-    oracle_reachable_rate: float
-    premature_stop_rate: float
-    average_selected_length: float
-
-
 def train_graph_retriever(
     *,
     train_requests: list[TextRankingRequest],
@@ -90,6 +83,7 @@ def train_graph_retriever(
     seed_signal_provider: SeedSignalProvider,
     train_labels: list[EvidenceLabel] | None = None,
     checkpoint_callback: CheckpointCallback | None = None,
+    selection_settings: RgcnSelectionSettings = RgcnSelectionSettings(),
     device: str | torch.device = "cpu",
 ) -> RgcnTrainingResult:
     """
@@ -163,7 +157,7 @@ def train_graph_retriever(
         _pos_weight(train_pairs, device) if training_config.pos_weight_enabled else None
     )
     metric_records: list[MetricRecord] = []
-    best_metric = float("-inf")
+    best_metric = float("-inf") if selection_settings.higher_is_better else float("inf")
     best_epoch = 0
     best_state = _cpu_state_dict(model)
     global_step = 0
@@ -200,6 +194,7 @@ def train_graph_retriever(
                 batch=moved_batch,
                 labels=labels_for_batch,
                 training_config=training_config,
+                beam_search_config=model_config.beam_search_config,
                 pos_weight=pos_weight,
             )
             loss = breakdown.total_loss
@@ -224,14 +219,16 @@ def train_graph_retriever(
                     else float(value)
                 )
 
-        dev_predictions, dev_loss = predict_dev_from_batches(
+        dev_predictions, dev_losses = predict_dev_from_batches(
             model=model,
             ranking_requests=dev_requests,
             labels=dev_labels,
             graphs=dev_graphs,
             model_config=model_config,
+            training_config=training_config,
             batches=dev_batches,
             device=device,
+            pos_weight=pos_weight,
         )
         dev_rows = evaluate_results(
             EvidenceEvaluationRequest(
@@ -239,8 +236,19 @@ def train_graph_retriever(
             )
         )
         dev_row = dev_rows[0]
-        dev_metric = select_best_metric(dev_row)
-        if dev_metric > best_metric:
+        selection_metrics = build_selection_metrics(
+            dev_full_support_at_5=float(dev_row["Full Support@5"]),
+            dev_full_support_at_10=float(dev_row["Full Support@10"]),
+            dev_recall_at_5=float(dev_row["Recall@5"]),
+            dev_mrr=float(dev_row["MRR"]),
+            dev_loss=dev_losses.total_loss,
+        )
+        dev_metric = resolve_selection_metric(selection_metrics, selection_settings)
+        if is_selection_improvement(
+            current=dev_metric,
+            best=best_metric,
+            settings=selection_settings,
+        ):
             best_metric = dev_metric
             best_epoch = epoch
             best_state = _cpu_state_dict(model)
@@ -252,12 +260,19 @@ def train_graph_retriever(
                 "train_loss": train_loss_total / train_sample_count
                 if train_sample_count
                 else 0.0,
-                "dev_loss": dev_loss,
+                "dev_loss": dev_losses.total_loss,
+                "dev_next_action_loss": dev_losses.next_action_loss,
+                "dev_stop_loss": dev_losses.stop_loss,
+                "dev_aux_node_loss": dev_losses.aux_node_loss,
+                "dev_composite": selection_metrics["dev_composite"],
                 "dev_recall_at_5": float(dev_row["Recall@5"]),
                 "dev_full_support_at_5": float(dev_row["Full Support@5"]),
                 "dev_full_support_at_10": float(dev_row["Full Support@10"]),
                 "dev_mrr": float(dev_row["MRR"]),
                 "best_dev_metric": best_metric,
+                "selected_metric_name": selection_settings.best_metric,
+                "selected_metric_value": dev_metric,
+                "best_selected_metric_value": best_metric,
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "grad_norm": last_grad_norm,
                 "positive_count": positive_count,
@@ -319,221 +334,24 @@ def compute_beam_training_loss(
     batch: TrainingBatch,
     labels: list[EvidenceLabel],
     training_config: RgcnTrainingConfig,
+    beam_search_config: BeamSearchConfig | None = None,
     pos_weight: Tensor | None = None,
 ) -> BeamLossBreakdown:
-    encoded = model.encode_graph(batch)
-    auxiliary_logits = model.base_score(
-        node_states=encoded.node_states[batch.sample_node_indices],
-        query_states=encoded.node_states[batch.sample_query_indices],
-        sample_node_features=batch.sample_node_features,
+    effective_beam_config = beam_search_config or BeamSearchConfig(
+        training_beam_size=model.training_beam_size,
+        inference_beam_size=model.training_beam_size,
+        max_steps=model.max_steps,
+        length_penalty_alpha=model.length_penalty_alpha,
+        deduplicate_selected_sets=model.deduplicate_selected_sets,
     )
-    aux_loss = F.binary_cross_entropy_with_logits(
-        auxiliary_logits, batch.labels, pos_weight=pos_weight
+    return compute_beam_loss(
+        model=model,
+        batch=batch,
+        labels=labels,
+        loss_config=training_config.beam_loss_config,
+        beam_search_config=effective_beam_config,
+        pos_weight=pos_weight,
     )
-    labels_by_task = {label.task_id: label for label in labels}
-    action_losses: list[Tensor] = []
-    stop_losses: list[Tensor] = []
-    retained_counts: list[int] = []
-    reachable_counts = 0
-    state_counts = 0
-    premature_stops = 0
-    stop_decisions = 0
-    selected_lengths: list[int] = []
-
-    for task_index, task_id in enumerate(encoded.task_ids):
-        if task_id not in labels_by_task:
-            raise ValueError(
-                f"Beam training is missing EvidenceLabel for task_id={task_id}"
-            )
-        candidate_ids = tuple(encoded.candidate_node_ids_by_task[task_index])
-        oracle = DynamicEvidenceOracle(
-            label=labels_by_task[task_id],
-            candidate_node_ids=candidate_ids,
-            max_steps=model_config_max_steps(model),
-        )
-        beam = [BeamHypothesis()]
-        for _ in range(model_config_max_steps(model)):
-            expansions: list[BeamHypothesis] = []
-            reachable_expansions: list[BeamHypothesis] = []
-            for hypothesis in beam:
-                if hypothesis.stopped:
-                    expansions.append(hypothesis)
-                    continue
-                selected_ids = tuple(
-                    candidate_ids[index] for index in hypothesis.selected_indices
-                )
-                oracle_state = oracle.state(selected_ids)
-                scores = model.score_decoder_actions(
-                    encoded,
-                    task_index=task_index,
-                    selected_local_indices=hypothesis.selected_indices,
-                )
-                stop_target = torch.tensor(
-                    float(oracle_state.stop_target),
-                    dtype=scores.stop_logit.dtype,
-                    device=scores.stop_logit.device,
-                )
-                stop_losses.append(
-                    F.binary_cross_entropy_with_logits(scores.stop_logit, stop_target)
-                )
-                available = [
-                    index
-                    for index, node_id in enumerate(candidate_ids)
-                    if index not in hypothesis.selected_set
-                    and node_id not in oracle_state.masked_future_ids
-                ]
-                valid = [
-                    index
-                    for index in available
-                    if candidate_ids[index] in oracle_state.valid_next_ids
-                ]
-                if valid:
-                    action_losses.append(
-                        torch.logsumexp(scores.candidate_logits[available], dim=0)
-                        - torch.logsumexp(scores.candidate_logits[valid], dim=0)
-                    )
-                raw_available = [
-                    index
-                    for index in range(len(candidate_ids))
-                    if index not in hypothesis.selected_set
-                ]
-                logits = torch.cat(
-                    [
-                        scores.candidate_logits[raw_available],
-                        scores.stop_logit.reshape(1),
-                    ]
-                )
-                cpu_values = (
-                    torch.cat(
-                        [torch.log_softmax(logits, dim=0), scores.stop_logit.reshape(1)]
-                    )
-                    .detach()
-                    .cpu()
-                    .tolist()
-                )
-                log_probs = cpu_values[:-1]
-                stop_logit_value = float(cpu_values[-1])
-                for position, candidate_index in enumerate(raw_available):
-                    raw_score = hypothesis.raw_score + float(log_probs[position])
-                    selected = (*hypothesis.selected_indices, candidate_index)
-                    candidate = BeamHypothesis(
-                        selected_indices=selected,
-                        raw_score=raw_score,
-                        normalized_score=_normalized_training_score(
-                            raw_score, len(selected), model
-                        ),
-                    )
-                    expansions.append(candidate)
-                    selected_node_ids = tuple(
-                        candidate_ids[index] for index in selected
-                    )
-                    if oracle.state(selected_node_ids).oracle_reachable:
-                        reachable_expansions.append(candidate)
-                stop_candidate = BeamHypothesis(
-                    selected_indices=hypothesis.selected_indices,
-                    raw_score=hypothesis.raw_score + float(log_probs[-1]),
-                    normalized_score=_normalized_training_score(
-                        hypothesis.raw_score + float(log_probs[-1]),
-                        max(1, len(hypothesis.selected_indices)),
-                        model,
-                    ),
-                    stopped=True,
-                    stop_score=stop_logit_value,
-                )
-                expansions.append(stop_candidate)
-                stop_decisions += 1
-                if not oracle_state.stop_target:
-                    premature_stops += int(stop_logit_value >= 0.0)
-            beam = _training_prune(expansions, candidate_ids, model)
-            if reachable_expansions and not any(
-                oracle.state(
-                    tuple(candidate_ids[index] for index in item.selected_indices)
-                ).oracle_reachable
-                and not item.stopped
-                for item in beam
-            ):
-                replacement = _training_prune(
-                    reachable_expansions, candidate_ids, model
-                )[0]
-                beam = _training_prune([*beam[:-1], replacement], candidate_ids, model)
-            retained_counts.append(len(beam))
-            state_counts += len(beam)
-            reachable_counts += sum(
-                oracle.state(
-                    tuple(candidate_ids[index] for index in item.selected_indices)
-                ).oracle_reachable
-                and not item.stopped
-                for item in beam
-            )
-            if all(item.stopped for item in beam):
-                break
-        selected_lengths.extend(len(item.selected_indices) for item in beam)
-
-    zero = aux_loss * 0.0
-    next_action_loss = torch.stack(action_losses).mean() if action_losses else zero
-    stop_loss = torch.stack(stop_losses).mean() if stop_losses else zero
-    weights = training_config.beam_loss_config
-    total = (
-        weights.next_action_loss_weight * next_action_loss
-        + weights.stop_loss_weight * stop_loss
-        + weights.aux_node_loss_weight * aux_loss
-    )
-    return BeamLossBreakdown(
-        total_loss=total,
-        next_action_loss=next_action_loss,
-        stop_loss=stop_loss,
-        aux_node_loss=aux_loss,
-        retained_hypotheses=(
-            sum(retained_counts) / len(retained_counts) if retained_counts else 0.0
-        ),
-        oracle_reachable_rate=(
-            reachable_counts / state_counts if state_counts else 0.0
-        ),
-        premature_stop_rate=(
-            premature_stops / stop_decisions if stop_decisions else 0.0
-        ),
-        average_selected_length=(
-            sum(selected_lengths) / len(selected_lengths) if selected_lengths else 0.0
-        ),
-    )
-
-
-def model_config_max_steps(model: EvidenceScoringModel) -> int:
-    return model.max_steps
-
-
-def _normalized_training_score(
-    raw_score: float, length: int, model: EvidenceScoringModel
-) -> float:
-    alpha = getattr(model, "length_penalty_alpha", 1.0)
-    return raw_score / (max(1, length) ** alpha)
-
-
-def _training_prune(
-    hypotheses: list[BeamHypothesis],
-    candidate_ids: tuple[str, ...],
-    model: EvidenceScoringModel,
-) -> list[BeamHypothesis]:
-    beam_size = getattr(model, "training_beam_size", 2)
-    ordered = sorted(
-        hypotheses,
-        key=lambda item: (
-            -item.normalized_score,
-            -item.raw_score,
-            tuple(candidate_ids[index] for index in item.selected_indices),
-            not item.stopped,
-        ),
-    )
-    result: list[BeamHypothesis] = []
-    seen: set[frozenset[int]] = set()
-    for hypothesis in ordered:
-        if hypothesis.selected_set in seen:
-            continue
-        seen.add(hypothesis.selected_set)
-        result.append(hypothesis)
-        if len(result) >= beam_size:
-            break
-    return result
 
 
 def _labels_for_training_batch(

@@ -24,6 +24,18 @@ class BeamHypothesis:
     def selected_set(self) -> frozenset[int]:
         return frozenset(self.selected_indices)
 
+    @property
+    def last_node(self) -> int | None:
+        return self.selected_indices[-1] if self.selected_indices else None
+
+    @property
+    def state_key(self) -> tuple[frozenset[int], int | None]:
+        return self.selected_set, self.last_node
+
+    @property
+    def action_count(self) -> int:
+        return len(self.selected_indices) + int(self.stopped)
+
 
 @dataclass(frozen=True)
 class BeamSearchResult:
@@ -62,46 +74,39 @@ def run_beam_search(
                 for index in range(len(candidate_node_ids))
                 if index not in hypothesis.selected_set
             ]
-            action_logits = torch.cat(
-                [candidate_logits[available], stop_logit.reshape(1)], dim=0
+            action_log_probs = joint_action_log_probabilities(
+                candidate_logits[available], stop_logit
             )
-            cpu_values = (
-                torch.cat(
-                    [torch.log_softmax(action_logits, dim=0), stop_logit.reshape(1)]
-                )
-                .detach()
-                .cpu()
-                .tolist()
-            )
-            action_log_probs = cpu_values[:-1]
-            stop_score = float(cpu_values[-1])
+            cpu_log_probs = action_log_probs.detach().cpu().tolist()
+            stop_score = float(stop_logit.detach().cpu())
             for position, candidate_index in enumerate(available):
-                raw_score = hypothesis.raw_score + float(action_log_probs[position])
+                raw_score = hypothesis.raw_score + float(cpu_log_probs[position])
                 selected = (*hypothesis.selected_indices, candidate_index)
                 expanded.append(
                     BeamHypothesis(
                         selected_indices=selected,
                         raw_score=raw_score,
-                        normalized_score=_normalize(
+                        normalized_score=normalize_beam_score(
                             raw_score, len(selected), config.length_penalty_alpha
                         ),
                     )
                 )
-            stop_raw_score = hypothesis.raw_score + float(action_log_probs[-1])
+            stop_raw_score = hypothesis.raw_score + float(cpu_log_probs[-1])
+            stopped_action_count = len(hypothesis.selected_indices) + 1
             expanded.append(
                 BeamHypothesis(
                     selected_indices=hypothesis.selected_indices,
                     raw_score=stop_raw_score,
-                    normalized_score=_normalize(
+                    normalized_score=normalize_beam_score(
                         stop_raw_score,
-                        max(1, len(hypothesis.selected_indices)),
+                        stopped_action_count,
                         config.length_penalty_alpha,
                     ),
                     stopped=True,
                     stop_score=stop_score,
                 )
             )
-        beam = _prune(
+        beam = prune_beam_hypotheses(
             expanded,
             candidate_node_ids=candidate_node_ids,
             beam_size=config.inference_beam_size,
@@ -142,7 +147,7 @@ def complete_beam_ranking(
     return tuple(selected)
 
 
-def _prune(
+def prune_beam_hypotheses(
     hypotheses: list[BeamHypothesis],
     *,
     candidate_node_ids: tuple[str, ...],
@@ -153,11 +158,11 @@ def _prune(
     if not deduplicate:
         return ordered[:beam_size]
     result: list[BeamHypothesis] = []
-    seen: set[frozenset[int]] = set()
+    seen: set[tuple[frozenset[int], int | None]] = set()
     for hypothesis in ordered:
-        if hypothesis.selected_set in seen:
+        if hypothesis.state_key in seen:
             continue
-        seen.add(hypothesis.selected_set)
+        seen.add(hypothesis.state_key)
         result.append(hypothesis)
         if len(result) == beam_size:
             break
@@ -176,8 +181,22 @@ def _sort_key(
     )
 
 
-def _normalize(raw_score: float, length: int, alpha: float) -> float:
-    return raw_score / (max(1, length) ** alpha)
+def normalize_beam_score(raw_score: float, action_count: int, alpha: float) -> float:
+    return raw_score / (max(1, action_count) ** alpha)
+
+
+def joint_action_log_probabilities(
+    candidate_logits: Tensor, stop_logit: Tensor
+) -> Tensor:
+    if candidate_logits.ndim != 1:
+        raise ValueError("candidate_logits must be one-dimensional")
+    if stop_logit.numel() != 1:
+        raise ValueError("stop_logit must contain exactly one value")
+    action_logits = torch.cat(
+        [candidate_logits, stop_logit.reshape(1)],
+        dim=0,
+    )
+    return torch.log_softmax(action_logits, dim=0)
 
 
 def _validate_config(config: BeamSearchConfig) -> None:
@@ -194,5 +213,8 @@ __all__ = [
     "BeamHypothesis",
     "BeamSearchResult",
     "complete_beam_ranking",
+    "joint_action_log_probabilities",
+    "normalize_beam_score",
+    "prune_beam_hypotheses",
     "run_beam_search",
 ]

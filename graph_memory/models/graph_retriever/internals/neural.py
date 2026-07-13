@@ -281,6 +281,7 @@ class EvidenceScoringModel(nn.Module):
         max_steps: int = 5,
         training_beam_size: int = 2,
         length_penalty_alpha: float = 1.0,
+        deduplicate_selected_sets: bool = True,
     ) -> None:
         super().__init__()
         self.input_projection = nn.Sequential(
@@ -320,6 +321,7 @@ class EvidenceScoringModel(nn.Module):
         self.num_relations = num_relations
         self.training_beam_size = training_beam_size
         self.length_penalty_alpha = length_penalty_alpha
+        self.deduplicate_selected_sets = deduplicate_selected_sets
 
     def forward(self, batch: TrainingBatch) -> Tensor:
         encoded = self.encode_graph(batch)

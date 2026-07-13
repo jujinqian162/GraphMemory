@@ -75,4 +75,7 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
         max_steps=model_config.beam_search_config.max_steps,
         training_beam_size=model_config.beam_search_config.training_beam_size,
         length_penalty_alpha=model_config.beam_search_config.length_penalty_alpha,
+        deduplicate_selected_sets=(
+            model_config.beam_search_config.deduplicate_selected_sets
+        ),
     )

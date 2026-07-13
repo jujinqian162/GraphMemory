@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
 
 
 def _scientific_int(value: object) -> int:
@@ -287,7 +288,7 @@ class RgcnOptimizerPhaseConfig(ClosedModel):
 
 
 class ModelSelectionConfig(ClosedModel):
-    best_metric: str = Field(min_length=1)
+    best_metric: RgcnSelectionMetric
     higher_is_better: StrictBool
 
 
