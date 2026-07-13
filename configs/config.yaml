@@ -30,8 +30,17 @@ stages:
 cache:
   enabled: true
 ablation:
-  variants: []
-  only: false
+  enable: false
+  variants:
+    - wo_bridge
+    - wo_entity_overlap
+    - wo_sequential
+    - wo_query_overlap
+    - wo_graph
+    - wo_edge_type
+    - wo_edge_weight
+    - wo_seed_score
+    - wo_hard_negatives
 graph:
   max_query_overlap: 20
   max_entity_neighbors: 10

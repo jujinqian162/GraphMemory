@@ -58,6 +58,7 @@ def test_direct_stage_invocation_binding_matches_every_planned_method_and_stage(
             tmp_path,
             "dataset=hotpotqa",
             "methods=[dense_rgcn_graph_retriever]",
+            "ablation.enable=true",
             "ablation.variants=[wo_graph]",
         ),
     )

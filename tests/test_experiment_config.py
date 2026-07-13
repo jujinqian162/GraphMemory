@@ -18,6 +18,7 @@ from graph_memory.experiment.config import (
     validate_composed_config,
 )
 from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
+from graph_memory.registry.ablations import AblationVariantId
 
 
 REPO_ROOT = Path(__file__).parents[1]
@@ -184,11 +185,37 @@ def test_ablation_values_and_explicit_2wiki_overrides_are_closed() -> None:
         "dense_ft_rgcn_graph_retriever",
     ]
 
-    assert _compose(overrides=["ablation.variants=all"]).ablation.variants == "all"
-    assert _compose(overrides=["ablation.variants=[wo_graph]"]).ablation.variants == [
-        "wo_graph"
-    ]
-    with pytest.raises(ValidationError, match="baseline alias"):
+    default_ablation = _compose().ablation
+    assert default_ablation.enable is False
+    expected_variants = [variant.value for variant in AblationVariantId]
+    assert [variant.value for variant in default_ablation.variants] == expected_variants
+
+    full_ablation = _compose(overrides=["ablation.enable=true"]).ablation
+    assert full_ablation.enable is True
+    assert [variant.value for variant in full_ablation.variants] == expected_variants
+
+    selected_ablation = _compose(
+        overrides=["ablation.enable=true", "ablation.variants=[wo_graph]"]
+    ).ablation
+    assert selected_ablation.enable is True
+    assert [variant.value for variant in selected_ablation.variants] == ["wo_graph"]
+    assert set(expected_variants) == {
+        "wo_bridge",
+        "wo_entity_overlap",
+        "wo_sequential",
+        "wo_query_overlap",
+        "wo_graph",
+        "wo_edge_type",
+        "wo_edge_weight",
+        "wo_seed_score",
+        "wo_hard_negatives",
+    }
+
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        primitive = _compose().model_dump(mode="python", by_alias=True)
+        primitive["ablation"]["variants"] = []
+        ExperimentConfig.model_validate(primitive)
+    with pytest.raises(ValidationError, match="valid ablation variant"):
         primitive = _compose().model_dump(mode="python", by_alias=True)
         primitive["ablation"]["variants"] = ["full_rgcn"]
         ExperimentConfig.model_validate(primitive)

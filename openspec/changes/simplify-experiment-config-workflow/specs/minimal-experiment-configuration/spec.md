@@ -31,7 +31,7 @@ Dataset, profile, method, stage, cache, ablation, seed, device, top-k, and metho
 
 #### Scenario: R-GCN ablation run
 - **WHEN** a user requests all registered R-GCN ablations
-- **THEN** the workflow SHALL be expressible with method and `ablation.variants=all` overrides without a dataset-specific ablation root config
+- **THEN** the workflow SHALL be expressible with method and `ablation.enable=true` overrides without enumerating variants or using a dataset-specific ablation root config
 
 ### Requirement: Special input shapes belong to the dataset contract
 An importance-backed HotpotQA split, if retained, SHALL be represented as a dataset config option with complete source, label, capacity, and capability fields. It MUST NOT be a root preset that also selects methods and a profile.

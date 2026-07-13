@@ -56,6 +56,7 @@ from graph_memory.experiment.stage_models import (
 )
 from graph_memory.registry.ablations import (
     ABLATION_SUITE_PATCHES,
+    AblationVariantId,
     ExecutableAblationVariant,
     PairSamplingPatch,
     RgcnModelPatch,
@@ -1025,16 +1026,6 @@ class WorkflowPlanner:
         for method in dict.fromkeys(method for method, _ in variants):
             aliases.extend(self.factory._baseline_aliases(method, ordinary_by_id))
 
-        if self.config.ablation.only:
-            self._validate_ablation_baselines(variants)
-            ordinary_selected = tuple(
-                item
-                for item in ordinary_without_aggregate
-                if item.stage in {"prepare", "graphs"}
-            )
-        else:
-            ordinary_selected = ordinary_without_aggregate
-
         for method, variant in variants:
             selections.append(AblationSelection(method=method, variant="full_rgcn"))
             selections.append(AblationSelection(method=method, variant=variant))
@@ -1047,7 +1038,7 @@ class WorkflowPlanner:
             aliases.extend(variant_aliases)
 
         aggregate = self.factory._aggregate_invocation(tuple(dict.fromkeys(selections)))
-        combined = (*ordinary_selected, *variant_invocations, aggregate)
+        combined = (*ordinary_without_aggregate, *variant_invocations, aggregate)
         selected = self._select_range(tuple(combined))
         dependency_graph = (
             *ordinary_without_aggregate,
@@ -1081,45 +1072,29 @@ class WorkflowPlanner:
         return tuple(invocations)
 
     def _selected_variants(self) -> tuple[tuple[RetrievalMethodId, str], ...]:
-        selection = self.config.ablation.variants
-        if selection == []:
-            if self.config.ablation.only:
-                raise ValueError("ablation.only=true requires executable variants")
+        if not self.config.ablation.enable:
             return ()
-        requested = None if selection == "all" else set(selection)
+        requested = set(self.config.ablation.variants)
         selected: list[tuple[RetrievalMethodId, str]] = []
-        supported_names: set[str] = set()
+        supported_names: set[AblationVariantId] = set()
         for method in self.methods:
             suite = ABLATION_SUITE_PATCHES.get(method)
             if suite is None:
                 continue
             for variant in suite.variants:
-                if variant.baseline_alias:
+                if not isinstance(variant, ExecutableAblationVariant):
                     continue
                 supported_names.add(variant.identifier)
-                if requested is None or variant.identifier in requested:
+                if variant.identifier in requested:
                     selected.append((method, variant.identifier))
-        if requested is not None:
-            missing = sorted(requested - supported_names)
-            if missing:
-                raise ValueError(f"unknown ablation variants: {missing}")
+        missing = sorted(variant.value for variant in requested - supported_names)
+        if missing:
+            raise ValueError(f"unknown ablation variants: {missing}")
         if not selected:
             raise ValueError(
                 "no selected method exposes the requested ablation variants"
             )
         return tuple(selected)
-
-    def _validate_ablation_baselines(
-        self,
-        variants: tuple[tuple[RetrievalMethodId, str], ...],
-    ) -> None:
-        for method in dict.fromkeys(method for method, _ in variants):
-            metrics = self.layout.metric(method)
-            baseline = self.factory._evaluate_invocation(method)
-            if inspect_invocation_status(baseline).state != "complete":
-                raise ValueError(
-                    f"ablation-only requires ordinary baseline metrics: {metrics}"
-                )
 
     def _select_range(
         self,

@@ -213,8 +213,8 @@ def test_full_job_has_one_baseline_child_and_curated_parent_projection(
             "stages.from",
             "stages.to",
             "cache.enabled",
+            "ablation.enable",
             "ablation.variants",
-            "ablation.only",
         }
         assert "| Method | Recall@2" in parent.data.tags["mlflow.note.content"]
         assert all(key.startswith("final.") for key in child.data.metrics)
@@ -635,7 +635,7 @@ def test_hidden_explicit_dependency_ablation_and_stage_bounds_have_stable_owners
         "ablation-identities",
         methods="[dense_rgcn_graph_retriever]",
         stages_to="aggregate",
-        extra=["ablation.variants=[wo_graph]"],
+        extra=["ablation.enable=true", "ablation.variants=[wo_graph]"],
     )
     ablation = initialize_experiment(
         ablation_config,
@@ -808,7 +808,7 @@ def test_fresh_ablation_workflow_tracks_ordinary_and_variant_baselines(
         "accept-ablation",
         methods="[dense_rgcn_graph_retriever]",
         stages_to="aggregate",
-        extra=["ablation.variants=[wo_graph]"],
+        extra=["ablation.enable=true", "ablation.variants=[wo_graph]"],
     )
     layout = RunLayout(tmp_path, config.name)
     initialized = initialize_experiment(config, layout=layout)

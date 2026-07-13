@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal, TypeAlias
 
 from graph_memory.registry.retrieval import RetrievalMethodId
 
 AblationInvalidationStage: TypeAlias = Literal["pairs", "train"]
+
+
+class AblationVariantId(str, Enum):
+    WO_BRIDGE = "wo_bridge"
+    WO_ENTITY_OVERLAP = "wo_entity_overlap"
+    WO_SEQUENTIAL = "wo_sequential"
+    WO_QUERY_OVERLAP = "wo_query_overlap"
+    WO_GRAPH = "wo_graph"
+    WO_EDGE_TYPE = "wo_edge_type"
+    WO_EDGE_WEIGHT = "wo_edge_weight"
+    WO_SEED_SCORE = "wo_seed_score"
+    WO_HARD_NEGATIVES = "wo_hard_negatives"
 
 
 @dataclass(frozen=True)
@@ -50,7 +63,7 @@ class BaselineAblationVariant:
 
 @dataclass(frozen=True)
 class ExecutableAblationVariant:
-    identifier: str
+    identifier: AblationVariantId
     changed_dimensions: frozenset[str]
     earliest_invalidated_stage: AblationInvalidationStage
     config_patch: AblationConfigPatch
@@ -66,7 +79,10 @@ class AblationSuitePatch:
     variants: tuple[AblationVariantPatch, ...]
 
 
-def _model_variant(identifier: str, dimension: str) -> ExecutableAblationVariant:
+def _model_variant(
+    identifier: AblationVariantId,
+    dimension: str,
+) -> ExecutableAblationVariant:
     return ExecutableAblationVariant(
         identifier=identifier,
         changed_dimensions=frozenset({dimension}),
@@ -77,21 +93,21 @@ def _model_variant(identifier: str, dimension: str) -> ExecutableAblationVariant
 
 RGCN_ABLATION_PATCHES: tuple[AblationVariantPatch, ...] = (
     BaselineAblationVariant(),
-    _model_variant("wo_bridge", "model_graph_view"),
-    _model_variant("wo_entity_overlap", "model_graph_view"),
-    _model_variant("wo_sequential", "model_graph_view"),
-    _model_variant("wo_query_overlap", "model_graph_view"),
+    _model_variant(AblationVariantId.WO_BRIDGE, "model_graph_view"),
+    _model_variant(AblationVariantId.WO_ENTITY_OVERLAP, "model_graph_view"),
+    _model_variant(AblationVariantId.WO_SEQUENTIAL, "model_graph_view"),
+    _model_variant(AblationVariantId.WO_QUERY_OVERLAP, "model_graph_view"),
     ExecutableAblationVariant(
-        identifier="wo_graph",
+        identifier=AblationVariantId.WO_GRAPH,
         changed_dimensions=frozenset({"model_structure"}),
         earliest_invalidated_stage="train",
         config_patch=NoGraphModelPatch(ablation="wo_graph"),
     ),
-    _model_variant("wo_edge_type", "model_structure"),
-    _model_variant("wo_edge_weight", "model_structure"),
-    _model_variant("wo_seed_score", "model_structure"),
+    _model_variant(AblationVariantId.WO_EDGE_TYPE, "model_structure"),
+    _model_variant(AblationVariantId.WO_EDGE_WEIGHT, "model_structure"),
+    _model_variant(AblationVariantId.WO_SEED_SCORE, "model_structure"),
     ExecutableAblationVariant(
-        identifier="wo_hard_negatives",
+        identifier=AblationVariantId.WO_HARD_NEGATIVES,
         changed_dimensions=frozenset({"pair_sampling"}),
         earliest_invalidated_stage="pairs",
         config_patch=PairSamplingPatch(),
@@ -118,6 +134,7 @@ __all__ = [
     "AblationConfigPatch",
     "AblationInvalidationStage",
     "AblationSuitePatch",
+    "AblationVariantId",
     "AblationVariantPatch",
     "BaselineAblationVariant",
     "DENSE_FT_RGCN_ABLATION_PATCH_SUITE",

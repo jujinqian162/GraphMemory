@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.registry.ablations import AblationVariantId
 from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
 
 
@@ -439,21 +440,31 @@ class CacheConfig(ClosedModel):
 
 
 class AblationConfig(ClosedModel):
-    variants: Literal["all"] | list[str]
-    only: StrictBool
+    enable: StrictBool
+    variants: list[AblationVariantId] = Field(min_length=1)
+
+    @field_validator("variants", mode="before")
+    @classmethod
+    def validate_known_variants(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        valid = {variant.value for variant in AblationVariantId}
+        invalid = [item for item in value if item not in valid]
+        if invalid:
+            choices = ", ".join(variant.value for variant in AblationVariantId)
+            raise ValueError(
+                f"valid ablation variants are [{choices}]; got {invalid}"
+            )
+        return value
 
     @field_validator("variants")
     @classmethod
-    def validate_variants(
-        cls, value: Literal["all"] | list[str]
-    ) -> Literal["all"] | list[str]:
-        if isinstance(value, list):
-            if "full_rgcn" in value:
-                raise ValueError("full_rgcn is a baseline alias and cannot be executed")
-            if len(value) != len(set(value)):
-                raise ValueError("ablation variants must be unique")
-            if any(not item for item in value):
-                raise ValueError("ablation variant names must be non-empty")
+    def validate_unique_variants(
+        cls,
+        value: list[AblationVariantId],
+    ) -> list[AblationVariantId]:
+        if len(value) != len(set(value)):
+            raise ValueError("ablation variants must be unique")
         return value
 
 

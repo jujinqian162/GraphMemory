@@ -76,14 +76,22 @@ R-GCN training and checkpoint-backed retrieval use the same configured beam widt
 ```powershell
 uv run python experiment/plan.py `
   name=rgcn_ablation_full profile=full `
-  'methods=[dense_rgcn_graph_retriever]' ablation.variants=all
+  'methods=[dense_rgcn_graph_retriever]' ablation.enable=true
 
 uv run python experiment/run.py `
   name=rgcn_ablation_full profile=full `
-  'methods=[dense_rgcn_graph_retriever]' ablation.variants=all
+  'methods=[dense_rgcn_graph_retriever]' ablation.enable=true
 ```
 
-`full_rgcn` aliases the ordinary R-GCN result. Model variants reuse ordinary pair artifacts; `wo_hard_negatives` owns variant-specific pairs. With `ablation.only=true`, the ordinary baseline metric must already be complete under the same run identity.
+`ablation.enable=true` runs every variant explicitly listed in the default
+`ablation.variants` list. To run a subset, override that list, for example with
+`ablation.variants='[wo_bridge,wo_graph]'`.
+
+The valid variant values are `wo_bridge`, `wo_entity_overlap`, `wo_sequential`,
+`wo_query_overlap`, `wo_graph`, `wo_edge_type`, `wo_edge_weight`, `wo_seed_score`,
+and `wo_hard_negatives`. `full_rgcn` aliases the ordinary R-GCN result and is not
+a selectable variant. Model variants reuse ordinary pair artifacts, while
+`wo_hard_negatives` owns variant-specific pairs.
 
 ## Direct stage debugging
 

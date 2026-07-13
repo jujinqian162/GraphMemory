@@ -67,15 +67,19 @@ The planner SHALL preserve the approved stage dependencies and output roles for 
 - **THEN** the invocation SHALL bind the selected dataset's projector, split source, and capacity-derived count without changing method semantics
 
 ### Requirement: Domain ablation semantics are preserved
-The planner SHALL keep registered changed-dimension invalidation, per-variant artifact namespaces, baseline aliases, ordinary-baseline prerequisite checks, and aggregate inclusion. Hydra multirun MUST NOT replace domain ablations.
+The planner SHALL keep registered changed-dimension invalidation, per-variant artifact namespaces, baseline aliases, ordinary-baseline inclusion, and aggregate inclusion. `ablation.enable` SHALL be the sole on/off gate. The default `ablation.variants` list SHALL explicitly enumerate every executable variant, and every configured variants list SHALL be non-empty and validated. Hydra multirun MUST NOT replace domain ablations.
 
 #### Scenario: All variants
-- **WHEN** `ablation.variants=all` is selected
+- **WHEN** `ablation.enable=true` is selected without overriding the default variants list
 - **THEN** every executable registered variant SHALL be planned and `full_rgcn` SHALL be included only as a baseline alias
 
-#### Scenario: Ablations only
-- **WHEN** `ablation.only=true` is selected without valid ordinary baseline metrics
-- **THEN** planning SHALL fail and identify the baseline prerequisite
+#### Scenario: Selected variants
+- **WHEN** `ablation.enable=true` is selected with a non-empty list of valid variant identifiers
+- **THEN** only those executable variants SHALL be planned and any unknown identifier SHALL fail config validation
+
+#### Scenario: Empty variants
+- **WHEN** an author configures an empty `ablation.variants` list
+- **THEN** config validation SHALL fail instead of assigning an implicit disabled or all-variants meaning
 
 ### Requirement: Named run identity rejects incompatible reuse
 The system SHALL persist normalized resolved configuration and run mode in typed state. Reusing a name with a different config or switching between single and multirun modes SHALL fail without deleting or mutating prior artifacts.

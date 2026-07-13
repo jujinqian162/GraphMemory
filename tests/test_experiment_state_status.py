@@ -231,6 +231,7 @@ def test_status_reports_ablation_aliases_without_materializing_copies(
         overrides=[
             "name=aliases",
             "methods=[dense_rgcn_graph_retriever]",
+            "ablation.enable=true",
             "ablation.variants=[wo_graph]",
         ]
     )

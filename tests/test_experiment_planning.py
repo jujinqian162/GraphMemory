@@ -332,6 +332,7 @@ def test_ablation_planning_preserves_invalidation_alias_and_variant_namespaces(
     config = _resolved(
         overrides=[
             "methods=[dense_rgcn_graph_retriever]",
+            "ablation.enable=true",
             "ablation.variants=[wo_graph,wo_hard_negatives]",
         ]
     )
@@ -401,7 +402,7 @@ def test_all_registered_executable_ablation_variants_are_plannable(
     config = _resolved(
         overrides=[
             "methods=[dense_rgcn_graph_retriever]",
-            "ablation.variants=all",
+            "ablation.enable=true",
         ]
     )
     plan = WorkflowPlanner(config, RunLayout(tmp_path, "planning-test")).build()
@@ -416,18 +417,6 @@ def test_all_registered_executable_ablation_variants_are_plannable(
         if item.variant is not None and item.stage == "train"
     }
     assert planned == expected
-
-
-def test_ablation_only_requires_ordinary_baseline_metric(tmp_path: Path) -> None:
-    config = _resolved(
-        overrides=[
-            "methods=[dense_rgcn_graph_retriever]",
-            "ablation.variants=[wo_graph]",
-            "ablation.only=true",
-        ]
-    )
-    with pytest.raises(ValueError, match="baseline metrics"):
-        WorkflowPlanner(config, RunLayout(tmp_path, "planning-test")).build()
 
 
 def test_plan_formatter_exposes_stage_script_config_and_full_argv(

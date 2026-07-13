@@ -289,8 +289,8 @@ class TrackingAdapter:
             "stages.from": self.config.stages.from_stage,
             "stages.to": self.config.stages.to_stage,
             "cache.enabled": self.config.cache.enabled,
+            "ablation.enable": self.config.ablation.enable,
             "ablation.variants": self.config.ablation.variants,
-            "ablation.only": self.config.ablation.only,
         }
         if isinstance(self.layout.identity, MultirunIdentity):
             params.update(

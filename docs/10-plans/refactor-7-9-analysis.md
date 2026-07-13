@@ -268,7 +268,7 @@ uv run python experiment/run.py name=demo device=cuda seed=14
 uv run python experiment/run.py name=demo stages.from=retrieve stages.to=aggregate
 uv run python experiment/run.py name=demo cache.enabled=false
 uv run python experiment/run.py name=dense-ft-lr methods='[dense_ft]' method_configs.dense_ft.train.trainer.learning_rate=3e-5
-uv run python experiment/run.py name=rgcn-ablation methods='[dense_rgcn_graph_retriever]' ablation.variants=all
+uv run python experiment/run.py name=rgcn-ablation methods='[dense_rgcn_graph_retriever]' ablation.enable=true
 ```
 
 公开入口锁定为五个：
@@ -422,8 +422,17 @@ stages:
 cache:
   enabled: true
 ablation:
-  variants: []
-  only: false
+  enable: false
+  variants:
+    - wo_bridge
+    - wo_entity_overlap
+    - wo_sequential
+    - wo_query_overlap
+    - wo_graph
+    - wo_edge_type
+    - wo_edge_weight
+    - wo_seed_score
+    - wo_hard_negatives
 tracking:
   backend_store_uri: sqlite:///runs/.mlflow/tracking.db
   artifact_root: runs/.mlflow/artifacts
@@ -529,14 +538,23 @@ uv run python experiment/run.py name=dense-ft-rgcn-lr methods='[dense_ft_rgcn_gr
 
 ```yaml
 ablation:
-  variants: []   # Literal["all"] | list[AblationVariantId]
-  only: false
+  enable: false
+  variants:
+    - wo_bridge
+    - wo_entity_overlap
+    - wo_sequential
+    - wo_query_overlap
+    - wo_graph
+    - wo_edge_type
+    - wo_edge_weight
+    - wo_seed_score
+    - wo_hard_negatives
 ```
 
-- `ablation.variants=[]`：默认，不执行 ablation；
-- `ablation.variants=all`：对选中的 ablation-capable methods 执行全部非 baseline variants；
-- `ablation.variants='[wo_bridge,wo_graph]'`：只执行列出的 variants；
-- `ablation.only=true`：只执行 variants，不重跑 ordinary baseline；要求当前 run 已有 baseline metrics。
+- `ablation.enable=false`：默认不执行 ablation，但配置中仍显式保留完整 variants 列表；
+- `ablation.enable=true`：执行 `ablation.variants` 中列出的全部 variants；默认列表就是全部九项；
+- `ablation.enable=true ablation.variants='[wo_bridge,wo_graph]'`：临时裁剪为只执行两个 variants；
+- `ablation.variants=[]` 非法，不使用空列表承载“全量”或“关闭”语义。
 
 合法 variant id 固定为：`wo_bridge`、`wo_entity_overlap`、`wo_sequential`、`wo_query_overlap`、
 `wo_graph`、`wo_edge_type`、`wo_edge_weight`、`wo_seed_score`、`wo_hard_negatives`。只支持
@@ -545,13 +563,10 @@ baseline alias，会自动进入 ablation table，不是需要用户填写或额
 
 ```powershell
 # 全部九个非 baseline variants
-uv run python experiment/run.py name=rgcn-ablation methods='[dense_rgcn_graph_retriever]' ablation.variants=all
+uv run python experiment/run.py name=rgcn-ablation methods='[dense_rgcn_graph_retriever]' ablation.enable=true
 
 # 只跑两个 variants
-uv run python experiment/run.py name=rgcn-ablation-small methods='[dense_rgcn_graph_retriever]' ablation.variants='[wo_bridge,wo_graph]'
-
-# ordinary baseline 已存在时，只补跑一个 variant
-uv run python experiment/run.py name=rgcn-run methods='[dense_rgcn_graph_retriever]' ablation.variants='[wo_seed_score]' ablation.only=true
+uv run python experiment/run.py name=rgcn-ablation-small methods='[dense_rgcn_graph_retriever]' ablation.enable=true ablation.variants='[wo_bridge,wo_graph]'
 ```
 
 ### Dataset 必须是 config group，不是普通字符串
@@ -1005,7 +1020,7 @@ resume 语义。
 | Memory Stream | external importance、Hotpot-only source、coverage cap 是特殊真实约束 | 建模为独立 typed workflow/capability，不用 optional/fallback 隐藏 |
 | 调参与泄漏 | tune 使用 dev labels，test retrieval 必须使用固定 selected config | stage contract 显式区分 dev tune/test retrieve，run summary 记录并核对 selected config path |
 | Ablation | variant 可从不同 stage 失效，并复用 alias | 保留 changed-dimension invalidation 模型；Hydra multirun 不能代替 domain ablation |
-| Ablation CLI | baseline alias 与 executable variants 容易混淆 | `variants=[]|all|[wo_*]`；`full_rgcn` 自动作为 alias，不接受为执行项 |
+| Ablation CLI | baseline alias 与 executable variants 容易混淆 | 默认配置显式列出全量 variants；`enable` 是唯一开关，非空 `variants` 列表只负责选择集合；`full_rgcn` 自动作为 alias，不接受为执行项 |
 | checkpoint 形态 | R-GCN 是 file，Dense-FT 是 directory | typed `ArtifactRef(kind=file|directory)`，cache/status 依 kind 验证 |
 | force | 当前 `--force` 会删除整个 run | 改成单独 reset command；普通 run 永不隐式清理 |
 | 默认等价 | GPU 训练可能非严格 bitwise deterministic | 先比 plan/resolved config/artifact schema，再对 deterministic 方法做 exact，对训练指标设预先声明容差 |
@@ -1024,7 +1039,7 @@ resume 语义。
 - `methods='[bm25,dense]'` 只执行两个 public methods。
 - resolved config 中八份 `method_configs` 位于各自 key，不出现 `method@method_configs.*`。
 - `method_configs.dense_ft.train.trainer.learning_rate=3e-5` 到达且只影响 Dense-FT trainer。
-- `ablation.variants=[]|all|[wo_*]` 和 `ablation.only=true|false` 按本文列出的合法值解析。
+- `ablation.enable=false|true` 是唯一执行开关，`ablation.variants=[wo_*]` 必须是非空合法列表；默认列表显式包含全部九项。
 - `seed=14` 到达 prepare/pairs/train 等所有随机消费者。
 - `device=cpu|cuda|cuda:N` 到达所有 device consumer，不影响 BM25 config。
 - resolved YAML 不含 `???`，没有 config code default 参与结果。
