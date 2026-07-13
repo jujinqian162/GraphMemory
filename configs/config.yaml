@@ -67,7 +67,6 @@ hydra:
       override_dirname:
         exclude_keys:
           - name
-          - dataset
           - profile
           - methods
   run:

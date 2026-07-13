@@ -17,7 +17,7 @@ from graph_memory.registry.retrieval import RetrievalMethodId
 
 RunMode = Literal["single", "multirun"]
 ROOT_IDENTITY_OVERRIDE_KEYS: Final = frozenset(
-    {"name", "dataset", "profile", "methods"}
+    {"name", "profile", "methods"}
 )
 
 

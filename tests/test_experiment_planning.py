@@ -146,12 +146,18 @@ def test_run_layout_owns_single_multirun_variant_and_artifact_paths(
         RunLayout(tmp_path, "../escape")
 
 
-def test_concise_override_dirname_is_deterministic_and_excludes_identity_keys() -> None:
+def test_concise_override_dirname_is_deterministic_and_retains_dataset() -> None:
     assert concise_override_dirname(
         "name=sweep,dataset=hotpotqa,profile=full,methods=[dense],"
         "method_configs.dense_rgcn_graph_retriever.train.model.num_layers=3,"
         "method_configs.dense_rgcn_graph_retriever.train.trainer.learning_rate=1e-3"
-    ) == "num_layers=3,learning_rate=1e-3"
+    ) == "dataset=hotpotqa,num_layers=3,learning_rate=1e-3"
+
+
+def test_concise_override_dirname_accepts_dataset_only_multirun() -> None:
+    assert concise_override_dirname(
+        "name=beam-rgcn,dataset=musique,methods=[dense_rgcn_graph_retriever]"
+    ) == "dataset=musique"
 
 
 def test_concise_override_dirname_sanitizes_values_and_rejects_leaf_collisions() -> None:
