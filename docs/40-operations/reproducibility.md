@@ -38,4 +38,4 @@ For offline transfer:
 uv run python scripts/deliver/collect_run_artifacts.py --name hotpot_smoke_13
 ```
 
-The delivery can be inspected without MLflow and includes typed state, resolved configuration, YAML summaries, selected tuning files, compact metrics/failure artifacts, and final tables.
+The delivery can be inspected without MLflow and preserves the complete small-file structure under `results/hotpot_smoke_13`. For a multirun, the same command copies every job under `results/<name>/<job>`. Known large intermediates and files above the configured size limit are omitted and listed in the delivery index.

@@ -10,7 +10,7 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
 )
-from graph_memory.experiment.layout import RunLayout
+from graph_memory.experiment.layout import MultirunIdentity, RunLayout
 from graph_memory.experiment.service import initialize_experiment
 from scripts.deliver.collect_run_artifacts import collect_run_artifacts, main
 
@@ -41,6 +41,8 @@ def test_collect_run_artifacts_preserves_selected_paths(tmp_path: Path) -> None:
         "learned/dense_rgcn_graph_retriever/train.pairs.run_summary.yaml",
         "tuned/dense_graph_rerank.dev_selected.json",
         "debug/failure_cases_dense_rgcn_graph_retriever.jsonl",
+        "logs/runner.log",
+        "notes/readme.txt",
     }.issubset(copied_paths)
     assert (output_dir / "tables" / "main_results.csv").read_text(
         encoding="utf-8"
@@ -127,6 +129,24 @@ def test_collect_run_artifacts_writes_delivery_manifest(tmp_path: Path) -> None:
     assert stored["max_file_size_bytes"] == 1024 * 1024
 
 
+def test_collect_run_artifacts_replaces_previous_delivery_without_stale_files(
+    tmp_path: Path,
+) -> None:
+    run_dir = _make_run_tree(tmp_path)
+    obsolete = run_dir / "tables" / "obsolete.csv"
+    obsolete.write_text("old\n", encoding="utf-8")
+
+    collect_run_artifacts(run_dir, output_root=tmp_path / "results")
+    obsolete.unlink()
+    manifest = collect_run_artifacts(run_dir, output_root=tmp_path / "results")
+
+    delivered = tmp_path / "results" / "rgcn_full_train" / "tables" / "obsolete.csv"
+    assert not delivered.exists()
+    assert "tables/obsolete.csv" not in {
+        entry["relative_path"] for entry in manifest["copied"]
+    }
+
+
 def test_collect_run_artifacts_missing_run_fails_fast(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="Run directory does not exist"):
         collect_run_artifacts(
@@ -134,6 +154,17 @@ def test_collect_run_artifacts_missing_run_fails_fast(tmp_path: Path) -> None:
         )
 
     assert not (tmp_path / "results" / "missing" / "delivery_manifest.json").exists()
+
+
+def test_collect_run_artifacts_rejects_output_that_overlaps_source(
+    tmp_path: Path,
+) -> None:
+    run_dir = _make_run_tree(tmp_path)
+
+    with pytest.raises(ValueError, match="cannot overlap"):
+        collect_run_artifacts(run_dir, output_root=tmp_path / "runs")
+
+    assert (run_dir / "run_state.yaml").is_file()
 
 
 def test_collect_run_artifacts_cli_uses_name_convention_and_default_roots(
@@ -159,6 +190,46 @@ def test_collect_run_artifacts_cli_uses_name_convention_and_default_roots(
     ).exists()
 
 
+def test_collect_run_artifacts_cli_delivers_complete_multirun_under_run_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    named_root = _make_multirun_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["--name", named_root.name]) == 0
+
+    output_dir = tmp_path / "results" / named_root.name
+    assert (output_dir / "multirun.yaml").is_file()
+    assert (output_dir / "0_seed=13" / "tables" / "main_results.csv").is_file()
+    assert (output_dir / "1_seed=14" / "tables" / "main_results.csv").is_file()
+    assert not (
+        output_dir / "0_seed=13" / "predictions" / "test.bm25.ranked.json"
+    ).exists()
+    assert not (tmp_path / "results" / "0_seed=13").exists()
+    stored = json.loads(
+        (output_dir / "delivery_manifest.json").read_text(encoding="utf-8")
+    )
+    assert stored["run_name"] == named_root.name
+    assert stored["run_mode"] == "multirun"
+    assert stored["jobs"] == ["0_seed=13", "1_seed=14"]
+    assert {
+        entry["relative_path"]: entry["reason"] for entry in stored["skipped"]
+    }["0_seed=13/predictions/test.bm25.ranked.json"] == "excluded_prediction"
+
+
+def test_collect_run_artifacts_cli_only_requires_structural_run_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = _make_run_tree(tmp_path)
+    (run_dir / "run_state.yaml").write_text(
+        "name: rgcn_full_train\nmode: single\nlegacy_field: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["--name", "rgcn_full_train", "--dry-run"]) == 0
+
+
 def test_collect_run_artifacts_help_documents_name_based_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -169,6 +240,7 @@ def test_collect_run_artifacts_help_documents_name_based_contract(
     assert exc_info.value.code == 0
     assert "--name" in captured.out
     assert "--run-dir" not in captured.out
+    assert "--job" not in captured.out
     assert "Contract" in captured.out
     assert "runs/<name>" in captured.out
     assert "results/<name>" in captured.out
@@ -227,6 +299,8 @@ def _make_run_tree(tmp_path: Path) -> Path:
         "tuned/dense_graph_rerank.dev_selected.json": "{}\n",
         "tuned/dense_graph_rerank.dev_selected.candidates.json": "x" * 128,
         "debug/failure_cases_dense_rgcn_graph_retriever.jsonl": '{"task_id":"1"}\n' * 4,
+        "logs/runner.log": "completed\n",
+        "notes/readme.txt": "small run-owned note\n",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train_metrics.jsonl": '{"epoch":1}\n',
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train.run_summary.yaml": "status: success\n",
         "ablations/dense_rgcn_graph_retriever/wo_bridge/train.pairs.json": "x" * 128,
@@ -244,3 +318,56 @@ def _make_run_tree(tmp_path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     return run_dir
+
+
+def _make_multirun_tree(tmp_path: Path) -> Path:
+    name = "layer-sweep"
+    raw = tmp_path / "data/hotpotqa/raw"
+    raw.mkdir(parents=True)
+    (raw / "train.json").write_text("[]\n", encoding="utf-8")
+    (raw / "dev.json").write_text("[]\n", encoding="utf-8")
+
+    for job_num, seed in ((0, 13), (1, 14)):
+        with initialize_config_dir(
+            config_dir=str(ROOT / "configs"), version_base="1.3"
+        ):
+            composed = compose(
+                config_name="config",
+                overrides=[
+                    f"name={name}",
+                    "profile=smoke",
+                    "methods=[bm25]",
+                    "stages.to=prepare",
+                    f"seed={seed}",
+                ],
+            )
+        config = resolve_experiment_config(
+            validate_composed_config(composed),
+            repository_root=tmp_path,
+        )
+        layout = RunLayout(
+            tmp_path,
+            name,
+            identity=MultirunIdentity(job_num=job_num, suffix=f"seed={seed}"),
+        )
+        initialize_experiment(
+            config,
+            layout=layout,
+            overrides=(
+                f"name={name}",
+                "profile=smoke",
+                "methods=[bm25]",
+                "stages.to=prepare",
+                f"seed={seed}",
+            ),
+        )
+        table = layout.run_dir / "tables" / "main_results.csv"
+        table.parent.mkdir(parents=True, exist_ok=True)
+        table.write_text(f"seed\n{seed}\n", encoding="utf-8")
+        prediction = layout.run_dir / "predictions" / "test.bm25.ranked.json"
+        prediction.parent.mkdir(parents=True, exist_ok=True)
+        prediction.write_text("[]\n", encoding="utf-8")
+
+    named_root = tmp_path / "runs" / name
+    (named_root / "multirun.yaml").write_text("hydra: {}\n", encoding="utf-8")
+    return named_root

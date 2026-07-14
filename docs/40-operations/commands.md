@@ -160,4 +160,4 @@ openspec validate reorganize-mlflow-experiment-tracking --strict
 git diff --check
 ```
 
-Delivery reads typed run state and copies resolved YAML, stage summaries, aggregate tables, metrics, selected tuning files, and compact failure artifacts. It excludes datasets, graphs, predictions, train pairs, checkpoints, and model directories.
+Delivery mirrors the complete `runs/<name>` tree to `results/<name>`. A multirun name is delivered in one command with all concise job directories and `multirun.yaml`; no job selector is needed. Every small run-owned file is retained, while inputs, full graphs, ranked predictions, train pairs, tuning candidate sets, checkpoints/model arrays, and files above the size limit are recorded in the delivery index but not copied. Each successful delivery replaces the previous `results/<name>` directory so removed source files cannot survive as stale output. Delivery only requires the named run directory and does not parse historical `run_state.yaml` files against the current configuration schema.
