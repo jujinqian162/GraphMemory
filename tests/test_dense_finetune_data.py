@@ -6,7 +6,10 @@ import numpy as np
 import pytest
 
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
-from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord, HotpotQALabelRecord
+from graph_memory.datasets.hotpotqa.records import (
+    HotpotQARankingRecord,
+    HotpotQALabelRecord,
+)
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingRequest
@@ -17,7 +20,9 @@ from graph_memory.models.dense_finetune.data import (
 )
 
 
-def _task(task_id: str, *, query: str, nodes: Mapping[str, tuple[str, str]]) -> HotpotQARankingRecord:
+def _task(
+    task_id: str, *, query: str, nodes: Mapping[str, tuple[str, str]]
+) -> HotpotQARankingRecord:
     return {
         "task_id": task_id,
         "question": query,
@@ -52,7 +57,9 @@ def _evidence_label(label: HotpotQALabelRecord) -> EvidenceLabel:
         task_id=label["task_id"],
         gold_answer=label["gold_answer"],
         gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-        gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+        gold_dependency_edges=tuple(
+            (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
+        ),
     )
 
 
@@ -68,7 +75,10 @@ class RecordingEncoder:
     ) -> object:
         text_list = list(texts)
         self.calls.append((text_list, batch_size, normalize_embeddings))
-        return np.asarray([[float(index), float(len(text))] for index, text in enumerate(text_list)], dtype=float)
+        return np.asarray(
+            [[float(index), float(len(text))] for index, text in enumerate(text_list)],
+            dtype=float,
+        )
 
     def get_sentence_embedding_dimension(self) -> int:
         return 2
@@ -92,12 +102,20 @@ def test_dense_finetune_uses_same_text_format_as_dense_encoding_service() -> Non
     )
 
     text_request = HotpotQAToTextRankingRequest().project(task)
-    service.encode_task(DenseTaskEncodingRequest(ranking_request=text_request, node_ids=("q", "m0", "m1")))
+    service.encode_task(
+        DenseTaskEncodingRequest(
+            ranking_request=text_request, node_ids=("q", "m0", "m1")
+        )
+    )
     result = build_dense_finetune_examples(
         ranking_requests=[_request(task)],
         train_pairs=[
-            TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive"),
-            TrainPairRecord(task_id="t1", node_id="m1", label=0, sample_type="hard_dense"),
+            TrainPairRecord(
+                task_id="t1", node_id="m0", label=1, sample_type="positive"
+            ),
+            TrainPairRecord(
+                task_id="t1", node_id="m1", label=0, sample_type="hard_dense"
+            ),
         ],
         settings=DenseFinetuneDataSettings(hard_negatives_per_positive=1),
         query_prefix="Q: ",
@@ -133,11 +151,15 @@ def test_dense_finetune_builds_positive_only_rows_without_negatives() -> None:
 
     result = build_dense_finetune_examples(
         ranking_requests=[_request(task)],
-        train_pairs=[TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive")],
+        train_pairs=[
+            TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive")
+        ],
         settings=DenseFinetuneDataSettings(),
     )
 
-    assert result.rows == ({"anchor": "query: query", "positive": "passage: S. positive"},)
+    assert result.rows == (
+        {"anchor": "query: query", "positive": "passage: S. positive"},
+    )
     assert result.examples[0].negative is None
     assert result.examples[0].negative_sample_type is None
 
@@ -157,11 +179,19 @@ def test_dense_finetune_selects_hard_negatives_by_priority_and_original_order() 
     )
     pairs: list[TrainPairRecord] = [
         TrainPairRecord(task_id="t1", node_id="p", label=1, sample_type="positive"),
-        TrainPairRecord(task_id="t1", node_id="easy", label=0, sample_type="easy_random"),
-        TrainPairRecord(task_id="t1", node_id="graph", label=0, sample_type="hard_graph_neighbor"),
+        TrainPairRecord(
+            task_id="t1", node_id="easy", label=0, sample_type="easy_random"
+        ),
+        TrainPairRecord(
+            task_id="t1", node_id="graph", label=0, sample_type="hard_graph_neighbor"
+        ),
         TrainPairRecord(task_id="t1", node_id="bm25", label=0, sample_type="hard_bm25"),
-        TrainPairRecord(task_id="t1", node_id="dense1", label=0, sample_type="hard_dense"),
-        TrainPairRecord(task_id="t1", node_id="dense2", label=0, sample_type="hard_dense"),
+        TrainPairRecord(
+            task_id="t1", node_id="dense1", label=0, sample_type="hard_dense"
+        ),
+        TrainPairRecord(
+            task_id="t1", node_id="dense2", label=0, sample_type="hard_dense"
+        ),
     ]
 
     result = build_dense_finetune_examples(
@@ -170,8 +200,16 @@ def test_dense_finetune_selects_hard_negatives_by_priority_and_original_order() 
         settings=DenseFinetuneDataSettings(hard_negatives_per_positive=3),
     )
 
-    assert [example.negative_node_id for example in result.examples] == ["dense1", "dense2", "bm25"]
-    assert [example.negative_sample_type for example in result.examples] == ["hard_dense", "hard_dense", "hard_bm25"]
+    assert [example.negative_node_id for example in result.examples] == [
+        "dense1",
+        "dense2",
+        "bm25",
+    ]
+    assert [example.negative_sample_type for example in result.examples] == [
+        "hard_dense",
+        "hard_dense",
+        "hard_bm25",
+    ]
     assert [row["negative"] for row in result.rows] == [
         "passage: S. dense one",
         "passage: S. dense two",
@@ -186,8 +224,12 @@ def test_dense_finetune_rejects_unknown_pair_node_id() -> None:
         build_dense_finetune_examples(
             ranking_requests=[_request(task)],
             train_pairs=[
-                TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive"),
-                TrainPairRecord(task_id="t1", node_id="missing", label=0, sample_type="hard_dense"),
+                TrainPairRecord(
+                    task_id="t1", node_id="m0", label=1, sample_type="positive"
+                ),
+                TrainPairRecord(
+                    task_id="t1", node_id="missing", label=0, sample_type="hard_dense"
+                ),
             ],
             settings=DenseFinetuneDataSettings(),
         )
@@ -195,13 +237,20 @@ def test_dense_finetune_rejects_unknown_pair_node_id() -> None:
 
 def test_ir_evaluator_payload_uses_task_qualified_corpus_ids() -> None:
     tasks = [
-        _task("t1", query="first", nodes={"m0": ("Shared", "first positive"), "m1": ("Other", "negative")}),
+        _task(
+            "t1",
+            query="first",
+            nodes={"m0": ("Shared", "first positive"), "m1": ("Other", "negative")},
+        ),
         _task("t2", query="second", nodes={"m0": ("Shared", "second positive")}),
     ]
 
     payload = build_ir_evaluator_payload(
         ranking_requests=[_request(task) for task in tasks],
-        labels=[_evidence_label(_labels("t1", ["m0"])), _evidence_label(_labels("t2", ["m0"]))],
+        labels=[
+            _evidence_label(_labels("t1", ["m0"])),
+            _evidence_label(_labels("t2", ["m0"])),
+        ],
         query_prefix="Q: ",
         passage_prefix="P: ",
     )

@@ -46,9 +46,27 @@ def tensor_graph() -> MemoryGraph:
             },
         ],
         "edges": [
-            {"source": "q", "target": "m0", "edge_type": "query_overlap", "weight": 2.5, "directed": True},
-            {"source": "m0", "target": "m1", "edge_type": "bridge", "weight": 0.7, "directed": False},
-            {"source": "m1", "target": "m2", "edge_type": "sequential", "weight": 0.3, "directed": True},
+            {
+                "source": "q",
+                "target": "m0",
+                "edge_type": "query_overlap",
+                "weight": 2.5,
+                "directed": True,
+            },
+            {
+                "source": "m0",
+                "target": "m1",
+                "edge_type": "bridge",
+                "weight": 0.7,
+                "directed": False,
+            },
+            {
+                "source": "m1",
+                "target": "m2",
+                "edge_type": "sequential",
+                "weight": 0.3,
+                "directed": True,
+            },
         ],
     }
 
@@ -73,13 +91,15 @@ def test_edge_tensorizer_expands_directed_and_undirected_edges():
         [1, 2, 1, 3],
     ]
     assert tensors.relation_ids.tolist() == [0, 5, 6, 1]
-    assert torch.allclose(tensors.edge_weights, torch.tensor([2.5, 0.7, 0.7, 0.3], dtype=torch.float32))
+    assert torch.allclose(
+        tensors.edge_weights, torch.tensor([2.5, 0.7, 0.7, 0.3], dtype=torch.float32)
+    )
 
 
 def test_edge_tensorizer_filters_disabled_edge_types():
-    tensors = EdgeTensorizer(enabled_edge_types=frozenset({"query_overlap", "sequential"})).tensorize_edges(
-        tensor_graph()
-    )
+    tensors = EdgeTensorizer(
+        enabled_edge_types=frozenset({"query_overlap", "sequential"})
+    ).tensorize_edges(tensor_graph())
 
     assert tensors.edge_index.tolist() == [
         [0, 2],
@@ -112,6 +132,8 @@ def test_edge_view_ablation_model_configs_remove_exactly_one_visible_edge_type()
 
 
 def test_uniform_edge_weight_policy_replaces_artifact_weights():
-    tensors = EdgeTensorizer(edge_weight_policy=UniformEdgeWeightPolicy()).tensorize_edges(tensor_graph())
+    tensors = EdgeTensorizer(
+        edge_weight_policy=UniformEdgeWeightPolicy()
+    ).tensorize_edges(tensor_graph())
 
     assert torch.allclose(tensors.edge_weights, torch.ones(4, dtype=torch.float32))

@@ -45,7 +45,10 @@ FORBIDDEN_PACKAGE_IMPORTS = {
         "scripts",
     ),
     PACKAGE_ROOT / "retrieval": ("graph_memory.application", "scripts"),
-    PACKAGE_ROOT / "models" / "graph_retriever": ("graph_memory.application", "scripts"),
+    PACKAGE_ROOT / "models" / "graph_retriever": (
+        "graph_memory.application",
+        "scripts",
+    ),
     PACKAGE_ROOT / "infrastructure": (
         "graph_memory.datasets",
         "graph_memory.graphs",
@@ -81,7 +84,9 @@ def test_core_package_dependency_direction_is_enforced() -> None:
             for lineno, imported in _imported_modules(path):
                 for forbidden in forbidden_prefixes:
                     if imported == forbidden or imported.startswith(f"{forbidden}."):
-                        violations.append(f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}")
+                        violations.append(
+                            f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}"
+                        )
 
     assert violations == []
 
@@ -92,6 +97,8 @@ def test_domain_packages_do_not_import_root_workflow_integration_ports() -> None
         for path in _package_files(root):
             for lineno, imported in _imported_modules(path):
                 if imported in ROOT_WORKFLOW_PORT_MODULES:
-                    violations.append(f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}")
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}"
+                    )
 
     assert violations == []

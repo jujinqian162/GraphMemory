@@ -33,7 +33,7 @@ from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.validation import validate_ranked_results
 from scripts.run_retrieval import main as run_retrieval_cli_main
 import scripts.run_retrieval as run_retrieval_script
-from tests.test_phase2_rgcn_training import (
+from tests.rgcn_fixtures import (
     FakeRetriever,
     FakeTextEmbeddingProvider,
     tiny_graphs,

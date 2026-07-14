@@ -90,7 +90,10 @@ def _materialize_fake_success(invocation) -> None:
     ablation_rows: list[dict[str, str]] = []
     if invocation.stage == "aggregate":
         for artifact in invocation.inputs:
-            if artifact.role not in {"metrics", "ablation_metrics"} or not artifact.path.is_file():
+            if (
+                artifact.role not in {"metrics", "ablation_metrics"}
+                or not artifact.path.is_file()
+            ):
                 continue
             with artifact.path.open("r", encoding="utf-8", newline="") as stream:
                 rows = list(csv.DictReader(stream))
@@ -190,9 +193,7 @@ def test_full_job_has_one_baseline_child_and_curated_parent_projection(
             run for run in runs if run.data.tags["graph_memory.run_kind"] == "parent"
         )
         child = next(
-            run
-            for run in runs
-            if run.data.tags["graph_memory.run_kind"] == "baseline"
+            run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline"
         )
         assert child.data.tags[MLFLOW_PARENT_RUN_ID] == parent.info.run_id
         assert child.data.tags["graph_memory.method"] == "bm25"
@@ -226,18 +227,23 @@ def test_full_job_has_one_baseline_child_and_curated_parent_projection(
         assert adapter.client.list_artifacts(child.info.run_id, "evaluation")
         assert adapter.client.list_artifacts(child.info.run_id, "workflow")
         assert not adapter.client.list_artifacts(child.info.run_id, "predictions")
-        assert child.data.tags["artifact.retrieve_bm25.predictions.upload"] == "prohibited"
+        assert (
+            child.data.tags["artifact.retrieve_bm25.predictions.upload"] == "prohibited"
+        )
 
         reopened = initialize_experiment(config, layout=layout)
         second = execute_experiment(reopened)
         assert len(second.resume.skipped) == len(initialized.plan.invocations)
         assert len(_runs(adapter)) == 2
-        assert len(
-            adapter.client.get_metric_history(
-                child.info.run_id,
-                "final.recall_at_10",
+        assert (
+            len(
+                adapter.client.get_metric_history(
+                    child.info.run_id,
+                    "final.recall_at_10",
+                )
             )
-        ) == 1
+            == 1
+        )
     finally:
         shutil.rmtree(layout.run_dir, ignore_errors=True)
 
@@ -338,8 +344,12 @@ def test_method_failure_and_interrupted_resume_reuse_the_owning_baseline_child(
         execute_experiment(initialized)
 
     runs = _runs(adapter)
-    parent = next(run for run in runs if run.data.tags["graph_memory.run_kind"] == "parent")
-    child = next(run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline")
+    parent = next(
+        run for run in runs if run.data.tags["graph_memory.run_kind"] == "parent"
+    )
+    child = next(
+        run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline"
+    )
     assert parent.info.status == "FAILED"
     assert child.info.status == "FAILED"
     assert child.data.tags["graph_memory.stage.retrieve_bm25.status"] == "failed"
@@ -357,9 +367,10 @@ def test_method_failure_and_interrupted_resume_reuse_the_owning_baseline_child(
     assert len(_runs(adapter)) == 2
     assert adapter.client.get_run(parent.info.run_id).info.status == "FINISHED"
     assert adapter.client.get_run(child.info.run_id).info.status == "FINISHED"
-    assert len(
-        adapter.client.get_metric_history(child.info.run_id, "final.recall_at_10")
-    ) == 1
+    assert (
+        len(adapter.client.get_metric_history(child.info.run_id, "final.recall_at_10"))
+        == 1
+    )
 
 
 def test_cache_disabled_repeated_attempts_keep_one_child_and_one_final_metric(
@@ -393,11 +404,16 @@ def test_cache_disabled_repeated_attempts_keep_one_child_and_one_final_metric(
     assert result.resume.skipped == ()
     runs = _runs(adapter)
     assert len(runs) == 2
-    child = next(run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline")
-    assert len(
-        adapter.client.get_metric_history(child.info.run_id, "final.recall_at_10")
-    ) == 1
-    retrieve = next(item for item in second.plan.invocations if item.stage == "retrieve")
+    child = next(
+        run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline"
+    )
+    assert (
+        len(adapter.client.get_metric_history(child.info.run_id, "final.recall_at_10"))
+        == 1
+    )
+    retrieve = next(
+        item for item in second.plan.invocations if item.stage == "retrieve"
+    )
     assert read_stage_summary(retrieve.summary_path).attempt == 2
 
 
@@ -427,7 +443,9 @@ def test_fully_cached_hidden_dependency_populates_one_selected_baseline_child(
     assert result.resume.invocations == ()
     runs = _runs(adapter)
     assert len(runs) == 2
-    child = next(run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline")
+    child = next(
+        run for run in runs if run.data.tags["graph_memory.run_kind"] == "baseline"
+    )
     assert child.data.tags["graph_memory.method"] == "dense_ft_rgcn_graph_retriever"
     assert adapter.client.list_artifacts(child.info.run_id, "dependencies/dense_ft")
     assert not any(
@@ -495,8 +513,7 @@ def test_final_metric_mapping_omits_na_nonfinite_and_rejects_unknown_numeric(
     metric = layout.metric(RetrievalMethodId.BM25)
     metric.parent.mkdir(parents=True, exist_ok=True)
     metric.write_text(
-        "Method,Recall@5,Path Recall@10,Edge Recall@10\n"
-        "bm25,0.5,N/A,nan\n",
+        "Method,Recall@5,Path Recall@10,Edge Recall@10\nbm25,0.5,N/A,nan\n",
         encoding="utf-8",
     )
     adapter = TrackingAdapter(config, layout)
@@ -529,8 +546,12 @@ def test_training_projection_logs_only_finite_flat_epoch_series_and_method_param
     )
     layout = RunLayout(tmp_path, config.name)
     initialized = initialize_experiment(config, layout=layout)
-    invocation = next(item for item in initialized.plan.invocations if item.stage == "train")
-    metrics = next(output.path for output in invocation.outputs if output.role == "train_metrics")
+    invocation = next(
+        item for item in initialized.plan.invocations if item.stage == "train"
+    )
+    metrics = next(
+        output.path for output in invocation.outputs if output.role == "train_metrics"
+    )
     metrics.parent.mkdir(parents=True, exist_ok=True)
     metrics.write_text(
         json.dumps(
@@ -833,6 +854,7 @@ def test_fresh_ablation_workflow_tracks_ordinary_and_variant_baselines(
         "wo_graph",
     }
     assert all("final.recall_at_10" in child.data.metrics for child in children)
-    assert "| dense_rgcn_graph_retriever | wo_graph |" in parent.data.tags[
-        "mlflow.note.content"
-    ]
+    assert (
+        "| dense_rgcn_graph_retriever | wo_graph |"
+        in parent.data.tags["mlflow.note.content"]
+    )

@@ -27,7 +27,9 @@ def _evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
             task_id=label["task_id"],
             gold_answer=label["gold_answer"],
             gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple((edge[0], edge[1]) for edge in label["gold_dependency_edges"]),
+            gold_dependency_edges=tuple(
+                (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
+            ),
         )
         for label in labels
     ]
@@ -49,7 +51,14 @@ def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
     gold = {"m0", "m2"}
     graph = cast(
         MemoryGraph,
-        cast(object, {"task_id": "hotpot_ex1", "nodes": [], "edges": [{"source": "m0", "target": "m2", "edge_type": "bridge"}]}),
+        cast(
+            object,
+            {
+                "task_id": "hotpot_ex1",
+                "nodes": [],
+                "edges": [{"source": "m0", "target": "m2", "edge_type": "bridge"}],
+            },
+        ),
     )
 
     assert full_support_at(ranked, gold, 2) == 1.0
@@ -67,8 +76,18 @@ def test_query_evidence_connectivity_requires_reachability_from_question():
                 "task_id": "hotpot_ex1",
                 "nodes": [],
                 "edges": [
-                    {"source": "q", "target": "m0", "edge_type": "query_overlap", "directed": True},
-                    {"source": "m0", "target": "m2", "edge_type": "bridge", "directed": False},
+                    {
+                        "source": "q",
+                        "target": "m0",
+                        "edge_type": "query_overlap",
+                        "directed": True,
+                    },
+                    {
+                        "source": "m0",
+                        "target": "m2",
+                        "edge_type": "bridge",
+                        "directed": False,
+                    },
                 ],
             },
         ),
@@ -109,15 +128,29 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
                     "task_id": "hotpot_ex1",
                     "nodes": [{"id": "q"}, {"id": "m0"}, {"id": "m1"}, {"id": "m2"}],
                     "edges": [
-                        {"source": "q", "target": "m0", "edge_type": "query_overlap", "directed": True},
-                        {"source": "m0", "target": "m2", "edge_type": "bridge", "directed": False},
+                        {
+                            "source": "q",
+                            "target": "m0",
+                            "edge_type": "query_overlap",
+                            "directed": True,
+                        },
+                        {
+                            "source": "m0",
+                            "target": "m2",
+                            "edge_type": "bridge",
+                            "directed": False,
+                        },
                     ],
                 }
             ],
         ),
     )
 
-    rows = evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=_evidence_labels(labels), graphs=graphs))
+    rows = evaluate_results(
+        EvidenceEvaluationRequest(
+            predictions=predictions, labels=_evidence_labels(labels), graphs=graphs
+        )
+    )
 
     assert rows == [
         {
@@ -146,9 +179,29 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
 
 
 def test_evaluate_results_rejects_task_id_mismatch():
-    predictions: list[RankedResult] = [{"task_id": "hotpot_ex1", "method": "bm25", "ranked_nodes": [], "retrieved_subgraph": {"nodes": [], "edges": []}, "latency_ms": 0.0, "input_tokens": 0}]
-    labels: list[HotpotQALabelRecord] = [{"task_id": "hotpot_other", "gold_answer": "", "gold_evidence_sentence_ids": ["m0"], "gold_dependency_edges": []}]
+    predictions: list[RankedResult] = [
+        {
+            "task_id": "hotpot_ex1",
+            "method": "bm25",
+            "ranked_nodes": [],
+            "retrieved_subgraph": {"nodes": [], "edges": []},
+            "latency_ms": 0.0,
+            "input_tokens": 0,
+        }
+    ]
+    labels: list[HotpotQALabelRecord] = [
+        {
+            "task_id": "hotpot_other",
+            "gold_answer": "",
+            "gold_evidence_sentence_ids": ["m0"],
+            "gold_dependency_edges": [],
+        }
+    ]
     graphs: list[MemoryGraph] = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
 
     with pytest.raises(ContractValidationError, match="task_id"):
-        evaluate_results(EvidenceEvaluationRequest(predictions=predictions, labels=_evidence_labels(labels), graphs=graphs))
+        evaluate_results(
+            EvidenceEvaluationRequest(
+                predictions=predictions, labels=_evidence_labels(labels), graphs=graphs
+            )
+        )

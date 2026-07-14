@@ -2,7 +2,11 @@ from typing import TypeAlias
 
 import pytest
 
-from graph_memory.datasets.hotpotqa import HotpotQAConversionResult, convert_hotpotqa_examples, parse_hotpotqa_examples
+from graph_memory.datasets.hotpotqa import (
+    HotpotQAConversionResult,
+    convert_hotpotqa_examples,
+    parse_hotpotqa_examples,
+)
 from graph_memory.datasets.hotpotqa.compatibility import combined_hotpotqa_records
 from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
 from graph_memory.datasets.splits import sample_split
@@ -31,7 +35,10 @@ def test_supporting_facts_map_title_sentence_to_node_ids():
     inputs = conversion.ranking_records
     labels = conversion.label_records
     assert inputs[0]["task_id"] == "hotpot_ex1"
-    assert inputs[0]["question"] == "Where is the Eiffel Tower and what river runs through that city?"
+    assert (
+        inputs[0]["question"]
+        == "Where is the Eiffel Tower and what river runs through that city?"
+    )
     assert inputs[0]["candidate_sentences"][0]["sentence_id"] == "m0"
     assert inputs[0]["candidate_sentences"][0]["sentence_index"] == 0
     assert inputs[0]["candidate_sentences"][0]["position"] == 0
@@ -56,7 +63,11 @@ def test_convert_hotpotqa_requires_raw_id():
 
 
 def test_parse_hotpotqa_rejects_non_text_sentence():
-    malformed = {**hotpot_raw_example(), "context": [["Ada Lovelace", ["ok", 3]]], "_id": "abc123"}
+    malformed = {
+        **hotpot_raw_example(),
+        "context": [["Ada Lovelace", ["ok", 3]]],
+        "_id": "abc123",
+    }
 
     with pytest.raises(ValueError, match="must be text"):
         parse_hotpotqa_example(malformed)
@@ -96,7 +107,9 @@ def test_sample_split_uses_offset_for_disjoint_slices():
     dev = sample_split(examples, count=5, seed=13, offset=0)
     test = sample_split(examples, count=5, seed=13, offset=5)
 
-    assert {example["_id"] for example in dev}.isdisjoint({example["_id"] for example in test})
+    assert {example["_id"] for example in dev}.isdisjoint(
+        {example["_id"] for example in test}
+    )
 
 
 @pytest.mark.parametrize(

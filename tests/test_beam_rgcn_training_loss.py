@@ -12,7 +12,7 @@ from graph_memory.models.graph_retriever.beam_loss import supervised_action_loss
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.training import compute_beam_training_loss
 from tests.test_phase2_rgcn_model import tiny_training_batch
-from tests.test_phase2_rgcn_training import tiny_model_config, tiny_training_config
+from tests.rgcn_fixtures import tiny_model_config, tiny_training_config
 
 
 def test_beam_training_loss_combines_action_stop_and_auxiliary_terms() -> None:

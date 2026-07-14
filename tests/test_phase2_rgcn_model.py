@@ -10,8 +10,13 @@ from graph_memory.models.graph_retriever.internals.neural import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
-from graph_memory.models.graph_retriever.internals.tensorization import DEFAULT_RELATION_VOCAB
-from graph_memory.models.graph_retriever.internals.contracts import GraphBatch, TrainingBatch
+from graph_memory.models.graph_retriever.internals.tensorization import (
+    DEFAULT_RELATION_VOCAB,
+)
+from graph_memory.models.graph_retriever.internals.contracts import (
+    GraphBatch,
+    TrainingBatch,
+)
 
 
 def tiny_graph_batch() -> GraphBatch:
@@ -50,7 +55,9 @@ def tiny_training_batch() -> TrainingBatch:
         graph_batch=graph_batch,
         sample_node_indices=torch.tensor([1, 2, 3], dtype=torch.long),
         sample_query_indices=torch.tensor([0, 0, 0], dtype=torch.long),
-        sample_node_features=torch.tensor([[0.9, 0.0], [0.5, 0.5], [0.1, 1.0]], dtype=torch.float32),
+        sample_node_features=torch.tensor(
+            [[0.9, 0.0], [0.5, 0.5], [0.1, 1.0]], dtype=torch.float32
+        ),
         labels=torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32),
         sample_task_ids=["hotpot_model_test", "hotpot_model_test", "hotpot_model_test"],
         sample_node_ids=["m0", "m1", "m2"],
@@ -134,7 +141,9 @@ def test_rgcn_graph_encoder_builds_independent_typed_transform_per_layer():
     )
 
     transforms = [layer.message_transform for layer in encoder.layers]
-    assert all(isinstance(transform, TypedRelationTransform) for transform in transforms)
+    assert all(
+        isinstance(transform, TypedRelationTransform) for transform in transforms
+    )
     assert transforms[0] is not transforms[1]
 
 
@@ -186,6 +195,11 @@ def test_evidence_scoring_model_backward_updates_relation_parameters():
     loss = F.binary_cross_entropy_with_logits(logits, batch.labels)
     loss.backward()
 
-    relation_params = [param for name, param in model.named_parameters() if "relation_linears" in name]
+    relation_params = [
+        param for name, param in model.named_parameters() if "relation_linears" in name
+    ]
     assert logits.shape == (3,)
-    assert any(param.grad is not None and torch.any(param.grad != 0) for param in relation_params)
+    assert any(
+        param.grad is not None and torch.any(param.grad != 0)
+        for param in relation_params
+    )

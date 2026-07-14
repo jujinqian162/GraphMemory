@@ -16,6 +16,30 @@ Tests should protect the scientific correctness of the evidence-tracing pipeline
 - Treat schema violations, leakage risks, split overlap, invalid graph references, and metric mismatches as test-worthy failures.
 - Avoid tests that depend on downloading models or datasets at test time.
 - Use integration smoke tests sparingly to prove the pipeline connects.
+- Keep the complete pytest inventory at or below 100 collected cases. A new case
+  normally replaces or broadens an existing owning-boundary scenario.
+
+## Test Admission Rule
+
+Every permanent test must name a plausible scientific, data-leakage, algorithm,
+artifact, or supported-workflow regression that it would catch. Configuration-only
+and implementation-detail changes do not automatically require a test.
+
+Do not add tests whose sole purpose is to:
+
+- duplicate exact values already owned by YAML, a Pydantic model, or an enum;
+- prove generic Pydantic or Hydra mechanics such as `extra="forbid"`, `Literal`
+  rejection, numeric bounds, or unknown override rejection;
+- preserve the absence of deleted modules, compatibility names, source strings,
+  or historical directory layouts;
+- snapshot exact internal `__all__` lists or private registry records;
+- assert Python/package metadata that is already exercised by the supported
+  interpreter and static-check gates.
+
+Custom repository invariants remain test-worthy. Examples include preventing label
+leakage, bounding a dataset window by its capacity, propagating a root seed/device
+to trainable stages, matching training and inference beam contracts, and preserving
+scientific ranking and metric semantics.
 
 ## Test Layers
 
@@ -37,33 +61,12 @@ Tests should protect the scientific correctness of the evidence-tracing pipeline
 | Architecture dependency tests | AST import scans | Ensure domain packages keep approved dependency direction, root workflow integration ports stay one-way, and removed compatibility paths do not return. |
 | End-to-end smoke test | Tiny synthetic pipeline | Ensure converter -> graph -> retrieval -> evaluation can run together. |
 
-## Recommended Test Files
+## Suite Shape
 
-The Phase 1 plan already names the main test files. Keep that shape:
-
-```text
-tests/
-  test_phase1_real_data_structures.py
-  test_phase1_real_graphs.py
-  test_phase1_real_retrieval.py
-  test_phase1_real_evaluation.py
-```
-
-Possible additions if the implementation needs them:
-
-```text
-tests/test_phase1_real_validation.py
-tests/test_phase1_real_reproducibility.py
-tests/test_phase1_real_cli_smoke.py
-tests/test_phase2_rgcn_pairs.py
-tests/test_phase2_rgcn_tensorize.py
-tests/test_phase2_rgcn_model.py
-tests/test_phase2_rgcn_training.py
-tests/test_phase2_rgcn_retrieval.py
-tests/test_core_refactor_final_boundaries.py
-```
-
-Do not add many tiny test files too early. Start with the planned files and split only when a file becomes hard to navigate.
+Keep a small number of files organized around owning behavior: dataset contracts,
+graph/retrieval/evaluation, trainable models, experiment workflows, artifacts, and
+one generalized architecture dependency guard. Prefer one readable scenario that
+checks a complete contract over separate tests for every field and adapter layer.
 
 ## Fixture Strategy
 
