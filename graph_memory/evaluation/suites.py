@@ -86,7 +86,9 @@ class EvidenceMetricSuite:
                 f"Invalid evaluation input: expected one method per file, got methods={sorted(methods)}."
             )
         method = next(iter(methods)) if methods else ""
-        path_metrics_supported = bool(graph_task_ids)
+        path_metrics_supported = any(
+            label.gold_dependency_edges for label in request.labels
+        )
         path_recall_values: list[float] = []
         edge_recall_values: list[float] = []
 

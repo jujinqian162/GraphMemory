@@ -99,10 +99,30 @@ def _binding(name: str) -> FieldBinding:
 
 def _alternative_path_request() -> ExecutionProvenanceRankingRequest:
     nodes = (
-        ExecutionProvenanceNode("seed", ProvenanceNodeType.TOOL_OUTPUT, "seed result"),
-        ExecutionProvenanceNode("call-a", ProvenanceNodeType.TOOL_CALL, "use seed"),
-        ExecutionProvenanceNode("out-a", ProvenanceNodeType.TOOL_OUTPUT, "bound result"),
-        ExecutionProvenanceNode("target", ProvenanceNodeType.TOOL_CALL, "final call"),
+        ExecutionProvenanceNode(
+            "seed",
+            ProvenanceNodeType.TOOL_OUTPUT,
+            "seed result",
+            {"output_field_hashes": {"seed": "seed-hash"}},
+        ),
+        ExecutionProvenanceNode(
+            "call-a",
+            ProvenanceNodeType.TOOL_CALL,
+            "use seed",
+            {"input_parameters": ["seed"]},
+        ),
+        ExecutionProvenanceNode(
+            "out-a",
+            ProvenanceNodeType.TOOL_OUTPUT,
+            "bound result",
+            {"output_field_hashes": {"result": "result-hash"}},
+        ),
+        ExecutionProvenanceNode(
+            "target",
+            ProvenanceNodeType.TOOL_CALL,
+            "final call",
+            {"input_parameters": ["result"]},
+        ),
     )
     edges = (
         ExecutionProvenanceEdge("seed", "target", ProvenanceEdgeType.DEPENDS_ON),
@@ -234,6 +254,7 @@ def test_provenance_scores_complete_bound_path_before_short_weak_path() -> None:
             path,
             semantic_scores={"seed": 1.0, "target": 0.9},
             invalidated_node_ids=frozenset(),
+            node_by_id={node.node_id: node for node in request.graph.nodes},
             config=config,
         ).total
         for path in target_paths

@@ -12,6 +12,7 @@ from graph_memory.registry.retrieval import (
     ExecutionProvenanceRetrievalSettings,
     GraphRAGRetrievalSettings,
     RetrievalMethodId,
+    ProvenanceRgcnRetrievalSettings,
 )
 from graph_memory.registry.semantics import (
     MethodInputSpec,
@@ -292,6 +293,24 @@ def build_method_registry() -> MethodRegistry:
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
             train_artifact=None,
+        ),
+        MethodDefinition(
+            identifier=RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER,
+            lifecycle=RetrievalLifecycle.RGCN_TRAINABLE,
+            retrieval_settings_type=ProvenanceRgcnRetrievalSettings,
+            input_spec=MethodInputSpec(
+                ExecutionProvenanceRankingRequest,
+                RequiredArtifact.NONE,
+                provenance,
+            ),
+            capabilities=RetrievalCapabilities(True, True, True),
+            dependencies=RetrievalDependencySpec(
+                selected_config=SelectedConfigSource.NONE,
+                model=ModelSource.CHECKPOINT_FILE,
+                encoder=EncoderSource.CHECKPOINT_METADATA,
+            ),
+            train_artifact=TrainArtifactSpec("best.pt", ArtifactKind.FILE),
+            seed_method=RetrievalMethodId.DENSE,
         ),
     )
     return MethodRegistry(

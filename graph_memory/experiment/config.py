@@ -54,8 +54,8 @@ Device = Annotated[str, BeforeValidator(_device)]
 DatasetName: TypeAlias = Literal[
     "hotpotqa",
     "twowiki",
+    "twowiki_provenance",
     "musique",
-    "traject_bench",
 ]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
 PublicStageName: TypeAlias = Literal[
@@ -122,7 +122,6 @@ class DatasetSplitsConfig(ClosedModel):
 class DatasetConfig(ClosedModel):
     name: DatasetName
     prepare_script: Path
-    source_kind: ArtifactKind
     splits: DatasetSplitsConfig
 
 
@@ -210,6 +209,7 @@ class ExecutionProvenanceMethodConfig(ClosedModel):
     method: Literal["execution_provenance_retriever"]
     encoder: DenseEncoderConfig
     seed_top_s: PositiveInt
+    beam_width: PositiveInt
     max_hops: PositiveInt
     top_paths: PositiveInt
     max_path_expansions: PositiveInt
@@ -273,6 +273,36 @@ class DenseFtRgcnMethodConfig(ClosedModel):
     train: RgcnTrainConfig
 
 
+class ProvenanceRgcnModelSettings(ClosedModel):
+    hidden_dim: PositiveInt
+    node_type_dim: PositiveInt
+    num_layers: NonNegativeInt
+    dropout: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)]
+
+
+class ProvenanceRgcnTrainerSettings(ClosedModel):
+    learning_rate: PositiveFloat
+    batch_size: PositiveInt
+    epochs: PositiveInt
+    max_grad_norm: PositiveFloat
+    random_seed: ScientificInt
+    device: Device
+    candidate_loss_weight: NonNegativeFloat
+    edge_loss_weight: NonNegativeFloat
+
+
+class ProvenanceRgcnTrainSettings(ClosedModel):
+    model: ProvenanceRgcnModelSettings
+    trainer: ProvenanceRgcnTrainerSettings
+
+
+class ExecutionProvenanceRgcnMethodConfig(ClosedModel):
+    method: Literal["execution_provenance_rgcn_retriever"]
+    encoder: DenseEncoderConfig
+    pairs: PairSamplingConfig
+    train: ProvenanceRgcnTrainSettings
+
+
 class DenseFinetuneDataConfig(ClosedModel):
     hard_negatives_per_positive: NonNegativeInt
 
@@ -316,6 +346,7 @@ MethodConfig: TypeAlias = Annotated[
         DenseRgcnMethodConfig,
         DenseFinetuneMethodConfig,
         DenseFtRgcnMethodConfig,
+        ExecutionProvenanceRgcnMethodConfig,
     ],
     Field(discriminator="method"),
 ]
@@ -329,6 +360,7 @@ class MethodConfigs(ClosedModel):
     dense_rgcn_graph_retriever: DenseRgcnMethodConfig
     dense_ft: DenseFinetuneMethodConfig
     dense_ft_rgcn_graph_retriever: DenseFtRgcnMethodConfig
+    execution_provenance_rgcn_retriever: ExecutionProvenanceRgcnMethodConfig
 
     def get(self, method: RetrievalMethodId) -> MethodConfig:
         return getattr(self, method.value)
@@ -433,6 +465,7 @@ class ExperimentConfig(ClosedModel):
             self.method_configs.dense_rgcn_graph_retriever,
             self.method_configs.dense_ft_rgcn_graph_retriever,
             self.method_configs.dense_ft,
+            self.method_configs.execution_provenance_rgcn_retriever,
         ):
             if method.pairs.random_seed != self.seed:
                 raise ValueError(
@@ -463,7 +496,6 @@ ResolvedSplitConfig: TypeAlias = ResolvedRawSplitConfig
 class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     prepare_script: Path
-    source_kind: ArtifactKind
     splits: dict[SplitName, ResolvedSplitConfig]
 
 
@@ -541,7 +573,6 @@ def resolve_experiment_config(
         dataset=ResolvedDatasetConfig(
             name=config.dataset.name,
             prepare_script=_absolute_path(root, config.dataset.prepare_script),
-            source_kind=config.dataset.source_kind,
             splits=resolved_splits,
         ),
         profile=config.profile.name,
@@ -581,6 +612,7 @@ __all__ = [
     "DenseMethodConfig",
     "DenseRgcnMethodConfig",
     "ExecutionProvenanceMethodConfig",
+    "ExecutionProvenanceRgcnMethodConfig",
     "ExperimentConfig",
     "FixedCountPolicy",
     "GraphBuildConfig",
@@ -591,6 +623,9 @@ __all__ = [
     "NonNegativeInt",
     "PositiveFloat",
     "PositiveInt",
+    "ProvenanceRgcnModelSettings",
+    "ProvenanceRgcnTrainerSettings",
+    "ProvenanceRgcnTrainSettings",
     "ProfileConfig",
     "PublicStageName",
     "ResolvedExperimentConfig",

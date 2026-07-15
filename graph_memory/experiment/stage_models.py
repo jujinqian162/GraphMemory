@@ -16,6 +16,7 @@ from graph_memory.experiment.config import (
     PairSamplingConfig,
     PositiveInt,
     RgcnTrainConfig,
+    ProvenanceRgcnTrainSettings,
     ScientificInt,
     SplitName,
 )
@@ -65,11 +66,12 @@ class PairStageConfig(ClosedModel):
         "dense_rgcn_graph_retriever",
         "dense_ft",
         "dense_ft_rgcn_graph_retriever",
+        "execution_provenance_rgcn_retriever",
     ]
     variant: str | None
     tasks: Path
     labels: Path
-    evidence_graphs: Path
+    evidence_graphs: Path | None
     outputs: PairOutputs
     sampling: PairSamplingConfig
     hard_dense_encoder: DenseEncoderConfig
@@ -109,6 +111,24 @@ RgcnTrainStageConfig: TypeAlias = (
 )
 
 
+class ProvenanceRgcnTrainStageConfig(ClosedModel):
+    stage: Literal["train"]
+    method: Literal["execution_provenance_rgcn_retriever"]
+    variant: str | None
+    dataset: DatasetName
+    train_tasks: Path
+    train_labels: Path
+    train_pairs: Path
+    dev_tasks: Path
+    dev_labels: Path
+    output_dir: Path
+    checkpoint_dir: Path
+    metrics: Path
+    encoder: DenseEncoderConfig
+    pairs: PairSamplingConfig
+    train: ProvenanceRgcnTrainSettings
+
+
 class DenseFinetuneTrainStageConfig(ClosedModel):
     stage: Literal["train"]
     method: Literal["dense_ft"]
@@ -132,6 +152,7 @@ TrainStageConfig: TypeAlias = Annotated[
         OrdinaryRgcnTrainStageConfig,
         SeededRgcnTrainStageConfig,
         DenseFinetuneTrainStageConfig,
+        ProvenanceRgcnTrainStageConfig,
     ],
     Field(discriminator="method"),
 ]
@@ -185,6 +206,7 @@ class ExecutionProvenanceRetrieveStageConfig(ClosedModel):
     top_k: PositiveInt
     encoder: DenseEncoderConfig
     seed_top_s: PositiveInt
+    beam_width: PositiveInt
     max_hops: PositiveInt
     top_paths: PositiveInt
     max_path_expansions: PositiveInt
@@ -203,6 +225,18 @@ class RgcnRetrieveStageConfig(ClosedModel):
     dataset: DatasetName
     tasks: Path
     evidence_graphs: Path
+    output: Path
+    top_k: PositiveInt
+    checkpoint: Path
+    device: str
+
+
+class ProvenanceRgcnRetrieveStageConfig(ClosedModel):
+    stage: Literal["retrieve"]
+    method: Literal["execution_provenance_rgcn_retriever"]
+    variant: str | None
+    dataset: DatasetName
+    tasks: Path
     output: Path
     top_k: PositiveInt
     checkpoint: Path
@@ -228,6 +262,7 @@ RetrieveStageConfig: TypeAlias = Annotated[
         GraphRAGRetrieveStageConfig,
         ExecutionProvenanceRetrieveStageConfig,
         RgcnRetrieveStageConfig,
+        ProvenanceRgcnRetrieveStageConfig,
         DenseFinetuneRetrieveStageConfig,
     ],
     Field(discriminator="method"),
@@ -305,6 +340,8 @@ __all__ = [
     "OrdinaryRgcnTrainStageConfig",
     "PairStageConfig",
     "PrepareStageConfig",
+    "ProvenanceRgcnRetrieveStageConfig",
+    "ProvenanceRgcnTrainStageConfig",
     "RawPrepareStageConfig",
     "RetrieveStageConfig",
     "RgcnRetrieveStageConfig",

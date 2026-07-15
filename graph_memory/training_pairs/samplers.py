@@ -21,7 +21,7 @@ class PairSamplingContext:
     """
 
     text_request: TextRankingRequest
-    graph: EvidenceGraph
+    graph: EvidenceGraph | None
     gold_node_ids: set[str]
     non_gold_node_ids: list[str]
     rng: random.Random
@@ -107,6 +107,10 @@ class GraphNeighborNegativeSampler:
     def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]:
         if desired_count <= 0:
             return []
+        if context.graph is None:
+            raise ValueError(
+                "Graph-neighbor negative sampling requires an evidence graph."
+            )
         non_gold_node_id_set = set(context.non_gold_node_ids)
         candidates: list[str] = []
         for edge in context.graph["edges"]:

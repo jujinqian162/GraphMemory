@@ -17,11 +17,11 @@ uv run python experiment/run.py `
   'methods=[dense_rgcn_graph_retriever]'
 
 uv run python experiment/run.py `
-  name=traject_bench_bm25_smoke dataset=traject_bench profile=smoke device=cpu `
-  'methods=[bm25]'
+  name=twowiki_provenance_smoke dataset=twowiki_provenance profile=smoke device=cpu `
+  'methods=[bm25,dense,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
 ```
 
-The default evidence workflow selects BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, and Dense-FT R-GCN. TRAJECT-Bench has an explicit dataset profile for retrieval-only BM25 and Dense baselines; see [`traject-bench.md`](traject-bench.md) for data download and server commands. There is no dataset profile that emits a native execution-provenance request yet.
+The default evidence workflow selects BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, and Dense-FT R-GCN. The separately generated [`twowiki_provenance`](twowiki-provenance.md) dataset supports flat baselines plus both provenance methods. EvidenceGraph R-GCN methods are intentionally incompatible with it.
 
 ## Inspect and control
 
@@ -53,6 +53,6 @@ uv run pytest -q
 uv run ruff check .
 uv run basedpyright --level error
 uv run python -m compileall -q graph_memory scripts tests
-openspec validate adapt-traject-bench-dataset --strict
+openspec validate add-twowiki-provenance-benchmark --strict
 git diff --check
 ```

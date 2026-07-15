@@ -18,6 +18,7 @@ from graph_memory.experiment.stage_models import (
     GraphRAGRetrieveStageConfig,
     RetrieveStageConfig,
     RgcnRetrieveStageConfig,
+    ProvenanceRgcnRetrieveStageConfig,
 )
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
@@ -34,7 +35,10 @@ from graph_memory.registry.retrieval import (
     GraphRAGRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
+    ProvenanceRgcnBuildPayload,
+    ProvenanceRgcnRetrievalSettings,
 )
+from graph_memory.registry.semantics import RetrievalTaskFamily
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.execution_provenance import (
@@ -101,15 +105,22 @@ def _build_payload(
     ):
         return FlatRetrievalBuildPayload(
             text_requests=text_requests,
+            task_family=_task_family(config.dataset),
             dense_encoder=dense_encoder,
         )
     if isinstance(config, GraphRAGRetrieveStageConfig):
         return GraphRAGBuildPayload(
             text_requests=text_requests,
+            task_family=_task_family(config.dataset),
             dense_encoder=dense_encoder,
         )
     if isinstance(config, ExecutionProvenanceRetrieveStageConfig):
         return ExecutionProvenanceBuildPayload(
+            provenance_requests=provenance_requests,
+            dense_encoder=dense_encoder,
+        )
+    if isinstance(config, ProvenanceRgcnRetrieveStageConfig):
+        return ProvenanceRgcnBuildPayload(
             provenance_requests=provenance_requests,
             dense_encoder=dense_encoder,
         )
@@ -133,7 +144,10 @@ def _provenance_requests(
     config: RetrieveStageConfig,
     task_inputs: Sequence[object],
 ) -> list[ExecutionProvenanceRankingRequest]:
-    if not isinstance(config, ExecutionProvenanceRetrieveStageConfig):
+    if not isinstance(
+        config,
+        (ExecutionProvenanceRetrieveStageConfig, ProvenanceRgcnRetrieveStageConfig),
+    ):
         return []
     return execution_provenance_requests_for_dataset(config.dataset, task_inputs)
 
@@ -165,6 +179,7 @@ def _retrieval_settings(config: RetrieveStageConfig):
             encoder=_encoder_settings(config.encoder),
             config=ExecutionProvenanceConfig(
                 seed_top_s=config.seed_top_s,
+                beam_width=config.beam_width,
                 max_hops=config.max_hops,
                 top_paths=config.top_paths,
                 max_path_expansions=config.max_path_expansions,
@@ -187,6 +202,12 @@ def _retrieval_settings(config: RetrieveStageConfig):
             checkpoint=config.checkpoint,
             device=config.device,
         )
+    if isinstance(config, ProvenanceRgcnRetrieveStageConfig):
+        return ProvenanceRgcnRetrievalSettings(
+            top_k=config.top_k,
+            checkpoint=config.checkpoint,
+            device=config.device,
+        )
     if isinstance(config, DenseFinetuneRetrieveStageConfig):
         return DenseFinetunedRetrievalSettings(
             top_k=config.top_k,
@@ -203,6 +224,12 @@ def _encoder_settings(config) -> DenseEncoderSettings:
         passage_prefix=config.passage_prefix,
         batch_size=config.batch_size,
     )
+
+
+def _task_family(dataset: str) -> RetrievalTaskFamily:
+    if dataset == "twowiki_provenance":
+        return RetrievalTaskFamily.EXECUTION_PROVENANCE
+    return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
 
 
 __all__ = ["RetrieveStageResult", "run_retrieve_stage"]

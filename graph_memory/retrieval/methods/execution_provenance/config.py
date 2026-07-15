@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ExecutionProvenanceConfig:
-    seed_top_s: int = 3
+    seed_top_s: int = 10
+    beam_width: int = 8
     max_hops: int = 4
     top_paths: int = 5
     max_path_expansions: int = 256
@@ -17,7 +18,13 @@ class ExecutionProvenanceConfig:
     invalidation_penalty: float = 0.5
 
     def __post_init__(self) -> None:
-        for name in ("seed_top_s", "max_hops", "top_paths", "max_path_expansions"):
+        for name in (
+            "seed_top_s",
+            "beam_width",
+            "max_hops",
+            "top_paths",
+            "max_path_expansions",
+        ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive.")
         for name in (

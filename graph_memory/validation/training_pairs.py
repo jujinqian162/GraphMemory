@@ -59,7 +59,7 @@ def validate_train_pairs(
             raise ContractValidationError(f"Invalid train pairs: task_id={task_id} has no expected candidates.")
         if task_id not in labels_by_task_id:
             raise ContractValidationError(f"Invalid train pairs: task_id={task_id} has no evidence label.")
-        if task_id not in graphs_by_task_id:
+        if graphs_by_task_id and task_id not in graphs_by_task_id:
             raise ContractValidationError(f"Invalid train pairs: task_id={task_id} has no matching graph.")
 
         node_id = _required_string(pair, "node_id", "train pair", task_id)
@@ -70,7 +70,7 @@ def validate_train_pairs(
             raise ContractValidationError(
                 f"Invalid train pairs: task_id={task_id} node_id={node_id} does not exist in candidates."
             )
-        if node_id not in _graph_node_ids(graphs_by_task_id[task_id]) - {"q"}:
+        if graphs_by_task_id and node_id not in _graph_node_ids(graphs_by_task_id[task_id]) - {"q"}:
             raise ContractValidationError(
                 f"Invalid train pairs: task_id={task_id} node_id={node_id} does not exist in graph."
             )
@@ -208,6 +208,8 @@ def _evidence_labels_by_task_id(value: object) -> dict[str, EvidenceLabel]:
 
 
 def _graph_mapping(value: object) -> dict[str, dict[str, object]]:
+    if value is None:
+        return {}
     if isinstance(value, Mapping):
         graphs: dict[str, dict[str, object]] = {}
         for task_id, graph in value.items():

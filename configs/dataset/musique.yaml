@@ -1,6 +1,5 @@
 name: musique
 prepare_script: scripts/prepare_musique.py
-source_kind: file
 splits:
   train:
     kind: raw

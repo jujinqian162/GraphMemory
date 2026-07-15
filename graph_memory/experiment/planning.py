@@ -15,6 +15,7 @@ from graph_memory.experiment.config import (
     DenseMethodConfig,
     DenseRgcnMethodConfig,
     ExecutionProvenanceMethodConfig,
+    ExecutionProvenanceRgcnMethodConfig,
     GraphRAGMethodConfig,
     MethodConfig,
     PublicStageName,
@@ -34,6 +35,8 @@ from graph_memory.experiment.stage_models import (
     EvidenceGraphStageConfig,
     EvaluateStageConfig,
     ExecutionProvenanceRetrieveStageConfig,
+    ProvenanceRgcnRetrieveStageConfig,
+    ProvenanceRgcnTrainStageConfig,
     GraphRAGRetrieveStageConfig,
     OrdinaryAggregateStageConfig,
     OrdinaryRgcnTrainStageConfig,
@@ -60,6 +63,7 @@ from graph_memory.registry.methods import (
     RequiredArtifact,
 )
 from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.registry.semantics import RetrievalTaskFamily
 
 STAGE_ORDER: tuple[PublicStageName, ...] = (
     "prepare",
@@ -120,7 +124,7 @@ class _StageInvocationFactory:
             _external(
                 "raw",
                 split_config.source,
-                kind=self.config.dataset.source_kind,
+                kind="file",
             ),
         )
         output_refs = tuple(
@@ -175,14 +179,26 @@ class _StageInvocationFactory:
         config_method = method_config or self.config.method_configs.get(method)
         if not isinstance(
             config_method,
-            (DenseRgcnMethodConfig, DenseFinetuneMethodConfig, DenseFtRgcnMethodConfig),
+            (
+                DenseRgcnMethodConfig,
+                DenseFinetuneMethodConfig,
+                DenseFtRgcnMethodConfig,
+                ExecutionProvenanceRgcnMethodConfig,
+            ),
         ):
             raise TypeError(
                 f"pair stage requires trainable method config: {method.value}"
             )
         tasks = self.layout.inputs("train")["input"].resolve()
         labels = self.layout.inputs("train")["labels"].resolve()
-        graphs = self.layout.evidence_graph("train").resolve()
+        uses_evidence_graph = not isinstance(
+            config_method, ExecutionProvenanceRgcnMethodConfig
+        )
+        graphs = (
+            self.layout.evidence_graph("train").resolve()
+            if uses_evidence_graph
+            else None
+        )
         pairs = self.layout.train_pairs(method, variant=variant).resolve()
         pair_summary = self.layout.train_pair_summary(method, variant=variant).resolve()
         summary = self.layout.summary_for(pairs, stage="pairs").resolve()
@@ -194,6 +210,7 @@ class _StageInvocationFactory:
                     "dense_rgcn_graph_retriever",
                     "dense_ft",
                     "dense_ft_rgcn_graph_retriever",
+                    "execution_provenance_rgcn_retriever",
                 ],
                 method.value,
             ),
@@ -219,7 +236,11 @@ class _StageInvocationFactory:
             inputs=(
                 self.layout.artifact(role="inputs", path=tasks),
                 self.layout.artifact(role="labels", path=labels),
-                self.layout.artifact(role="evidence_graphs", path=graphs),
+                *(
+                    (self.layout.artifact(role="evidence_graphs", path=graphs),)
+                    if graphs is not None
+                    else ()
+                ),
             ),
             outputs=(
                 self.layout.artifact(role="train_pairs", path=pairs),
@@ -227,7 +248,11 @@ class _StageInvocationFactory:
             ),
             dependencies=(
                 _identifier("prepare", split="train"),
-                _identifier("evidence_graphs", split="train"),
+                *(
+                    (_identifier("evidence_graphs", split="train"),)
+                    if graphs is not None
+                    else ()
+                ),
             ),
         )
 
@@ -261,7 +286,42 @@ class _StageInvocationFactory:
         ]
         if method is RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER:
             dependencies.append(_identifier("train", method=RetrievalMethodId.DENSE_FT))
-        if isinstance(config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)):
+        if isinstance(config_method, ExecutionProvenanceRgcnMethodConfig):
+            config: TrainStageConfig = ProvenanceRgcnTrainStageConfig(
+                stage="train",
+                method="execution_provenance_rgcn_retriever",
+                variant=variant,
+                dataset=self.config.dataset.name,
+                train_tasks=self.layout.inputs("train")["input"].resolve(),
+                train_labels=self.layout.inputs("train")["labels"].resolve(),
+                train_pairs=pair_path,
+                dev_tasks=self.layout.inputs("dev")["input"].resolve(),
+                dev_labels=self.layout.inputs("dev")["labels"].resolve(),
+                output_dir=learned_root,
+                checkpoint_dir=checkpoint.parent,
+                metrics=metrics,
+                encoder=config_method.encoder,
+                pairs=config_method.pairs,
+                train=config_method.train,
+            )
+            inputs = (
+                self.layout.artifact(
+                    role="inputs", path=self.layout.inputs("train")["input"]
+                ),
+                self.layout.artifact(
+                    role="labels", path=self.layout.inputs("train")["labels"]
+                ),
+                self.layout.artifact(role="train_pairs", path=pair_path),
+                self.layout.artifact(
+                    role="dev_inputs", path=self.layout.inputs("dev")["input"]
+                ),
+                self.layout.artifact(
+                    role="dev_labels", path=self.layout.inputs("dev")["labels"]
+                ),
+            )
+        elif isinstance(
+            config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)
+        ):
             dependencies.append(_identifier("evidence_graphs", split="dev"))
             seed_checkpoint = (
                 self.layout.checkpoint(
@@ -454,6 +514,7 @@ class _StageInvocationFactory:
                 top_k=self.config.top_k,
                 encoder=config_method.encoder,
                 seed_top_s=config_method.seed_top_s,
+                beam_width=config_method.beam_width,
                 max_hops=config_method.max_hops,
                 top_paths=config_method.top_paths,
                 max_path_expansions=config_method.max_path_expansions,
@@ -464,6 +525,23 @@ class _StageInvocationFactory:
                 hop_penalty=config_method.hop_penalty,
                 invalidation_penalty=config_method.invalidation_penalty,
             )
+        elif isinstance(config_method, ExecutionProvenanceRgcnMethodConfig):
+            checkpoint = self.layout.checkpoint(
+                method, kind="file", variant=variant
+            ).resolve()
+            config = ProvenanceRgcnRetrieveStageConfig(
+                stage="retrieve",
+                method="execution_provenance_rgcn_retriever",
+                variant=variant,
+                dataset=self.config.dataset.name,
+                tasks=tasks,
+                output=output,
+                top_k=self.config.top_k,
+                checkpoint=checkpoint,
+                device=config_method.train.trainer.device,
+            )
+            inputs.append(self.layout.artifact(role="checkpoint", path=checkpoint))
+            dependencies.append(_identifier("train", method=method, variant=variant))
         elif isinstance(
             config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)
         ):
@@ -853,6 +931,7 @@ class WorkflowPlanner:
         self.layout = layout
         self.methods = tuple(config.methods)
         self.train_methods = Registry.methods.expand_train_dependencies(self.methods)
+        _validate_dataset_method_compatibility(config, self.train_methods)
         self.factory = _StageInvocationFactory(config, layout)
 
     def build(self, *, validate_external: bool = True) -> WorkflowPlan:
@@ -905,19 +984,18 @@ class WorkflowPlanner:
     def _ordinary_invocations(self) -> tuple[StageInvocation, ...]:
         split_names: tuple[SplitName, ...] = ("train", "dev", "test")
         evidence_graph_splits: set[SplitName] = set()
-        if self.train_methods:
+        if any(
+            method is not RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
+            for method in self.train_methods
+        ):
             evidence_graph_splits.add("train")
         if any(
-            Registry.methods.requires_artifact(
-                method, RequiredArtifact.EVIDENCE_GRAPH
-            )
+            Registry.methods.requires_artifact(method, RequiredArtifact.EVIDENCE_GRAPH)
             for method in self.train_methods
         ):
             evidence_graph_splits.add("dev")
         if any(
-            Registry.methods.requires_artifact(
-                method, RequiredArtifact.EVIDENCE_GRAPH
-            )
+            Registry.methods.requires_artifact(method, RequiredArtifact.EVIDENCE_GRAPH)
             for method in self.methods
         ):
             evidence_graph_splits.add("test")
@@ -1013,6 +1091,24 @@ def format_plan(plan: WorkflowPlan) -> str:
     for index, item in enumerate(plan.invocations, start=1):
         blocks.append(format_invocation(item, index=index))
     return "\n".join(blocks)
+
+
+def _validate_dataset_method_compatibility(
+    config: ResolvedExperimentConfig,
+    train_methods: tuple[RetrievalMethodId, ...],
+) -> None:
+    family = (
+        RetrievalTaskFamily.EXECUTION_PROVENANCE
+        if config.dataset.name == "twowiki_provenance"
+        else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    )
+    for method in dict.fromkeys((*config.methods, *train_methods)):
+        supported = Registry.methods.get(method).input_spec.supported_families
+        if family not in supported:
+            raise ValueError(
+                f"dataset={config.dataset.name!r} uses family={family.value!r}, but "
+                f"method={method.value!r} does not support that family."
+            )
 
 
 def format_invocation(item: StageInvocation, *, index: int) -> str:

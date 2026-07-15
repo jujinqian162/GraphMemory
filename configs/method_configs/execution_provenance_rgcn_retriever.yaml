@@ -1,0 +1,29 @@
+execution_provenance_rgcn_retriever:
+  method: execution_provenance_rgcn_retriever
+  encoder:
+    model_name: models/intfloat-e5-base-v2
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+    batch_size: 64
+  pairs:
+    random_seed: ${seed}
+    easy_random_per_positive: 2
+    hard_bm25_per_positive: 2
+    hard_dense_per_positive: 2
+    hard_graph_neighbor_per_positive: 0
+    hard_pool_size: 20
+  train:
+    model:
+      hidden_dim: ${profile.trainable.rgcn.hidden_dim}
+      node_type_dim: 16
+      num_layers: ${profile.trainable.rgcn.num_layers}
+      dropout: 0.1
+    trainer:
+      learning_rate: 0.0001
+      batch_size: ${profile.trainable.rgcn.batch_size}
+      epochs: ${profile.trainable.rgcn.epochs}
+      max_grad_norm: 1.0
+      random_seed: ${seed}
+      device: ${device}
+      candidate_loss_weight: 1.0
+      edge_loss_weight: 0.5

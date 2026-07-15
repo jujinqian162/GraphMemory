@@ -35,6 +35,7 @@ class RetrievalMethodId(StrEnum):
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
     DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
     EXECUTION_PROVENANCE_RETRIEVER = "execution_provenance_retriever"
+    EXECUTION_PROVENANCE_RGCN_RETRIEVER = "execution_provenance_rgcn_retriever"
 
 
 class RequestValidator(Protocol):
@@ -110,6 +111,16 @@ class ExecutionProvenanceRetrievalSettings:
     )
 
 
+@dataclass(frozen=True)
+class ProvenanceRgcnRetrievalSettings:
+    top_k: int
+    checkpoint: Path
+    device: str
+    method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER] = (
+        RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
+    )
+
+
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
@@ -117,6 +128,7 @@ RetrievalJobSettings: TypeAlias = (
     | GraphRAGRetrievalSettings
     | EvidenceRgcnRetrievalSettings
     | ExecutionProvenanceRetrievalSettings
+    | ProvenanceRgcnRetrievalSettings
 )
 
 
@@ -165,6 +177,12 @@ class EvidenceRgcnBuildPayload:
 
 @dataclass(frozen=True)
 class ExecutionProvenanceBuildPayload:
+    provenance_requests: list[ExecutionProvenanceRankingRequest]
+    dense_encoder: "SentenceEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class ProvenanceRgcnBuildPayload:
     provenance_requests: list[ExecutionProvenanceRankingRequest]
     dense_encoder: "SentenceEncoder | None" = None
 
@@ -228,6 +246,8 @@ def _payload_family(payload: object) -> RetrievalTaskFamily:
         return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     if isinstance(payload, ExecutionProvenanceBuildPayload):
         return RetrievalTaskFamily.EXECUTION_PROVENANCE
+    if isinstance(payload, ProvenanceRgcnBuildPayload):
+        return RetrievalTaskFamily.EXECUTION_PROVENANCE
     raise TypeError(f"Unknown retrieval payload type: {type(payload).__name__}.")
 
 
@@ -244,6 +264,8 @@ __all__ = [
     "FlatRetrievalBuildPayload",
     "GraphRAGBuildPayload",
     "GraphRAGRetrievalSettings",
+    "ProvenanceRgcnBuildPayload",
+    "ProvenanceRgcnRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

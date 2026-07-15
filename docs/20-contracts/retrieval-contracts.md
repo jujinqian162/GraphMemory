@@ -9,9 +9,9 @@ Root constraint: [`docs/10-plans/execution-provenance-retrieval-domain-plan.md`]
 | `TextRankingRequest` | query plus flat text candidates | BM25, Dense, Dense-FT |
 | `GraphRAGRequest` | query, candidates, and the Registry-assembled `EntityKnowledgeGraph` | GraphRAG |
 | `EvidenceGraphRankingRequest` | query, candidates, `EvidenceGraph`, and initial scores | two R-GCN methods |
-| `ExecutionProvenanceRankingRequest` | query, retrievable candidates, and native `ExecutionProvenanceGraph` | Execution-Provenance Retriever |
+| `ExecutionProvenanceRankingRequest` | query, retrievable candidates, and native `ExecutionProvenanceGraph` | stateless and R-GCN Execution-Provenance retrievers |
 
-There is no generic graph request. A provenance request cannot be routed to R-GCN, and an evidence request cannot be routed to the provenance retriever.
+There is no generic graph request. A provenance request cannot be routed to an EvidenceGraph R-GCN, and an evidence request cannot be routed to either provenance retriever.
 
 ## Registry matrix
 
@@ -24,8 +24,9 @@ There is no generic graph request. A provenance request cannot be routed to R-GC
 | `dense_rgcn_graph_retriever` | `EvidenceGraphRankingRequest` | evidence | `EvidenceGraph` | yes |
 | `dense_ft_rgcn_graph_retriever` | `EvidenceGraphRankingRequest` | evidence | `EvidenceGraph` | yes |
 | `execution_provenance_retriever` | `ExecutionProvenanceRankingRequest` | provenance | request-native | no |
+| `execution_provenance_rgcn_retriever` | `ExecutionProvenanceRankingRequest` | provenance | request-native | yes |
 
-Builders accept only `FlatRetrievalBuildPayload`, `GraphRAGBuildPayload`, `EvidenceRgcnBuildPayload`, or `ExecutionProvenanceBuildPayload`. Registry validation checks payload class, request type, task family, and required artifact before retrieval begins.
+Builders accept concrete flat, GraphRAG, Evidence-RGCN, stateless-provenance, or Provenance-RGCN payloads. Registry validation checks payload class, request type, task family, checkpoint family, and required artifact before retrieval begins.
 
 ## Result contract
 

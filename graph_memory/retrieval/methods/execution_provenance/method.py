@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from graph_memory.contracts.graphs import GraphEdge
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
     ProvenanceNodeType,
@@ -21,7 +22,7 @@ from graph_memory.retrieval.methods.execution_provenance.config import (
 from graph_memory.retrieval.methods.execution_provenance.search import (
     ProvenancePath,
     ProvenancePathScore,
-    enumerate_provenance_paths,
+    beam_search_provenance_paths,
     invalidated_node_ids,
     score_provenance_path,
 )
@@ -45,7 +46,6 @@ class ExecutionProvenanceRetriever:
         *,
         top_k: int,
     ) -> RetrievalMethodResult:
-        _ = top_k
         if not isinstance(request, ExecutionProvenanceRankingRequest):
             raise TypeError(
                 f"{self.name} requires ExecutionProvenanceRankingRequest, "
@@ -72,7 +72,12 @@ class ExecutionProvenanceRetriever:
             sorted(
                 eligible_seed_ids,
                 key=lambda node_id: (-semantic_scores[node_id], node_id),
-            )[: min(self.config.seed_top_s, len(eligible_seed_ids))]
+            )[
+                : min(
+                    max(self.config.seed_top_s, top_k),
+                    len(eligible_seed_ids),
+                )
+            ]
         )
         invalidated = invalidated_node_ids(request)
         path_records = [
@@ -81,11 +86,18 @@ class ExecutionProvenanceRetriever:
                     path,
                     semantic_scores=semantic_scores,
                     invalidated_node_ids=invalidated,
+                    node_by_id=node_by_id,
                     config=self.config,
                 ),
                 path,
             )
-            for path in enumerate_provenance_paths(request, seed_ids, self.config)
+            for path in beam_search_provenance_paths(
+                request,
+                seed_ids,
+                semantic_scores=semantic_scores,
+                invalidated_node_ids=invalidated,
+                config=self.config,
+            )
         ]
         path_records.sort(
             key=lambda record: (
@@ -105,26 +117,38 @@ class ExecutionProvenanceRetriever:
                     best_path_score_by_node.get(node_id, float("-inf")),
                     score.total,
                 )
-        ranked_nodes = [
-            RankedNode(
-                node_id,
-                best_path_score_by_node.get(
+        ranked_nodes = []
+        for node_id in candidate_ids:
+            semantic_score = self.config.semantic_weight * semantic_scores[
+                node_id
+            ] - self.config.invalidation_penalty * float(node_id in invalidated)
+            path_score = best_path_score_by_node.get(node_id)
+            ranked_nodes.append(
+                RankedNode(
                     node_id,
-                    self.config.semantic_weight * semantic_scores[node_id]
-                    - self.config.invalidation_penalty
-                    * float(node_id in invalidated),
-                ),
+                    semantic_score
+                    + (max(0.0, path_score) if path_score is not None else 0.0),
+                )
             )
-            for node_id in candidate_ids
-        ]
         ranked_nodes.sort(key=lambda node: (-node.score, node.node_id))
         selected_edges = _selected_edges(selected)
+        top_candidate_ids = {node.node_id for node in ranked_nodes[:top_k]}
+        logical_edges = _logical_candidate_edges(
+            selected,
+            candidate_ids={
+                node_id
+                for node_id in candidate_ids
+                if node_by_id[node_id].node_type is ProvenanceNodeType.TOOL_OUTPUT
+            },
+            selected_candidate_ids=top_candidate_ids,
+        )
         trace_node_ids = tuple(
             sorted({node_id for _score, path in selected for node_id in path.node_ids})
         )
         return RetrievalMethodResult(
             ranked_nodes=ranked_nodes,
             trace=RetrievalTrace(
+                retrieved_edges=logical_edges,
                 native_trace=ExecutionProvenanceTrace(
                     node_ids=trace_node_ids,
                     paths=tuple(
@@ -141,7 +165,7 @@ class ExecutionProvenanceRetriever:
                         for score, path in selected
                     ),
                     edges=tuple(_edge_trace(edge) for edge in selected_edges),
-                )
+                ),
             ),
         )
 
@@ -159,11 +183,7 @@ def _semantic_scores(
 def _selected_edges(
     selected: list[tuple[ProvenancePathScore, ProvenancePath]],
 ) -> list[ExecutionProvenanceEdge]:
-    by_key = {
-        _edge_key(edge): edge
-        for _score, path in selected
-        for edge in path.edges
-    }
+    by_key = {_edge_key(edge): edge for _score, path in selected for edge in path.edges}
     return [by_key[key] for key in sorted(by_key)]
 
 
@@ -181,6 +201,35 @@ def _select_unique_paths(
         if len(selected) == limit:
             break
     return selected
+
+
+def _logical_candidate_edges(
+    selected: list[tuple[ProvenancePathScore, ProvenancePath]],
+    *,
+    candidate_ids: set[str],
+    selected_candidate_ids: set[str],
+) -> list[GraphEdge]:
+    logical: dict[tuple[str, str], GraphEdge] = {}
+    for _score, path in selected:
+        for source_index, source in enumerate(path.node_ids):
+            if source not in candidate_ids:
+                continue
+            for target in path.node_ids[source_index + 1 :]:
+                if target not in candidate_ids:
+                    continue
+                if (
+                    source in selected_candidate_ids
+                    and target in selected_candidate_ids
+                ):
+                    logical[(source, target)] = {
+                        "source": source,
+                        "target": target,
+                        "edge_type": "sequential",
+                        "weight": 1.0,
+                        "directed": True,
+                    }
+                break
+    return [logical[key] for key in sorted(logical)]
 
 
 def _edge_key(edge: ExecutionProvenanceEdge) -> tuple[str, str, str]:

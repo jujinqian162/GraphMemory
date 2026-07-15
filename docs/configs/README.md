@@ -5,11 +5,9 @@ The only active experiment configuration root is `configs/config.yaml`.
 | Path | Ownership |
 | --- | --- |
 | `config.yaml` | root composition, graph/search-space values, tracking, and Hydra runtime layout |
-| `dataset/*.yaml` | HotpotQA, 2WikiMultiHopQA, MuSiQue, and TRAJECT-Bench sources/capacities |
+| `dataset/*.yaml` | HotpotQA, 2WikiMultiHopQA, MuSiQue, and synthetic 2Wiki provenance sources/capacities |
 | `profile/*.yaml` | split count policies and trainable scale |
 | `method_configs/*.yaml` | all eight method-specific scientific contracts |
-
-`dataset/traject_bench.yaml` binds a directory source because every workflow split is discovered from the shared public benchmark tree. The other dataset profiles bind one file per split.
 
 Hydra composes plan/run values and closed Pydantic V2 models validate the resolved container. The root `name: ???` is OmegaConf's mandatory-value marker and is legal only there: callers must supply `name=<name>`. Status, inspect, and reset use closed `key=value` command models, so they need neither Hydra nor command YAML files.
 

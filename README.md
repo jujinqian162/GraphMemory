@@ -1,10 +1,10 @@
 # Execution-Provenance Graph Memory
 
-This repository implements two explicit retrieval domains. Traditional evidence datasets (HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans) support exactly six methods: BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, and Dense-FT R-GCN. Execution-provenance datasets support BM25, Dense, GraphRAG, and the typed Execution-Provenance Retriever.
+This repository implements two explicit retrieval domains. Traditional evidence datasets (HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans) support exactly six methods: BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, and Dense-FT R-GCN. Execution-provenance datasets support BM25, Dense, GraphRAG, the typed Execution-Provenance Retriever, and a separate provenance-native R-GCN.
 
 The domains do not project into each other. `EvidenceGraph` is a dataset-derived artifact used only by the two R-GCN methods. GraphRAG builds a private entity graph from its request. `ExecutionProvenanceGraph` is native dataset input for the provenance retriever. The locked design is [`docs/10-plans/execution-provenance-retrieval-domain-plan.md`](docs/10-plans/execution-provenance-retrieval-domain-plan.md).
 
-TRAJECT-Bench is available as an offline tool-retrieval adapter. It builds candidates only from the public domain catalogs and keeps the gold tool sequence label-only; it does not execute tools or reinterpret a gold trajectory as an input-visible provenance graph. See the [TRAJECT-Bench runbook](docs/40-operations/traject-bench.md).
+The separately named `twowiki_provenance` benchmark deterministically converts recoverable 2Wiki support chains into audited synthetic ToolCall/ToolOutput graphs for stateless beam and provenance R-GCN comparisons. See the [2Wiki provenance runbook](docs/40-operations/twowiki-provenance.md).
 
 ## Quick start
 

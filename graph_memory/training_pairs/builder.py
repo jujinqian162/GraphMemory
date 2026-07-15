@@ -56,11 +56,23 @@ class TrainPairBuilder:
         validate_negative_sampling_config(self.config)
         text_requests = [task.text_request for task in task_list]
         labels_by_task_id = {task.label.task_id: task.label for task in task_list}
-        graphs_by_task_id = {task.graph["task_id"]: task.graph for task in task_list}
+        graphs = [task.graph for task in task_list if task.graph is not None]
+        if graphs and len(graphs) != len(task_list):
+            raise ValueError(
+                "Train-pair tasks must either all provide evidence graphs or all omit them."
+            )
+        graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
         task_ids = {request.task_id for request in text_requests}
-        validate_graphs(list(graphs_by_task_id.values()), text_requests)
+        if graphs_by_task_id:
+            validate_graphs(list(graphs_by_task_id.values()), text_requests)
+        elif self.config.hard_graph_neighbor_per_positive > 0:
+            raise ValueError(
+                "hard_graph_neighbor_per_positive must be zero when train-pair tasks "
+                "do not provide evidence graphs."
+            )
         validate_task_id_alignment("train pair labels", task_ids, set(labels_by_task_id))
-        validate_task_id_alignment("train pair graphs", task_ids, set(graphs_by_task_id))
+        if graphs_by_task_id:
+            validate_task_id_alignment("train pair graphs", task_ids, set(graphs_by_task_id))
 
         rng = random.Random(self.config.random_seed)
         pairs: list[TrainPairRecord] = []

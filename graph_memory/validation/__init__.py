@@ -22,9 +22,9 @@ from graph_memory.validation.tasks import (
     validate_twowiki_label_records,
     validate_twowiki_ranking_records,
 )
-from graph_memory.validation.traject_bench import (
-    validate_traject_bench_label_records,
-    validate_traject_bench_ranking_records,
+from graph_memory.validation.twowiki_provenance import (
+    validate_twowiki_provenance_label_records,
+    validate_twowiki_provenance_ranking_records,
 )
 from graph_memory.validation.training_pairs import (
     validate_negative_sampling_config,
@@ -46,10 +46,10 @@ __all__ = [
     "validate_no_label_fields",
     "validate_ranked_results",
     "validate_task_id_alignment",
-    "validate_traject_bench_label_records",
-    "validate_traject_bench_ranking_records",
     "validate_twowiki_label_records",
     "validate_twowiki_ranking_records",
+    "validate_twowiki_provenance_label_records",
+    "validate_twowiki_provenance_ranking_records",
     "validate_train_pair_build_summary",
     "validate_train_pairs",
     "validate_rgcn_checkpoint_metadata",

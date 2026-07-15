@@ -11,7 +11,7 @@ from graph_memory.retrieval.requests import TextRankingRequest
 class TrainPairBuildTask:
     text_request: TextRankingRequest
     label: EvidenceLabel
-    graph: EvidenceGraph
+    graph: EvidenceGraph | None = None
 
 
 __all__ = ["TrainPairBuildTask"]

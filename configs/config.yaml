@@ -9,6 +9,7 @@ defaults:
       - dense_ft
       - dense_ft_rgcn_graph_retriever
       - execution_provenance_retriever
+      - execution_provenance_rgcn_retriever
   - _self_
 
 name: ???

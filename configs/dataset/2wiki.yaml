@@ -1,6 +1,5 @@
 name: twowiki
 prepare_script: scripts/prepare_2wiki.py
-source_kind: file
 splits:
   train:
     kind: raw

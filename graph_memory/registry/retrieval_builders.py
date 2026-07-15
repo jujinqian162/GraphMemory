@@ -28,6 +28,8 @@ from graph_memory.registry.retrieval import (
     RetrievalRegistry,
     SeedRetrieverBuildPayload,
     SeedRetrievalSettings,
+    ProvenanceRgcnBuildPayload,
+    ProvenanceRgcnRetrievalSettings,
     _require_payload,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
@@ -38,7 +40,10 @@ from graph_memory.retrieval.methods.execution_provenance import (
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
-from graph_memory.retrieval.methods.graphrag import GraphRAGMethod, build_graphrag_request
+from graph_memory.retrieval.methods.graphrag import (
+    GraphRAGMethod,
+    build_graphrag_request,
+)
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
     EvidenceGraphRankingRequest,
@@ -93,6 +98,13 @@ def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegist
                 ExecutionProvenanceBuildPayload,
                 lambda settings, deps: _build_execution_provenance(
                     cast(ExecutionProvenanceRetrievalSettings, settings), deps
+                ),
+            ),
+            ProvenanceRgcnRetrievalSettings: RetrievalBuilderSpec(
+                ProvenanceRgcnRetrievalSettings,
+                ProvenanceRgcnBuildPayload,
+                lambda settings, deps: _build_provenance_rgcn(
+                    cast(ProvenanceRgcnRetrievalSettings, settings), deps
                 ),
             ),
         },
@@ -221,9 +233,7 @@ def _build_graphrag(
     build_payload = _require_payload(
         payload, GraphRAGBuildPayload, method=settings.method.value
     )
-    dense_ranker = _build_dense_ranker(
-        settings.encoder, build_payload.dense_encoder
-    )
+    dense_ranker = _build_dense_ranker(settings.encoder, build_payload.dense_encoder)
     return _built(
         GraphRAGMethod(dense_ranker=dense_ranker, config=settings.config),
         method=settings.method,
@@ -292,9 +302,7 @@ def _build_execution_provenance(
         ExecutionProvenanceBuildPayload,
         method=settings.method.value,
     )
-    dense_ranker = _build_dense_ranker(
-        settings.encoder, build_payload.dense_encoder
-    )
+    dense_ranker = _build_dense_ranker(settings.encoder, build_payload.dense_encoder)
     tasks = [
         RetrievalExecutionTask(
             text_request=TextRankingRequest(
@@ -313,6 +321,69 @@ def _build_execution_provenance(
         ),
         method=settings.method,
         encoder=settings.encoder,
+        execution_tasks=tasks,
+    )
+
+
+def _build_provenance_rgcn(
+    settings: ProvenanceRgcnRetrievalSettings,
+    payload: object,
+) -> BuiltRetrievalMethod:
+    from graph_memory.models.provenance_rgcn import (
+        ExecutionProvenanceRGCN,
+        ExecutionProvenanceRgcnRetriever,
+        load_provenance_rgcn_checkpoint,
+    )
+
+    build_payload = _require_payload(
+        payload,
+        ProvenanceRgcnBuildPayload,
+        method=settings.method.value,
+    )
+    checkpoint = load_provenance_rgcn_checkpoint(
+        settings.checkpoint,
+        expected_method=settings.method.value,
+        map_location="cpu",
+    )
+    model = ExecutionProvenanceRGCN(checkpoint.model_config)
+    model.load_state_dict(checkpoint.payload["model_state_dict"])
+    encoder = build_payload.dense_encoder or _resolve_encoder(
+        DenseEncoderSettings(
+            model_name=checkpoint.model_config.encoder_model,
+            query_prefix=checkpoint.model_config.query_prefix,
+            passage_prefix=checkpoint.model_config.passage_prefix,
+            batch_size=checkpoint.model_config.encoder_batch_size,
+        ),
+        None,
+        device=settings.device,
+    )
+    tasks = [
+        RetrievalExecutionTask(
+            text_request=TextRankingRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+            ),
+            method_request=request,
+        )
+        for request in build_payload.provenance_requests
+    ]
+    return _built(
+        ExecutionProvenanceRgcnRetriever(
+            model=model,
+            encoder=encoder,
+            config=checkpoint.model_config,
+            device=settings.device,
+        ),
+        method=settings.method,
+        model=settings.checkpoint,
+        device=settings.device,
+        encoder=DenseEncoderSettings(
+            model_name=checkpoint.model_config.encoder_model,
+            query_prefix=checkpoint.model_config.query_prefix,
+            passage_prefix=checkpoint.model_config.passage_prefix,
+            batch_size=checkpoint.model_config.encoder_batch_size,
+        ),
         execution_tasks=tasks,
     )
 
@@ -382,13 +453,18 @@ def _evidence_rgcn_providers(
 def _resolve_encoder(
     settings: DenseEncoderSettings,
     encoder: SentenceEncoder | None,
+    *,
+    device: str | None = None,
 ) -> SentenceEncoder:
     if encoder is not None:
         return encoder
     try:
         return cast(
             SentenceEncoder,
-            cast(object, load_sentence_transformer(settings.model_name)),
+            cast(
+                object,
+                load_sentence_transformer(settings.model_name, device=device),
+            ),
         )
     except RuntimeError as error:
         raise RuntimeError(

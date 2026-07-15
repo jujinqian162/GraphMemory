@@ -53,14 +53,13 @@ def _smoke_config(name: str):
     )
 
 
-def test_file_dataset_source_kind_is_preserved_in_prepare_binding(
+def test_prepare_binding_uses_file_source(
     tmp_path: Path,
 ) -> None:
-    config = _smoke_config(f"source-kind-{tmp_path.name}")
+    config = _smoke_config(f"file-source-{tmp_path.name}")
     layout = RunLayout(ROOT, config.name)
     initialized = initialize_experiment(config, layout=layout)
     try:
-        assert config.dataset.source_kind == "file"
         prepare = next(
             invocation
             for invocation in initialized.plan.invocations

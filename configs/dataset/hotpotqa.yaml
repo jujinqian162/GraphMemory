@@ -1,6 +1,5 @@
 name: hotpotqa
 prepare_script: scripts/prepare_hotpotqa.py
-source_kind: file
 splits:
   train:
     kind: raw

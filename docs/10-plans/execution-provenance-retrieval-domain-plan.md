@@ -2,7 +2,7 @@
 
 > 状态：已锁定，OpenSpec 实施中  
 > 分支：`feature/execution-provenance-retrieval-domain`  
-> 当前阶段：只锁定领域行为和迁移边界，不实现 TRAJECT-Bench 数据适配  
+> 当前阶段：领域重构已落地；具体 benchmark 由独立 OpenSpec change 适配
 > 论文参考：`docs/raw/paper.tex` 中的 typed execution-provenance graph、semantic seed selection、provenance-constrained expansion 与 path scoring
 
 ## 1. 本文档要锁定的结论
@@ -20,17 +20,17 @@
 | Benchmark family | 公开方法 |
 |---|---|
 | Traditional evidence retrieval：HotpotQA、2Wiki、MuSiQue | BM25、Dense、Dense-FT、GraphRAG、Dense R-GCN、Dense-FT R-GCN，共 6 个 |
-| Execution provenance：未来的 TRAJECT-Bench 等 | BM25、Dense、GraphRAG、Execution-Provenance Retriever，共 4 个 |
+| Execution provenance：`twowiki_provenance` | BM25、Dense、GraphRAG、Execution-Provenance Retriever、Provenance R-GCN，共 5 个 |
 
 硬性限制：
 
-- 不提供 `execution provenance dataset -> R-GCN` 的 projection。
+- 不提供 `execution provenance dataset -> EvidenceGraph R-GCN` 的 projection。
 - 不提供 `evidence retrieval dataset -> Execution-Provenance Retriever` 的 projection。
 - 不再保留 `bm25_graph_rerank` 和 `dense_graph_rerank` 两个公开方法；它们不能仅改名冒充 GraphRAG。
 - GraphRAG 只有一个公开方法 ID：`graphrag`。
 - R-GCN 恢复为独立节点打分模型，移除 beam decoder、stop action、frontier state、dynamic oracle 和 beam loss。
 - 第一版 Execution-Provenance Retriever 为不可训练方法；可训练版本不进入本次领域重构的必做范围。
-- 本阶段不新增 TRAJECT-Bench adapter，不改变原始数据格式，也不生成新的 benchmark。
+- benchmark 适配不得把不具备原生图语义的数据源伪装成 execution provenance graph。
 - 彻底删除 Memory Stream。当前分支的代码、配置、Registry、请求、调参、工作流、CLI、测试和活动文档中不得保留 Memory Stream 实现或兼容分支。
 
 Memory Stream 的删除采用 current-only migration：旧配置中的 `memory_stream` 必须直接报 unsupported method；不得保留 alias、deprecated 字段、静默忽略、自动迁移、旧 artifact loader 或 tombstone registry entry。Git 历史和纯归档材料可以保留过去记录，但不得被当前代码、配置或活动 OpenSpec 工件引用为可用能力。
@@ -132,7 +132,7 @@ TextRankingRequest + EvidenceGraph artifact + Dense(FT) seed scores
   -> EvidenceGraphRankingRequest
 ```
 
-Execution-Provenance Retriever 不从普通文本或 evidence graph 猜图。未来 adapter 必须直接从原生 trajectory 产生 `ExecutionProvenanceRankingRequest`。
+Execution-Provenance Retriever 不从普通文本或 evidence graph 猜图。兼容 adapter 必须直接提供 `ExecutionProvenanceRankingRequest`；显式标注为 synthetic 的离线转换器必须先生成独立、可审计的数据集。
 
 ## 4. 三种 graph 的所有权与语义
 
@@ -189,7 +189,7 @@ GraphRAG 内部图包含：
 - `Verification`
 - `Decision`
 
-关键规则：TRAJECT-Bench 若没有 Claim 或 Verification，就不创建这些节点；领域层不得调用 LLM、NLI 或规则生成器伪造它们。
+关键规则：数据源若没有 Claim 或 Verification，就不创建这些节点；领域层不得调用 LLM、NLI 或规则生成器伪造它们。
 
 第一版核心边类型及方向：
 
@@ -379,7 +379,7 @@ score(path, query)
 - trajectory/template/tool-chain 隔离的数据划分；
 - 不复用现有 evidence R-GCN checkpoint 或 relation vocabulary。
 
-TRAJECT-Bench 规模和模板重复风险使得直接训练新的重型 GNN 很容易学到 tool sequence template，而不是泛化的 provenance dependency，因此可训练版本必须后置。
+小规模 synthetic benchmark 的模板重复风险使得直接训练新的重型 GNN 很容易学到固定路径模板，而不是泛化的 provenance dependency，因此必须通过隔离划分、结构平衡和独立测试约束可训练版本。
 
 ## 8. Registry 的目标抽象
 
@@ -513,7 +513,7 @@ Planner 不因选择 GraphRAG 而调度 evidence graph stage。GraphRAG 的 enti
 
 评价层可以使用 gold labels/graph 判断某个 ranked node set 覆盖了多少 gold path，但 gold graph 绝不能进入 BM25、Dense 或 GraphRAG 的检索输入。这样 path metric 的计算不会变成测试时答案泄漏。
 
-未来 execution provenance 指标与论文保持结论一致：优先验证显式 provenance 是否提升 path recovery，而不是强迫 TRAJECT-Bench 提供它没有的 Claim/Verification 标签。Claim support、contradiction、invalidation、impact tracing 只有在来源或后续 revision augmentation 提供相应 gold labels 时才启用。
+Execution provenance 指标与论文保持结论一致：优先验证显式 provenance 是否提升 path recovery，而不是强迫数据源提供它没有的 Claim/Verification 标签。Claim support、contradiction、invalidation、impact tracing 只有在来源或后续 revision augmentation 提供相应 gold labels 时才启用。
 
 ## 11. 分阶段实施顺序
 
@@ -558,14 +558,14 @@ Planner 不因选择 GraphRAG 而调度 evidence graph stage。GraphRAG 的 enti
 - 新增 `ExecutionProvenanceRankingRequest`。
 - 实现不可训练的 semantic seed + typed provenance expansion + path scoring。
 - 新增 registry/build payload/config 与 domain-level programmatic tests。
-- 不新增具体 dataset ID 或 TRAJECT-Bench projector。
+- 不在领域包内新增具体 dataset projector。
 
-### Phase 6：后续单独适配 TRAJECT-Bench
+### Phase 6：通过独立 change 适配 execution-provenance benchmark
 
-- 从真实 trajectory events 生成 Text 与 ExecutionProvenance 两种 request。
-- 使用 `sequence_step`、executed output、required/optional parameters、`param_for_next_tool` 等真实字段构造节点和确定性边。
-- 按 trajectory template/tool-chain/domain 隔离 train/dev/test，避免模板泄漏。
-- 启用 execution provenance 的 4-method profile 与对应评价。
+- 使用独立 dataset ID，避免改变标准 evidence dataset 的语义。
+- 从可恢复的 gold evidence chain 离线构造正确分支，再加入结构匹配的错误分支。
+- 保持 ranking/label 分离并审计拓扑泄漏、划分、过滤计数与结构统计。
+- 启用 execution provenance 的 5-method profile 与对应评价。
 
 ## 12. 预期文件所有权
 
@@ -632,8 +632,8 @@ graph_memory/
 
 ## 14. 明确不在本计划中做的事情
 
-- 不在 domain 层生成或清洗 TRAJECT-Bench 数据。
-- 不为 TRAJECT-Bench 训练 evidence R-GCN。
+- 不在 domain 层生成或清洗 benchmark 数据。
+- 不让 execution-provenance dataset 使用 evidence R-GCN。
 - 不把 2Wiki/HotpotQA/MuSiQue 人工伪装成 tool trajectory。
 - 不引入 Claim extractor、LLM verifier 或 NLI support classifier。
 - 不把 revision cases 当作第一版 Execution-Provenance Retriever 的前置条件。

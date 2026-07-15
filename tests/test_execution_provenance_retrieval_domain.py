@@ -25,6 +25,9 @@ from graph_memory.retrieval.methods.execution_provenance import (
     ExecutionProvenanceConfig,
     ExecutionProvenanceRetriever,
 )
+from graph_memory.retrieval.methods.execution_provenance.search import (
+    enumerate_provenance_paths,
+)
 from graph_memory.retrieval.contracts import ExecutionProvenanceTrace, GraphRAGTrace
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
 from graph_memory.retrieval.methods.graphrag import (
@@ -49,6 +52,7 @@ EXPECTED_METHOD_IDS = {
     "dense_rgcn_graph_retriever",
     "dense_ft_rgcn_graph_retriever",
     "execution_provenance_retriever",
+    "execution_provenance_rgcn_retriever",
 }
 
 
@@ -143,7 +147,13 @@ def test_registry_exposes_exact_method_matrix_and_semantic_inputs() -> None:
         for method in Registry.methods.list_by_family(
             RetrievalTaskFamily.EXECUTION_PROVENANCE
         )
-    } == {"bm25", "dense", "graphrag", "execution_provenance_retriever"}
+    } == {
+        "bm25",
+        "dense",
+        "graphrag",
+        "execution_provenance_retriever",
+        "execution_provenance_rgcn_retriever",
+    }
 
 
 def test_retired_method_id_is_explicitly_unsupported() -> None:
@@ -235,7 +245,7 @@ def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
         config=ExecutionProvenanceConfig(seed_top_s=1, max_hops=4, top_paths=2),
     )
 
-    result = method.rank_task(request, top_k=3)
+    result = method.rank_task(request, top_k=4)
 
     assert len(result.ranked_nodes) == len(request.candidates)
     assert isinstance(result.trace.native_trace, ExecutionProvenanceTrace)
@@ -245,7 +255,15 @@ def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
         edge.edge_type is not ProvenanceEdgeType.PRECEDES
         for edge in result.trace.native_trace.edges
     )
-    assert result.trace.retrieved_edges == []
+    assert result.trace.retrieved_edges == [
+        {
+            "source": "out-1",
+            "target": "out-2",
+            "edge_type": "sequential",
+            "weight": 1.0,
+            "directed": True,
+        }
+    ]
 
 
 def test_provenance_graph_does_not_require_claim_or_verification_nodes() -> None:
@@ -256,6 +274,25 @@ def test_provenance_graph_does_not_require_claim_or_verification_nodes() -> None
         not in {ProvenanceNodeType.CLAIM, ProvenanceNodeType.VERIFICATION}
         for node in graph.nodes
     )
+
+
+def test_provenance_expansion_does_not_reverse_incoming_dependencies() -> None:
+    request = ExecutionProvenanceRankingRequest(
+        "task-1", "Alpha answer", _candidates(), _provenance_graph()
+    )
+
+    paths = enumerate_provenance_paths(
+        request,
+        ("out-2",),
+        ExecutionProvenanceConfig(beam_width=2, max_hops=4),
+    )
+
+    assert all("out-1" not in path.node_ids for path in paths)
+
+
+def test_provenance_config_rejects_empty_beam() -> None:
+    with pytest.raises(ValueError, match="beam_width"):
+        ExecutionProvenanceConfig(beam_width=0)
 
 
 def test_registry_builds_provenance_method_from_native_payload() -> None:

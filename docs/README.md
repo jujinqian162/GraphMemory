@@ -42,7 +42,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Debug artifacts: `40-operations/debug-artifacts.md`
 - Phase 1 command runbook: `40-operations/commands.md`
 - MuSiQue data and run guide: `40-operations/musique.md`
-- TRAJECT-Bench data and baseline guide: `40-operations/traject-bench.md`
+- Synthetic 2Wiki provenance data and run guide: `40-operations/twowiki-provenance.md`
 - Implementation handoff: `40-operations/implementation-handoff.md`
 
 ## Current Code Navigation

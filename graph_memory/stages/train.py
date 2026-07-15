@@ -11,14 +11,19 @@ from graph_memory.experiment.stage_models import (
     OrdinaryRgcnTrainStageConfig,
     SeededRgcnTrainStageConfig,
     TrainStageConfig,
+    ProvenanceRgcnTrainStageConfig,
 )
 from graph_memory.stages.train_payloads import TrainPayload
 from graph_memory.stages.trainers import (
     DenseFinetuneMethodTrainer,
     RgcnGraphRetrieverTrainer,
+    ProvenanceRgcnMethodTrainer,
 )
+from graph_memory.models.provenance_rgcn.training import ProvenanceTrainingResult
 
-TrainingResult: TypeAlias = RgcnTrainingResult | DenseFinetuneTrainingResult
+TrainingResult: TypeAlias = (
+    RgcnTrainingResult | DenseFinetuneTrainingResult | ProvenanceTrainingResult
+)
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,13 @@ def run_train_stage(
         result = DenseFinetuneMethodTrainer(config).train(payload)
         if not isinstance(result, DenseFinetuneTrainingResult):
             raise TypeError(f"Dense-FT training returned {type(result).__name__}.")
+        return TrainStageResult(result=result)
+    if isinstance(config, ProvenanceRgcnTrainStageConfig):
+        result = ProvenanceRgcnMethodTrainer(config).train(payload)
+        if not isinstance(result, ProvenanceTrainingResult):
+            raise TypeError(
+                f"Provenance R-GCN training returned {type(result).__name__}."
+            )
         return TrainStageResult(result=result)
     assert_never(config)
 

@@ -113,6 +113,7 @@ def _pair_tasks() -> list[TrainPairBuildTask]:
 
 def test_train_pair_validation_rejects_question_node_sample() -> None:
     task = _pair_tasks()[0]
+    assert task.graph is not None
     pairs = [
         {
             "task_id": task.text_request.task_id,

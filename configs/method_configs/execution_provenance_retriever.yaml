@@ -5,7 +5,8 @@ execution_provenance_retriever:
     query_prefix: "query: "
     passage_prefix: "passage: "
     batch_size: 64
-  seed_top_s: 3
+  seed_top_s: 10
+  beam_width: 8
   max_hops: 4
   top_paths: 5
   max_path_expansions: 256

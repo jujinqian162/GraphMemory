@@ -7,9 +7,13 @@ from typing import TYPE_CHECKING, TypeAlias
 from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
+)
 
 if TYPE_CHECKING:
+    from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
     from graph_memory.retrieval.signals import SeedSignalProvider
 
@@ -44,12 +48,25 @@ class DenseFinetuneTrainPayload:
     model_dir: Path
 
 
-TrainPayload: TypeAlias = RgcnTrainPayload | DenseFinetuneTrainPayload
+@dataclass(frozen=True)
+class ProvenanceRgcnTrainPayload:
+    train_requests: list[ExecutionProvenanceRankingRequest]
+    train_labels: list[EvidenceLabel]
+    train_pairs: list[TrainPairRecord]
+    dev_requests: list[ExecutionProvenanceRankingRequest]
+    dev_labels: list[EvidenceLabel]
+    encoder: "SentenceEncoder | None" = None
+
+
+TrainPayload: TypeAlias = (
+    RgcnTrainPayload | DenseFinetuneTrainPayload | ProvenanceRgcnTrainPayload
+)
 
 
 __all__ = [
     "DenseFinetuneTrainPayload",
     "RgcnTrainPayload",
+    "ProvenanceRgcnTrainPayload",
     "TrainDependencies",
     "TrainPayload",
 ]

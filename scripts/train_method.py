@@ -16,6 +16,7 @@ from graph_memory.contracts.common import JsonObject, JsonValue
 from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
+    execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
 )
 from graph_memory.evaluation.requests import EvidenceLabel
@@ -25,17 +26,23 @@ from graph_memory.models.dense_finetune.training import DenseFinetuneTrainingRes
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.training import RgcnTrainingResult
+from graph_memory.models.provenance_rgcn import (
+    ProvenanceTrainingResult,
+    save_provenance_rgcn_checkpoint,
+)
 from graph_memory.experiment.stage_cli import load_stage_execution
 from graph_memory.experiment.stage_models import (
     DenseFinetuneTrainStageConfig,
     OrdinaryRgcnTrainStageConfig,
     SeededRgcnTrainStageConfig,
+    ProvenanceRgcnTrainStageConfig,
     TrainStageConfig,
 )
 from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
     RgcnTrainPayload,
+    ProvenanceRgcnTrainPayload,
     TrainPayload,
 )
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -115,6 +122,24 @@ def _load_payload(config: TrainStageConfig) -> TrainPayload:
             output_dir=config.output_dir,
             model_dir=config.model_dir,
         )
+    if isinstance(config, ProvenanceRgcnTrainStageConfig):
+        train_records = cast(list[object], read_json(config.train_tasks))
+        dev_records = cast(list[object], read_json(config.dev_tasks))
+        return ProvenanceRgcnTrainPayload(
+            train_requests=execution_provenance_requests_for_dataset(
+                config.dataset, train_records
+            ),
+            train_labels=_evidence_labels(
+                config, cast(list[object], read_json(config.train_labels))
+            ),
+            train_pairs=cast(list[TrainPairRecord], read_json(config.train_pairs)),
+            dev_requests=execution_provenance_requests_for_dataset(
+                config.dataset, dev_records
+            ),
+            dev_labels=_evidence_labels(
+                config, cast(list[object], read_json(config.dev_labels))
+            ),
+        )
     assert_never(config)
 
 
@@ -159,6 +184,26 @@ def _write_method_artifacts(
         if not isinstance(result, DenseFinetuneTrainingResult):
             raise TypeError(f"Dense-FT training returned {type(result).__name__}.")
         return {"model_metadata": str(result.metadata_path)}
+    if isinstance(config, ProvenanceRgcnTrainStageConfig):
+        if not isinstance(result, ProvenanceTrainingResult):
+            raise TypeError(
+                f"Provenance R-GCN training returned {type(result).__name__}."
+            )
+        epoch_checkpoint = (
+            config.checkpoint_dir / f"checkpoint_epoch_{result.best_epoch}.pt"
+        )
+        for path in (epoch_checkpoint, config.checkpoint_dir / "best.pt"):
+            save_provenance_rgcn_checkpoint(
+                path,
+                method_name=config.method,
+                model=result.model,
+                optimizer_state_dict=result.optimizer_state_dict,
+                epoch=result.best_epoch,
+                best_dev_metric=result.best_dev_metric,
+                model_config=result.model_config,
+                training_config=result.training_config,
+            )
+        return {"epoch_checkpoint": str(epoch_checkpoint)}
     assert_never(config)
 
 
@@ -167,6 +212,12 @@ def _metric_records(result: TrainingResult) -> list[dict[str, object]]:
         return list(result.metric_records)
     if isinstance(result, DenseFinetuneTrainingResult):
         return list(result.metric_records)
+    if isinstance(result, ProvenanceTrainingResult):
+        records: list[dict[str, object]] = [
+            {key: value for key, value in record.items()}
+            for record in result.metric_records
+        ]
+        return records
     assert_never(result)
 
 
@@ -181,6 +232,8 @@ def _result_counts(payload: TrainPayload, result: TrainingResult) -> JsonObject:
         counts["global_step"] = result.global_step
     elif isinstance(result, DenseFinetuneTrainingResult):
         pass
+    elif isinstance(result, ProvenanceTrainingResult):
+        counts["epochs"] = result.training_config.epochs
     else:
         assert_never(result)
     return counts

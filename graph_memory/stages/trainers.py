@@ -17,11 +17,13 @@ from graph_memory.experiment.config import DenseEncoderConfig
 from graph_memory.experiment.stage_models import (
     DenseFinetuneTrainStageConfig,
     RgcnTrainStageConfig,
+    ProvenanceRgcnTrainStageConfig,
 )
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
     RgcnTrainPayload,
+    ProvenanceRgcnTrainPayload,
     TrainDependencies,
     TrainPayload,
 )
@@ -117,6 +119,71 @@ class DenseFinetuneMethodTrainer:
         )
 
 
+@dataclass(frozen=True)
+class ProvenanceRgcnMethodTrainer:
+    config: ProvenanceRgcnTrainStageConfig
+
+    def train(self, payload: TrainPayload):
+        import numpy as np
+
+        from graph_memory.embeddings import load_sentence_transformer
+        from graph_memory.models.provenance_rgcn import (
+            ProvenanceRgcnModelConfig,
+            ProvenanceRgcnTrainingConfig,
+            train_provenance_rgcn,
+        )
+
+        if not isinstance(payload, ProvenanceRgcnTrainPayload):
+            raise TypeError(
+                "Provenance R-GCN trainer expected ProvenanceRgcnTrainPayload, "
+                f"got {type(payload).__name__}."
+            )
+        encoder = payload.encoder or load_sentence_transformer(
+            self.config.encoder.model_name,
+            device=self.config.train.trainer.device,
+        )
+        probe = np.asarray(
+            encoder.encode(
+                [self.config.encoder.query_prefix + "dimension probe"],
+                batch_size=1,
+                normalize_embeddings=True,
+            )
+        )
+        if probe.ndim != 2 or probe.shape[0] != 1:
+            raise ValueError("Unable to infer provenance encoder dimension.")
+        model = self.config.train.model
+        trainer = self.config.train.trainer
+        return train_provenance_rgcn(
+            train_requests=payload.train_requests,
+            train_labels=payload.train_labels,
+            dev_requests=payload.dev_requests,
+            dev_labels=payload.dev_labels,
+            model_config=ProvenanceRgcnModelConfig(
+                encoder_model=self.config.encoder.model_name,
+                encoder_dim=int(probe.shape[1]),
+                query_prefix=self.config.encoder.query_prefix,
+                passage_prefix=self.config.encoder.passage_prefix,
+                encoder_batch_size=self.config.encoder.batch_size,
+                hidden_dim=model.hidden_dim,
+                node_type_dim=model.node_type_dim,
+                num_layers=model.num_layers,
+                dropout=model.dropout,
+            ),
+            training_config=ProvenanceRgcnTrainingConfig(
+                learning_rate=trainer.learning_rate,
+                batch_size=trainer.batch_size,
+                epochs=trainer.epochs,
+                max_grad_norm=trainer.max_grad_norm,
+                random_seed=trainer.random_seed,
+                candidate_loss_weight=trainer.candidate_loss_weight,
+                edge_loss_weight=trainer.edge_loss_weight,
+            ),
+            train_pairs=payload.train_pairs,
+            encoder=encoder,
+            device=trainer.device,
+        )
+
+
 def _effective_rgcn_encoder_settings(
     settings: DenseEncoderConfig,
     seed_checkpoint: Path | None,
@@ -164,4 +231,5 @@ def _build_rgcn_dependencies(
 __all__ = [
     "DenseFinetuneMethodTrainer",
     "RgcnGraphRetrieverTrainer",
+    "ProvenanceRgcnMethodTrainer",
 ]
