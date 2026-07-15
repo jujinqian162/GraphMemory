@@ -3,11 +3,6 @@ from __future__ import annotations
 from graph_memory.contracts.errors import ContractValidationError
 from graph_memory.validation.common import validate_task_id_alignment
 from graph_memory.validation.graphs import validate_graphs
-from graph_memory.validation.importance import (
-    select_importance_records,
-    validate_importance_artifact,
-    validate_task_importance_record,
-)
 from graph_memory.validation.metrics import validate_metric_rows
 from graph_memory.validation.model import (
     validate_graph_batch,
@@ -27,6 +22,10 @@ from graph_memory.validation.tasks import (
     validate_twowiki_label_records,
     validate_twowiki_ranking_records,
 )
+from graph_memory.validation.traject_bench import (
+    validate_traject_bench_label_records,
+    validate_traject_bench_ranking_records,
+)
 from graph_memory.validation.training_pairs import (
     validate_negative_sampling_config,
     validate_train_pair_build_summary,
@@ -35,7 +34,6 @@ from graph_memory.validation.training_pairs import (
 
 __all__ = [
     "ContractValidationError",
-    "select_importance_records",
     "validate_graph_batch",
     "validate_graph_rerank_config",
     "validate_graphs",
@@ -43,13 +41,13 @@ __all__ = [
     "validate_hotpotqa_ranking_records",
     "validate_musique_label_records",
     "validate_musique_ranking_records",
-    "validate_importance_artifact",
     "validate_metric_rows",
     "validate_negative_sampling_config",
     "validate_no_label_fields",
     "validate_ranked_results",
     "validate_task_id_alignment",
-    "validate_task_importance_record",
+    "validate_traject_bench_label_records",
+    "validate_traject_bench_ranking_records",
     "validate_twowiki_label_records",
     "validate_twowiki_ranking_records",
     "validate_train_pair_build_summary",

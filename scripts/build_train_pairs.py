@@ -9,7 +9,7 @@ from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     text_ranking_requests_for_dataset,
@@ -46,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     with stage_lifecycle(execution.invocation) as observations:
         task_inputs = cast(list[Mapping[str, object]], read_json(config.tasks))
         labels = cast(list[object], read_json(config.labels))
-        graphs = cast(list[MemoryGraph], read_json(config.graphs))
+        graphs = cast(list[EvidenceGraph], read_json(config.evidence_graphs))
         result = build_train_pairs(
             _train_pair_tasks(config, task_inputs, labels, graphs),
             sampling_config,
@@ -57,7 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         observations.count("task_inputs", len(task_inputs))
         observations.count("labels", len(labels))
-        observations.count("graphs", len(graphs))
+        observations.count("evidence_graphs", len(graphs))
         observations.count("pairs", len(result.pairs))
         observations.count("positive_count", result.summary["positive_count"])
         observations.count(
@@ -74,7 +74,7 @@ def _train_pair_tasks(
     config: PairStageConfig,
     task_inputs: list[Mapping[str, object]],
     labels: list[object],
-    graphs: list[MemoryGraph],
+    graphs: list[EvidenceGraph],
 ) -> list[TrainPairBuildTask]:
     text_requests = {
         request.task_id: request

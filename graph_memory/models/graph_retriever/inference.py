@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 import torch
 
@@ -16,17 +15,15 @@ from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import GraphScoringModelFactory
-from graph_memory.models.graph_retriever.decoder import (
-    complete_beam_ranking,
-    run_beam_search,
-)
-from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
 from graph_memory.retrieval.contracts import (
     RankedNode,
     RetrievalMethodResult,
     RetrievalTrace,
 )
-from graph_memory.retrieval.requests import GraphRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    EvidenceGraphRankingRequest,
+    TextRankingRequest,
+)
 from graph_memory.retrieval.signals import (
     SeedSignal,
     SeedSignalProvider,
@@ -49,7 +46,7 @@ class GraphRetrieverInference:
     device: torch.device
 
     def rank_task(
-        self, request: GraphRankingRequest, *, top_k: int
+        self, request: EvidenceGraphRankingRequest, *, top_k: int
     ) -> RetrievalMethodResult:
         graph = request.graph
         text_request = TextRankingRequest(
@@ -68,26 +65,15 @@ class GraphRetrieverInference:
         if len(batches) != 1:
             raise RuntimeError("Expected exactly one full ranking batch.")
         with torch.no_grad():
-            beam_model = cast(EvidenceScoringModel, self.model)
             batch = move_training_batch(batches[0], self.device)
-            encoded = beam_model.encode_graph(batch)
-            candidate_ids = tuple(encoded.candidate_node_ids_by_task[0])
-            beam_result = run_beam_search(
-                candidate_node_ids=candidate_ids,
-                score_actions=lambda selected: _score_actions(
-                    beam_model, encoded, 0, selected
-                ),
-                config=self.model_config.beam_search_config,
-            )
-            ranking = complete_beam_ranking(
-                candidate_node_ids=candidate_ids,
-                base_logits=encoded.base_logits_for_task(0),
-                winner=beam_result.winner,
-            )
-        ranked_nodes = [
-            RankedNode(node_id=node_id, score=float(len(ranking) - rank_index))
-            for rank_index, node_id in enumerate(ranking)
-        ]
+            logits = self.model(batch).detach().cpu().tolist()
+        ranked_nodes = sorted(
+            [
+                RankedNode(node_id=node_id, score=float(score))
+                for node_id, score in zip(batches[0].sample_node_ids, logits)
+            ],
+            key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
+        )
         top_node_ids = [ranked_node.node_id for ranked_node in ranked_nodes[:top_k]]
         visible_graph = model_visible_graph(
             graph, frozenset(self.model_config.enabled_edge_types)
@@ -95,29 +81,13 @@ class GraphRetrieverInference:
         retrieved_subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
         return RetrievalMethodResult(
             ranked_nodes=ranked_nodes,
-            trace=RetrievalTrace(
-                retrieved_edges=retrieved_subgraph["edges"],
-                metadata={
-                    "selected_sequence": [
-                        candidate_ids[index]
-                        for index in beam_result.winner.selected_indices
-                    ],
-                    "selected_count": len(beam_result.winner.selected_indices),
-                    "stopped": beam_result.winner.stopped,
-                    "stop_score": beam_result.winner.stop_score,
-                    "beam_score": beam_result.winner.normalized_score,
-                    "beam_size": self.model_config.beam_search_config.inference_beam_size,
-                    "max_steps": self.model_config.beam_search_config.max_steps,
-                    "decoder_config": self.model_config.decoder_config.to_json_dict(),
-                    "beam_search_config": self.model_config.beam_search_config.to_json_dict(),
-                },
-            ),
+            trace=RetrievalTrace(retrieved_edges=retrieved_subgraph["edges"]),
         )
 
 
 @dataclass(frozen=True)
 class _PrecomputedGraphRankingSignalProvider:
-    request: GraphRankingRequest
+    request: EvidenceGraphRankingRequest
 
     def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
         if request.task_id != self.request.task_id:
@@ -177,17 +147,3 @@ class CheckpointGraphRetrieverLoader:
             seed_signal_provider=seed_signal_provider,
             device=torch.device(device),
         )
-
-
-def _score_actions(
-    model: EvidenceScoringModel,
-    encoded,
-    task_index: int,
-    selected: tuple[int, ...],
-) -> tuple[torch.Tensor, torch.Tensor]:
-    scores = model.score_decoder_actions(
-        encoded,
-        task_index=task_index,
-        selected_local_indices=selected,
-    )
-    return scores.candidate_logits, scores.stop_logit

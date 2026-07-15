@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from graph_memory.contracts.common import NodeId, TaskId
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.ranking import RankedResult
 
 
@@ -20,7 +20,7 @@ class EvidenceLabel:
 class EvidenceEvaluationRequest:
     predictions: Sequence[RankedResult]
     labels: Sequence[EvidenceLabel]
-    graphs: Sequence[MemoryGraph]
+    graphs: Sequence[EvidenceGraph]
 
 
 __all__ = ["EvidenceEvaluationRequest", "EvidenceLabel"]

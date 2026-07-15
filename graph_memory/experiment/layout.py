@@ -16,9 +16,7 @@ from graph_memory.experiment.config import (
 from graph_memory.registry.retrieval import RetrievalMethodId
 
 RunMode = Literal["single", "multirun"]
-ROOT_IDENTITY_OVERRIDE_KEYS: Final = frozenset(
-    {"name", "profile", "methods"}
-)
+ROOT_IDENTITY_OVERRIDE_KEYS: Final = frozenset({"name", "profile", "methods"})
 
 
 @dataclass(frozen=True)
@@ -126,8 +124,8 @@ class RunLayout:
             "combined": root / f"{split}.combined.json",
         }
 
-    def graph(self, split: SplitName) -> Path:
-        return self.run_dir / "graphs" / f"{split}.graphs.json"
+    def evidence_graph(self, split: SplitName) -> Path:
+        return self.run_dir / "evidence_graphs" / f"{split}.evidence_graphs.json"
 
     def tuned(self, method: RetrievalMethodId) -> Path:
         return self.run_dir / "tuned" / f"{_method_name(method)}.dev_selected.json"

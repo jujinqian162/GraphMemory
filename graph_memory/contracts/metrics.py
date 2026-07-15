@@ -18,15 +18,15 @@ MetricRow = TypedDict(
         "Full Support@5": float,
         "Full Support@10": float,
         "MRR": float,
-        "Connected Evidence Recall@5": float,
-        "Connected Evidence Recall@10": float,
-        "Query-Evidence Connectivity@10": float,
+        "Connected Evidence Recall@5": MetricValue,
+        "Connected Evidence Recall@10": MetricValue,
+        "Query-Evidence Connectivity@10": MetricValue,
         "Path Recall@10": MetricValue,
         "Edge Recall@10": MetricValue,
         "Retrieval Latency / Query": float,
         "Index Build Time": float,
         "Graph Construction Time": float,
-        "Memory Size": float,
+        "Memory Size": MetricValue,
         "Avg Retrieved Nodes": float,
         "Avg Retrieved Edges": float,
     },
@@ -68,4 +68,11 @@ class FailureCase(TypedDict):
     connected_gold_in_top_k: bool
 
 
-__all__ = ["FailureCase", "MetricRow", "MetricSuiteRow", "MetricTableRow", "MetricValue", "TaskMetricRow"]
+__all__ = [
+    "FailureCase",
+    "MetricRow",
+    "MetricSuiteRow",
+    "MetricTableRow",
+    "MetricValue",
+    "TaskMetricRow",
+]

@@ -13,9 +13,10 @@ class AppRegistry:
     retrieval: RetrievalRegistry
 
 
+_METHODS = build_method_registry()
 Registry = AppRegistry(
-    methods=build_method_registry(),
-    retrieval=build_retrieval_registry(),
+    methods=_METHODS,
+    retrieval=build_retrieval_registry(_METHODS),
 )
 
 __all__ = ["AppRegistry", "Registry"]

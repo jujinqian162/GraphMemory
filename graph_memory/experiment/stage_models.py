@@ -12,9 +12,6 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     DenseFinetuneTrainConfig,
     GraphBuildConfig,
-    GraphRerankSearchSpace,
-    MemoryStreamScoringConfig,
-    MemoryStreamSearchSpace,
     NonNegativeInt,
     PairSamplingConfig,
     PositiveInt,
@@ -44,32 +41,16 @@ class RawPrepareStageConfig(ClosedModel):
     strict_invalid_examples: bool
 
 
-class ImportancePrepareStageConfig(ClosedModel):
-    stage: Literal["prepare"]
-    kind: Literal["importance"]
-    dataset: Literal["hotpotqa"]
-    split: Literal["dev", "test"]
-    canonical_inputs: Path
-    canonical_labels: Path
-    importance: Path
-    outputs: PrepareOutputs
-    count: PositiveInt
-    offset: NonNegativeInt
+PrepareStageConfig: TypeAlias = RawPrepareStageConfig
 
 
-PrepareStageConfig: TypeAlias = Annotated[
-    Union[RawPrepareStageConfig, ImportancePrepareStageConfig],
-    Field(discriminator="kind"),
-]
-
-
-class GraphStageConfig(ClosedModel):
-    stage: Literal["graphs"]
+class EvidenceGraphStageConfig(ClosedModel):
+    stage: Literal["evidence_graphs"]
     dataset: DatasetName
     split: SplitName
     tasks: Path
     output: Path
-    graph: GraphBuildConfig
+    evidence_graph: GraphBuildConfig
 
 
 class PairOutputs(ClosedModel):
@@ -88,64 +69,11 @@ class PairStageConfig(ClosedModel):
     variant: str | None
     tasks: Path
     labels: Path
-    graphs: Path
+    evidence_graphs: Path
     outputs: PairOutputs
     sampling: PairSamplingConfig
     hard_dense_encoder: DenseEncoderConfig
     device: Device
-
-
-class GraphRerankTuneStageBase(ClosedModel):
-    stage: Literal["tune"]
-    dataset: DatasetName
-    tasks: Path
-    labels: Path
-    graphs: Path
-    selected_config: Path
-    candidates: Path
-    top_k: PositiveInt
-    search_space: GraphRerankSearchSpace
-
-
-class Bm25GraphRerankTuneStageConfig(GraphRerankTuneStageBase):
-    method: Literal["bm25_graph_rerank"]
-
-
-class DenseGraphRerankTuneStageConfig(GraphRerankTuneStageBase):
-    method: Literal["dense_graph_rerank"]
-    encoder: DenseEncoderConfig
-
-
-GraphRerankTuneStageConfig: TypeAlias = Annotated[
-    Union[Bm25GraphRerankTuneStageConfig, DenseGraphRerankTuneStageConfig],
-    Field(discriminator="method"),
-]
-
-
-class MemoryStreamTuneStageConfig(ClosedModel):
-    stage: Literal["tune"]
-    kind: Literal["memory_stream"]
-    dataset: Literal["hotpotqa"]
-    method: Literal["memory_stream"]
-    tasks: Path
-    labels: Path
-    graphs: Path
-    importance: Path
-    selected_config: Path
-    candidates: Path
-    top_k: PositiveInt
-    encoder: DenseEncoderConfig
-    search_space: MemoryStreamSearchSpace
-
-
-TuneStageConfig: TypeAlias = Annotated[
-    Union[
-        Bm25GraphRerankTuneStageConfig,
-        DenseGraphRerankTuneStageConfig,
-        MemoryStreamTuneStageConfig,
-    ],
-    Field(discriminator="method"),
-]
 
 
 class RgcnTrainStageBase(ClosedModel):
@@ -154,11 +82,11 @@ class RgcnTrainStageBase(ClosedModel):
     dataset: DatasetName
     train_tasks: Path
     train_labels: Path
-    train_graphs: Path
+    train_evidence_graphs: Path
     train_pairs: Path
     dev_tasks: Path
     dev_labels: Path
-    dev_graphs: Path
+    dev_evidence_graphs: Path
     output_dir: Path
     checkpoint_dir: Path
     metrics: Path
@@ -230,46 +158,21 @@ class DenseRetrieveStageConfig(ClosedModel):
     encoder: DenseEncoderConfig
 
 
-class MemoryStreamRetrieveStageConfig(ClosedModel):
+class GraphRAGRetrieveStageConfig(ClosedModel):
     stage: Literal["retrieve"]
-    method: Literal["memory_stream"]
+    method: Literal["graphrag"]
     variant: str | None
-    dataset: Literal["hotpotqa"]
+    dataset: DatasetName
     tasks: Path
     output: Path
     top_k: PositiveInt
     encoder: DenseEncoderConfig
-    selected_config: Path
-    importance: Path
-    scoring: MemoryStreamScoringConfig
-    capped_test_count: PositiveInt
-
-
-class Bm25GraphRerankRetrieveStageConfig(ClosedModel):
-    stage: Literal["retrieve"]
-    method: Literal["bm25_graph_rerank"]
-    variant: str | None
-    dataset: DatasetName
-    tasks: Path
-    graphs: Path
-    output: Path
-    top_k: PositiveInt
-    selected_config: Path
-    seed_method: Literal["bm25"]
-
-
-class DenseGraphRerankRetrieveStageConfig(ClosedModel):
-    stage: Literal["retrieve"]
-    method: Literal["dense_graph_rerank"]
-    variant: str | None
-    dataset: DatasetName
-    tasks: Path
-    graphs: Path
-    output: Path
-    top_k: PositiveInt
-    selected_config: Path
-    seed_method: Literal["dense"]
-    encoder: DenseEncoderConfig
+    seed_top_s: PositiveInt
+    restart_probability: float
+    max_iterations: PositiveInt
+    convergence_tolerance: float
+    semantic_weight: float
+    entity_weight: float
 
 
 class RgcnRetrieveStageConfig(ClosedModel):
@@ -278,7 +181,7 @@ class RgcnRetrieveStageConfig(ClosedModel):
     variant: str | None
     dataset: DatasetName
     tasks: Path
-    graphs: Path
+    evidence_graphs: Path
     output: Path
     top_k: PositiveInt
     checkpoint: Path
@@ -301,9 +204,7 @@ RetrieveStageConfig: TypeAlias = Annotated[
     Union[
         Bm25RetrieveStageConfig,
         DenseRetrieveStageConfig,
-        MemoryStreamRetrieveStageConfig,
-        Bm25GraphRerankRetrieveStageConfig,
-        DenseGraphRerankRetrieveStageConfig,
+        GraphRAGRetrieveStageConfig,
         RgcnRetrieveStageConfig,
         DenseFinetuneRetrieveStageConfig,
     ],
@@ -318,7 +219,7 @@ class EvaluateStageConfig(ClosedModel):
     variant: str | None
     predictions: Path
     labels: Path
-    graphs: Path
+    evidence_graphs: Path | None
     metrics: Path
     failure_cases: Path
     failure_case_limit: NonNegativeInt
@@ -358,9 +259,8 @@ AggregateStageConfig: TypeAlias = Annotated[
 
 StageConfig: TypeAlias = (
     PrepareStageConfig
-    | GraphStageConfig
+    | EvidenceGraphStageConfig
     | PairStageConfig
-    | TuneStageConfig
     | TrainStageConfig
     | RetrieveStageConfig
     | EvaluateStageConfig
@@ -372,20 +272,13 @@ __all__ = [
     "AggregateStageConfig",
     "AblationAggregateStageConfig",
     "AblationSelection",
-    "Bm25GraphRerankRetrieveStageConfig",
-    "Bm25GraphRerankTuneStageConfig",
     "Bm25RetrieveStageConfig",
     "DenseFinetuneRetrieveStageConfig",
     "DenseFinetuneTrainStageConfig",
-    "DenseGraphRerankRetrieveStageConfig",
-    "DenseGraphRerankTuneStageConfig",
     "DenseRetrieveStageConfig",
+    "EvidenceGraphStageConfig",
     "EvaluateStageConfig",
-    "GraphRerankTuneStageConfig",
-    "GraphStageConfig",
-    "ImportancePrepareStageConfig",
-    "MemoryStreamRetrieveStageConfig",
-    "MemoryStreamTuneStageConfig",
+    "GraphRAGRetrieveStageConfig",
     "OrdinaryAggregateStageConfig",
     "OrdinaryRgcnTrainStageConfig",
     "PairStageConfig",
@@ -397,5 +290,4 @@ __all__ = [
     "SeededRgcnTrainStageConfig",
     "StageConfig",
     "TrainStageConfig",
-    "TuneStageConfig",
 ]

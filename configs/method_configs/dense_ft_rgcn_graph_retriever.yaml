@@ -20,7 +20,6 @@ dense_ft_rgcn_graph_retriever:
       ablation: full_rgcn
     trainer:
       optimizer_name: AdamW
-      # Retained for config-shape audit only; optimizer execution uses the two optimizer_phases learning rates below.
       learning_rate: 0.0001
       batch_size: ${profile.trainable.rgcn.batch_size}
       max_grad_norm: 1.0
@@ -28,24 +27,6 @@ dense_ft_rgcn_graph_retriever:
       pos_weight_enabled: true
       epochs: ${profile.trainable.rgcn.epochs}
       device: ${device}
-    decoder:
-      hidden_dim: ${profile.trainable.rgcn.hidden_dim}
-      step_embedding_dim: 16
-      frontier_relation_dim: 4
-    beam:
-      training_beam_size: 2
-      inference_beam_size: 2
-      max_steps: 5
-      length_penalty_alpha: 1.0
-      deduplicate_selected_sets: true
-    loss:
-      next_action_loss_weight: 1.0
-      stop_loss_weight: 1.0
-      aux_node_loss_weight: 0.2
-    optimizer_phases:
-      decoder_warmup_epochs: 0
-      decoder_learning_rate: 0.0001
-      rgcn_learning_rate: 0.0001
     selection:
       best_metric: dev_composite
       higher_is_better: true

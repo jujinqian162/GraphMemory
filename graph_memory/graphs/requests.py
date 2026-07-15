@@ -9,7 +9,7 @@ JsonScalar = str | int | float | bool | None
 
 
 @dataclass(frozen=True)
-class GraphBuildNode:
+class EvidenceGraphBuildNode:
     node_id: str
     text: str
     node_kind: str
@@ -30,11 +30,11 @@ class GraphBuildEdge:
 
 
 @dataclass(frozen=True)
-class GraphBuildRequest:
+class EvidenceGraphBuildRequest:
     task_id: TaskId
     query_text: str
-    nodes: Sequence[GraphBuildNode]
+    nodes: Sequence[EvidenceGraphBuildNode]
     input_visible_edges: Sequence[GraphBuildEdge]
 
 
-__all__ = ["GraphBuildEdge", "GraphBuildNode", "GraphBuildRequest"]
+__all__ = ["GraphBuildEdge", "EvidenceGraphBuildNode", "EvidenceGraphBuildRequest"]

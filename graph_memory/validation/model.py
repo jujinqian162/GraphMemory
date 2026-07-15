@@ -38,8 +38,6 @@ RGCN_MODEL_CONFIG_FIELDS = {
     "edge_weight_policy",
     "enabled_edge_types",
     "ablation_name",
-    "decoder_config",
-    "beam_search_config",
 }
 RGCN_TRAINING_CONFIG_FIELDS = {
     "optimizer_name",
@@ -49,32 +47,9 @@ RGCN_TRAINING_CONFIG_FIELDS = {
     "random_seed",
     "pos_weight_enabled",
     "epochs",
-    "beam_loss_config",
-    "optimizer_phase_config",
-}
-BEAM_DECODER_CONFIG_FIELDS = {
-    "hidden_dim",
-    "step_embedding_dim",
-    "frontier_relation_dim",
-}
-BEAM_SEARCH_CONFIG_FIELDS = {
-    "training_beam_size",
-    "inference_beam_size",
-    "max_steps",
-    "length_penalty_alpha",
-    "deduplicate_selected_sets",
-}
-BEAM_LOSS_CONFIG_FIELDS = {
-    "next_action_loss_weight",
-    "stop_loss_weight",
-    "aux_node_loss_weight",
-}
-OPTIMIZER_PHASE_CONFIG_FIELDS = {
-    "decoder_warmup_epochs",
-    "decoder_learning_rate",
-    "rgcn_learning_rate",
 }
 RGCN_CHECKPOINT_FIELDS = {
+    "schema_version",
     "method_name",
     "model_state_dict",
     "optimizer_state_dict",
@@ -146,8 +121,6 @@ def validate_rgcn_model_config(config: object) -> None:
             f"Invalid R-GCN model config: unsupported enabled_edge_types={unknown_edge_types}."
         )
     _required_string(config_dict, "ablation_name", "R-GCN model config")
-    _validate_beam_decoder_config(config_dict.get("decoder_config"))
-    _validate_beam_search_config(config_dict.get("beam_search_config"))
 
 
 def validate_rgcn_training_config(config: object) -> None:
@@ -175,8 +148,6 @@ def validate_rgcn_training_config(config: object) -> None:
             "Invalid R-GCN training config: pos_weight_enabled must be boolean."
         )
     _required_int(config_dict, "epochs", "R-GCN training config", minimum=1)
-    _validate_beam_loss_config(config_dict.get("beam_loss_config"))
-    _validate_optimizer_phase_config(config_dict.get("optimizer_phase_config"))
 
 
 def validate_rgcn_checkpoint_metadata(
@@ -184,6 +155,11 @@ def validate_rgcn_checkpoint_metadata(
 ) -> None:
     checkpoint = _require_record(checkpoint, "R-GCN checkpoint")
     _reject_unknown_fields(checkpoint, RGCN_CHECKPOINT_FIELDS, "R-GCN checkpoint")
+    schema_version = checkpoint.get("schema_version")
+    if schema_version != 2:
+        raise ContractValidationError(
+            "Incompatible R-GCN checkpoint schema; retrain the node-wise model."
+        )
     method_name = _required_string(checkpoint, "method_name", "R-GCN checkpoint")
     if expected_method is not None and method_name != expected_method:
         raise ContractValidationError(
@@ -204,26 +180,8 @@ def validate_rgcn_checkpoint_metadata(
     _required_int(checkpoint, "epoch", "R-GCN checkpoint", minimum=0)
     _required_int(checkpoint, "global_step", "R-GCN checkpoint", minimum=0)
     _required_finite_number(checkpoint, "best_dev_metric", "R-GCN checkpoint")
-    raw_model_config = checkpoint.get("model_config")
-    raw_training_config = checkpoint.get("training_config")
-    if isinstance(raw_model_config, dict) and (
-        "decoder_config" not in raw_model_config
-        or "beam_search_config" not in raw_model_config
-    ):
-        raise ContractValidationError(
-            "Incompatible pre-beam R-GCN checkpoint: decoder_config and "
-            "beam_search_config are required; retrain this R-GCN method."
-        )
-    if isinstance(raw_training_config, dict) and (
-        "beam_loss_config" not in raw_training_config
-        or "optimizer_phase_config" not in raw_training_config
-    ):
-        raise ContractValidationError(
-            "Incompatible pre-beam R-GCN checkpoint: beam_loss_config and "
-            "optimizer_phase_config are required; retrain this R-GCN method."
-        )
-    validate_rgcn_model_config(raw_model_config)
-    validate_rgcn_training_config(raw_training_config)
+    validate_rgcn_model_config(checkpoint.get("model_config"))
+    validate_rgcn_training_config(checkpoint.get("training_config"))
     _required_string(checkpoint, "created_at", "R-GCN checkpoint")
 
 
@@ -421,65 +379,6 @@ def _validate_node_feature_config(value: object) -> None:
             raise ContractValidationError(
                 f"Invalid node feature config: unsupported {field_name}={unknown}."
             )
-
-
-def _validate_beam_decoder_config(value: object) -> None:
-    config = _to_plain_dict(value)
-    _reject_unknown_fields(config, BEAM_DECODER_CONFIG_FIELDS, "beam decoder config")
-    for field_name in BEAM_DECODER_CONFIG_FIELDS:
-        _required_int(config, field_name, "beam decoder config", minimum=1)
-
-
-def _validate_beam_search_config(value: object) -> None:
-    config = _to_plain_dict(value)
-    _reject_unknown_fields(config, BEAM_SEARCH_CONFIG_FIELDS, "beam search config")
-    training_size = _required_int(
-        config, "training_beam_size", "beam search config", minimum=1
-    )
-    inference_size = _required_int(
-        config, "inference_beam_size", "beam search config", minimum=1
-    )
-    if training_size > 4 or inference_size > 4:
-        raise ContractValidationError(
-            "Invalid beam search config: beam sizes must be <= 4."
-        )
-    if training_size != inference_size:
-        raise ContractValidationError(
-            "Invalid beam search config: training and inference beam sizes must match."
-        )
-    max_steps = _required_int(config, "max_steps", "beam search config", minimum=1)
-    if max_steps > 5:
-        raise ContractValidationError(
-            "Invalid beam search config: max_steps must be <= 5."
-        )
-    _required_finite_number(
-        config, "length_penalty_alpha", "beam search config", minimum=0.0
-    )
-    if not isinstance(config.get("deduplicate_selected_sets"), bool):
-        raise ContractValidationError(
-            "Invalid beam search config: deduplicate_selected_sets must be boolean."
-        )
-
-
-def _validate_beam_loss_config(value: object) -> None:
-    config = _to_plain_dict(value)
-    _reject_unknown_fields(config, BEAM_LOSS_CONFIG_FIELDS, "beam loss config")
-    for field_name in BEAM_LOSS_CONFIG_FIELDS:
-        _required_finite_number(config, field_name, "beam loss config", minimum=0.0)
-
-
-def _validate_optimizer_phase_config(value: object) -> None:
-    config = _to_plain_dict(value)
-    _reject_unknown_fields(
-        config, OPTIMIZER_PHASE_CONFIG_FIELDS, "optimizer phase config"
-    )
-    _required_int(config, "decoder_warmup_epochs", "optimizer phase config", minimum=0)
-    _required_finite_number(
-        config, "decoder_learning_rate", "optimizer phase config", minimum=0.0
-    )
-    _required_finite_number(
-        config, "rgcn_learning_rate", "optimizer phase config", minimum=0.0
-    )
 
 
 __all__ = [

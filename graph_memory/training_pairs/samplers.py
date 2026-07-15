@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from graph_memory.contracts.common import TrainPairSampleType
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.retrieval.bulk import task_groups
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -21,7 +21,7 @@ class PairSamplingContext:
     """
 
     text_request: TextRankingRequest
-    graph: MemoryGraph
+    graph: EvidenceGraph
     gold_node_ids: set[str]
     non_gold_node_ids: list[str]
     rng: random.Random
@@ -29,11 +29,9 @@ class PairSamplingContext:
 
 class NegativeSampler(Protocol):
     @property
-    def sample_type(self) -> TrainPairSampleType:
-        ...
+    def sample_type(self) -> TrainPairSampleType: ...
 
-    def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]:
-        ...
+    def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]: ...
 
 
 @dataclass(frozen=True)
@@ -130,7 +128,11 @@ def _hard_retriever_negatives(
 ) -> list[str]:
     if desired_count <= 0:
         return []
-    pool = [ranked_node.node_id for ranked_node in ranked_nodes if ranked_node.node_id not in gold_node_ids]
+    pool = [
+        ranked_node.node_id
+        for ranked_node in ranked_nodes
+        if ranked_node.node_id not in gold_node_ids
+    ]
     return _deduplicate_preserve_order(pool[:hard_pool_size])[:desired_count]
 
 

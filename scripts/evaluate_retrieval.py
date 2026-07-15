@@ -35,7 +35,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     with stage_lifecycle(execution.invocation) as observations:
         predictions = read_json(config.predictions)
         labels = read_json(config.labels)
-        graphs = read_json(config.graphs)
+        graphs = (
+            read_json(config.evidence_graphs)
+            if config.evidence_graphs is not None
+            else []
+        )
         result = run_evaluate_stage(
             config,
             predictions=predictions,

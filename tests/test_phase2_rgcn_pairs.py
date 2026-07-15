@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
+from graph_memory.contracts.graphs import GraphItemNode, EvidenceGraph
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQALabelRecord,
@@ -52,7 +52,7 @@ def tiny_labels() -> list[HotpotQALabelRecord]:
     ]
 
 
-def tiny_graphs() -> list[MemoryGraph]:
+def tiny_graphs() -> list[EvidenceGraph]:
     task = tiny_task_inputs()[0]
     nodes: list[GraphItemNode] = [
         {

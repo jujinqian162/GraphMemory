@@ -5,13 +5,18 @@ from graph_memory.datasets.twowiki.compatibility import (
     coerce_twowiki_ranking_records,
     combined_twowiki_records,
 )
-from graph_memory.datasets.twowiki.converter import convert_twowiki_example, convert_twowiki_examples
-from graph_memory.datasets.twowiki.parser import parse_twowiki_example, parse_twowiki_examples
+from graph_memory.datasets.twowiki.converter import (
+    convert_twowiki_example,
+    convert_twowiki_examples,
+)
+from graph_memory.datasets.twowiki.parser import (
+    parse_twowiki_example,
+    parse_twowiki_examples,
+)
 from graph_memory.datasets.twowiki.projectors import (
     TwoWikiToEvidenceEvaluationRequest,
-    TwoWikiToGraphBuildRequest,
-    TwoWikiToGraphRankingRequest,
-    TwoWikiToTemporalMemoryRankingRequest,
+    TwoWikiToEvidenceGraphBuildRequest,
+    TwoWikiToEvidenceGraphRankingRequest,
     TwoWikiToTextRankingRequest,
 )
 from graph_memory.datasets.twowiki.records import (
@@ -39,9 +44,8 @@ __all__ = [
     "TwoWikiRankingRecord",
     "TwoWikiSupportingFact",
     "TwoWikiToEvidenceEvaluationRequest",
-    "TwoWikiToGraphBuildRequest",
-    "TwoWikiToGraphRankingRequest",
-    "TwoWikiToTemporalMemoryRankingRequest",
+    "TwoWikiToEvidenceGraphBuildRequest",
+    "TwoWikiToEvidenceGraphRankingRequest",
     "TwoWikiToTextRankingRequest",
     "coerce_twowiki_label_records",
     "coerce_twowiki_ranking_records",

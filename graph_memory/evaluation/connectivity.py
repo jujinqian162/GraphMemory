@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from graph_memory.contracts.common import NodeId
-from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
+from graph_memory.contracts.graphs import GraphEdge, EvidenceGraph
 from graph_memory.evaluation.metrics import require_gold_nodes
 
 
@@ -15,7 +15,9 @@ class GraphConnectivity:
     undirected_adjacency: dict[NodeId, set[NodeId]]
 
     @classmethod
-    def from_graph(cls, graph: MemoryGraph, allowed_nodes: set[NodeId]) -> "GraphConnectivity":
+    def from_graph(
+        cls, graph: EvidenceGraph, allowed_nodes: set[NodeId]
+    ) -> "GraphConnectivity":
         edges = graph.get("edges", [])
         return cls(
             directed_adjacency=_directed_adjacency(edges, allowed_nodes),
@@ -29,7 +31,9 @@ class GraphConnectivity:
         return _reachable_from(start_node, self.undirected_adjacency)
 
 
-def connected_evidence_at(ranked_nodes: list[NodeId], gold_nodes: set[NodeId], graph: MemoryGraph, k: int) -> float:
+def connected_evidence_at(
+    ranked_nodes: list[NodeId], gold_nodes: set[NodeId], graph: EvidenceGraph, k: int
+) -> float:
     require_gold_nodes(gold_nodes)
     selected = set(ranked_nodes[:k])
     if not gold_nodes.issubset(selected):
@@ -45,7 +49,7 @@ def connected_evidence_at(ranked_nodes: list[NodeId], gold_nodes: set[NodeId], g
 def query_evidence_connectivity_at(
     ranked_nodes: list[NodeId],
     gold_nodes: set[NodeId],
-    graph: MemoryGraph,
+    graph: EvidenceGraph,
     k: int,
 ) -> float:
     require_gold_nodes(gold_nodes)
@@ -58,7 +62,9 @@ def query_evidence_connectivity_at(
     return 1.0 if gold_nodes.issubset(reachable) else 0.0
 
 
-def _undirected_adjacency(edges: Iterable[GraphEdge], allowed_nodes: set[NodeId]) -> dict[NodeId, set[NodeId]]:
+def _undirected_adjacency(
+    edges: Iterable[GraphEdge], allowed_nodes: set[NodeId]
+) -> dict[NodeId, set[NodeId]]:
     adjacency: dict[NodeId, set[NodeId]] = defaultdict(set)
     for edge in edges:
         source = str(edge.get("source"))
@@ -69,7 +75,9 @@ def _undirected_adjacency(edges: Iterable[GraphEdge], allowed_nodes: set[NodeId]
     return adjacency
 
 
-def _directed_adjacency(edges: Iterable[GraphEdge], allowed_nodes: set[NodeId]) -> dict[NodeId, set[NodeId]]:
+def _directed_adjacency(
+    edges: Iterable[GraphEdge], allowed_nodes: set[NodeId]
+) -> dict[NodeId, set[NodeId]]:
     adjacency: dict[NodeId, set[NodeId]] = defaultdict(set)
     for edge in edges:
         source = str(edge.get("source"))
@@ -82,7 +90,9 @@ def _directed_adjacency(edges: Iterable[GraphEdge], allowed_nodes: set[NodeId]) 
     return adjacency
 
 
-def _reachable_from(start_node: NodeId, adjacency: dict[NodeId, set[NodeId]]) -> set[NodeId]:
+def _reachable_from(
+    start_node: NodeId, adjacency: dict[NodeId, set[NodeId]]
+) -> set[NodeId]:
     seen = {start_node}
     queue: deque[NodeId] = deque([start_node])
     while queue:
@@ -95,4 +105,8 @@ def _reachable_from(start_node: NodeId, adjacency: dict[NodeId, set[NodeId]]) ->
     return seen
 
 
-__all__ = ["GraphConnectivity", "connected_evidence_at", "query_evidence_connectivity_at"]
+__all__ = [
+    "GraphConnectivity",
+    "connected_evidence_at",
+    "query_evidence_connectivity_at",
+]

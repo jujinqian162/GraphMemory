@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pydantic import TypeAdapter
 
 from graph_memory.contracts.common import JsonObject, JsonValue
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     text_ranking_requests_for_dataset,
@@ -83,13 +83,15 @@ def _load_payload(config: TrainStageConfig) -> TrainPayload:
         return RgcnTrainPayload(
             train_requests=_text_requests(config, train_records),
             train_labels=train_labels,
-            train_graphs=cast(list[MemoryGraph], read_json(config.train_graphs)),
+            train_graphs=cast(
+                list[EvidenceGraph], read_json(config.train_evidence_graphs)
+            ),
             train_pairs=cast(list[TrainPairRecord], read_json(config.train_pairs)),
             dev_requests=_text_requests(config, dev_records),
             dev_labels=_evidence_labels(
                 config, cast(list[object], read_json(config.dev_labels))
             ),
-            dev_graphs=cast(list[MemoryGraph], read_json(config.dev_graphs)),
+            dev_graphs=cast(list[EvidenceGraph], read_json(config.dev_evidence_graphs)),
             seed_checkpoint=(
                 config.seed_model_dir
                 if isinstance(config, SeededRgcnTrainStageConfig)
@@ -177,18 +179,6 @@ def _result_counts(payload: TrainPayload, result: TrainingResult) -> JsonObject:
     if isinstance(result, RgcnTrainingResult):
         counts["epochs"] = result.training_config.epochs
         counts["global_step"] = result.global_step
-        counts["decoder_config"] = cast(
-            JsonValue, result.model_config.decoder_config.to_json_dict()
-        )
-        counts["beam_search_config"] = cast(
-            JsonValue, result.model_config.beam_search_config.to_json_dict()
-        )
-        counts["beam_loss_config"] = cast(
-            JsonValue, result.training_config.beam_loss_config.to_json_dict()
-        )
-        counts["optimizer_phase_config"] = cast(
-            JsonValue, result.training_config.optimizer_phase_config.to_json_dict()
-        )
     elif isinstance(result, DenseFinetuneTrainingResult):
         pass
     else:

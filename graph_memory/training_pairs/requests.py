@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.retrieval.requests import TextRankingRequest
 
@@ -11,7 +11,7 @@ from graph_memory.retrieval.requests import TextRankingRequest
 class TrainPairBuildTask:
     text_request: TextRankingRequest
     label: EvidenceLabel
-    graph: MemoryGraph
+    graph: EvidenceGraph
 
 
 __all__ = ["TrainPairBuildTask"]

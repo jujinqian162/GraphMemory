@@ -1,0 +1,571 @@
+%File: anonymous-submission-latex-2026.tex
+\documentclass[letterpaper]{article} % DO NOT CHANGE THIS
+\usepackage[submission]{aaai2026}  % DO NOT CHANGE THIS
+\usepackage{times}  % DO NOT CHANGE THIS
+\usepackage{helvet}  % DO NOT CHANGE THIS
+\usepackage{courier}  % DO NOT CHANGE THIS
+\usepackage[hyphens]{url}  % DO NOT CHANGE THIS
+\usepackage{graphicx} % DO NOT CHANGE THIS
+\urlstyle{rm} % DO NOT CHANGE THIS
+\def\UrlFont{\rm}  % DO NOT CHANGE THIS
+\usepackage{natbib}  % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\usepackage{caption} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\frenchspacing  % DO NOT CHANGE THIS
+\setlength{\pdfpagewidth}{8.5in} % DO NOT CHANGE THIS
+\setlength{\pdfpageheight}{11in} % DO NOT CHANGE THIS
+%
+% These are recommended to typeset algorithms but not required. See the subsubsection on algorithms. Remove them if you don't have algorithms in your paper.
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+%
+% These are are recommended to typeset listings but not required. See the subsubsection on listing. Remove this block if you don't have listings in your paper.
+\usepackage{newfloat}
+\usepackage{listings}
+\DeclareCaptionStyle{ruled}{labelfont=normalfont,labelsep=colon,strut=off} % DO NOT CHANGE THIS
+\lstset{%
+	basicstyle={\footnotesize\ttfamily},% footnotesize acceptable for monospace
+	numbers=left,numberstyle=\footnotesize,xleftmargin=2em,% show line numbers, remove this entire line if you don't want the numbers.
+	aboveskip=0pt,belowskip=0pt,%
+	showstringspaces=false,tabsize=2,breaklines=true}
+\floatstyle{ruled}
+\newfloat{listing}{tb}{lst}{}
+\floatname{listing}{Listing}
+%
+% Keep the \pdfinfo as shown here. There's no need
+% for you to add the /Title and /Author tags.
+\pdfinfo{
+/TemplateVersion (2026.1)
+}
+
+% DISALLOWED PACKAGES
+% \usepackage{authblk} -- This package is specifically forbidden
+% \usepackage{balance} -- This package is specifically forbidden
+% \usepackage{color (if used in text)
+% \usepackage{CJK} -- This package is specifically forbidden
+% \usepackage{float} -- This package is specifically forbidden
+% \usepackage{flushend} -- This package is specifically forbidden
+% \usepackage{fontenc} -- This package is specifically forbidden
+% \usepackage{fullpage} -- This package is specifically forbidden
+% \usepackage{geometry} -- This package is specifically forbidden
+% \usepackage{grffile} -- This package is specifically forbidden
+% \usepackage{hyperref} -- This package is specifically forbidden
+% \usepackage{navigator} -- This package is specifically forbidden
+% (or any other package that embeds links such as navigator or hyperref)
+% \indentfirst} -- This package is specifically forbidden
+% \layout} -- This package is specifically forbidden
+% \multicol} -- This package is specifically forbidden
+% \nameref} -- This package is specifically forbidden
+% \usepackage{savetrees} -- This package is specifically forbidden
+% \usepackage{setspace} -- This package is specifically forbidden
+% \usepackage{stfloats} -- This package is specifically forbidden
+% \usepackage{tabu} -- This package is specifically forbidden
+% \usepackage{titlesec} -- This package is specifically forbidden
+% \usepackage{tocbibind} -- This package is specifically forbidden
+% \usepackage{ulem} -- This package is specifically forbidden
+% \usepackage{wrapfig} -- This package is specifically forbidden
+% DISALLOWED COMMANDS
+% \nocopyright -- Your paper will not be published if you use this command
+% \addtolength -- This command may not be used
+% \balance -- This command may not be used
+% \baselinestretch -- Your paper will not be published if you use this command
+% \clearpage -- No page breaks of any kind may be used for the final version of your paper
+% \columnsep -- This command may not be used
+% \newpage -- No page breaks of any kind may be used for the final version of your paper
+% \pagebreak -- No page breaks of any kind may be used for the final version of your paperr
+% \pagestyle -- This command may not be used
+% \tiny -- This is not an acceptable font size.
+% \vspace{- -- No negative value may be used in proximity of a caption, figure, table, section, subsection, subsubsection, or reference
+% \vskip{- -- No negative value may be used to alter spacing above or below a caption, figure, table, section, subsection, subsubsection, or reference
+
+\setcounter{secnumdepth}{0} %May be changed to 1 or 2 if section numbers are desired.
+
+% The file aaai2026.sty is the style file for AAAI Press
+% proceedings, working notes, and technical reports.
+%
+
+% Title
+
+% Your title must be in mixed case, not sentence case.
+% That means all verbs (including short verbs like be, is, using,and go),
+% nouns, adverbs, adjectives should be capitalized, including both words in hyphenated terms, while
+% articles, conjunctions, and prepositions are lower case unless they
+% directly follow a colon or long dash
+\title{Execution-Provenance Graph Memory \\ for Evidence Tracing in Multi-Agent Systems}
+\author{
+    %Authors
+    % All authors must be in the same font size and format.
+    Written by AAAI Press Staff\textsuperscript{\rm 1}\thanks{With help from the AAAI Publications Committee.}\\
+    AAAI Style Contributions by Pater Patel Schneider,
+    Sunil Issar,\\
+    J. Scott Penberthy,
+    George Ferguson,
+    Hans Guesgen,
+    Francisco Cruz\equalcontrib,
+    Marc Pujol-Gonzalez\equalcontrib
+}
+\affiliations{
+    %Afiliations
+    \textsuperscript{\rm 1}Association for the Advancement of Artificial Intelligence\\
+    % If you have multiple authors and multiple affiliations
+    % use superscripts in text and roman font to identify them.
+    % For example,
+
+    % Sunil Issar\textsuperscript{\rm 2},
+    % J. Scott Penberthy\textsuperscript{\rm 3},
+    % George Ferguson\textsuperscript{\rm 4},
+    % Hans Guesgen\textsuperscript{\rm 5}
+    % Note that the comma should be placed after the superscript
+
+    1101 Pennsylvania Ave, NW Suite 300\\
+    Washington, DC 20004 USA\\
+    % email address must be in roman text type, not monospace or sans serif
+    proceedings-questions@aaai.org
+%
+% See more examples next
+}
+
+%Example, Single Author, ->> remove \iffalse,\fi and place them surrounding AAAI title to use it
+\iffalse
+% \title{Execution-Provenance Graph Memory for Evidence Tracing in Multi-Agent Systems}
+\author {
+    Author Name
+}
+\affiliations{
+    Affiliation\\
+    Affiliation Line 2\\
+    name@example.com
+}
+\fi
+
+\iffalse
+%Example, Multiple Authors, ->> remove \iffalse,\fi and place them surrounding AAAI title to use it
+\title{My Publication Title --- Multiple Authors}
+\author {
+    % Authors
+    First Author Name\textsuperscript{\rm 1},
+    Second Author Name\textsuperscript{\rm 2},
+    Third Author Name\textsuperscript{\rm 1}
+}
+\affiliations {
+    % Affiliations
+    \textsuperscript{\rm 1}Affiliation 1\\
+    \textsuperscript{\rm 2}Affiliation 2\\
+    firstAuthor@affiliation1.com, secondAuthor@affilation2.com, thirdAuthor@affiliation1.com
+}
+\fi
+
+
+% REMOVE THIS: bibentry
+% This is only needed to show inline citations in the guidelines document. You should not need it and can safely delete it.
+\usepackage{bibentry}
+% END REMOVE bibentry
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Evidence-heavy multi-agent systems increasingly rely on multiple agents to coordinate over tool outputs, retrieved documents, logs, intermediate claims, and evolving task states. Existing memory mechanisms typically store agent histories or retrieve semantically similar records, but they often return isolated memories without exposing how evidence is produced, verified, reused, contradicted, or propagated across agents. We propose Execution-Provenance Graph Memory, a structured memory layer that represents observations, tool outputs, intermediate claims, verifications, agent decisions, and final answers as a typed graph. Instead of retrieving standalone memory items, our method retrieves compact evidence paths that connect current claims to their supporting sources and prior agent actions. We further introduce downstream impact tracing to identify which claims and answers are affected when evidence is revised or invalidated. Experiments on agent benchmarks augmented with provenance annotations show that our method improves evidence-path recall, reduces unsupported claims, and enables more accurate impact tracing compared with chronological, vector-based, and graph-based memory baselines.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+Large language model (LLM) agents increasingly rely on memory, tool
+use, and multi-agent collaboration to solve complex, long-horizon
+tasks~\cite{park2023generative,packer2023memgpt,yao2023react,
+wu2023autogen,li2023camel}. In practical applications such as cloud
+troubleshooting, enterprise question answering, deployment approval,
+and operational decision support, agents must coordinate over
+retrieved documents, tool outputs, logs, intermediate claims,
+verification results, and evolving task states. These applications are
+evidence-heavy: a final answer or decision is reliable only when it can
+be traced to the evidence and execution steps that support it.
+
+Existing agent-memory systems typically preserve interaction histories,
+reflections, observations, or task experiences and retrieve relevant
+records when needed~\cite{park2023generative,packer2023memgpt,
+shinn2023reflexion}. Tool-using and multi-agent frameworks similarly
+record actions, observations, messages, and tool results as execution
+traces~\cite{yao2023react,wu2023autogen}. In most cases, however, these
+records are stored as chronological histories, summaries, or
+independently embedded memory items. Such representations are effective
+for semantic recall, but they provide limited support for reasoning
+about how one memory item depends on another.
+
+This creates two fundamental limitations for evidence-heavy
+multi-agent reasoning. First, retrieved memories are often
+\emph{evidence-fragmented}: they may be semantically related to a
+claim, yet fail to reveal the complete support path connecting source
+evidence, tool outputs, intermediate claims, agent actions, and
+verification results. Second, existing memory systems are largely
+\emph{revision-blind}: when evidence is contradicted, updated, or
+invalidated, they cannot reliably determine which downstream claims,
+decisions, or answers should be reconsidered. Consequently, semantic
+relevance alone does not guarantee evidential validity.
+
+Recent graph-based retrieval and memory methods partially address the
+first limitation by organizing documents, entities, or memories into
+relational structures~\cite{edge2024graphrag,gutierrez2024hipporag,
+guo2024lightrag,xu2025amem,rezazadeh2025collaborative}. These methods
+show that graph structures can improve retrieval, long-term recall, and
+memory organization. Nevertheless, their relations are primarily
+semantic, entity-level, or access-oriented. They do not explicitly
+model how evidence flows through a multi-agent execution process:
+which agent produced a claim, which tool output supports it, whether
+another agent verified it, where it was reused, or which downstream
+outputs depend on it. This gap is particularly important because
+multi-agent systems may fail through coordination, verification, and
+failure-localization errors~\cite{cemri2025why}.
+
+Consider a cloud troubleshooting task in which an agent infers from an
+early log that a model training job failed because of a storage
+permission error. A second agent verifies the diagnosis, and a third
+agent incorporates it into the final answer. Suppose a later tool call
+shows that the storage permissions were valid and that the failure had
+a different cause. A chronological or vector-based memory may still
+retrieve the earlier diagnosis because it remains semantically relevant.
+A conventional graph memory may connect related concepts, but still
+fail to identify the exact evidence path supporting the diagnosis or
+the final answer that depends on it. The system therefore needs not
+only relevant memories, but explicit execution-level evidence paths and
+downstream dependency information.
+
+This observation motivates a different view of multi-agent memory.
+Rather than treating memory as an unordered collection of retrievable
+records, we argue that it should be organized around the execution
+dependencies connecting evidence, agents, claims, verifications,
+decisions, and final outputs. Such a representation should preserve how
+information is produced, derived, verified, reused, contradicted, and
+propagated across agents. It should also support non-destructive
+revision, so that outdated information remains auditable while its
+downstream effects can be identified.
+
+Realizing this idea introduces three technical challenges. First, the
+system must construct reliable provenance relations from heterogeneous
+execution events, including agent messages, tool calls, tool outputs,
+retrieved documents, and verification results. Second, it must retrieve
+a compact evidence subgraph rather than an unrestricted neighborhood
+filled with loosely related or redundant execution traces. In
+particular, it must distinguish evidential support from semantic
+similarity. Third, when evidence is revised or invalidated, the system
+must propagate the change through dependency relations and identify
+the claims, decisions, and answers that require re-verification.
+
+To address these challenges, we propose
+\emph{Execution-Provenance Graph Memory} (EPGM), a structured memory
+layer for evidence-heavy multi-agent systems, as illustrated in
+Figure~\ref{fig:epgm-overview}. EPGM incrementally
+converts execution events into a typed directed graph whose nodes
+represent tasks, agents, observations, tool calls, tool outputs,
+evidence items, intermediate claims, verification results, decisions,
+and answers. Typed edges capture relations such as production,
+derivation, support, verification, contradiction, reuse, invalidation,
+and downstream dependence. Based on this representation, EPGM performs
+provenance-constrained evidence tracing: it first identifies
+semantically relevant seed nodes and then expands only along
+provenance-preserving paths to construct a compact evidence subgraph.
+EPGM further performs downstream impact tracing to locate outputs
+affected by revised, contradicted, or invalidated evidence.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.96\textwidth]{figs/epgm_overview.png}
+    \caption{Overview of Execution-Provenance Graph Memory.
+    EPGM incrementally converts multi-agent execution events into a
+    typed provenance graph, retrieves compact evidence paths for
+    grounded reasoning, and traces downstream outputs affected by
+    revised or invalidated evidence.}
+    \label{fig:epgm-overview}
+\end{figure*}
+
+We evaluate EPGM on agent benchmarks augmented with provenance and
+evidence-revision annotations. Beyond final task success, we measure
+evidence recall, evidence-path recall, unsupported claim rate, and
+impact tracing accuracy. We compare EPGM with chronological,
+recency-based, vector-based, summary-based, and graph-based memory
+baselines. The results show that EPGM retrieves more complete evidence
+paths, reduces unsupported claims, and more accurately identifies
+outputs affected by revised evidence. Ablation studies further show
+that explicit provenance relations, support-aware expansion, and
+downstream dependency tracing each contribute to the observed gains.
+
+Our contributions are summarized as follows:
+\begin{itemize}
+    \item We identify evidence fragmentation and revision blindness as
+    two central limitations of existing memory mechanisms for
+    evidence-heavy multi-agent reasoning.
+
+    \item We propose EPGM, a typed execution-provenance memory graph
+    with online graph construction, provenance-constrained evidence
+    tracing, and downstream impact analysis.
+
+    \item We introduce provenance-aware evaluation settings and show
+    that EPGM improves evidence-path retrieval, reduces unsupported
+    claims, and enables more accurate revision impact tracing over
+    strong memory baselines.
+\end{itemize}
+
+
+
+\section{Related Work}
+
+\subsection{Memory and Retrieval for Language Agents}
+
+Memory has become a central component of language-agent systems, enabling agents to retain past observations, interactions, reflections, and task experiences beyond the immediate context window. Generative Agents introduced a memory stream that stores observations and supports reflection and planning over past experiences~\cite{park2023generative}. Reflexion further showed that verbal feedback can serve as episodic memory to improve subsequent agent trials~\cite{shinn2023reflexion}. MemGPT frames memory management as a system-level problem, separating short-term context from longer-term archival and recall memory~\cite{packer2023memgpt}. These works demonstrate that memory is important for persistent and adaptive agent behavior.
+
+Retrieval-augmented generation and dense retrieval methods provide another foundation for agent memory, where relevant external information is retrieved and injected into the model context~\cite{lewis2020rag,karpukhin2020dpr}. More recent agent-memory systems move beyond flat retrieval by organizing memories into structured or evolving forms. A-MEM dynamically constructs interconnected memory notes to support long-term agent memory evolution~\cite{xu2025amem}, while Collaborative Memory studies memory sharing across users and agents with dynamic access control~\cite{rezazadeh2025collaborative}. These methods improve long-term recall, memory organization, and memory sharing. However, they primarily focus on what memories should be stored, linked, shared, or retrieved. In contrast, our work focuses on how memories function as evidence within a multi-agent execution process: how they are produced, verified, reused, contradicted, and propagated across agents. Rather than retrieving isolated memory items, our method retrieves evidence paths that connect observations, tool outputs, intermediate claims, and final answers.
+
+\subsection{Tool Use, Multi-Agent Systems, and Evidence Grounding}
+
+Tool use enables language models to interact with external environments, APIs, documents, and computational resources. MRKL systems combine language models with external symbolic modules and knowledge sources~\cite{karpas2022mrkl}. Toolformer studies how language models can learn to call tools through self-supervised signals~\cite{schick2023toolformer}. ReAct interleaves reasoning and acting, producing trajectories that contain thoughts, actions, and observations~\cite{yao2023react}. Such trajectories naturally contain valuable execution evidence, including tool calls, tool outputs, intermediate observations, and reasoning steps.
+
+Multi-agent systems extend this paradigm by allowing multiple language agents to communicate, specialize, and coordinate over complex tasks. CAMEL explores role-playing communicative agents for cooperative problem solving~\cite{li2023camel}, and AutoGen provides a framework for building LLM applications through multi-agent conversation~\cite{wu2023autogen}. While multi-agent collaboration increases flexibility, it also introduces new failure modes. Recent analysis shows that multi-agent LLM systems may fail due to specification errors, inter-agent misalignment, verification failures, and coordination issues~\cite{cemri2025why}. These failures are particularly important in evidence-heavy tasks, where final answers depend on multiple sources, tool outputs, and intermediate claims.
+
+Existing tool-use and multi-agent systems often record execution traces, but these traces are usually treated as logs, conversational histories, or unstructured contexts. As a result, it remains difficult to answer questions such as which agent produced a claim, which evidence supports it, whether the evidence was verified, and which downstream decisions depend on it. Our work addresses this gap by converting multi-agent execution traces into a typed provenance graph. This allows agents to retrieve structured evidence paths and enables downstream impact tracing when evidence is revised or invalidated.
+
+\subsection{Graph-Based Dependency Modeling}
+
+Graphs provide a natural way to represent entities, relations, dependencies, and information flow. In retrieval-augmented generation, graph-based methods have been used to organize knowledge and improve reasoning over complex corpora. GraphRAG constructs graph structures over text collections to support query-focused summarization~\cite{edge2024graphrag}. HippoRAG combines knowledge graphs with long-term memory retrieval inspired by human memory mechanisms~\cite{gutierrez2024hipporag}. LightRAG further explores graph-enhanced retrieval to capture relationships that may be missed by flat vector representations~\cite{guo2024lightrag}. These works show that graph structures can improve retrieval by exposing relationships among documents, entities, and concepts.
+
+Graph-based memory methods also demonstrate the value of relational organization for agents. A-MEM links memory notes into an evolving memory network~\cite{xu2025amem}, and Collaborative Memory represents memory sharing and access relations across users and agents~\cite{rezazadeh2025collaborative}. However, existing graph-based retrieval and memory methods usually model semantic, entity-level, or access-control relationships. They do not explicitly model execution-level evidence dependencies among agents, tool outputs, intermediate claims, verification results, and final answers.
+
+Our work is also related to provenance modeling and distributed tracing. The W3C PROV model defines provenance as information about entities, activities, and agents involved in producing a result~\cite{w3c2013provdm,lebo2013provo,missier2013prov}. Distributed tracing systems such as OpenTelemetry record execution paths across software components~\cite{opentelemetry2026traces}. Inspired by these ideas, we model multi-agent memory as an execution-provenance graph. Unlike traditional provenance systems that primarily support retrospective data or system auditing, our graph memory is designed to be actively used by language agents for evidence-path retrieval, grounded generation, and downstream impact tracing.
+
+
+\section{Problem Formulation}
+
+We study evidence tracing in evidence-heavy multi-agent systems. A task is solved by a set of language agents $\mathcal{A}=\{a_1,\ldots,a_m\}$ that interact with external tools, documents, logs, environments, or other agents. During execution, agents produce observations, tool calls, tool outputs, intermediate claims, verification results, and final answers. Unlike standard memory retrieval, where the goal is to retrieve semantically relevant past records, our goal is to retrieve the evidence path that explains how a claim or answer is supported by prior execution evidence.
+
+Let a multi-agent task be denoted by $q$, and let its execution trace be
+\[
+\tau_q = \{s_1, s_2, \ldots, s_T\},
+\]
+where each step $s_t$ records an agent action or message at time $t$. A step may contain a tool call, a tool output, a retrieved document, an observation, an intermediate claim, a verification decision, or a final answer. Existing memory mechanisms typically store $\tau_q$ as a chronological history or embed each step independently for retrieval. However, this loses the structural dependencies among evidence, claims, agents, and final decisions.
+
+
+We formulate evidence tracing as follows. Given a query $q$, a claim
+$c$, and a graph memory $\mathcal{M}$, the system retrieves a compact
+evidence subgraph
+\[
+S_c \subseteq \mathcal{M}.
+\]
+The subgraph contains evidence, tool outputs, agent actions, and
+intermediate claims that support, verify, contradict, or otherwise
+influence $c$.
+
+For a candidate subgraph $S$, we define
+\begin{equation}
+\begin{aligned}
+U(S,c) ={}&
+R(S,c)
++ \lambda_1 C(S,c) \\
+&+ \lambda_2 P(S,c)
+- \lambda_3 N(S),
+\end{aligned}
+\end{equation}
+where $R$ denotes relevance, $C$ support coverage, $P$ provenance
+completeness, and $N$ irrelevant or unsupported context.
+
+The evidence tracing objective is
+\begin{equation}
+S_c^{*}
+=
+\arg\max_{S \subseteq \mathcal{M}}
+U(S,c).
+\end{equation}
+
+
+
+In addition to retrieval, we consider memory revision. If an evidence item $e$ is updated, contradicted, or invalidated, the system should identify the affected downstream claims and final answers. This requires tracing the dependency structure from $e$ to all claims, decisions, and answers that depend on it. We therefore define downstream impact tracing as
+\[
+\text{Impact}(e) = 
+\{v \in \mathcal{M} \mid e \leadsto v\},
+\]
+where $e \leadsto v$ denotes that there exists a directed dependency path from evidence item $e$ to node $v$ through support, derivation, usage, or verification relations.
+
+\section{Execution-Provenance Graph Memory}
+
+To address the above problem, we propose \emph{Execution-Provenance Graph Memory} (EPGM), a structured memory layer that represents multi-agent execution traces as a typed directed graph. The key idea is to treat memory not as a flat set of past records, but as a graph of execution dependencies. This allows agents to retrieve not only relevant memory items, but also the evidence paths that explain how information was produced, verified, reused, contradicted, and propagated across agents.
+
+
+
+\subsection{Graph Memory Representation}
+\label{sec:graph-memory-representation}
+
+We represent shared memory as a typed directed graph
+\begin{equation}
+\mathcal{G}=(\mathcal{V},\mathcal{E},\phi,\psi),
+\end{equation}
+where $\mathcal{V}$ and $\mathcal{E}$ denote the node and edge sets.
+The mappings $\phi:\mathcal{V}\rightarrow\mathcal{T}_v$ and
+$\psi:\mathcal{E}\rightarrow\mathcal{T}_e$ assign node and edge types,
+respectively.
+
+The graph contains ten node types: \texttt{Task}, \texttt{Agent},
+\texttt{Observation}, \texttt{ToolCall}, \texttt{ToolOutput},
+\texttt{Evidence}, \texttt{Claim}, \texttt{Verification},
+\texttt{Decision}, and \texttt{Answer}. Each node records its textual
+content, timestamp, producing agent, source metadata, confidence score,
+and an optional embedding. For example, a \texttt{ToolOutput} node
+stores an API response or log entry, whereas a \texttt{Claim} node
+stores an intermediate conclusion.
+
+The graph also contains nine edge types:
+\texttt{produced\_by}, \texttt{derived\_from}, \texttt{supports},
+\texttt{contradicts}, \texttt{used\_by}, \texttt{verified\_by},
+\texttt{depends\_on}, \texttt{invalidates}, and \texttt{affects}.
+These edges describe how information is produced, derived, supported,
+verified, reused, contradicted, and invalidated during execution.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figs/epgm_example.png}
+    \caption{Running example of execution-provenance memory.
+    An initial tool output supports a diagnosis claim that is verified
+    and reused in a final answer. Later evidence contradicts the claim,
+    allowing EPGM to identify the affected downstream answer for
+    re-verification.}
+    \label{fig:epgm-example}
+\end{figure}
+
+Figure~\ref{fig:epgm-example} illustrates a typical provenance chain. A Kubernetes event may be recorded as a \texttt{ToolOutput},
+transformed into \texttt{Evidence}, used to derive a \texttt{Claim}, and finally incorporated into an \texttt{Answer}.
+
+Unlike conventional knowledge graphs, which mainly represent
+entity-level facts, our graph captures execution-level dependencies.
+It records who produced a memory item, what evidence supports it,
+whether it was verified or contradicted, where it was reused, and which
+downstream outputs depend on it.
+
+Each node has one of five lifecycle states: \texttt{active},
+\texttt{verified}, \texttt{contradicted}, \texttt{invalidated}, or
+\texttt{deprecated}. When new evidence conflicts with an existing node,
+the node is marked as \texttt{contradicted} or \texttt{invalidated}
+rather than deleted. Its provenance links are retained for auditing and
+for identifying downstream claims, decisions, or answers that may rely
+on outdated information.
+
+
+
+\subsection{Online Graph Construction}
+
+EPGM is constructed online during multi-agent execution. At each time step $t$, the system observes an execution event $s_t$ and updates the graph memory accordingly. The event may be an agent message, a tool call, a tool output, a retrieved document, an intermediate claim, a verification result, or a final answer.
+
+For each event $s_t$, the construction process performs three operations.
+
+First, the system creates or updates typed nodes. If $s_t$ is a tool call, a \texttt{ToolCall} node is created and connected to the corresponding \texttt{Agent} and \texttt{Task}. If $s_t$ is a tool output, a \texttt{ToolOutput} node is created and linked to the tool call that produced it. If an agent generates an intermediate claim, a \texttt{Claim} node is created and associated with the agent and task.
+
+Second, the system extracts provenance relations. Given the current event and the recent execution context, the system identifies which prior nodes are used to produce the new node. For example, if a claim is generated based on a tool output and a retrieved document, the graph adds \texttt{derived\_from} edges from these evidence nodes to the claim node. If a verifier agent confirms the claim, a \texttt{verified\_by} edge is added. If new evidence conflicts with an existing claim, a \texttt{contradicts} edge is added.
+
+Third, the system updates dependency states. When a node is marked as contradicted or invalidated, EPGM does not immediately remove it from memory. Instead, the graph records the invalidation relation and updates the state of affected nodes. This preserves the full audit trail and allows downstream impact tracing.
+
+The online construction procedure can be summarized as:
+\[
+\mathcal{G}_t = \textsc{UpdateGraph}(\mathcal{G}_{t-1}, s_t),
+\]
+where $\mathcal{G}_{t-1}$ is the memory graph before step $t$, and $\mathcal{G}_t$ is the updated memory graph.
+
+In practice, relation extraction can be implemented using a hybrid strategy. Some edges are deterministic: for example, a tool output is always \texttt{derived\_from} the corresponding tool call, and a message is always \texttt{produced\_by} its agent. Other edges require semantic inference, such as whether an evidence node supports or contradicts a claim. These edges can be extracted using a lightweight LLM-based verifier or a trained entailment model. To reduce noise, we only add semantic edges when the confidence score exceeds a threshold $\theta$.
+
+```latex
+
+\subsection{Evidence Tracing over Graph Memory}
+\label{sec:evidence-tracing}
+
+Given a claim or query, EPGM retrieves a compact evidence subgraph
+rather than a flat list of memory items. Evidence tracing consists of
+two stages: seed selection and provenance-constrained expansion.
+
+During seed selection, the system identifies nodes that are
+semantically relevant to a target claim $c$. Each node
+$v\in\mathcal{V}$ receives the relevance score
+\begin{equation}
+r(v,c)=\operatorname{sim}(\mathbf{h}_v,\mathbf{h}_c),
+\end{equation}
+where $\mathbf{h}_v$ and $\mathbf{h}_c$ denote the embeddings of
+$v$ and $c$, respectively. The highest-scoring nodes are retained as
+seeds.
+
+During subgraph expansion, EPGM follows typed edges from the seeds to
+recover their supporting provenance paths. A candidate path is
+\[
+p=(v_1,\ldots,v_\ell),
+\]
+where $v_1$ is an evidence or tool-output node, $v_\ell$ is a claim or
+answer, and each edge represents support, derivation, usage, or
+verification.
+
+We score each path as
+\begin{equation}
+\begin{aligned}
+s(p,c)={}&
+\alpha R(p,c)+\beta C(p)\\
+&+\gamma P(p)-\delta L(p),
+\end{aligned}
+\end{equation}
+where $R$ denotes semantic relevance, $C$ confidence, $P$ provenance
+completeness, and $L$ path length. The provenance term favors paths
+that retain source and verification nodes, while the length term
+discourages unnecessary expansion.
+
+The retrieved context is the union of the top-$k$ paths:
+\begin{equation}
+S_c=\bigcup_{p\in\mathcal{P}_k(c)} p,
+\end{equation}
+where $\mathcal{P}_k(c)$ is the set of highest-scoring evidence paths
+for $c$. The resulting subgraph is serialized into structured context
+for answer generation or verification.
+
+Evidence tracing also supports downstream impact analysis. When an
+evidence node $e$ is revised or invalidated, EPGM traverses outgoing
+dependency edges and collects reachable output nodes:
+\begin{equation}
+\begin{aligned}
+\mathcal{I}(e)=\{v\mid{}&
+e\leadsto v,\\
+&
+\phi(v)\in\mathcal{T}_{\mathrm{out}}\},
+\end{aligned}
+\end{equation}
+where
+\[
+\mathcal{T}_{\mathrm{out}}
+=
+\{\texttt{Claim},\texttt{Decision},\texttt{Answer}\}.
+\]
+Nodes in $\mathcal{I}(e)$ are marked for re-verification. This allows
+the system to identify which answers depend on revised evidence, which
+agents reused it, and which intermediate claims should be recomputed.
+
+Unlike vector memory, EPGM retrieves structured support paths rather
+than isolated, semantically similar snippets. Unlike ordinary graph
+memory, it preserves execution-level provenance, including agent
+actions, tool outputs, verification results, and downstream
+dependencies. The resulting memory is therefore retrievable,
+auditable, and revisable.
+
+
+
+
+
+\section{Experiments}
+\subsection{Experimental Setup}
+\subsection{Main Results}
+\subsection{Ablation Study}
+\subsection{Error and Efficiency Analysis}
+
+\section{Conclusion}
+
+We proposed Execution-Provenance Graph Memory for evidence tracing in evidence-heavy multi-agent systems. Instead of retrieving isolated memory records, our method represents observations, tool outputs, intermediate claims, verifications, agent decisions, and final answers as a typed provenance graph. This enables agents to retrieve compact evidence paths, ground claims in traceable sources, and identify downstream claims or answers affected by revised or invalid evidence. Experiments on agent benchmarks with provenance annotations show that our method improves evidence-path recall, reduces unsupported claims, and provides more accurate impact tracing than chronological, vector-based, and graph-based memory baselines. These results suggest that multi-agent memory should support not only recall, but also provenance, coordination, and auditabil
+
+\section{Acknowledgments}
+
+
+\bigskip
+\noindent Thank you for reading these instructions carefully. We look forward to receiving your electronic files!
+
+\bibliography{reference} 
+
+\end{document}

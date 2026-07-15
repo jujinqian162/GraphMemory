@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypeVar
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.registry.ids import StrEnum
-from graph_memory.retrieval.methods.memory_stream.config import MemoryStreamScoringConfig
+from graph_memory.registry.semantics import RetrievalTaskFamily
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
-from graph_memory.retrieval.requests import TemporalMemoryRankingRequest, TextRankingRequest
+from graph_memory.retrieval.methods.execution_provenance import (
+    ExecutionProvenanceConfig,
+)
+from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
+)
 
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
     from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
-    from graph_memory.retrieval.methods.memory_stream.contracts import ImportanceArtifact
     from graph_memory.retrieval.signals import SeedSignalProvider
 
 PayloadT = TypeVar("PayloadT")
@@ -24,12 +30,20 @@ PayloadT = TypeVar("PayloadT")
 class RetrievalMethodId(StrEnum):
     BM25 = "bm25"
     DENSE = "dense"
-    MEMORY_STREAM = "memory_stream"
     DENSE_FT = "dense_ft"
-    BM25_GRAPH_RERANK = "bm25_graph_rerank"
-    DENSE_GRAPH_RERANK = "dense_graph_rerank"
+    GRAPHRAG = "graphrag"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
     DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
+    EXECUTION_PROVENANCE_RETRIEVER = "execution_provenance_retriever"
+
+
+class RequestValidator(Protocol):
+    def validate_request(
+        self,
+        method: str | RetrievalMethodId,
+        request: object,
+        family: RetrievalTaskFamily,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -54,39 +68,11 @@ class DenseRetrievalSettings:
 
 
 @dataclass(frozen=True)
-class MemoryStreamRetrievalSettings:
+class GraphRAGRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
-    scoring: MemoryStreamScoringConfig = field(
-        default_factory=MemoryStreamScoringConfig
-    )
-    capped_test_count: int | None = None
-    method: Literal[RetrievalMethodId.MEMORY_STREAM] = RetrievalMethodId.MEMORY_STREAM
-
-    def __post_init__(self) -> None:
-        if self.capped_test_count is not None:
-            if isinstance(self.capped_test_count, bool) or not isinstance(self.capped_test_count, int):
-                raise ValueError("Memory Stream capped_test_count must be an integer.")
-            if self.capped_test_count < 0:
-                raise ValueError("Memory Stream capped_test_count must be non-negative.")
-
-
-def _default_neighbor_type_weights() -> dict[str, float]:
-    from graph_memory.retrieval.methods.graph_rerank.config import default_neighbor_type_weights
-
-    return default_neighbor_type_weights()
-
-
-@dataclass(frozen=True)
-class GraphRerankSettings:
-    lambda_init: float = 1.0
-    lambda_query: float = 0.1
-    lambda_neighbor: float = 0.2
-    lambda_bridge: float = 0.1
-    lambda_path: float = 0.0
-    seed_top_s: int = 30
-    max_hops: int = 2
-    neighbor_type_weights: dict[str, float] = field(default_factory=_default_neighbor_type_weights)
+    config: GraphRAGConfig = GraphRAGConfig()
+    method: Literal[RetrievalMethodId.GRAPHRAG] = RetrievalMethodId.GRAPHRAG
 
 
 @dataclass(frozen=True)
@@ -96,15 +82,7 @@ class SeedRetrievalSettings:
 
 
 @dataclass(frozen=True)
-class GraphRerankRetrievalSettings:
-    method: Literal[RetrievalMethodId.BM25_GRAPH_RERANK, RetrievalMethodId.DENSE_GRAPH_RERANK]
-    top_k: int
-    seed: SeedRetrievalSettings
-    rerank: GraphRerankSettings
-
-
-@dataclass(frozen=True)
-class CheckpointGraphRetrievalSettings:
+class EvidenceRgcnRetrievalSettings:
     top_k: int
     checkpoint: Path
     device: str
@@ -122,21 +100,24 @@ class DenseFinetunedRetrievalSettings:
     method: Literal[RetrievalMethodId.DENSE_FT] = RetrievalMethodId.DENSE_FT
 
 
+@dataclass(frozen=True)
+class ExecutionProvenanceRetrievalSettings:
+    top_k: int
+    encoder: DenseEncoderSettings
+    config: ExecutionProvenanceConfig = ExecutionProvenanceConfig()
+    method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER] = (
+        RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER
+    )
+
+
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
-    | MemoryStreamRetrievalSettings
-    | GraphRerankRetrievalSettings
-    | CheckpointGraphRetrievalSettings
     | DenseFinetunedRetrievalSettings
+    | GraphRAGRetrievalSettings
+    | EvidenceRgcnRetrievalSettings
+    | ExecutionProvenanceRetrievalSettings
 )
-
-
-@dataclass(frozen=True)
-class ImportanceArtifactProvenance:
-    path: Path
-    sha256: str
-    schema_version: int
 
 
 @dataclass(frozen=True)
@@ -145,7 +126,6 @@ class RetrievalProvenance:
     model: Path | None
     device: str | None
     encoder: DenseEncoderSettings | None
-    importance: ImportanceArtifactProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -162,46 +142,50 @@ class SeedRetrieverBuildPayload:
 
 @dataclass(frozen=True)
 class FlatRetrievalBuildPayload:
-    ranking_requests: list[TextRankingRequest]
+    text_requests: list[TextRankingRequest]
+    task_family: RetrievalTaskFamily = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
-class MemoryStreamBuildPayload:
-    temporal_requests: list[TemporalMemoryRankingRequest]
-    importance_artifact: "ImportanceArtifact"
-    importance_path: Path
-    importance_sha256: str
-    scoring_config: MemoryStreamScoringConfig | None = None
+class GraphRAGBuildPayload:
+    text_requests: list[TextRankingRequest]
+    task_family: RetrievalTaskFamily = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
-class GraphRerankBuildPayload:
-    ranking_requests: list[TextRankingRequest]
-    graphs: list[MemoryGraph]
-    graph_config: object | Mapping[str, object] | None = None
-    dense_encoder: "SentenceEncoder | None" = None
-
-
-@dataclass(frozen=True)
-class CheckpointGraphBuildPayload:
-    ranking_requests: list[TextRankingRequest]
-    graphs: list[MemoryGraph]
+class EvidenceRgcnBuildPayload:
+    text_requests: list[TextRankingRequest]
+    evidence_graphs: list[EvidenceGraph]
     dense_encoder: "SentenceEncoder | None" = None
     text_embedding_provider: "TextEmbeddingProvider | None" = None
     seed_signal_provider: "SeedSignalProvider | None" = None
 
 
-def _require_payload(payload: object, expected_type: type[PayloadT], *, method: str) -> PayloadT:
+@dataclass(frozen=True)
+class ExecutionProvenanceBuildPayload:
+    provenance_requests: list[ExecutionProvenanceRankingRequest]
+    dense_encoder: "SentenceEncoder | None" = None
+
+
+def _require_payload(
+    payload: object,
+    expected_type: type[PayloadT],
+    *,
+    method: str,
+) -> PayloadT:
     if isinstance(payload, expected_type):
         return payload
-    raise TypeError(f"{method} expected {expected_type.__name__}, got {type(payload).__name__}.")
+    raise TypeError(
+        f"{method} expected {expected_type.__name__}, got {type(payload).__name__}."
+    )
 
 
 @dataclass(frozen=True)
 class RetrievalBuilderSpec:
     settings_type: type[object]
+    payload_type: type[object]
     build: Callable[[RetrievalJobSettings, object], BuiltRetrievalMethod]
 
 
@@ -209,33 +193,57 @@ class RetrievalBuilderSpec:
 class RetrievalRegistry:
     builders: Mapping[type[object], RetrievalBuilderSpec]
     seed_build: Callable[[SeedRetrievalSettings, object], "SeedRanker"]
+    method_registry: RequestValidator
 
-    def build_seed(self, settings: SeedRetrievalSettings, payload: object) -> SeedRanker:
+    def build_seed(
+        self, settings: SeedRetrievalSettings, payload: object
+    ) -> SeedRanker:
         return self.seed_build(settings, payload)
 
-    def build(self, settings: RetrievalJobSettings, payload: object) -> BuiltRetrievalMethod:
+    def build(
+        self, settings: RetrievalJobSettings, payload: object
+    ) -> BuiltRetrievalMethod:
         try:
             spec = self.builders[type(settings)]
         except KeyError as error:
-            raise ValueError(f"Unsupported retrieval settings type: {type(settings).__name__}") from error
-        return spec.build(settings, payload)
+            raise ValueError(
+                f"Unsupported retrieval settings type: {type(settings).__name__}"
+            ) from error
+        _require_payload(payload, spec.payload_type, method=settings.method.value)
+        built = spec.build(settings, payload)
+        family = _payload_family(payload)
+        for task in built.execution_tasks:
+            self.method_registry.validate_request(
+                settings.method,
+                task.method_request,
+                family,
+            )
+        return built
+
+
+def _payload_family(payload: object) -> RetrievalTaskFamily:
+    if isinstance(payload, (FlatRetrievalBuildPayload, GraphRAGBuildPayload)):
+        return payload.task_family
+    if isinstance(payload, EvidenceRgcnBuildPayload):
+        return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    if isinstance(payload, ExecutionProvenanceBuildPayload):
+        return RetrievalTaskFamily.EXECUTION_PROVENANCE
+    raise TypeError(f"Unknown retrieval payload type: {type(payload).__name__}.")
 
 
 __all__ = [
     "Bm25RetrievalSettings",
     "BuiltRetrievalMethod",
-    "CheckpointGraphBuildPayload",
-    "CheckpointGraphRetrievalSettings",
     "DenseEncoderSettings",
     "DenseFinetunedRetrievalSettings",
     "DenseRetrievalSettings",
+    "EvidenceRgcnBuildPayload",
+    "EvidenceRgcnRetrievalSettings",
+    "ExecutionProvenanceBuildPayload",
+    "ExecutionProvenanceRetrievalSettings",
     "FlatRetrievalBuildPayload",
-    "GraphRerankBuildPayload",
-    "GraphRerankRetrievalSettings",
-    "GraphRerankSettings",
-    "ImportanceArtifactProvenance",
-    "MemoryStreamBuildPayload",
-    "MemoryStreamRetrievalSettings",
+    "GraphRAGBuildPayload",
+    "GraphRAGRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

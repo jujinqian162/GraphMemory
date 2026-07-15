@@ -5,9 +5,10 @@ from inspect import Parameter, signature
 from pathlib import Path
 
 import torch
+import pytest
 
 from graph_memory.datasets.hotpotqa.projectors import (
-    HotpotQAToGraphRankingRequest,
+    HotpotQAToEvidenceGraphRankingRequest,
     HotpotQAToTextRankingRequest,
 )
 from graph_memory.experiment.persistence import write_yaml_atomic
@@ -23,8 +24,8 @@ from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
-    CheckpointGraphBuildPayload,
-    CheckpointGraphRetrievalSettings,
+    EvidenceRgcnBuildPayload,
+    EvidenceRgcnRetrievalSettings,
     RetrievalMethodId,
 )
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
@@ -77,16 +78,16 @@ def run_retrieval(
         raise ValueError(f"Unsupported test method: {method}")
     if checkpoint_path is None:
         raise ValueError("checkpoint_path is required")
-    settings = CheckpointGraphRetrievalSettings(
+    settings = EvidenceRgcnRetrievalSettings(
         top_k=top_k,
         checkpoint=Path(checkpoint_path),
         device=device,
     )
     built = Registry.retrieval.build(
         settings,
-        CheckpointGraphBuildPayload(
-            ranking_requests=_ranking_requests(task_inputs),
-            graphs=graphs,
+        EvidenceRgcnBuildPayload(
+            text_requests=_ranking_requests(task_inputs),
+            evidence_graphs=graphs,
             text_embedding_provider=text_embedding_provider,
             seed_signal_provider=seed_signal_provider,
         ),
@@ -151,7 +152,7 @@ def write_rgcn_retrieve_stage_config(
         variant=None,
         dataset="hotpotqa",
         tasks=tasks_path,
-        graphs=graphs_path,
+        evidence_graphs=graphs_path,
         output=output_path,
         top_k=top_k,
         checkpoint=checkpoint_path,
@@ -173,7 +174,7 @@ def write_rgcn_retrieve_stage_config(
                     kind="file",
                 ),
                 ArtifactRef(
-                    role="graphs",
+                    role="evidence_graphs",
                     path=graphs_path.resolve(),
                     kind="file",
                 ),
@@ -200,7 +201,7 @@ def tiny_graph_ranking_request():
     record = tiny_task_inputs()[0]
     text_request = HotpotQAToTextRankingRequest().project(record)
     signals = RetrieverSeedSignalProvider(FakeRetriever()).score_task(text_request)
-    return HotpotQAToGraphRankingRequest().project(
+    return HotpotQAToEvidenceGraphRankingRequest().project(
         record,
         tiny_graphs()[0],
         {signal.node_id: signal.score for signal in signals},
@@ -224,9 +225,6 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     assert {node.node_id for node in ranked_nodes} == {"m0", "m1", "m2"}
     assert all(math.isfinite(node.score) for node in ranked_nodes)
     assert len({node.node_id for node in ranked_nodes}) == len(ranked_nodes)
-    assert result.trace.metadata["beam_size"] == 2
-    assert result.trace.metadata["max_steps"] == 5
-    assert isinstance(result.trace.metadata["selected_sequence"], list)
     assert all(
         edge["source"] in top_node_ids and edge["target"] in top_node_ids
         for edge in retrieved_edges
@@ -240,6 +238,18 @@ def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
     assert parameters["seed_signal_provider"].default is Parameter.empty
     assert "graphs" not in parameters
     assert "dense_encoder" not in parameters
+
+
+def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "legacy-beam.pt"
+    write_tiny_checkpoint(checkpoint_path)
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    payload.pop("schema_version")
+    payload["model_config"]["decoder_config"] = {"hidden_dim": 8}
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(ValueError, match="Incompatible R-GCN checkpoint schema"):
+        load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
 
 
 def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
@@ -278,7 +288,7 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
     write_tiny_checkpoint(checkpoint_path)
 
     definition = Registry.methods.get("dense_rgcn_graph_retriever")
-    assert definition.dependencies.graphs.value == "graph_artifact"
+    assert definition.input_spec.required_artifact.value == "evidence_graph"
     assert definition.dependencies.model.value == "checkpoint_file"
     assert definition.seed_method is not None
     assert definition.seed_method.value == "dense"
@@ -297,12 +307,10 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
     assert predictions[0]["retrieved_subgraph"]["nodes"] == [
         ranked_node["node_id"] for ranked_node in predictions[0]["ranked_nodes"][:2]
     ]
-    metadata = predictions[0].get("metadata", {})
-    assert metadata["beam_size"] == 2
-    assert metadata["max_steps"] == 5
+    assert "metadata" not in predictions[0]
 
 
-def test_checkpoint_graph_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
+def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
     tmp_path: Path,
 ):
     checkpoint_path = tmp_path / "best.pt"
@@ -317,15 +325,15 @@ def test_checkpoint_graph_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
     )
 
     built = Registry.retrieval.build(
-        CheckpointGraphRetrievalSettings(
+        EvidenceRgcnRetrievalSettings(
             top_k=2,
             checkpoint=checkpoint_path,
             device="cpu",
             method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
         ),
-        CheckpointGraphBuildPayload(
-            ranking_requests=_ranking_requests(tiny_task_inputs()),
-            graphs=tiny_graphs(),
+        EvidenceRgcnBuildPayload(
+            text_requests=_ranking_requests(tiny_task_inputs()),
+            evidence_graphs=tiny_graphs(),
             text_embedding_provider=FakeTextEmbeddingProvider(),
             seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
         ),
@@ -366,7 +374,7 @@ def test_run_retrieval_cli_writes_trainable_ranked_results(monkeypatch, tmp_path
         TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint
     )
     monkeypatch.setattr(
-        retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers
+        retrieval_builders, "_evidence_rgcn_providers", fake_checkpoint_providers
     )
 
     exit_code = run_retrieval_cli_main(
@@ -400,7 +408,7 @@ def test_run_retrieval_passes_device_to_trainable_retriever(
         TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint
     )
     monkeypatch.setattr(
-        retrieval_builders, "_checkpoint_graph_providers", fake_checkpoint_providers
+        retrieval_builders, "_evidence_rgcn_providers", fake_checkpoint_providers
     )
 
     predictions = run_retrieval(

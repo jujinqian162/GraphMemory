@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from graph_memory.contracts.common import EdgeType, JsonValue
-from graph_memory.contracts.graphs import GraphItemNode, GraphNode, MemoryGraph
+from graph_memory.contracts.graphs import GraphItemNode, GraphNode, EvidenceGraph
 from graph_memory.graphs.config import GraphBuildConfig
 from graph_memory.graphs.construction.context import prepare_graph_input
 from graph_memory.graphs.construction.edge_accumulator import EdgeAccumulator
@@ -13,7 +13,10 @@ from graph_memory.graphs.construction.rules.contracts import GraphEdgeRule
 from graph_memory.graphs.construction.rules.entity_overlap import EntityOverlapEdgeRule
 from graph_memory.graphs.construction.rules.query_overlap import QueryOverlapEdgeRule
 from graph_memory.graphs.construction.rules.sequential import SequentialEdgeRule
-from graph_memory.graphs.requests import GraphBuildNode, GraphBuildRequest
+from graph_memory.graphs.requests import (
+    EvidenceGraphBuildNode,
+    EvidenceGraphBuildRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -25,7 +28,7 @@ class GraphBuilder:
         if not self.rules:
             object.__setattr__(self, "rules", default_graph_edge_rules(self.config))
 
-    def build(self, request: GraphBuildRequest) -> MemoryGraph:
+    def build(self, request: EvidenceGraphBuildRequest) -> EvidenceGraph:
         prepared_input = prepare_graph_input(request, self.config)
         nodes: list[GraphNode] = [
             {"id": "q", "node_type": "question", "text": request.query_text},
@@ -33,7 +36,13 @@ class GraphBuilder:
         ]
         accumulator = EdgeAccumulator()
         for edge in request.input_visible_edges:
-            accumulator.add(edge.source, edge.target, cast(EdgeType, edge.edge_type), edge.weight, directed=edge.directed)
+            accumulator.add(
+                edge.source,
+                edge.target,
+                cast(EdgeType, edge.edge_type),
+                edge.weight,
+                directed=edge.directed,
+            )
         for rule in self.rules:
             rule.add_edges(prepared_input, accumulator)
         return {
@@ -42,7 +51,9 @@ class GraphBuilder:
             "edges": accumulator.edges,
         }
 
-    def build_many(self, requests: list[GraphBuildRequest]) -> list[MemoryGraph]:
+    def build_many(
+        self, requests: list[EvidenceGraphBuildRequest]
+    ) -> list[EvidenceGraph]:
         return [self.build(request) for request in requests]
 
 
@@ -55,11 +66,13 @@ def default_graph_edge_rules(config: GraphBuildConfig) -> tuple[GraphEdgeRule, .
     )
 
 
-def build_graphs(requests: list[GraphBuildRequest], config: GraphBuildConfig) -> list[MemoryGraph]:
+def build_graphs(
+    requests: list[EvidenceGraphBuildRequest], config: GraphBuildConfig
+) -> list[EvidenceGraph]:
     return GraphBuilder(config).build_many(requests)
 
 
-def _graph_item_node(node: GraphBuildNode) -> GraphItemNode:
+def _graph_item_node(node: EvidenceGraphBuildNode) -> GraphItemNode:
     graph_node: GraphItemNode = {
         "id": node.node_id,
         "node_type": "graph_item",

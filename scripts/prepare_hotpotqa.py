@@ -12,35 +12,27 @@ from typing import cast
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.contracts.common import JsonObject
-from graph_memory.datasets.hotpotqa.projectors import (
-    HotpotQAToTemporalMemoryRankingRequest,
-)
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQARankingRecord,
     HotpotQALabelRecord,
 )
 from graph_memory.datasets.hotpotqa import (
     combined_hotpotqa_records,
-    coerce_hotpotqa_label_records,
-    coerce_hotpotqa_ranking_records,
     convert_hotpotqa_example,
     convert_hotpotqa_examples,
     parse_hotpotqa_example,
     parse_hotpotqa_examples,
 )
 from graph_memory.datasets.splits import sample_split
-from graph_memory.retrieval.requests import TemporalMemoryRankingRequest
 from graph_memory.io import read_json, write_json
 from graph_memory.experiment.stage_cli import load_stage_execution
 from graph_memory.experiment.stage_models import (
-    ImportancePrepareStageConfig,
     PrepareStageConfig,
     RawPrepareStageConfig,
 )
 from graph_memory.experiment.state import stage_lifecycle
 from pydantic import TypeAdapter
 from graph_memory.validation import (
-    validate_task_importance_record,
     validate_hotpotqa_ranking_records,
     validate_hotpotqa_label_records,
 )
@@ -79,10 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     start_time = time.perf_counter()
     with stage_lifecycle(execution.invocation) as observations:
-        if isinstance(config, RawPrepareStageConfig):
-            prepared = prepare_from_raw(config)
-        else:
-            prepared = prepare_from_importance(config)
+        prepared = prepare_from_raw(config)
 
         task_inputs = prepared.task_inputs
         task_labels = prepared.task_labels
@@ -195,114 +184,10 @@ def prepare_from_raw(config: RawPrepareStageConfig) -> PreparedHotpotQARecords:
     )
 
 
-def prepare_from_importance(
-    config: ImportancePrepareStageConfig,
-) -> PreparedHotpotQARecords:
-    canonical_inputs = read_json(config.canonical_inputs)
-    canonical_labels = read_json(config.canonical_labels)
-    importance_artifact = read_json(config.importance)
-    if not isinstance(canonical_inputs, list):
-        raise ValueError("Canonical input artifact must be a JSON list.")
-    if not isinstance(canonical_labels, list):
-        raise ValueError("Canonical label artifact must be a JSON list.")
-    if not isinstance(importance_artifact, dict):
-        raise ValueError("Importance artifact must be a JSON object.")
-    if (
-        importance_artifact.get("schema_version") != 1
-        or importance_artifact.get("method") != "memory_stream"
-    ):
-        raise ValueError(
-            "Importance artifact must use schema_version=1 and method=memory_stream."
-        )
-    task_records = importance_artifact.get("tasks")
-    if not isinstance(task_records, list):
-        raise ValueError("Importance artifact tasks must be a list.")
-
-    typed_inputs = coerce_hotpotqa_ranking_records(canonical_inputs)
-    typed_labels = coerce_hotpotqa_label_records(canonical_labels)
-    input_by_task_id = {
-        task_input["task_id"]: task_input for task_input in typed_inputs
-    }
-    label_by_task_id = {
-        task_label["task_id"]: task_label for task_label in typed_labels
-    }
-    validate_hotpotqa_ranking_records(typed_inputs)
-    validate_hotpotqa_label_records(typed_labels, input_by_task_id)
-    temporal_by_task_id = {
-        request.task_id: request for request in _temporal_requests(typed_inputs)
-    }
-
-    selected_records = select_ordered_records(
-        task_records,
-        count=config.count,
-        offset=config.offset,
-    )
-    selected_inputs: list[HotpotQARankingRecord] = []
-    selected_labels: list[HotpotQALabelRecord] = []
-    for task_record in selected_records:
-        if not isinstance(task_record, dict):
-            raise ValueError("Importance task record must be a JSON object.")
-        task_id = task_record.get("task_id")
-        if not isinstance(task_id, str) or not task_id:
-            raise ValueError(
-                "Importance task record task_id must be a non-empty string."
-            )
-        task_input = input_by_task_id.get(task_id)
-        if task_input is None:
-            raise ValueError(f"Canonical input missing importance task_id={task_id}.")
-        task_label = label_by_task_id.get(task_id)
-        if task_label is None:
-            raise ValueError(f"Canonical labels missing importance task_id={task_id}.")
-        validate_task_importance_record(task_record, temporal_by_task_id[task_id])
-        selected_inputs.append(task_input)
-        selected_labels.append(task_label)
-
-    LOGGER.info(
-        "selected importance-backed examples: count=%s offset=%s",
-        len(selected_inputs),
-        config.offset,
-    )
-    return PreparedHotpotQARecords(
-        task_inputs=selected_inputs,
-        task_labels=selected_labels,
-        counts={
-            "canonical_task_inputs": len(typed_inputs),
-            "canonical_task_labels": len(typed_labels),
-            "importance_tasks": len(task_records),
-            "selected_examples": len(selected_inputs),
-            "parsed_examples": len(selected_inputs),
-            "invalid_examples_dropped": 0,
-            "invalid_example_reasons": {},
-        },
-    )
-
-
-def _temporal_requests(
-    records: Sequence[HotpotQARankingRecord],
-) -> list[TemporalMemoryRankingRequest]:
-    projector = HotpotQAToTemporalMemoryRankingRequest()
-    return [projector.project(record, {}) for record in records]
-
-
 def select_examples(
     raw_records: Sequence[object], *, count: int, seed: int, offset: int
 ) -> list[object]:
     return sample_split(raw_records, count=count, seed=seed, offset=offset)
-
-
-def select_ordered_records(
-    records: Sequence[object], *, count: int, offset: int
-) -> list[object]:
-    if offset < 0:
-        raise ValueError("offset must be non-negative.")
-    if count < 0:
-        raise ValueError("count must be non-negative.")
-    end = offset + count
-    if end > len(records):
-        raise ValueError(
-            f"Requested split offset+count={end} exceeds available examples={len(records)}."
-        )
-    return list(records[offset:end])
 
 
 if __name__ == "__main__":

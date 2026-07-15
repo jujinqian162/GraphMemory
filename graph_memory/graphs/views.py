@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.ranking import RetrievedSubgraph
 
 
-def induced_retrieved_subgraph(graph: MemoryGraph, node_ids: list[str]) -> RetrievedSubgraph:
+def induced_retrieved_subgraph(
+    graph: EvidenceGraph, node_ids: list[str]
+) -> RetrievedSubgraph:
     selected = set(node_ids)
     return {
         "nodes": list(node_ids),
@@ -18,7 +20,7 @@ def induced_retrieved_subgraph(graph: MemoryGraph, node_ids: list[str]) -> Retri
     }
 
 
-def traversal_adjacency(graph: MemoryGraph) -> dict[str, set[str]]:
+def traversal_adjacency(graph: EvidenceGraph) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
     for edge in graph.get("edges", []):
         source = str(edge.get("source"))
@@ -29,7 +31,9 @@ def traversal_adjacency(graph: MemoryGraph) -> dict[str, set[str]]:
     return dict(adjacency)
 
 
-def model_visible_graph(graph: MemoryGraph, enabled_edge_types: frozenset[str]) -> MemoryGraph:
+def model_visible_graph(
+    graph: EvidenceGraph, enabled_edge_types: frozenset[str]
+) -> EvidenceGraph:
     return {
         **graph,
         "edges": [

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -23,11 +23,11 @@ class TrainDependencies:
 @dataclass(frozen=True)
 class RgcnTrainPayload:
     train_requests: list[TextRankingRequest]
-    train_graphs: list[MemoryGraph]
+    train_graphs: list[EvidenceGraph]
     train_pairs: list[TrainPairRecord]
     dev_requests: list[TextRankingRequest]
     dev_labels: list[EvidenceLabel]
-    dev_graphs: list[MemoryGraph]
+    dev_graphs: list[EvidenceGraph]
     train_labels: list[EvidenceLabel] | None = None
     seed_checkpoint: Path | None = None
     dependencies: TrainDependencies | None = None

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from graph_memory.contracts.graphs import GraphItemNode, MemoryGraph
+from graph_memory.contracts.graphs import GraphItemNode, EvidenceGraph
 from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
@@ -104,7 +104,7 @@ def _graph_nodes(task: HotpotQARankingRecord) -> list[GraphItemNode]:
     ]
 
 
-def tiny_graphs() -> list[MemoryGraph]:
+def tiny_graphs() -> list[EvidenceGraph]:
     task = tiny_task_inputs()[0]
     return [
         {

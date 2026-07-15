@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.metrics import FailureCase, MetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
@@ -21,7 +21,7 @@ def run_evaluate_stage(
     *,
     predictions: list[RankedResult],
     labels: list[object],
-    graphs: list[MemoryGraph],
+    graphs: list[EvidenceGraph],
 ) -> EvaluateStageResult:
     request = evidence_evaluation_request_for_dataset(
         config.dataset,

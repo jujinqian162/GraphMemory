@@ -3,12 +3,15 @@ from __future__ import annotations
 from collections import Counter
 
 from graph_memory.contracts.common import JsonObject
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.observability import GraphStatistics
 
 
 def graph_statistics(
-    graphs: list[MemoryGraph], *, split: str | None = None, graph_config: JsonObject | None = None
+    graphs: list[EvidenceGraph],
+    *,
+    split: str | None = None,
+    graph_config: JsonObject | None = None,
 ) -> GraphStatistics:
     edge_counts: Counter[str] = Counter()
     total_nodes = 0

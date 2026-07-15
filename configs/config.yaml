@@ -4,20 +4,18 @@ defaults:
   - method_configs:
       - bm25
       - dense
-      - memory_stream
-      - bm25_graph_rerank
-      - dense_graph_rerank
+      - graphrag
       - dense_rgcn_graph_retriever
       - dense_ft
       - dense_ft_rgcn_graph_retriever
+      - execution_provenance_retriever
   - _self_
 
 name: ???
 methods:
   - bm25
   - dense
-  - bm25_graph_rerank
-  - dense_graph_rerank
+  - graphrag
   - dense_rgcn_graph_retriever
   - dense_ft
   - dense_ft_rgcn_graph_retriever
@@ -46,24 +44,6 @@ graph:
   max_entity_neighbors: 10
   max_bridge_edges: 50
   use_spacy: false
-search_spaces:
-  graph_rerank:
-    lambda_bridge: [0.0, 0.05, 0.1, 0.2]
-    lambda_init: [1.0]
-    lambda_neighbor: [0.0, 0.05, 0.1, 0.2, 0.4]
-    lambda_path: [0.0]
-    lambda_query: [0.0, 0.05, 0.1, 0.2]
-    max_hops: [1, 2, 3]
-    seed_top_s: [20, 30]
-    neighbor_type_weights:
-      bridge: 1.0
-      entity_overlap: 0.7
-      sequential: 0.3
-  memory_stream:
-    relevance_weight: [1.0]
-    recency_weight: [0.0]
-    importance_weight: [0.0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0]
-    recency_decay: [0.99]
 tracking:
   database: runs/.mlflow/tracking.db
   artifact_root: runs/.mlflow/artifacts

@@ -675,17 +675,17 @@ def test_hidden_explicit_dependency_ablation_and_stage_bounds_have_stable_owners
     assert _baseline_identities(bounded) == ()
 
 
-def test_fresh_seven_baseline_tracking_acceptance_preserves_existing_store_rows(
+def test_fresh_six_evidence_baseline_tracking_preserves_existing_store_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     methods = (
-        "[bm25,dense,bm25_graph_rerank,dense_graph_rerank,"
-        "dense_rgcn_graph_retriever,dense_ft,dense_ft_rgcn_graph_retriever]"
+        "[bm25,dense,dense_ft,graphrag,dense_rgcn_graph_retriever,"
+        "dense_ft_rgcn_graph_retriever]"
     )
     config = _config(
         tmp_path,
-        "accept-seven",
+        "accept-six-evidence",
         methods=methods,
         stages_to="aggregate",
     )
@@ -715,7 +715,7 @@ def test_fresh_seven_baseline_tracking_acceptance_preserves_existing_store_rows(
         run for run in runs if run.data.tags.get("graph_memory.run_kind") == "baseline"
     ]
     assert len(parents) == 1
-    assert len(children) == 7
+    assert len(children) == 6
     parent = parents[0]
     assert parent.data.metrics == {}
     note = parent.data.tags["mlflow.note.content"]

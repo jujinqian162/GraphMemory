@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 from graph_memory.contracts.common import ALLOWED_EDGE_TYPES
-from graph_memory.contracts.graphs import GraphEdge, MemoryGraph
+from graph_memory.contracts.graphs import GraphEdge, EvidenceGraph
 
 DEFAULT_RELATION_VOCAB: tuple[str, ...] = (
     "query_overlap_forward",
@@ -30,8 +30,7 @@ class EdgeWeightPolicy(Protocol):
       weight：返回一个 graph edge 对应的 float message edge 权重。
     """
 
-    def weight(self, edge: GraphEdge) -> float:
-        ...
+    def weight(self, edge: GraphEdge) -> float: ...
 
 
 @dataclass(frozen=True)
@@ -100,17 +99,26 @@ class EdgeTensorizer:
     """
 
     relation_vocab: tuple[str, ...] = DEFAULT_RELATION_VOCAB
-    enabled_edge_types: frozenset[str] = field(default_factory=lambda: frozenset(ALLOWED_EDGE_TYPES))
-    edge_weight_policy: EdgeWeightPolicy = field(default_factory=ArtifactEdgeWeightPolicy)
+    enabled_edge_types: frozenset[str] = field(
+        default_factory=lambda: frozenset(ALLOWED_EDGE_TYPES)
+    )
+    edge_weight_policy: EdgeWeightPolicy = field(
+        default_factory=ArtifactEdgeWeightPolicy
+    )
 
-    def tensorize_edges(self, graph: MemoryGraph) -> MessageEdgeTensors:
+    def tensorize_edges(self, graph: EvidenceGraph) -> MessageEdgeTensors:
         """
         Tensorize one graph's enabled edges into message edge tensors.
         将单个 graph 中启用的边张量化为 message edge tensors。
         """
 
-        node_index_by_id = {node["id"]: index for index, node in enumerate(graph["nodes"])}
-        relation_id_by_name = {relation_name: index for index, relation_name in enumerate(self.relation_vocab)}
+        node_index_by_id = {
+            node["id"]: index for index, node in enumerate(graph["nodes"])
+        }
+        relation_id_by_name = {
+            relation_name: index
+            for index, relation_name in enumerate(self.relation_vocab)
+        }
         sources: list[int] = []
         targets: list[int] = []
         relation_ids: list[int] = []
@@ -171,7 +179,9 @@ class EdgeTensorizer:
         relation_id_by_name: dict[str, int],
     ) -> None:
         if relation_name not in relation_id_by_name:
-            raise ValueError(f"Relation {relation_name} is not present in relation_vocab.")
+            raise ValueError(
+                f"Relation {relation_name} is not present in relation_vocab."
+            )
         sources.append(source)
         targets.append(target)
         relation_ids.append(relation_id_by_name[relation_name])

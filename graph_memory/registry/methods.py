@@ -6,30 +6,31 @@ from dataclasses import dataclass
 from graph_memory.registry.ids import StrEnum
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
-    CheckpointGraphRetrievalSettings,
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
-    GraphRerankRetrievalSettings,
-    MemoryStreamRetrievalSettings,
+    EvidenceRgcnRetrievalSettings,
+    ExecutionProvenanceRetrievalSettings,
+    GraphRAGRetrievalSettings,
     RetrievalMethodId,
+)
+from graph_memory.registry.semantics import (
+    MethodInputSpec,
+    RequiredArtifact,
+    RetrievalCapabilities,
+    RetrievalTaskFamily,
+)
+from graph_memory.retrieval.requests import (
+    EvidenceGraphRankingRequest,
+    ExecutionProvenanceRankingRequest,
+    GraphRAGRequest,
+    TextRankingRequest,
 )
 
 
 class RetrievalLifecycle(StrEnum):
     STATELESS = "stateless"
-    GRAPH_RERANK = "graph_rerank"
     RGCN_TRAINABLE = "rgcn_trainable"
     DENSE_FINETUNE = "dense_finetune"
-
-
-class TuningKind(StrEnum):
-    GRAPH_RERANK = "graph_rerank"
-    MEMORY_STREAM = "memory_stream"
-
-
-class GraphInputSource(StrEnum):
-    NONE = "none"
-    GRAPH_ARTIFACT = "graph_artifact"
 
 
 class SelectedConfigSource(StrEnum):
@@ -62,7 +63,6 @@ class TrainArtifactSpec:
 
 @dataclass(frozen=True)
 class RetrievalDependencySpec:
-    graphs: GraphInputSource
     selected_config: SelectedConfigSource
     model: ModelSource
     encoder: EncoderSource
@@ -73,10 +73,11 @@ class MethodDefinition:
     identifier: RetrievalMethodId
     lifecycle: RetrievalLifecycle
     retrieval_settings_type: type[object]
+    input_spec: MethodInputSpec
+    capabilities: RetrievalCapabilities
     dependencies: RetrievalDependencySpec
     train_artifact: TrainArtifactSpec | None
     seed_method: RetrievalMethodId | None = None
-    tuning: TuningKind | None = None
     train_dependencies: tuple[RetrievalMethodId, ...] = ()
 
 
@@ -109,13 +110,42 @@ class MethodRegistry:
             if self.definitions[method].lifecycle is lifecycle
         )
 
-    def supports_path_metrics(self, method: str | RetrievalMethodId) -> bool:
-        definition = self.get(method)
-        return (
-            definition.dependencies.graphs is GraphInputSource.GRAPH_ARTIFACT
-            and definition.lifecycle
-            in {RetrievalLifecycle.GRAPH_RERANK, RetrievalLifecycle.RGCN_TRAINABLE}
+    def list_by_family(
+        self, family: RetrievalTaskFamily
+    ) -> tuple[RetrievalMethodId, ...]:
+        return tuple(
+            method
+            for method in self.list_ids()
+            if family in self.definitions[method].input_spec.supported_families
         )
+
+    def requires_artifact(
+        self,
+        method: str | RetrievalMethodId,
+        artifact: RequiredArtifact,
+    ) -> bool:
+        return self.get(method).input_spec.required_artifact is artifact
+
+    def validate_request(
+        self,
+        method: str | RetrievalMethodId,
+        request: object,
+        family: RetrievalTaskFamily,
+    ) -> None:
+        definition = self.get(method)
+        if not isinstance(request, definition.input_spec.request_type):
+            raise TypeError(
+                f"method={definition.identifier.value} requires "
+                f"{definition.input_spec.request_type.__name__}, got {type(request).__name__}."
+            )
+        if family not in definition.input_spec.supported_families:
+            supported = ", ".join(
+                sorted(item.value for item in definition.input_spec.supported_families)
+            )
+            raise TypeError(
+                f"method={definition.identifier.value} does not support family={family.value}; "
+                f"supported families: {supported}."
+            )
 
     def expand_train_dependencies(
         self,
@@ -145,8 +175,10 @@ class MethodRegistry:
 
 
 def build_method_registry() -> MethodRegistry:
+    evidence = frozenset({RetrievalTaskFamily.EVIDENCE_RETRIEVAL})
+    provenance = frozenset({RetrievalTaskFamily.EXECUTION_PROVENANCE})
+    shared = evidence | provenance
     no_dependencies = RetrievalDependencySpec(
-        graphs=GraphInputSource.NONE,
         selected_config=SelectedConfigSource.NONE,
         model=ModelSource.NONE,
         encoder=EncoderSource.NONE,
@@ -156,6 +188,10 @@ def build_method_registry() -> MethodRegistry:
             identifier=RetrievalMethodId.BM25,
             lifecycle=RetrievalLifecycle.STATELESS,
             retrieval_settings_type=Bm25RetrievalSettings,
+            input_spec=MethodInputSpec(
+                TextRankingRequest, RequiredArtifact.NONE, shared
+            ),
+            capabilities=RetrievalCapabilities(True, False, False),
             dependencies=no_dependencies,
             train_artifact=None,
         ),
@@ -163,8 +199,11 @@ def build_method_registry() -> MethodRegistry:
             identifier=RetrievalMethodId.DENSE,
             lifecycle=RetrievalLifecycle.STATELESS,
             retrieval_settings_type=DenseRetrievalSettings,
+            input_spec=MethodInputSpec(
+                TextRankingRequest, RequiredArtifact.NONE, shared
+            ),
+            capabilities=RetrievalCapabilities(True, False, False),
             dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.NONE,
                 selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
@@ -172,53 +211,45 @@ def build_method_registry() -> MethodRegistry:
             train_artifact=None,
         ),
         MethodDefinition(
-            identifier=RetrievalMethodId.MEMORY_STREAM,
+            identifier=RetrievalMethodId.DENSE_FT,
+            lifecycle=RetrievalLifecycle.DENSE_FINETUNE,
+            retrieval_settings_type=DenseFinetunedRetrievalSettings,
+            input_spec=MethodInputSpec(
+                TextRankingRequest, RequiredArtifact.NONE, evidence
+            ),
+            capabilities=RetrievalCapabilities(True, False, True),
+            dependencies=RetrievalDependencySpec(
+                selected_config=SelectedConfigSource.NONE,
+                model=ModelSource.MODEL_DIRECTORY,
+                encoder=EncoderSource.CHECKPOINT_METADATA,
+            ),
+            train_artifact=TrainArtifactSpec("best_model", ArtifactKind.DIRECTORY),
+            seed_method=RetrievalMethodId.DENSE,
+        ),
+        MethodDefinition(
+            identifier=RetrievalMethodId.GRAPHRAG,
             lifecycle=RetrievalLifecycle.STATELESS,
-            retrieval_settings_type=MemoryStreamRetrievalSettings,
+            retrieval_settings_type=GraphRAGRetrievalSettings,
+            input_spec=MethodInputSpec(GraphRAGRequest, RequiredArtifact.NONE, shared),
+            capabilities=RetrievalCapabilities(True, True, False),
             dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.NONE,
-                selected_config=SelectedConfigSource.TUNED_ARTIFACT,
+                selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.NONE,
                 encoder=EncoderSource.EXPERIMENT_CONFIG,
             ),
             train_artifact=None,
-            seed_method=RetrievalMethodId.DENSE,
-            tuning=TuningKind.MEMORY_STREAM,
-        ),
-        MethodDefinition(
-            identifier=RetrievalMethodId.BM25_GRAPH_RERANK,
-            lifecycle=RetrievalLifecycle.GRAPH_RERANK,
-            retrieval_settings_type=GraphRerankRetrievalSettings,
-            dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.GRAPH_ARTIFACT,
-                selected_config=SelectedConfigSource.TUNED_ARTIFACT,
-                model=ModelSource.NONE,
-                encoder=EncoderSource.NONE,
-            ),
-            train_artifact=None,
-            seed_method=RetrievalMethodId.BM25,
-            tuning=TuningKind.GRAPH_RERANK,
-        ),
-        MethodDefinition(
-            identifier=RetrievalMethodId.DENSE_GRAPH_RERANK,
-            lifecycle=RetrievalLifecycle.GRAPH_RERANK,
-            retrieval_settings_type=GraphRerankRetrievalSettings,
-            dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.GRAPH_ARTIFACT,
-                selected_config=SelectedConfigSource.TUNED_ARTIFACT,
-                model=ModelSource.NONE,
-                encoder=EncoderSource.EXPERIMENT_CONFIG,
-            ),
-            train_artifact=None,
-            seed_method=RetrievalMethodId.DENSE,
-            tuning=TuningKind.GRAPH_RERANK,
         ),
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
             lifecycle=RetrievalLifecycle.RGCN_TRAINABLE,
-            retrieval_settings_type=CheckpointGraphRetrievalSettings,
+            retrieval_settings_type=EvidenceRgcnRetrievalSettings,
+            input_spec=MethodInputSpec(
+                EvidenceGraphRankingRequest,
+                RequiredArtifact.EVIDENCE_GRAPH,
+                evidence,
+            ),
+            capabilities=RetrievalCapabilities(True, False, True),
             dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.GRAPH_ARTIFACT,
                 selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.CHECKPOINT_FILE,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
@@ -229,9 +260,14 @@ def build_method_registry() -> MethodRegistry:
         MethodDefinition(
             identifier=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
             lifecycle=RetrievalLifecycle.RGCN_TRAINABLE,
-            retrieval_settings_type=CheckpointGraphRetrievalSettings,
+            retrieval_settings_type=EvidenceRgcnRetrievalSettings,
+            input_spec=MethodInputSpec(
+                EvidenceGraphRankingRequest,
+                RequiredArtifact.EVIDENCE_GRAPH,
+                evidence,
+            ),
+            capabilities=RetrievalCapabilities(True, False, True),
             dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.GRAPH_ARTIFACT,
                 selected_config=SelectedConfigSource.NONE,
                 model=ModelSource.CHECKPOINT_FILE,
                 encoder=EncoderSource.CHECKPOINT_METADATA,
@@ -241,17 +277,21 @@ def build_method_registry() -> MethodRegistry:
             train_dependencies=(RetrievalMethodId.DENSE_FT,),
         ),
         MethodDefinition(
-            identifier=RetrievalMethodId.DENSE_FT,
-            lifecycle=RetrievalLifecycle.DENSE_FINETUNE,
-            retrieval_settings_type=DenseFinetunedRetrievalSettings,
-            dependencies=RetrievalDependencySpec(
-                graphs=GraphInputSource.NONE,
-                selected_config=SelectedConfigSource.NONE,
-                model=ModelSource.MODEL_DIRECTORY,
-                encoder=EncoderSource.CHECKPOINT_METADATA,
+            identifier=RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER,
+            lifecycle=RetrievalLifecycle.STATELESS,
+            retrieval_settings_type=ExecutionProvenanceRetrievalSettings,
+            input_spec=MethodInputSpec(
+                ExecutionProvenanceRankingRequest,
+                RequiredArtifact.NONE,
+                provenance,
             ),
-            train_artifact=TrainArtifactSpec("best_model", ArtifactKind.DIRECTORY),
-            seed_method=RetrievalMethodId.DENSE,
+            capabilities=RetrievalCapabilities(True, True, False),
+            dependencies=RetrievalDependencySpec(
+                selected_config=SelectedConfigSource.NONE,
+                model=ModelSource.NONE,
+                encoder=EncoderSource.EXPERIMENT_CONFIG,
+            ),
+            train_artifact=None,
         ),
     )
     return MethodRegistry(
@@ -262,14 +302,16 @@ def build_method_registry() -> MethodRegistry:
 __all__ = [
     "ArtifactKind",
     "EncoderSource",
-    "GraphInputSource",
     "MethodDefinition",
+    "MethodInputSpec",
     "MethodRegistry",
     "ModelSource",
+    "RequiredArtifact",
+    "RetrievalCapabilities",
     "RetrievalDependencySpec",
     "RetrievalLifecycle",
+    "RetrievalTaskFamily",
     "SelectedConfigSource",
     "TrainArtifactSpec",
-    "TuningKind",
     "build_method_registry",
 ]

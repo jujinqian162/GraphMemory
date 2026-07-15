@@ -6,6 +6,7 @@ Expected documents:
 
 - `commands.md` for dataset preparation, graph construction, retrieval, tuning, evaluation, and aggregation commands.
 - `musique.md` for official MuSiQue-Ans download, expected raw paths, preparation, and experiment-runner commands.
+- `traject-bench.md` for pinned TRAJECT-Bench download, operational split mapping, data-quality policy, and fast baseline commands.
 - `logging.md` for console output, structured run metadata, and debug artifact conventions.
 - `reproducibility.md` for seeds, config precedence, run summaries, and experiment traceability.
 - `debug-artifacts.md` for graph stats, score breakdowns, failure cases, and leakage checks.

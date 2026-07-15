@@ -9,18 +9,15 @@ from graph_memory.experiment.config import (
     ArtifactBinding,
     ArtifactRef,
     ArtifactKind,
-    Bm25GraphRerankMethodConfig,
     Bm25MethodConfig,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
-    DenseGraphRerankMethodConfig,
     DenseMethodConfig,
     DenseRgcnMethodConfig,
+    GraphRAGMethodConfig,
     MethodConfig,
-    MemoryStreamMethodConfig,
     PublicStageName,
     ResolvedExperimentConfig,
-    ResolvedImportanceSplitConfig,
     SplitName,
 )
 from graph_memory.experiment.layout import RunLayout
@@ -29,19 +26,13 @@ from graph_memory.experiment.stage_status import inspect_invocation_status
 from graph_memory.experiment.stage_models import (
     AblationAggregateStageConfig,
     AblationSelection,
-    Bm25GraphRerankTuneStageConfig,
-    Bm25GraphRerankRetrieveStageConfig,
     Bm25RetrieveStageConfig,
     DenseFinetuneRetrieveStageConfig,
     DenseFinetuneTrainStageConfig,
-    DenseGraphRerankTuneStageConfig,
-    DenseGraphRerankRetrieveStageConfig,
     DenseRetrieveStageConfig,
+    EvidenceGraphStageConfig,
     EvaluateStageConfig,
-    GraphStageConfig,
-    ImportancePrepareStageConfig,
-    MemoryStreamRetrieveStageConfig,
-    MemoryStreamTuneStageConfig,
+    GraphRAGRetrieveStageConfig,
     OrdinaryAggregateStageConfig,
     OrdinaryRgcnTrainStageConfig,
     PairOutputs,
@@ -64,14 +55,14 @@ from graph_memory.registry.ablations import (
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import (
     ArtifactKind as RegistryArtifactKind,
+    RequiredArtifact,
 )
 from graph_memory.registry.retrieval import RetrievalMethodId
 
 STAGE_ORDER: tuple[PublicStageName, ...] = (
     "prepare",
-    "graphs",
+    "evidence_graphs",
     "pairs",
-    "tune",
     "train",
     "retrieve",
     "evaluate",
@@ -111,44 +102,25 @@ class _StageInvocationFactory:
             labels=paths["labels"].resolve(),
             combined=paths["combined"].resolve(),
         )
-        if split_config.kind == "importance":
-            if self.config.dataset.name != "hotpotqa":
-                raise ValueError("importance splits are only supported for hotpotqa")
-            if RetrievalMethodId.MEMORY_STREAM not in self.methods:
-                raise ValueError(
-                    "importance splits require selected method memory_stream"
-                )
-            config: StageConfig = ImportancePrepareStageConfig(
-                stage="prepare",
-                kind="importance",
-                dataset="hotpotqa",
-                split=cast(Literal["dev", "test"], split),
-                canonical_inputs=split_config.source,
-                canonical_labels=split_config.labels_source,
-                importance=split_config.importance_path,
-                outputs=outputs,
-                count=split_config.count,
-                offset=split_config.offset,
-            )
-            inputs = (
-                _external("canonical_inputs", split_config.source),
-                _external("canonical_labels", split_config.labels_source),
-                _external("importance", split_config.importance_path),
-            )
-        else:
-            config = RawPrepareStageConfig(
-                stage="prepare",
-                kind="raw",
-                dataset=self.config.dataset.name,
-                split=split,
-                source=split_config.source,
-                outputs=outputs,
-                count=split_config.count,
-                seed=self.config.seed,
-                offset=split_config.offset,
-                strict_invalid_examples=False,
-            )
-            inputs = (_external("raw", split_config.source),)
+        config: StageConfig = RawPrepareStageConfig(
+            stage="prepare",
+            kind="raw",
+            dataset=self.config.dataset.name,
+            split=split,
+            source=split_config.source,
+            outputs=outputs,
+            count=split_config.count,
+            seed=self.config.seed,
+            offset=split_config.offset,
+            strict_invalid_examples=False,
+        )
+        inputs = (
+            _external(
+                "raw",
+                split_config.source,
+                kind=self.config.dataset.source_kind,
+            ),
+        )
         output_refs = tuple(
             self.layout.artifact(role=role, path=path)
             for role, path in (
@@ -168,26 +140,26 @@ class _StageInvocationFactory:
             dependencies=(),
         )
 
-    def _graph_invocation(self, split: SplitName) -> StageInvocation:
+    def _evidence_graph_invocation(self, split: SplitName) -> StageInvocation:
         tasks = self.layout.inputs(split)["input"].resolve()
-        output = self.layout.graph(split).resolve()
-        summary = self.layout.summary_for(output, stage="graphs").resolve()
-        config = GraphStageConfig(
-            stage="graphs",
+        output = self.layout.evidence_graph(split).resolve()
+        summary = self.layout.summary_for(output, stage="evidence_graphs").resolve()
+        config = EvidenceGraphStageConfig(
+            stage="evidence_graphs",
             dataset=self.config.dataset.name,
             split=split,
             tasks=tasks,
             output=output,
-            graph=self.config.graph,
+            evidence_graph=self.config.graph,
         )
         return self._invocation(
-            stage="graphs",
+            stage="evidence_graphs",
             split=split,
-            script=self.layout.repository_root / "scripts" / "build_graphs.py",
+            script=self.layout.repository_root / "scripts" / "build_evidence_graphs.py",
             config=config,
             summary_path=summary,
             inputs=(self.layout.artifact(role="inputs", path=tasks),),
-            outputs=(self.layout.artifact(role="graphs", path=output),),
+            outputs=(self.layout.artifact(role="evidence_graphs", path=output),),
             dependencies=(_identifier("prepare", split=split),),
         )
 
@@ -208,7 +180,7 @@ class _StageInvocationFactory:
             )
         tasks = self.layout.inputs("train")["input"].resolve()
         labels = self.layout.inputs("train")["labels"].resolve()
-        graphs = self.layout.graph("train").resolve()
+        graphs = self.layout.evidence_graph("train").resolve()
         pairs = self.layout.train_pairs(method, variant=variant).resolve()
         pair_summary = self.layout.train_pair_summary(method, variant=variant).resolve()
         summary = self.layout.summary_for(pairs, stage="pairs").resolve()
@@ -226,7 +198,7 @@ class _StageInvocationFactory:
             variant=variant,
             tasks=tasks,
             labels=labels,
-            graphs=graphs,
+            evidence_graphs=graphs,
             outputs=PairOutputs(
                 pairs=pairs,
                 pair_summary=pair_summary,
@@ -245,7 +217,7 @@ class _StageInvocationFactory:
             inputs=(
                 self.layout.artifact(role="inputs", path=tasks),
                 self.layout.artifact(role="labels", path=labels),
-                self.layout.artifact(role="graphs", path=graphs),
+                self.layout.artifact(role="evidence_graphs", path=graphs),
             ),
             outputs=(
                 self.layout.artifact(role="train_pairs", path=pairs),
@@ -253,109 +225,7 @@ class _StageInvocationFactory:
             ),
             dependencies=(
                 _identifier("prepare", split="train"),
-                _identifier("graphs", split="train"),
-            ),
-        )
-
-    def _tune_invocation(self, method: RetrievalMethodId) -> StageInvocation:
-        method_config = self.config.method_configs.get(method)
-        tasks = self.layout.inputs("dev")["input"].resolve()
-        labels = self.layout.inputs("dev")["labels"].resolve()
-        graphs = self.layout.graph("dev").resolve()
-        selected = self.layout.tuned(method).resolve()
-        candidates = self.layout.tuned_candidates(method).resolve()
-        summary = self.layout.summary_for(selected, stage="tune").resolve()
-        inputs: tuple[ArtifactBinding, ...]
-        if isinstance(method_config, Bm25GraphRerankMethodConfig):
-            config: StageConfig = Bm25GraphRerankTuneStageConfig(
-                stage="tune",
-                dataset=self.config.dataset.name,
-                method="bm25_graph_rerank",
-                tasks=tasks,
-                labels=labels,
-                graphs=graphs,
-                selected_config=selected,
-                candidates=candidates,
-                top_k=self.config.top_k,
-                search_space=self.config.search_spaces.graph_rerank,
-            )
-            inputs = (
-                self.layout.artifact(role="inputs", path=tasks),
-                self.layout.artifact(role="labels", path=labels),
-                self.layout.artifact(role="graphs", path=graphs),
-            )
-        elif isinstance(method_config, DenseGraphRerankMethodConfig):
-            config = DenseGraphRerankTuneStageConfig(
-                stage="tune",
-                dataset=self.config.dataset.name,
-                method="dense_graph_rerank",
-                tasks=tasks,
-                labels=labels,
-                graphs=graphs,
-                selected_config=selected,
-                candidates=candidates,
-                top_k=self.config.top_k,
-                encoder=method_config.encoder,
-                search_space=self.config.search_spaces.graph_rerank,
-            )
-            inputs = (
-                self.layout.artifact(role="inputs", path=tasks),
-                self.layout.artifact(role="labels", path=labels),
-                self.layout.artifact(role="graphs", path=graphs),
-            )
-        elif isinstance(method_config, MemoryStreamMethodConfig):
-            if self.config.dataset.name != "hotpotqa":
-                raise ValueError("Memory Stream is only supported for hotpotqa")
-            importance_split = self.config.dataset.splits["dev"]
-            if not isinstance(importance_split, ResolvedImportanceSplitConfig):
-                raise ValueError(
-                    "Memory Stream requires dataset=hotpotqa-memory-stream"
-                )
-            config = MemoryStreamTuneStageConfig(
-                stage="tune",
-                kind="memory_stream",
-                dataset="hotpotqa",
-                method="memory_stream",
-                tasks=tasks,
-                labels=labels,
-                graphs=graphs,
-                importance=importance_split.importance_path,
-                selected_config=selected,
-                candidates=candidates,
-                top_k=self.config.top_k,
-                encoder=method_config.encoder,
-                search_space=self.config.search_spaces.memory_stream,
-            )
-            inputs = (
-                self.layout.artifact(role="inputs", path=tasks),
-                self.layout.artifact(role="labels", path=labels),
-                self.layout.artifact(role="graphs", path=graphs),
-                _external("importance", importance_split.importance_path),
-            )
-        else:
-            raise TypeError(f"method has no tune config: {method.value}")
-        return self._invocation(
-            stage="tune",
-            method=method,
-            script=(
-                self.layout.repository_root
-                / "scripts"
-                / (
-                    "tune_memory_stream.py"
-                    if method is RetrievalMethodId.MEMORY_STREAM
-                    else "tune_graph_rerank.py"
-                )
-            ),
-            config=config,
-            summary_path=summary,
-            inputs=inputs,
-            outputs=(
-                self.layout.artifact(role="selected_config", path=selected),
-                self.layout.artifact(role="candidate_table", path=candidates),
-            ),
-            dependencies=(
-                _identifier("prepare", split="dev"),
-                _identifier("graphs", split="dev"),
+                _identifier("evidence_graphs", split="train"),
             ),
         )
 
@@ -390,7 +260,7 @@ class _StageInvocationFactory:
         if method is RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER:
             dependencies.append(_identifier("train", method=RetrievalMethodId.DENSE_FT))
         if isinstance(config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)):
-            dependencies.append(_identifier("graphs", split="dev"))
+            dependencies.append(_identifier("evidence_graphs", split="dev"))
             seed_checkpoint = (
                 self.layout.checkpoint(
                     RetrievalMethodId.DENSE_FT,
@@ -407,11 +277,11 @@ class _StageInvocationFactory:
                     dataset=self.config.dataset.name,
                     train_tasks=self.layout.inputs("train")["input"].resolve(),
                     train_labels=self.layout.inputs("train")["labels"].resolve(),
-                    train_graphs=self.layout.graph("train").resolve(),
+                    train_evidence_graphs=self.layout.evidence_graph("train").resolve(),
                     train_pairs=pair_path,
                     dev_tasks=self.layout.inputs("dev")["input"].resolve(),
                     dev_labels=self.layout.inputs("dev")["labels"].resolve(),
-                    dev_graphs=self.layout.graph("dev").resolve(),
+                    dev_evidence_graphs=self.layout.evidence_graph("dev").resolve(),
                     output_dir=learned_root,
                     checkpoint_dir=checkpoint.parent,
                     metrics=metrics,
@@ -428,11 +298,11 @@ class _StageInvocationFactory:
                     dataset=self.config.dataset.name,
                     train_tasks=self.layout.inputs("train")["input"].resolve(),
                     train_labels=self.layout.inputs("train")["labels"].resolve(),
-                    train_graphs=self.layout.graph("train").resolve(),
+                    train_evidence_graphs=self.layout.evidence_graph("train").resolve(),
                     train_pairs=pair_path,
                     dev_tasks=self.layout.inputs("dev")["input"].resolve(),
                     dev_labels=self.layout.inputs("dev")["labels"].resolve(),
-                    dev_graphs=self.layout.graph("dev").resolve(),
+                    dev_evidence_graphs=self.layout.evidence_graph("dev").resolve(),
                     output_dir=learned_root,
                     checkpoint_dir=checkpoint.parent,
                     metrics=metrics,
@@ -447,7 +317,9 @@ class _StageInvocationFactory:
                 self.layout.artifact(
                     role="labels", path=self.layout.inputs("train")["labels"]
                 ),
-                self.layout.artifact(role="graphs", path=self.layout.graph("train")),
+                self.layout.artifact(
+                    role="evidence_graphs", path=self.layout.evidence_graph("train")
+                ),
                 self.layout.artifact(role="train_pairs", path=pair_path),
                 self.layout.artifact(
                     role="dev_inputs", path=self.layout.inputs("dev")["input"]
@@ -455,7 +327,9 @@ class _StageInvocationFactory:
                 self.layout.artifact(
                     role="dev_labels", path=self.layout.inputs("dev")["labels"]
                 ),
-                self.layout.artifact(role="dev_graphs", path=self.layout.graph("dev")),
+                self.layout.artifact(
+                    role="dev_evidence_graphs", path=self.layout.evidence_graph("dev")
+                ),
             )
             if seed_checkpoint is not None:
                 inputs = (
@@ -550,93 +424,27 @@ class _StageInvocationFactory:
                 top_k=self.config.top_k,
                 encoder=config_method.encoder,
             )
-        elif isinstance(config_method, MemoryStreamMethodConfig):
-            importance_split = self.config.dataset.splits["test"]
-            if not isinstance(importance_split, ResolvedImportanceSplitConfig):
-                raise ValueError(
-                    "Memory Stream requires dataset=hotpotqa-memory-stream"
-                )
-            selected = self.layout.tuned(method).resolve()
-            config = MemoryStreamRetrieveStageConfig(
-                method="memory_stream",
-                encoder=config_method.encoder,
-                selected_config=selected,
-                importance=importance_split.importance_path,
-                scoring=config_method.scoring,
-                capped_test_count=self.config.dataset.splits["test"].count,
+        elif isinstance(config_method, GraphRAGMethodConfig):
+            config = GraphRAGRetrieveStageConfig(
                 stage="retrieve",
-                variant=variant,
-                dataset="hotpotqa",
-                tasks=tasks,
-                output=output,
-                top_k=self.config.top_k,
-            )
-            inputs.extend(
-                (
-                    self.layout.artifact(role="selected_config", path=selected),
-                    _external("importance", importance_split.importance_path),
-                )
-            )
-            dependencies.append(_identifier("tune", method=method))
-        elif isinstance(config_method, Bm25GraphRerankMethodConfig):
-            graphs = self.layout.graph("test").resolve()
-            selected = self.layout.tuned(method).resolve()
-            config = Bm25GraphRerankRetrieveStageConfig(
-                method="bm25_graph_rerank",
-                graphs=graphs,
-                selected_config=selected,
-                seed_method="bm25",
-                stage="retrieve",
+                method="graphrag",
                 variant=variant,
                 dataset=self.config.dataset.name,
                 tasks=tasks,
                 output=output,
                 top_k=self.config.top_k,
-            )
-            inputs.extend(
-                (
-                    self.layout.artifact(role="graphs", path=graphs),
-                    self.layout.artifact(role="selected_config", path=selected),
-                )
-            )
-            dependencies.extend(
-                (
-                    _identifier("graphs", split="test"),
-                    _identifier("tune", method=method),
-                )
-            )
-        elif isinstance(config_method, DenseGraphRerankMethodConfig):
-            graphs = self.layout.graph("test").resolve()
-            selected = self.layout.tuned(method).resolve()
-            config = DenseGraphRerankRetrieveStageConfig(
-                method="dense_graph_rerank",
-                graphs=graphs,
-                selected_config=selected,
-                seed_method="dense",
                 encoder=config_method.encoder,
-                stage="retrieve",
-                variant=variant,
-                dataset=self.config.dataset.name,
-                tasks=tasks,
-                output=output,
-                top_k=self.config.top_k,
-            )
-            inputs.extend(
-                (
-                    self.layout.artifact(role="graphs", path=graphs),
-                    self.layout.artifact(role="selected_config", path=selected),
-                )
-            )
-            dependencies.extend(
-                (
-                    _identifier("graphs", split="test"),
-                    _identifier("tune", method=method),
-                )
+                seed_top_s=config_method.seed_top_s,
+                restart_probability=config_method.restart_probability,
+                max_iterations=config_method.max_iterations,
+                convergence_tolerance=config_method.convergence_tolerance,
+                semantic_weight=config_method.semantic_weight,
+                entity_weight=config_method.entity_weight,
             )
         elif isinstance(
             config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)
         ):
-            graphs = self.layout.graph("test").resolve()
+            graphs = self.layout.evidence_graph("test").resolve()
             checkpoint = self.layout.checkpoint(
                 method, kind="file", variant=variant
             ).resolve()
@@ -648,7 +456,7 @@ class _StageInvocationFactory:
                     ],
                     method.value,
                 ),
-                graphs=graphs,
+                evidence_graphs=graphs,
                 checkpoint=checkpoint,
                 device=config_method.train.trainer.device,
                 stage="retrieve",
@@ -660,13 +468,13 @@ class _StageInvocationFactory:
             )
             inputs.extend(
                 (
-                    self.layout.artifact(role="graphs", path=graphs),
+                    self.layout.artifact(role="evidence_graphs", path=graphs),
                     self.layout.artifact(role="checkpoint", path=checkpoint),
                 )
             )
             dependencies.extend(
                 (
-                    _identifier("graphs", split="test"),
+                    _identifier("evidence_graphs", split="test"),
                     _identifier("train", method=method, variant=variant),
                 )
             )
@@ -715,7 +523,13 @@ class _StageInvocationFactory:
     ) -> StageInvocation:
         predictions = self.layout.prediction(method, variant=variant).resolve()
         labels = self.layout.inputs("test")["labels"].resolve()
-        graphs = self.layout.graph("test").resolve()
+        evidence_graphs = (
+            self.layout.evidence_graph("test").resolve()
+            if Registry.methods.requires_artifact(
+                method, RequiredArtifact.EVIDENCE_GRAPH
+            )
+            else None
+        )
         metrics = self.layout.metric(method, variant=variant).resolve()
         failures = self.layout.failure_cases(method, variant=variant).resolve()
         config = EvaluateStageConfig(
@@ -725,7 +539,7 @@ class _StageInvocationFactory:
             variant=variant,
             predictions=predictions,
             labels=labels,
-            graphs=graphs,
+            evidence_graphs=evidence_graphs,
             metrics=metrics,
             failure_cases=failures,
             failure_case_limit=50,
@@ -741,7 +555,15 @@ class _StageInvocationFactory:
             inputs=(
                 self.layout.artifact(role="predictions", path=predictions),
                 self.layout.artifact(role="labels", path=labels),
-                self.layout.artifact(role="graphs", path=graphs),
+                *(
+                    (
+                        self.layout.artifact(
+                            role="evidence_graphs", path=evidence_graphs
+                        ),
+                    )
+                    if evidence_graphs is not None
+                    else ()
+                ),
             ),
             outputs=(
                 self.layout.artifact(role="metrics", path=metrics),
@@ -750,7 +572,11 @@ class _StageInvocationFactory:
             dependencies=(
                 _identifier("retrieve", method=method, variant=variant),
                 _identifier("prepare", split="test"),
-                _identifier("graphs", split="test"),
+                *(
+                    (_identifier("evidence_graphs", split="test"),)
+                    if evidence_graphs is not None
+                    else ()
+                ),
             ),
         )
 
@@ -1055,15 +881,31 @@ class WorkflowPlanner:
 
     def _ordinary_invocations(self) -> tuple[StageInvocation, ...]:
         split_names: tuple[SplitName, ...] = ("train", "dev", "test")
+        evidence_graph_splits: set[SplitName] = set()
+        if self.train_methods:
+            evidence_graph_splits.add("train")
+        if any(
+            Registry.methods.requires_artifact(
+                method, RequiredArtifact.EVIDENCE_GRAPH
+            )
+            for method in self.train_methods
+        ):
+            evidence_graph_splits.add("dev")
+        if any(
+            Registry.methods.requires_artifact(
+                method, RequiredArtifact.EVIDENCE_GRAPH
+            )
+            for method in self.methods
+        ):
+            evidence_graph_splits.add("test")
         invocations = [
             *(self.factory._prepare_invocation(split) for split in split_names),
-            *(self.factory._graph_invocation(split) for split in split_names),
-            *(self.factory._pair_invocation(method) for method in self.train_methods),
             *(
-                self.factory._tune_invocation(method)
-                for method in self.methods
-                if Registry.methods.get(method).tuning is not None
+                self.factory._evidence_graph_invocation(split)
+                for split in split_names
+                if split in evidence_graph_splits
             ),
+            *(self.factory._pair_invocation(method) for method in self.train_methods),
             *(self.factory._train_invocation(method) for method in self.train_methods),
             *(self.factory._retrieve_invocation(method) for method in self.methods),
             *(self.factory._evaluate_invocation(method) for method in self.methods),
@@ -1187,11 +1029,13 @@ def _identifier(
 def _external(
     role: str,
     path: Path,
+    *,
+    kind: ArtifactKind,
 ) -> ArtifactRef:
     return ArtifactRef(
         role=role,
         path=path.resolve(),
-        kind="file",
+        kind=kind,
     )
 
 

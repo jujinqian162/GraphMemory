@@ -68,14 +68,4 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
         graph_encoder=graph_encoder,
         scorer_feature_dim=len(model_config.feature_config.scorer_feature_names),
         dropout=model_config.dropout,
-        decoder_hidden_dim=model_config.decoder_config.hidden_dim,
-        step_embedding_dim=model_config.decoder_config.step_embedding_dim,
-        frontier_relation_dim=model_config.decoder_config.frontier_relation_dim,
-        num_relations=len(model_config.relation_vocab),
-        max_steps=model_config.beam_search_config.max_steps,
-        training_beam_size=model_config.beam_search_config.training_beam_size,
-        length_penalty_alpha=model_config.beam_search_config.length_penalty_alpha,
-        deduplicate_selected_sets=(
-            model_config.beam_search_config.deduplicate_selected_sets
-        ),
     )

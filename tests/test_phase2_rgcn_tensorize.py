@@ -6,10 +6,10 @@ from graph_memory.models.graph_retriever.internals.tensorization import (
     EdgeTensorizer,
     UniformEdgeWeightPolicy,
 )
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 
 
-def tensor_graph() -> MemoryGraph:
+def tensor_graph() -> EvidenceGraph:
     return {
         "task_id": "hotpot_tensor_test",
         "nodes": [

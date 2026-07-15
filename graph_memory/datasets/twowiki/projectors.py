@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.ranking import RankedResult
-from graph_memory.datasets.twowiki.records import TwoWikiLabelRecord, TwoWikiRankingRecord
+from graph_memory.datasets.twowiki.records import (
+    TwoWikiLabelRecord,
+    TwoWikiRankingRecord,
+)
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.graphs.requests import GraphBuildNode, GraphBuildRequest
+from graph_memory.graphs.requests import (
+    EvidenceGraphBuildNode,
+    EvidenceGraphBuildRequest,
+)
 from graph_memory.retrieval.requests import (
-    GraphRankingRequest,
-    TemporalMemoryRankingRequest,
+    EvidenceGraphRankingRequest,
     TextCandidate,
     TextRankingRequest,
 )
@@ -23,7 +28,7 @@ class TwoWikiToTextRankingRequest:
             candidates=tuple(
                 TextCandidate(
                     item_id=sentence["sentence_id"],
-                    text=f'{sentence["title"]}. {sentence["text"]}',
+                    text=f"{sentence['title']}. {sentence['text']}",
                     metadata={
                         "title": sentence["title"],
                         "source_ref": sentence["title"],
@@ -37,18 +42,18 @@ class TwoWikiToTextRankingRequest:
         )
 
 
-class TwoWikiToGraphBuildRequest:
-    def project(self, record: TwoWikiRankingRecord) -> GraphBuildRequest:
-        return GraphBuildRequest(
+class TwoWikiToEvidenceGraphBuildRequest:
+    def project(self, record: TwoWikiRankingRecord) -> EvidenceGraphBuildRequest:
+        return EvidenceGraphBuildRequest(
             task_id=record["task_id"],
             query_text=record["question"],
             nodes=tuple(
-                GraphBuildNode(
+                EvidenceGraphBuildNode(
                     node_id=sentence["sentence_id"],
                     text=sentence["text"],
                     node_kind="document_sentence",
                     source_ref=sentence["title"],
-                    group_key=f'document:{sentence["title"]}',
+                    group_key=f"document:{sentence['title']}",
                     sequence_index=sentence["sentence_index"],
                     metadata={
                         "title": sentence["title"],
@@ -62,53 +67,20 @@ class TwoWikiToGraphBuildRequest:
         )
 
 
-class TwoWikiToGraphRankingRequest:
+class TwoWikiToEvidenceGraphRankingRequest:
     def project(
         self,
         record: TwoWikiRankingRecord,
-        graph: MemoryGraph,
+        graph: EvidenceGraph,
         initial_scores: Mapping[str, float],
-    ) -> GraphRankingRequest:
+    ) -> EvidenceGraphRankingRequest:
         text_request = TwoWikiToTextRankingRequest().project(record)
-        return GraphRankingRequest(
+        return EvidenceGraphRankingRequest(
             task_id=record["task_id"],
             query_text=record["question"],
             candidates=text_request.candidates,
             graph=graph,
             initial_scores=initial_scores,
-        )
-
-
-class TwoWikiToTemporalMemoryRankingRequest:
-    def project(
-        self,
-        record: TwoWikiRankingRecord,
-        importance_by_item_id: Mapping[str, float],
-    ) -> TemporalMemoryRankingRequest:
-        return TemporalMemoryRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
-            candidates=tuple(
-                TextCandidate(
-                    item_id=sentence["sentence_id"],
-                    text=sentence["text"],
-                    metadata={
-                        "title": sentence["title"],
-                        "source_ref": sentence["title"],
-                        "sequence_index": sentence["sentence_index"],
-                        "position": sentence["position"],
-                        "question_type": record["question_type"],
-                    },
-                )
-                for sentence in record["candidate_sentences"]
-            ),
-            importance_by_item_id=importance_by_item_id,
-            metadata={
-                "position_by_item_id": {
-                    sentence["sentence_id"]: sentence["position"]
-                    for sentence in record["candidate_sentences"]
-                }
-            },
         )
 
 
@@ -118,7 +90,7 @@ class TwoWikiToEvidenceEvaluationRequest:
         *,
         predictions: Sequence[RankedResult],
         labels: Sequence[TwoWikiLabelRecord],
-        graphs: Sequence[MemoryGraph],
+        graphs: Sequence[EvidenceGraph],
     ) -> EvidenceEvaluationRequest:
         return EvidenceEvaluationRequest(
             predictions=predictions,
@@ -127,7 +99,10 @@ class TwoWikiToEvidenceEvaluationRequest:
                     task_id=label["task_id"],
                     gold_answer=label["gold_answer"],
                     gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-                    gold_dependency_edges=tuple(_dependency_edge(edge) for edge in label["gold_dependency_edges"]),
+                    gold_dependency_edges=tuple(
+                        _dependency_edge(edge)
+                        for edge in label["gold_dependency_edges"]
+                    ),
                 )
                 for label in labels
             ),
@@ -137,14 +112,15 @@ class TwoWikiToEvidenceEvaluationRequest:
 
 def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
     if len(edge) != 2:
-        raise ValueError(f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}.")
+        raise ValueError(
+            f"Gold dependency edge must contain exactly two node IDs, got {len(edge)}."
+        )
     return edge[0], edge[1]
 
 
 __all__ = [
     "TwoWikiToEvidenceEvaluationRequest",
-    "TwoWikiToGraphBuildRequest",
-    "TwoWikiToGraphRankingRequest",
-    "TwoWikiToTemporalMemoryRankingRequest",
+    "TwoWikiToEvidenceGraphBuildRequest",
+    "TwoWikiToEvidenceGraphRankingRequest",
     "TwoWikiToTextRankingRequest",
 ]

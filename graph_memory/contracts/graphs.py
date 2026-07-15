@@ -35,7 +35,7 @@ class GraphEdge(TypedDict):
     directed: bool
 
 
-class MemoryGraph(TypedDict):
+class EvidenceGraph(TypedDict):
     task_id: TaskId
     nodes: list[GraphNode]
     edges: list[GraphEdge]
@@ -43,4 +43,4 @@ class MemoryGraph(TypedDict):
     debug: NotRequired[dict[str, object]]
 
 
-__all__ = ["GraphEdge", "GraphItemNode", "GraphNode", "MemoryGraph", "QuestionNode"]
+__all__ = ["GraphEdge", "GraphItemNode", "GraphNode", "EvidenceGraph", "QuestionNode"]

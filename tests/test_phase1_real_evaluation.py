@@ -14,7 +14,7 @@ from graph_memory.evaluation.metrics import (
 from graph_memory.evaluation.service import (
     evaluate_results,
 )
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
@@ -50,7 +50,7 @@ def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
     ranked = ["m0", "m2", "m1"]
     gold = {"m0", "m2"}
     graph = cast(
-        MemoryGraph,
+        EvidenceGraph,
         cast(
             object,
             {
@@ -69,7 +69,7 @@ def test_query_evidence_connectivity_requires_reachability_from_question():
     ranked = ["m0", "m2", "m1"]
     gold = {"m0", "m2"}
     graph = cast(
-        MemoryGraph,
+        EvidenceGraph,
         cast(
             object,
             {
@@ -120,7 +120,7 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
         }
     ]
     graphs = cast(
-        list[MemoryGraph],
+        list[EvidenceGraph],
         cast(
             object,
             [
@@ -197,7 +197,7 @@ def test_evaluate_results_rejects_task_id_mismatch():
             "gold_dependency_edges": [],
         }
     ]
-    graphs: list[MemoryGraph] = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
+    graphs: list[EvidenceGraph] = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
 
     with pytest.raises(ContractValidationError, match="task_id"):
         evaluate_results(

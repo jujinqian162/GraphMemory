@@ -15,6 +15,8 @@ from graph_memory.models.graph_retriever.config.records import (
 )
 from graph_memory.validation import validate_rgcn_checkpoint_metadata
 
+RGCN_CHECKPOINT_SCHEMA_VERSION = 2
+
 
 @dataclass(frozen=True)
 class RgcnCheckpoint:
@@ -55,6 +57,7 @@ def save_rgcn_checkpoint(
     """
 
     payload: dict[str, Any] = {
+        "schema_version": RGCN_CHECKPOINT_SCHEMA_VERSION,
         "method_name": method_name,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer_state_dict,

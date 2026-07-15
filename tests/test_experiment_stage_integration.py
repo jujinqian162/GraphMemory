@@ -53,6 +53,24 @@ def _smoke_config(name: str):
     )
 
 
+def test_file_dataset_source_kind_is_preserved_in_prepare_binding(
+    tmp_path: Path,
+) -> None:
+    config = _smoke_config(f"source-kind-{tmp_path.name}")
+    layout = RunLayout(ROOT, config.name)
+    initialized = initialize_experiment(config, layout=layout)
+    try:
+        assert config.dataset.source_kind == "file"
+        prepare = next(
+            invocation
+            for invocation in initialized.plan.invocations
+            if invocation.identifier == "prepare:train"
+        )
+        assert prepare.inputs[0].kind == "file"
+    finally:
+        shutil.rmtree(layout.run_dir, ignore_errors=True)
+
+
 def test_hotpotqa_bm25_executes_all_typed_stage_yaml_subprocesses(
     tmp_path: Path,
 ) -> None:
@@ -63,6 +81,10 @@ def test_hotpotqa_bm25_executes_all_typed_stage_yaml_subprocesses(
         layout=layout,
     )
     try:
+        assert all(
+            invocation.stage != "evidence_graphs"
+            for invocation in initialized.plan.invocations
+        )
         for invocation in initialized.plan.invocations:
             completed = subprocess.run(
                 invocation.argv,
@@ -102,6 +124,10 @@ def test_twowiki_and_musique_graph_workflows_execute_typed_stage_subprocesses(
         layout = RunLayout(ROOT, name)
         initialized = initialize_experiment(config, layout=layout)
         try:
+            assert all(
+                invocation.stage != "evidence_graphs"
+                for invocation in initialized.plan.invocations
+            )
             for invocation in initialized.plan.invocations:
                 completed = subprocess.run(
                     invocation.argv,
@@ -135,7 +161,7 @@ def _cross_dataset_config(name: str, *, dataset: str, source: Path):
                 f"name={name}",
                 f"dataset={dataset_group}",
                 "profile=smoke",
-                "methods=[bm25,bm25_graph_rerank]",
+                "methods=[bm25,graphrag]",
                 "device=cpu",
                 *[
                     f"dataset.splits.{split}.source={source_value}"

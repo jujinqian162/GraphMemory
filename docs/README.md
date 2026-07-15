@@ -17,6 +17,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 ## Current Entry Points
 
 - Project overview: `00-overview/project-overview.md`
+- Current execution/provenance retrieval plan: `10-plans/execution-provenance-retrieval-domain-plan.md`
 - Original student experiment plan: `archive/original-student-experiment-plan.md`
 - Phase 1 implementation plan: `10-plans/phase1-real-graph-memory.md`
 - Phase 2 R-GCN trainable retriever plan: `10-plans/phase2-rgcn-trainable-retriever.md`
@@ -41,6 +42,7 @@ This directory is organized by abstraction level. Read from top to bottom when o
 - Debug artifacts: `40-operations/debug-artifacts.md`
 - Phase 1 command runbook: `40-operations/commands.md`
 - MuSiQue data and run guide: `40-operations/musique.md`
+- TRAJECT-Bench data and baseline guide: `40-operations/traject-bench.md`
 - Implementation handoff: `40-operations/implementation-handoff.md`
 
 ## Current Code Navigation

@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Callable, TypeAlias
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.service import evaluate_results
@@ -17,20 +18,13 @@ from graph_memory.models.graph_retriever.batching import (
     build_training_batches,
     move_training_batch,
 )
-from graph_memory.models.graph_retriever.beam_loss import (
-    BeamLossBreakdown,
-    compute_beam_loss,
-)
 from graph_memory.models.graph_retriever.config.records import (
-    BeamSearchConfig,
     RgcnModelConfig,
     RgcnTrainingConfig,
 )
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.dev_evaluation import predict_dev_from_batches
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
-from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
 from graph_memory.models.graph_retriever.selection import (
     RgcnSelectionSettings,
     build_selection_metrics,
@@ -72,18 +66,18 @@ class RgcnTrainingResult:
 def train_graph_retriever(
     *,
     train_requests: list[TextRankingRequest],
-    train_graphs: list[MemoryGraph],
+    train_graphs: list[EvidenceGraph],
     train_pairs: list[TrainPairRecord],
     dev_requests: list[TextRankingRequest],
     dev_labels: list[EvidenceLabel],
-    dev_graphs: list[MemoryGraph],
+    dev_graphs: list[EvidenceGraph],
     model_config: RgcnModelConfig,
     training_config: RgcnTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     train_labels: list[EvidenceLabel] | None = None,
-    checkpoint_callback: CheckpointCallback | None = None,
     selection_settings: RgcnSelectionSettings = RgcnSelectionSettings(),
+    checkpoint_callback: CheckpointCallback | None = None,
     device: str | torch.device = "cpu",
 ) -> RgcnTrainingResult:
     """
@@ -106,30 +100,7 @@ def train_graph_retriever(
     _ = torch.manual_seed(training_config.random_seed)
     device = torch.device(device)
     model = build_model_from_config(model_config).to(device)
-    decoder_parameters = [
-        parameter
-        for name, parameter in model.named_parameters()
-        if _is_decoder_parameter(name)
-    ]
-    encoder_parameters = [
-        parameter
-        for name, parameter in model.named_parameters()
-        if not _is_decoder_parameter(name)
-    ]
-    optimizer = torch.optim.AdamW(
-        [
-            {
-                "params": encoder_parameters,
-                "lr": training_config.optimizer_phase_config.rgcn_learning_rate,
-                "name": "rgcn",
-            },
-            {
-                "params": decoder_parameters,
-                "lr": training_config.optimizer_phase_config.decoder_learning_rate,
-                "name": "decoder",
-            },
-        ]
-    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=training_config.learning_rate)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
     train_batches = build_training_batches(
         ranking_requests=train_requests,
@@ -139,7 +110,6 @@ def train_graph_retriever(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         batch_size=training_config.batch_size,
-        labels=train_labels,
     )
     if not train_batches:
         raise ValueError("Training requires at least one non-empty training batch.")
@@ -166,44 +136,22 @@ def train_graph_retriever(
 
     for epoch in range(1, training_config.epochs + 1):
         model.train()
-        encoder_lr = (
-            0.0
-            if epoch <= training_config.optimizer_phase_config.decoder_warmup_epochs
-            else training_config.optimizer_phase_config.rgcn_learning_rate
-        )
-        optimizer.param_groups[0]["lr"] = encoder_lr
         train_loss_total = 0.0
         train_sample_count = 0
         last_grad_norm = 0.0
-        component_totals = {
-            "next_action_loss": 0.0,
-            "stop_loss": 0.0,
-            "aux_node_loss": 0.0,
-            "retained_hypotheses": 0.0,
-            "oracle_reachable_rate": 0.0,
-            "premature_stop_rate": 0.0,
-            "average_selected_length": 0.0,
-        }
         for batch in train_batches:
             moved_batch = move_training_batch(batch, device)
-            labels_for_batch = _labels_for_training_batch(
-                moved_batch, train_labels, train_pairs
+            logits = model(moved_batch)
+            loss = F.binary_cross_entropy_with_logits(
+                logits, moved_batch.labels, pos_weight=pos_weight
             )
-            breakdown = compute_beam_training_loss(
-                model=model,
-                batch=moved_batch,
-                labels=labels_for_batch,
-                training_config=training_config,
-                beam_search_config=model_config.beam_search_config,
-                pos_weight=pos_weight,
-            )
-            loss = breakdown.total_loss
             optimizer.zero_grad()
             loss.backward()
             grad_norm = nn.utils.clip_grad_norm_(
                 model.parameters(), training_config.max_grad_norm
             )
             optimizer.step()
+            scheduler.step()
             global_step += 1
             sample_count = int(moved_batch.labels.shape[0])
             train_loss_total += float(loss.detach().cpu()) * sample_count
@@ -211,24 +159,15 @@ def train_graph_retriever(
             last_grad_norm = float(
                 grad_norm.detach().cpu() if isinstance(grad_norm, Tensor) else grad_norm
             )
-            for key in component_totals:
-                value = getattr(breakdown, key)
-                component_totals[key] += (
-                    float(value.detach().cpu())
-                    if isinstance(value, Tensor)
-                    else float(value)
-                )
 
-        dev_predictions, dev_losses = predict_dev_from_batches(
+        dev_predictions, dev_loss = predict_dev_from_batches(
             model=model,
             ranking_requests=dev_requests,
             labels=dev_labels,
             graphs=dev_graphs,
             model_config=model_config,
-            training_config=training_config,
             batches=dev_batches,
             device=device,
-            pos_weight=pos_weight,
         )
         dev_rows = evaluate_results(
             EvidenceEvaluationRequest(
@@ -241,7 +180,7 @@ def train_graph_retriever(
             dev_full_support_at_10=float(dev_row["Full Support@10"]),
             dev_recall_at_5=float(dev_row["Recall@5"]),
             dev_mrr=float(dev_row["MRR"]),
-            dev_loss=dev_losses.total_loss,
+            dev_loss=dev_loss,
         )
         dev_metric = resolve_selection_metric(selection_metrics, selection_settings)
         if is_selection_improvement(
@@ -260,31 +199,18 @@ def train_graph_retriever(
                 "train_loss": train_loss_total / train_sample_count
                 if train_sample_count
                 else 0.0,
-                "dev_loss": dev_losses.total_loss,
-                "dev_next_action_loss": dev_losses.next_action_loss,
-                "dev_stop_loss": dev_losses.stop_loss,
-                "dev_aux_node_loss": dev_losses.aux_node_loss,
-                "dev_composite": selection_metrics["dev_composite"],
+                "dev_loss": dev_loss,
                 "dev_recall_at_5": float(dev_row["Recall@5"]),
                 "dev_full_support_at_5": float(dev_row["Full Support@5"]),
                 "dev_full_support_at_10": float(dev_row["Full Support@10"]),
                 "dev_mrr": float(dev_row["MRR"]),
+                "selection_metric": selection_settings.best_metric,
+                "selection_metric_value": dev_metric,
                 "best_dev_metric": best_metric,
-                "selected_metric_name": selection_settings.best_metric,
-                "selected_metric_value": dev_metric,
-                "best_selected_metric_value": best_metric,
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "grad_norm": last_grad_norm,
                 "positive_count": positive_count,
                 "negative_count_by_type": negative_count_by_type,
-                **{
-                    key: value / len(train_batches)
-                    for key, value in component_totals.items()
-                },
-                "beam_size": model_config.beam_search_config.training_beam_size,
-                "max_steps": model_config.beam_search_config.max_steps,
-                "encoder_learning_rate": float(optimizer.param_groups[0]["lr"]),
-                "decoder_learning_rate": float(optimizer.param_groups[1]["lr"]),
             }
         )
 
@@ -326,64 +252,3 @@ def _cpu_state_dict(model: nn.Module) -> dict[str, Tensor]:
         name: tensor.detach().cpu().clone()
         for name, tensor in deepcopy(model.state_dict()).items()
     }
-
-
-def compute_beam_training_loss(
-    *,
-    model: EvidenceScoringModel,
-    batch: TrainingBatch,
-    labels: list[EvidenceLabel],
-    training_config: RgcnTrainingConfig,
-    beam_search_config: BeamSearchConfig | None = None,
-    pos_weight: Tensor | None = None,
-) -> BeamLossBreakdown:
-    effective_beam_config = beam_search_config or BeamSearchConfig(
-        training_beam_size=model.training_beam_size,
-        inference_beam_size=model.training_beam_size,
-        max_steps=model.max_steps,
-        length_penalty_alpha=model.length_penalty_alpha,
-        deduplicate_selected_sets=model.deduplicate_selected_sets,
-    )
-    return compute_beam_loss(
-        model=model,
-        batch=batch,
-        labels=labels,
-        loss_config=training_config.beam_loss_config,
-        beam_search_config=effective_beam_config,
-        pos_weight=pos_weight,
-    )
-
-
-def _labels_for_training_batch(
-    batch: TrainingBatch,
-    labels: list[EvidenceLabel] | None,
-    pairs: list[TrainPairRecord],
-) -> list[EvidenceLabel]:
-    if labels is not None:
-        by_task = {label.task_id: label for label in labels}
-        return [by_task[task_id] for task_id in batch.graph_batch.task_ids]
-    positive_by_task: dict[str, list[str]] = {}
-    for pair in pairs:
-        if pair["label"] == 1:
-            positive_by_task.setdefault(pair["task_id"], []).append(pair["node_id"])
-    return [
-        EvidenceLabel(
-            task_id=task_id,
-            gold_answer="",
-            gold_evidence_item_ids=tuple(positive_by_task.get(task_id, ())),
-            gold_dependency_edges=(),
-        )
-        for task_id in batch.graph_batch.task_ids
-    ]
-
-
-def _is_decoder_parameter(name: str) -> bool:
-    return name.startswith(
-        (
-            "first_hop_scorer",
-            "subsequent_hop_scorer",
-            "stop_scorer",
-            "step_embedding",
-            "frontier_projection",
-        )
-    )

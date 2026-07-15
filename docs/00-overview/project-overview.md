@@ -1,103 +1,22 @@
-# Project Overview
+# Project overview
 
-## Metadata
+The project studies whether explicit graph structure improves recovery of complete evidence or execution paths beyond flat semantic retrieval. The governing implementation plan is [`execution-provenance-retrieval-domain-plan.md`](../10-plans/execution-provenance-retrieval-domain-plan.md).
 
-| Field | Value |
-|---|---|
-| Project | Execution-Provenance Graph Memory |
-| Current scope | Request-first evidence retrieval on HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans with flat baselines, graph reranking, Dense-FT, and trainable R-GCN retrieval |
-| Primary task | Retrieve complete supporting evidence nodes and connected evidence subgraphs. |
-| Primary datasets | HotpotQA distractor, 2WikiMultiHopQA, and MuSiQue-Ans labeled splits. |
-| Primary methods | BM25, frozen dense retrieval, Dense-FT, graph-aware reranking, checkpoint-backed R-GCN graph retrieval. |
-| Source material | `docs/archive/original-student-experiment-plan.md` |
-| Current implementation plans | `docs/10-plans/phase1-real-graph-memory.md`; `docs/10-plans/phase2-rgcn-trainable-retriever.md`; `docs/10-plans/dense-ft-implementation-plan.md` |
+## Supported domains
 
-## Background
+| Domain | Inputs | Methods |
+| --- | --- | --- |
+| Evidence retrieval | text candidates; optional `EvidenceGraph` for R-GCN | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
+| Execution provenance | flat text requests or native `ExecutionProvenanceRankingRequest` | BM25, Dense, GraphRAG, Execution-Provenance Retriever |
 
-This project studies memory retrieval for evidence-heavy LLM and agent workflows. Standard flat memory stores observations, documents, and tool outputs as isolated text chunks. That can retrieve semantically similar records, but it often misses the dependency chain that explains why an answer is supported.
+`EvidenceGraph` contains question/evidence nodes and evidence relations. `ExecutionProvenanceGraph` contains Task, Agent, ToolCall, ToolOutput, and Answer nodes plus typed execution/dataflow edges. GraphRAG owns a third, private entity graph and does not consume either public graph artifact.
 
-Execution-Provenance Graph Memory represents each evidence-bearing sentence or step as a node and links nodes through typed edges such as sequential context, query overlap, entity overlap, bridge connections, tool dependency, and parameter flow.
+HotpotQA, 2Wiki, and MuSiQue remain evidence-retrieval datasets. The TRAJECT-Bench adapter evaluates offline tool retrieval against the benchmark's public domain catalogs. It exposes tools as text candidates and preserves catalog-declared connections for optional graph consumers, while the gold calls, arguments, outputs, final answer, and trajectory order remain label-only. It therefore does not claim to reproduce TRAJECT-Bench's end-to-end agent execution metrics or to provide a native `ExecutionProvenanceGraph`.
 
-The key research question is not only whether a retriever finds one relevant sentence. The stricter question is whether it recovers the complete evidence set and the connected evidence path behind a query.
+## Research boundary
 
-## Core Requirements
-
-- Convert public evidence-intensive QA data into a unified memory retrieval task format.
-- Use sentence-level memory nodes for HotpotQA retrieval experiments.
-- Evaluate evidence retrieval and evidence tracing before answer generation.
-- Keep label-only fields separate from retrieval and graph-construction inputs.
-- Compare flat retrieval, hand-written graph reranking, and trainable graph retrieval under a shared ranked-result schema.
-- Report node-level metrics, graph connectivity metrics, and efficiency metrics.
-- Prefer fail-fast validation over silent fallback behavior.
-- Keep each phase slice narrow enough to be runnable, auditable, and scientifically interpretable.
-
-## Phase Roadmap
-
-| Phase | Scope | Expected output |
-|---|---|---|
-| Phase 1 | HotpotQA + BM25 + frozen dense + graph rerank | Implemented runnable evidence retrieval system and main metrics. |
-| Implemented Phase 2 methods | Dense-FT; train-pair artifacts; R-GCN binary node scorer; checkpoint/model-directory retrieval; edge/model ablations | Implemented trainable retrieval paths, standard ranked results, and `ablation_results.csv`. |
-| Remaining Phase 2 paper scope | Add Memory Stream and GraphRAG-style baselines; produce one final comparison package across all required methods | Complete the original paper baseline matrix. |
-| Cross-dataset evidence retrieval | Add 2WikiMultiHopQA and MuSiQue-Ans through dataset-local adapters and shared request contracts | Implemented sentence- and paragraph-level multi-hop evaluation paths. |
-| Phase 3 | Add MemGPT-style memory and tool trajectories | Generalization and agent-style provenance analysis. |
-
-## Current Implemented Boundary
-
-The stable Phase 1 path implements:
-
-- HotpotQA conversion into input and label artifacts.
-- Typed graph construction from input-visible text.
-- BM25 retrieval.
-- Frozen dense retrieval.
-- BM25-seeded and dense-seeded graph reranking.
-- Dev-set graph parameter tuning.
-- Evaluation of Recall@k, Evidence F1@k, Full Support@k, MRR, Connected Evidence Recall@k, Query-Evidence Connectivity@10, and efficiency.
-
-The implemented trainable stack adds:
-
-- `*_pairs.json` train-pair construction from input, label, and graph artifacts.
-- `GraphBatch` / `TrainingBatch` tensor contracts for trainable graph retrieval.
-- Frozen-encoder R-GCN binary evidence node scoring.
-- Checkpoint save/load and `dense_rgcn_graph_retriever` inference.
-- SentenceTransformers-based Dense-FT training, model-directory metadata, and `dense_ft` inference.
-- Closed method groups under `configs/method_configs/`.
-- Precompiled pair, train, retrieve, and evaluate stage configs consumed through `--config`.
-- Runtime-produced model, device, and encoder provenance in retrieval summaries.
-- Experiment-runner stages for pair building, training, retrieval, evaluation, aggregation, resume, and artifact status.
-- R-GCN ablation orchestration for edge views, graph structure, edge typing/weighting, seed scores, and hard negatives.
-
-The implemented cross-dataset stack additionally provides:
-
-- 2WikiMultiHopQA sentence-level preparation, dependency supervision, and Hydra dataset selection.
-- MuSiQue-Ans JSONL preparation with paragraph-level evidence IDs and decomposition-derived dependency edges.
-- Dataset-local projectors into the same text retrieval, temporal memory, graph build, graph ranking, and evidence evaluation requests.
-- MuSiQue dataset composition plus shared smoke/quick/full profiles under `configs/`.
-
-The broader Phase 2 paper scope still needs:
-
-- Memory Stream baseline.
-- GraphRAG-style baseline.
-- One final comparison package containing all required Phase 2 methods.
-
-The current HotpotQA graph evaluates evidence-node recovery and graph connectivity, but it does not contain gold execution dependency paths. Consequently, HotpotQA `Path Recall@10` and `Edge Recall@10` remain `N/A`. 2WikiMultiHopQA and MuSiQue-Ans can provide dependency labels, but their evidence granularity differs: 2Wiki is sentence-level and MuSiQue is paragraph-level, so their retrieval metrics must not be compared without stating that difference. MemGPT-style memory, answer generation, MuSiQue-Full answerability/sufficiency evaluation, and tool-trajectory experiments remain outside the implemented boundary.
-
-## Current Architecture Boundary
-
-- `graph_memory/registry/methods.py` is the source of truth for method lifecycle, dependencies, encoder/model sources, and train artifact shape.
-- Trainable method groups are strict current-only YAML under `configs/method_configs/`; old config schemas and migrations are unsupported.
-- Workflow manifests and generated stage configs are strict current contracts. Low-level trainable scripts consume complete stage configs only.
-- R-GCN checkpoints and Dense-FT model metadata are current-only artifacts. Old runs and artifacts must be deleted and regenerated.
-- Retrieval builders return the actual runtime provenance serialized into run summaries.
-
-## Documentation Flow
-
-Start here, then read:
-
-1. `docs/archive/original-student-experiment-plan.md` for full source context.
-2. `docs/10-plans/phase1-real-graph-memory.md` for the Phase 1 implementation plan.
-3. `docs/10-plans/phase2-rgcn-trainable-retriever.md` for the implemented R-GCN trainable retriever slice.
-4. `docs/10-plans/dense-ft-implementation-plan.md` for the Dense-FT implementation.
-5. `docs/10-plans/trainable-stack-zero-compatibility-refactor-plan.md` for the current trainable-stack boundary.
-6. `docs/20-contracts/data-contracts.md`, `docs/20-contracts/retrieval-contracts.md`, and `docs/20-contracts/model-contracts.md` for current artifact, retrieval, and model contracts.
-7. `docs/10-plans/engineering-quality-brainstorm.md` for evolving engineering decisions.
-8. `docs/40-operations/musique.md` for MuSiQue download, raw-path, and experiment-runner commands.
+- Flat methods establish lexical and semantic baselines.
+- GraphRAG tests method-owned entity propagation without a dataset graph artifact.
+- The two R-GCN methods learn independent evidence-node scores from `EvidenceGraph` inputs.
+- The provenance retriever combines semantic seeds with typed path expansion, field binding, grounding, and revision invalidation.
+- Retrieval outputs preserve complete rankings. Native traces contain only edges and paths actually used by the method.

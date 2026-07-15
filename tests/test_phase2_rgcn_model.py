@@ -10,6 +10,7 @@ from graph_memory.models.graph_retriever.internals.neural import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
+from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.internals.tensorization import (
     DEFAULT_RELATION_VOCAB,
 )
@@ -167,6 +168,23 @@ def test_evidence_node_scorer_returns_one_logit_per_sample():
     )
 
     assert logits.shape == (3,)
+
+
+def test_default_rgcn_model_config_has_no_beam_contract() -> None:
+    config = default_model_config(
+        method_name="dense_rgcn_graph_retriever",
+        encoder_model="fake-encoder",
+        encoder_dim=4,
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        encoder_batch_size=64,
+        hidden_dim=8,
+        num_layers=1,
+        dropout=0.0,
+    )
+
+    assert not hasattr(config, "decoder_config")
+    assert not hasattr(config, "beam_search_config")
 
 
 def test_evidence_scoring_model_backward_updates_relation_parameters():

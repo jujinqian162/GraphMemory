@@ -51,13 +51,17 @@ PositiveFloat = Annotated[ScientificFloat, Field(gt=0.0)]
 NonNegativeFloat = Annotated[ScientificFloat, Field(ge=0.0)]
 Device = Annotated[str, BeforeValidator(_device)]
 
-DatasetName: TypeAlias = Literal["hotpotqa", "twowiki", "musique"]
+DatasetName: TypeAlias = Literal[
+    "hotpotqa",
+    "twowiki",
+    "musique",
+    "traject_bench",
+]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
 PublicStageName: TypeAlias = Literal[
     "prepare",
-    "graphs",
+    "evidence_graphs",
     "pairs",
-    "tune",
     "train",
     "retrieve",
     "evaluate",
@@ -106,16 +110,7 @@ class RawDatasetSplitConfig(DatasetSplitBase):
     kind: Literal["raw"]
 
 
-class ImportanceDatasetSplitConfig(DatasetSplitBase):
-    kind: Literal["importance"]
-    labels_source: Path
-    importance_path: Path
-
-
-DatasetSplitConfig: TypeAlias = Annotated[
-    Union[RawDatasetSplitConfig, ImportanceDatasetSplitConfig],
-    Field(discriminator="kind"),
-]
+DatasetSplitConfig: TypeAlias = RawDatasetSplitConfig
 
 
 class DatasetSplitsConfig(ClosedModel):
@@ -127,6 +122,7 @@ class DatasetSplitsConfig(ClosedModel):
 class DatasetConfig(ClosedModel):
     name: DatasetName
     prepare_script: Path
+    source_kind: ArtifactKind
     splits: DatasetSplitsConfig
 
 
@@ -199,34 +195,30 @@ class DenseMethodConfig(ClosedModel):
     encoder: DenseEncoderConfig
 
 
-class MemoryStreamScoringConfig(ClosedModel):
-    relevance_weight: NonNegativeFloat
-    recency_weight: NonNegativeFloat
-    importance_weight: NonNegativeFloat
-    recency_decay: Annotated[ScientificFloat, Field(gt=0.0, le=1.0)]
-
-    @model_validator(mode="after")
-    def validate_positive_weight(self) -> MemoryStreamScoringConfig:
-        if self.relevance_weight + self.recency_weight + self.importance_weight <= 0:
-            raise ValueError(
-                "Memory Stream requires at least one positive scoring weight"
-            )
-        return self
-
-
-class MemoryStreamMethodConfig(ClosedModel):
-    method: Literal["memory_stream"]
+class GraphRAGMethodConfig(ClosedModel):
+    method: Literal["graphrag"]
     encoder: DenseEncoderConfig
-    scoring: MemoryStreamScoringConfig
+    seed_top_s: PositiveInt
+    restart_probability: Annotated[ScientificFloat, Field(gt=0.0, le=1.0)]
+    max_iterations: PositiveInt
+    convergence_tolerance: PositiveFloat
+    semantic_weight: NonNegativeFloat
+    entity_weight: NonNegativeFloat
 
 
-class Bm25GraphRerankMethodConfig(ClosedModel):
-    method: Literal["bm25_graph_rerank"]
-
-
-class DenseGraphRerankMethodConfig(ClosedModel):
-    method: Literal["dense_graph_rerank"]
+class ExecutionProvenanceMethodConfig(ClosedModel):
+    method: Literal["execution_provenance_retriever"]
     encoder: DenseEncoderConfig
+    seed_top_s: PositiveInt
+    max_hops: PositiveInt
+    top_paths: PositiveInt
+    max_path_expansions: PositiveInt
+    semantic_weight: NonNegativeFloat
+    dependency_weight: NonNegativeFloat
+    binding_weight: NonNegativeFloat
+    grounding_weight: NonNegativeFloat
+    hop_penalty: NonNegativeFloat
+    invalidation_penalty: NonNegativeFloat
 
 
 class PairSamplingConfig(ClosedModel):
@@ -256,38 +248,6 @@ class RgcnTrainerConfig(ClosedModel):
     device: Device
 
 
-class RgcnDecoderConfig(ClosedModel):
-    hidden_dim: PositiveInt
-    step_embedding_dim: PositiveInt
-    frontier_relation_dim: PositiveInt
-
-
-class RgcnBeamSearchConfig(ClosedModel):
-    training_beam_size: Annotated[ScientificInt, Field(gt=0, le=4)]
-    inference_beam_size: Annotated[ScientificInt, Field(gt=0, le=4)]
-    max_steps: Annotated[ScientificInt, Field(gt=0, le=5)]
-    length_penalty_alpha: NonNegativeFloat
-    deduplicate_selected_sets: StrictBool
-
-    @model_validator(mode="after")
-    def validate_matching_beam_sizes(self) -> RgcnBeamSearchConfig:
-        if self.training_beam_size != self.inference_beam_size:
-            raise ValueError("training and inference beam sizes must match")
-        return self
-
-
-class RgcnBeamLossConfig(ClosedModel):
-    next_action_loss_weight: NonNegativeFloat
-    stop_loss_weight: NonNegativeFloat
-    aux_node_loss_weight: NonNegativeFloat
-
-
-class RgcnOptimizerPhaseConfig(ClosedModel):
-    decoder_warmup_epochs: NonNegativeInt
-    decoder_learning_rate: PositiveFloat
-    rgcn_learning_rate: PositiveFloat
-
-
 class ModelSelectionConfig(ClosedModel):
     best_metric: RgcnSelectionMetric
     higher_is_better: StrictBool
@@ -296,10 +256,6 @@ class ModelSelectionConfig(ClosedModel):
 class RgcnTrainConfig(ClosedModel):
     model: RgcnModelConfig
     trainer: RgcnTrainerConfig
-    decoder: RgcnDecoderConfig
-    beam: RgcnBeamSearchConfig
-    loss: RgcnBeamLossConfig
-    optimizer_phases: RgcnOptimizerPhaseConfig
     selection: ModelSelectionConfig
 
 
@@ -355,9 +311,8 @@ MethodConfig: TypeAlias = Annotated[
     Union[
         Bm25MethodConfig,
         DenseMethodConfig,
-        MemoryStreamMethodConfig,
-        Bm25GraphRerankMethodConfig,
-        DenseGraphRerankMethodConfig,
+        GraphRAGMethodConfig,
+        ExecutionProvenanceMethodConfig,
         DenseRgcnMethodConfig,
         DenseFinetuneMethodConfig,
         DenseFtRgcnMethodConfig,
@@ -369,9 +324,8 @@ MethodConfig: TypeAlias = Annotated[
 class MethodConfigs(ClosedModel):
     bm25: Bm25MethodConfig
     dense: DenseMethodConfig
-    memory_stream: MemoryStreamMethodConfig
-    bm25_graph_rerank: Bm25GraphRerankMethodConfig
-    dense_graph_rerank: DenseGraphRerankMethodConfig
+    graphrag: GraphRAGMethodConfig
+    execution_provenance_retriever: ExecutionProvenanceMethodConfig
     dense_rgcn_graph_retriever: DenseRgcnMethodConfig
     dense_ft: DenseFinetuneMethodConfig
     dense_ft_rgcn_graph_retriever: DenseFtRgcnMethodConfig
@@ -387,29 +341,6 @@ class GraphBuildConfig(ClosedModel):
     use_spacy: StrictBool
 
 
-class GraphRerankSearchSpace(ClosedModel):
-    lambda_bridge: list[NonNegativeFloat]
-    lambda_init: list[NonNegativeFloat]
-    lambda_neighbor: list[NonNegativeFloat]
-    lambda_path: list[NonNegativeFloat]
-    lambda_query: list[NonNegativeFloat]
-    max_hops: list[PositiveInt]
-    seed_top_s: list[PositiveInt]
-    neighbor_type_weights: dict[str, NonNegativeFloat]
-
-
-class MemoryStreamSearchSpace(ClosedModel):
-    relevance_weight: list[NonNegativeFloat]
-    recency_weight: list[NonNegativeFloat]
-    importance_weight: list[NonNegativeFloat]
-    recency_decay: list[Annotated[ScientificFloat, Field(gt=0.0, le=1.0)]]
-
-
-class SearchSpacesConfig(ClosedModel):
-    graph_rerank: GraphRerankSearchSpace
-    memory_stream: MemoryStreamSearchSpace
-
-
 class StageBoundsConfig(ClosedModel):
     from_stage: PublicStageName | None = Field(alias="from")
     to_stage: PublicStageName | None = Field(alias="to")
@@ -420,9 +351,8 @@ class StageBoundsConfig(ClosedModel):
             return self
         order = (
             "prepare",
-            "graphs",
+            "evidence_graphs",
             "pairs",
-            "tune",
             "train",
             "retrieve",
             "evaluate",
@@ -452,9 +382,7 @@ class AblationConfig(ClosedModel):
         invalid = [item for item in value if item not in valid]
         if invalid:
             choices = ", ".join(variant.value for variant in AblationVariantId)
-            raise ValueError(
-                f"valid ablation variants are [{choices}]; got {invalid}"
-            )
+            raise ValueError(f"valid ablation variants are [{choices}]; got {invalid}")
         return value
 
     @field_validator("variants")
@@ -487,7 +415,6 @@ class ExperimentConfig(ClosedModel):
     cache: CacheConfig
     ablation: AblationConfig
     graph: GraphBuildConfig
-    search_spaces: SearchSpacesConfig
     tracking: TrackingConfig
 
     @field_validator("methods")
@@ -530,25 +457,13 @@ class ResolvedRawSplitConfig(ClosedModel):
     count: PositiveInt
 
 
-class ResolvedImportanceSplitConfig(ClosedModel):
-    kind: Literal["importance"]
-    source: Path
-    labels_source: Path
-    importance_path: Path
-    offset: NonNegativeInt
-    capacity: PositiveInt
-    count: PositiveInt
-
-
-ResolvedSplitConfig: TypeAlias = Annotated[
-    Union[ResolvedRawSplitConfig, ResolvedImportanceSplitConfig],
-    Field(discriminator="kind"),
-]
+ResolvedSplitConfig: TypeAlias = ResolvedRawSplitConfig
 
 
 class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     prepare_script: Path
+    source_kind: ArtifactKind
     splits: dict[SplitName, ResolvedSplitConfig]
 
 
@@ -575,7 +490,6 @@ class ResolvedExperimentConfig(ClosedModel):
     cache: CacheConfig
     ablation: AblationConfig
     graph: GraphBuildConfig
-    search_spaces: SearchSpacesConfig
     tracking: ResolvedTrackingConfig
 
     def normalized(self) -> dict[str, JsonValue]:
@@ -614,24 +528,12 @@ def resolve_experiment_config(
                 f"profile={config.profile.name} split={split_name} requests "
                 f"offset+count={dataset_split.offset + count} beyond capacity={dataset_split.capacity}"
             )
-        resolved_splits[split_name] = (
-            ResolvedImportanceSplitConfig(
-                kind="importance",
-                source=_absolute_path(root, dataset_split.source),
-                offset=dataset_split.offset,
-                capacity=dataset_split.capacity,
-                count=count,
-                labels_source=_absolute_path(root, dataset_split.labels_source),
-                importance_path=_absolute_path(root, dataset_split.importance_path),
-            )
-            if isinstance(dataset_split, ImportanceDatasetSplitConfig)
-            else ResolvedRawSplitConfig(
-                kind="raw",
-                source=_absolute_path(root, dataset_split.source),
-                offset=dataset_split.offset,
-                capacity=dataset_split.capacity,
-                count=count,
-            )
+        resolved_splits[split_name] = ResolvedRawSplitConfig(
+            kind="raw",
+            source=_absolute_path(root, dataset_split.source),
+            offset=dataset_split.offset,
+            capacity=dataset_split.capacity,
+            count=count,
         )
 
     return ResolvedExperimentConfig(
@@ -639,6 +541,7 @@ def resolve_experiment_config(
         dataset=ResolvedDatasetConfig(
             name=config.dataset.name,
             prepare_script=_absolute_path(root, config.dataset.prepare_script),
+            source_kind=config.dataset.source_kind,
             splits=resolved_splits,
         ),
         profile=config.profile.name,
@@ -651,7 +554,6 @@ def resolve_experiment_config(
         cache=config.cache,
         ablation=config.ablation,
         graph=config.graph,
-        search_spaces=config.search_spaces,
         tracking=ResolvedTrackingConfig(
             database=_absolute_path(root, config.tracking.database),
             artifact_root=_absolute_path(root, config.tracking.artifact_root),
@@ -670,22 +572,21 @@ __all__ = [
     "AliasArtifactRef",
     "ArtifactBinding",
     "ArtifactRef",
-    "Bm25GraphRerankMethodConfig",
     "Bm25MethodConfig",
     "CacheConfig",
     "CountPolicy",
     "DatasetConfig",
     "DenseFinetuneMethodConfig",
     "DenseFtRgcnMethodConfig",
-    "DenseGraphRerankMethodConfig",
     "DenseMethodConfig",
     "DenseRgcnMethodConfig",
+    "ExecutionProvenanceMethodConfig",
     "ExperimentConfig",
     "FixedCountPolicy",
     "GraphBuildConfig",
+    "GraphRAGMethodConfig",
     "MethodConfig",
     "MethodConfigs",
-    "MemoryStreamMethodConfig",
     "NonNegativeFloat",
     "NonNegativeInt",
     "PositiveFloat",
@@ -694,13 +595,8 @@ __all__ = [
     "PublicStageName",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",
-    "RgcnBeamLossConfig",
-    "RgcnBeamSearchConfig",
-    "RgcnDecoderConfig",
-    "RgcnOptimizerPhaseConfig",
     "ScientificFloat",
     "ScientificInt",
-    "SearchSpacesConfig",
     "StageBoundsConfig",
     "TrackingConfig",
     "resolve_experiment_config",

@@ -1,8 +1,0 @@
-dense_graph_rerank:
-  method: dense_graph_rerank
-  encoder:
-    model_name: models/intfloat-e5-base-v2
-    query_prefix: "query: "
-    passage_prefix: "passage: "
-    batch_size: 64
-

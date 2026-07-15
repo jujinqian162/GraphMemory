@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 from graph_memory.contracts.common import TaskId, TrainPairSampleType
-from graph_memory.contracts.graphs import MemoryGraph
+from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.embeddings import DenseTaskEncodingRequest
 from graph_memory.evaluation.requests import EvidenceLabel
@@ -44,7 +44,7 @@ class TaskBatchInputs:
     """
 
     text_request: TextRankingRequest
-    graph: MemoryGraph
+    graph: EvidenceGraph
     pairs: list[TrainPairRecord]
     label: EvidenceLabel | None = None
 
@@ -75,13 +75,12 @@ def build_edge_tensorizer(
 def build_training_batches(
     *,
     ranking_requests: list[TextRankingRequest],
-    graphs: list[MemoryGraph],
+    graphs: list[EvidenceGraph],
     pairs: list[TrainPairRecord],
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     batch_size: int,
-    labels: list[EvidenceLabel] | None = None,
 ) -> list[TrainingBatch]:
     """
     Build supervised TrainingBatch objects grouped by task graph.
@@ -97,7 +96,6 @@ def build_training_batches(
     )
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
     pairs_by_task_id: dict[TaskId, list[TrainPairRecord]] = defaultdict(list)
-    labels_by_task_id = {label.task_id: label for label in labels or []}
     for pair in pairs:
         if pair["node_id"] == "q":
             raise ValueError("Training pairs must not contain node_id=q.")
@@ -108,7 +106,6 @@ def build_training_batches(
             text_request=request,
             graph=graphs_by_task_id[request.task_id],
             pairs=pairs_by_task_id[request.task_id],
-            label=labels_by_task_id.get(request.task_id),
         )
         for request in ranking_requests
         if pairs_by_task_id[request.task_id]
@@ -128,7 +125,7 @@ def build_training_batches(
 def build_full_ranking_batches(
     *,
     ranking_requests: list[TextRankingRequest],
-    graphs: list[MemoryGraph],
+    graphs: list[EvidenceGraph],
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
@@ -201,24 +198,6 @@ def move_training_batch(
         sample_task_ids=batch.sample_task_ids,
         sample_node_ids=batch.sample_node_ids,
         sample_types=batch.sample_types,
-        candidate_node_indices=(
-            None
-            if batch.candidate_node_indices is None
-            else batch.candidate_node_indices.to(device)
-        ),
-        candidate_query_indices=(
-            None
-            if batch.candidate_query_indices is None
-            else batch.candidate_query_indices.to(device)
-        ),
-        candidate_node_features=(
-            None
-            if batch.candidate_node_features is None
-            else batch.candidate_node_features.to(device)
-        ),
-        candidate_task_offsets=batch.candidate_task_offsets,
-        candidate_node_ids_by_task=batch.candidate_node_ids_by_task,
-        evidence_labels=batch.evidence_labels,
     )
 
 
@@ -248,12 +227,6 @@ def _build_batch(
     sample_task_ids: list[str] = []
     sample_node_ids: list[str] = []
     sample_types: list[TrainPairSampleType] = []
-    candidate_node_indices: list[int] = []
-    candidate_query_indices: list[int] = []
-    candidate_node_features: list[Tensor] = []
-    candidate_task_offsets = [0]
-    candidate_node_ids_by_task: list[list[str]] = []
-    evidence_labels: list[EvidenceLabel | None] = []
 
     requests = [
         DenseTaskEncodingRequest(
@@ -296,17 +269,6 @@ def _build_batch(
         query_node_indices.append(query_index)
         task_ids.append(task_id)
         node_ids_by_task.append(node_ids)
-        task_candidate_ids = [
-            candidate.item_id for candidate in text_request.candidates
-        ]
-        candidate_node_ids_by_task.append(task_candidate_ids)
-        evidence_labels.append(task.label)
-        for candidate_id in task_candidate_ids:
-            local_node_index = local_index_by_node_id[candidate_id]
-            candidate_node_indices.append(node_offset + local_node_index)
-            candidate_query_indices.append(query_index)
-            candidate_node_features.append(features.scorer_features[local_node_index])
-        candidate_task_offsets.append(len(candidate_node_indices))
 
         rows: list[TrainPairRecord]
         if include_all_memory_nodes:
@@ -383,16 +345,6 @@ def _build_batch(
         sample_task_ids=sample_task_ids,
         sample_node_ids=sample_node_ids,
         sample_types=sample_types,
-        candidate_node_indices=torch.tensor(candidate_node_indices, dtype=torch.long),
-        candidate_query_indices=torch.tensor(candidate_query_indices, dtype=torch.long),
-        candidate_node_features=(
-            torch.stack(candidate_node_features)
-            if candidate_node_features
-            else torch.empty((0, scorer_feature_dim), dtype=torch.float32)
-        ),
-        candidate_task_offsets=candidate_task_offsets,
-        candidate_node_ids_by_task=candidate_node_ids_by_task,
-        evidence_labels=evidence_labels,
     )
     validate_training_batch(training_batch)
     return training_batch

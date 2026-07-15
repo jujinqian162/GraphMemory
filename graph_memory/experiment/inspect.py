@@ -71,7 +71,12 @@ def _method_row(method) -> dict[str, object]:
     return {
         "method": method.value,
         "lifecycle": spec.lifecycle.value,
-        "tuning": (None if spec.tuning is None else spec.tuning.value),
+        "request_type": spec.input_spec.request_type.__name__,
+        "required_artifact": spec.input_spec.required_artifact.value,
+        "supported_families": sorted(
+            family.value for family in spec.input_spec.supported_families
+        ),
+        "produces_native_edge_trace": (spec.capabilities.produces_native_edge_trace),
         "train_artifact_kind": (
             None if spec.train_artifact is None else spec.train_artifact.kind.value
         ),

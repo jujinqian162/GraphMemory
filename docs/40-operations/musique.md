@@ -1,34 +1,17 @@
 # MuSiQue operations
 
-The repository supports the answerable MuSiQue split with paragraph-level candidates and decomposition-derived dependency edges. Use the `musique` dataset group; split sources and capacities are declared in `configs/dataset/musique.yaml`.
+MuSiQue-Ans uses paragraph-level candidates and decomposition-derived evidence dependency labels. It remains an evidence-retrieval dataset.
 
 ```powershell
 uv run python experiment/plan.py `
   name=musique_smoke dataset=musique profile=smoke device=cpu `
-  'methods=[bm25,bm25_graph_rerank]'
+  'methods=[bm25,dense,graphrag]'
 
 uv run python experiment/run.py `
   name=musique_smoke dataset=musique profile=smoke device=cpu `
-  'methods=[bm25,bm25_graph_rerank]'
-
-uv run python experiment/status.py name=musique_smoke
+  'methods=[bm25,dense,graphrag]'
 ```
 
-MuSiQue raw files are JSONL. Preparation rejects unanswerable or malformed records, keeps gold answers/support/decomposition out of ranking inputs, and writes labels separately. Graph construction and retrieval consume only projected ranking requests. Evaluation joins predictions with labels after retrieval and reports paragraph evidence metrics plus dependency path metrics for graph-aware methods.
+Preparation keeps answer/support/decomposition labels out of ranking inputs. GraphRAG builds its entity graph internally. Selecting either R-GCN method schedules the required EvidenceGraph, pair, training, and checkpoint-backed retrieval stages.
 
-All other supported methods can be selected with the same `methods=[...]` override. Dense and trainable methods require their configured model assets and device.
-
-## R-GCN beam comparison
-
-Both existing R-GCN method ids now use beam decoding in place; no beam-specific method is registered. Compare the bounded beam matrix with separate fresh run names so training and inference use the same width:
-
-```powershell
-uv run python experiment/run.py name=musique_rgcn_beam1 profile=full device=cuda `
-  'methods=[dense_ft_rgcn_graph_retriever]' `
-  method_configs.dense_ft_rgcn_graph_retriever.train.beam.training_beam_size=1 `
-  method_configs.dense_ft_rgcn_graph_retriever.train.beam.inference_beam_size=1
-
-# Repeat with fresh names and both values set to 2, then 4.
-```
-
-Keep each run's training and inference widths equal; crossed pairs are rejected by typed validation. Select primarily on Full Support@5 and retain Full Support@10, path metrics, latency, and seed stability as guardrails. R-GCN checkpoints written before this beam-decoder change are not loadable and must be retrained.
+R-GCN is a node-wise scorer: training uses node logits with BCE and inference produces one complete node ranking. Current checkpoints use the node-wise schema and incompatible older checkpoints must be retrained.
