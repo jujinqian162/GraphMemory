@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import StrEnum
 
+from graph_memory.compat import StrEnum
 from graph_memory.contracts.common import JsonValue, TaskId
 
 

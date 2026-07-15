@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TypeVar
 
-
-class StrEnum(str, Enum):
-    """Python 3.10-compatible subset of enum.StrEnum."""
-
-    __str__ = str.__str__
+from graph_memory.compat import StrEnum
 
 
 class StageId(StrEnum):
