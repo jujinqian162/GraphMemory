@@ -12,6 +12,7 @@ from graph_memory.datasets.traject_bench import (
     MissingCatalogToolsError,
     TrajectBenchToEvidenceEvaluationRequest,
     TrajectBenchToEvidenceGraphBuildRequest,
+    TrajectBenchToExecutionProvenanceRankingRequest,
     TrajectBenchToTextRankingRequest,
     canonicalize_traject_bench_tool_catalog,
     convert_traject_bench_example,
@@ -22,6 +23,7 @@ from graph_memory.datasets.traject_bench import (
     stable_traject_bench_tool_id,
 )
 from graph_memory.evaluation.service import evaluate_results
+from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 from graph_memory.experiment.config import (
     resolve_experiment_config,
     validate_composed_config,
@@ -30,6 +32,7 @@ from graph_memory.experiment.layout import RunLayout
 from graph_memory.experiment.planning import WorkflowPlanner
 from graph_memory.experiment.stage_models import (
     Bm25RetrieveStageConfig,
+    ExecutionProvenanceRetrieveStageConfig,
     PrepareOutputs,
     RawPrepareStageConfig,
 )
@@ -220,6 +223,9 @@ def test_graph_projection_contains_catalog_edges_but_not_gold_order() -> None:
     graph_request = TrajectBenchToEvidenceGraphBuildRequest().project(
         converted.ranking_record
     )
+    provenance_request = TrajectBenchToExecutionProvenanceRankingRequest().project(
+        converted.ranking_record
+    )
     alpha_id = stable_traject_bench_tool_id("Provider: Alpha")
     beta_id = stable_traject_bench_tool_id("Provider: Beta")
 
@@ -232,6 +238,15 @@ def test_graph_projection_contains_catalog_edges_but_not_gold_order() -> None:
     ]
     assert converted.label_record["gold_dependency_edges"] == [[beta_id, alpha_id]]
     assert all(node.sequence_index is None for node in graph_request.nodes)
+    assert [
+        (edge.source, edge.target, edge.edge_type)
+        for edge in provenance_request.graph.edges
+    ] == [(alpha_id, beta_id, ProvenanceEdgeType.DEPENDS_ON)]
+    assert all(
+        node.node_type is ProvenanceNodeType.TOOL_CALL
+        and node.metadata["prospective"] is True
+        for node in provenance_request.graph.nodes
+    )
 
 
 def test_validation_dispatch_and_bm25_evaluation_use_distinct_tool_labels() -> None:
@@ -379,6 +394,36 @@ def test_traject_bench_plan_uses_directory_source_and_frozen_baseline_stages(
     assert config.dataset.source_kind == "directory"
     assert prepare.inputs[0].kind == "directory"
     assert stages == {"prepare", "retrieve", "evaluate", "aggregate"}
+
+
+def test_execution_provenance_method_plans_as_stateless_traject_workflow(
+    tmp_path: Path,
+) -> None:
+    raw = _minimal_official_layout(tmp_path / "raw")
+    config = _traject_config(
+        f"traject-provenance-plan-{tmp_path.name}",
+        source=raw,
+        methods="[execution_provenance_retriever]",
+    )
+
+    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
+        validate_external=False
+    )
+
+    assert {invocation.stage for invocation in plan.invocations} == {
+        "prepare",
+        "retrieve",
+        "evaluate",
+        "aggregate",
+    }
+    retrieve = next(
+        invocation
+        for invocation in plan.invocations
+        if invocation.identifier == "retrieve:execution_provenance_retriever"
+    )
+    assert isinstance(retrieve.config, ExecutionProvenanceRetrieveStageConfig)
+    assert retrieve.config.method == "execution_provenance_retriever"
+    assert list(retrieve.dependencies) == ["prepare:test"]
 
 
 def _catalog_tool(

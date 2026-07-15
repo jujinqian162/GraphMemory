@@ -175,6 +175,27 @@ class GraphRAGRetrieveStageConfig(ClosedModel):
     entity_weight: float
 
 
+class ExecutionProvenanceRetrieveStageConfig(ClosedModel):
+    stage: Literal["retrieve"]
+    method: Literal["execution_provenance_retriever"]
+    variant: str | None
+    dataset: DatasetName
+    tasks: Path
+    output: Path
+    top_k: PositiveInt
+    encoder: DenseEncoderConfig
+    seed_top_s: PositiveInt
+    max_hops: PositiveInt
+    top_paths: PositiveInt
+    max_path_expansions: PositiveInt
+    semantic_weight: float
+    dependency_weight: float
+    binding_weight: float
+    grounding_weight: float
+    hop_penalty: float
+    invalidation_penalty: float
+
+
 class RgcnRetrieveStageConfig(ClosedModel):
     stage: Literal["retrieve"]
     method: Literal["dense_rgcn_graph_retriever", "dense_ft_rgcn_graph_retriever"]
@@ -205,6 +226,7 @@ RetrieveStageConfig: TypeAlias = Annotated[
         Bm25RetrieveStageConfig,
         DenseRetrieveStageConfig,
         GraphRAGRetrieveStageConfig,
+        ExecutionProvenanceRetrieveStageConfig,
         RgcnRetrieveStageConfig,
         DenseFinetuneRetrieveStageConfig,
     ],

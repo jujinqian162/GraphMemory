@@ -26,6 +26,7 @@ from graph_memory.datasets.musique.records import (
 from graph_memory.datasets.traject_bench.projectors import (
     TrajectBenchToEvidenceEvaluationRequest,
     TrajectBenchToEvidenceGraphBuildRequest,
+    TrajectBenchToExecutionProvenanceRankingRequest,
     TrajectBenchToTextRankingRequest,
 )
 from graph_memory.datasets.traject_bench.records import (
@@ -43,7 +44,10 @@ from graph_memory.datasets.twowiki.records import (
 )
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.graphs.requests import EvidenceGraphBuildRequest
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
+)
 from graph_memory.validation import (
     validate_hotpotqa_label_records,
     validate_hotpotqa_ranking_records,
@@ -144,6 +148,22 @@ def evidence_graph_build_requests_for_dataset(
             for record in records
         ]
     _unsupported_dataset(dataset)
+
+
+def execution_provenance_requests_for_dataset(
+    dataset: DatasetId,
+    records: Sequence[object],
+) -> list[ExecutionProvenanceRankingRequest]:
+    if dataset == "traject_bench":
+        projector = TrajectBenchToExecutionProvenanceRankingRequest()
+        return [
+            projector.project(cast(TrajectBenchRankingRecord, record))
+            for record in records
+        ]
+    raise ValueError(
+        "Execution-provenance retrieval requires a dataset-owned native request; "
+        f"dataset={dataset!r} does not provide one."
+    )
 
 
 def evidence_evaluation_request_for_dataset(

@@ -7,9 +7,9 @@ The repository cannot currently evaluate retrieval methods on TRAJECT-Bench beca
 - Add typed TRAJECT-Bench records, parsers, canonical tool-catalog conversion, request projectors, and validators.
 - Map the public benchmark partitions to the experiment workflow as `train=parallel/simple`, `dev=parallel/hard`, and `test=sequential`, while documenting that these are workflow partitions and not official training splits.
 - Use domain tool catalogs as the candidate pool, collapse duplicate catalog entries deterministically, preserve repeated gold calls in label metadata, and reject queries whose gold tool is absent from the public catalog.
-- Project candidate tools to the existing text-ranking and EvidenceGraph request boundaries; catalog-declared tool connections may become input-visible graph edges, while query-specific gold order remains label-only.
+- Project candidate tools to the existing text-ranking, EvidenceGraph, and execution-provenance request boundaries; catalog-declared tool connections may become input-visible graph edges, while query-specific gold order remains label-only.
 - Extend dataset source bindings so the workflow can declare a raw directory as an external input instead of pretending every dataset source is a file.
-- Add TRAJECT-Bench experiment configuration, tests, operational documentation, and pinned Hugging Face/GitHub download commands for fast BM25 and Dense baselines.
+- Add TRAJECT-Bench experiment configuration, tests, operational documentation, and pinned Hugging Face/GitHub download commands for fast BM25, Dense, and execution-provenance baselines.
 - Report retrieval-only metrics and scope explicitly; the change does not execute tools, call an LLM, or claim the benchmark's end-to-end agent metrics.
 
 ## Capabilities

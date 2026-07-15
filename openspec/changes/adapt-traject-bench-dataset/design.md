@@ -10,7 +10,7 @@ The primary pinned Hugging Face revision is `fbd4151a4897c4115679e184bf6c427d9d9
 
 - Parse both parallel and sequential official JSON shapes into dataset-owned immutable records.
 - Produce ranking artifacts that contain only query text and catalog-derived tool candidates, plus label artifacts that preserve the gold distinct tool set, repeated call sequence, and sequential dependencies.
-- Reuse `TextRankingRequest`, `EvidenceGraphBuildRequest`, `EvidenceEvaluationRequest`, and the registry-driven experiment workflow.
+- Reuse `TextRankingRequest`, `EvidenceGraphBuildRequest`, `ExecutionProvenanceRankingRequest`, `EvidenceEvaluationRequest`, and the registry-driven experiment workflow.
 - Make directory raw inputs first-class plan artifacts and keep cache/status identity exact.
 - Provide a pinned, copy-pasteable server path from download through BM25/Dense smoke and quick baselines.
 - Keep invalid-upstream filtering deterministic, visible, and free of label-derived candidate repair.
@@ -54,7 +54,11 @@ Tool candidates project to `tool_api` graph items with no synthetic sequence ind
 
 ### 6. Baseline scope and metrics
 
-The initial runnable configuration targets frozen BM25 and Dense retrieval. Existing Recall, Evidence F1, Full Support, and MRR metrics are semantically tool-retrieval metrics for this adapter; documentation maps those names explicitly and avoids presenting them as TRAJECT-Bench's end-to-end Exact Match, Usage, Trajectory Satisfaction, or Solution Accuracy. The recommended baseline uses `top_k=10`, matching the repository's current metric table. GraphRAG can also run through the same text request, but it is not required for the fastest server smoke.
+The initial runnable configuration targets frozen BM25, Dense, and execution-provenance retrieval. Existing Recall, Evidence F1, Full Support, and MRR metrics are semantically tool-retrieval metrics for this adapter; documentation maps those names explicitly and avoids presenting them as TRAJECT-Bench's end-to-end Exact Match, Usage, Trajectory Satisfaction, or Solution Accuracy. The recommended baseline uses `top_k=10`, matching the repository's current metric table. GraphRAG can also run through the same text request, but it is not required for the fastest server smoke.
+
+The execution-provenance view is prospective and catalog-owned: each candidate API is represented as a `tool_call` node because it is a callable action, and only public catalog connections become `depends_on` edges. It does not claim these candidates were executed. Query-local calls, parameters, outputs, final answer, and gold order remain label-only. This gives the method a truthful, leakage-safe dependency graph while preserving the same offline tool-selection task as BM25 and Dense.
+
+The experiment stage contract includes a dedicated `ExecutionProvenanceRetrieveStageConfig`. It builds dataset-owned provenance requests directly from prepared inputs, passes them through `ExecutionProvenanceBuildPayload`, and never schedules EvidenceGraph construction, pairs, or training for this stateless method. Supporting the method only in its direct registry builder is insufficient because public experiment selection must be end-to-end runnable.
 
 ## Risks / Trade-offs
 

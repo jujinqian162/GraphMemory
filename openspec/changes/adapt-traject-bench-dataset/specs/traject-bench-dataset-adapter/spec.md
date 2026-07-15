@@ -34,7 +34,7 @@ The system SHALL emit ranking records containing query text and catalog-derived 
 - **THEN** gold tool IDs, gold sequences, final answers, execution outputs, and required parameter values are absent from the ranking artifact
 
 ### Requirement: TRAJECT-Bench projects to repository-owned retrieval requests
-The system SHALL project TRAJECT-Bench ranking records to existing text ranking and EvidenceGraph build requests and SHALL project label records to the existing evidence evaluation request.
+The system SHALL project TRAJECT-Bench ranking records to existing text ranking, EvidenceGraph build, and execution-provenance ranking requests and SHALL project label records to the existing evidence evaluation request.
 
 #### Scenario: Text retrieval projection
 - **WHEN** BM25, Dense, or GraphRAG consumes a TRAJECT-Bench task
@@ -44,11 +44,19 @@ The system SHALL project TRAJECT-Bench ranking records to existing text ranking 
 - **WHEN** an EvidenceGraph is built for a TRAJECT-Bench task
 - **THEN** candidate tools become `tool_api` nodes, resolved catalog connections may become directed input-visible edges, and query-specific gold trajectory edges are not present in the graph-build request
 
+#### Scenario: Execution-provenance retrieval projection
+- **WHEN** the execution-provenance retriever consumes a TRAJECT-Bench task
+- **THEN** every catalog candidate becomes a prospective `tool_call` node, resolved catalog connections become input-visible `depends_on` edges, and gold calls, arguments, outputs, answers, and trajectory order remain absent from the request
+
+#### Scenario: Execution-provenance workflow planning
+- **WHEN** `execution_provenance_retriever` is selected for TRAJECT-Bench
+- **THEN** the planner emits a typed retrieve stage with no train, pair, or EvidenceGraph dependency and the standard runner completes retrieval and evaluation instead of raising an unsupported-config error
+
 ### Requirement: Baseline evaluation is scoped as offline tool retrieval
 The system SHALL evaluate selected tool IDs with repository retrieval metrics and SHALL document that these values do not represent end-to-end tool execution, parameter correctness, LLM-judged trajectory satisfaction, or final-answer accuracy.
 
 #### Scenario: Frozen baseline workflow
-- **WHEN** a user runs the documented BM25 and Dense TRAJECT-Bench baseline command
+- **WHEN** a user runs the documented BM25, Dense, or execution-provenance TRAJECT-Bench baseline command
 - **THEN** the normal experiment runner prepares, retrieves, evaluates, and aggregates the selected workflow partition without requiring an LLM API key or live tool endpoint
 
 ### Requirement: Official download and quick-run commands are reproducible
@@ -57,4 +65,3 @@ The repository SHALL document a pinned Hugging Face download command, an officia
 #### Scenario: Server bootstrap
 - **WHEN** a user follows the documented Hugging Face command from the repository root
 - **THEN** the expected `data/traject_bench/raw/{parallel,sequential,tools}` layout is available to the experiment runner
-

@@ -41,3 +41,4 @@
 - [x] 6.3 Run a real BM25 workflow smoke through prepare, retrieve, evaluate, and aggregate
 - [x] 6.4 Run a real Dense workflow smoke through prepare, retrieve, evaluate, and aggregate
 - [x] 6.5 Run the full test suite, Ruff, basedpyright error gate, compileall, boundary scans, and `git diff --check`
+- [x] 6.6 Add a leakage-safe TRAJECT-Bench execution-provenance projector and typed workflow stage, reproduce the formerly failing method selection, and run a real official-data smoke

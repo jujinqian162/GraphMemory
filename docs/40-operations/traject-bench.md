@@ -125,4 +125,35 @@ uv run python experiment/status.py name=traject_bench_dense_quick
 uv run python experiment/inspect.py kind=datasets
 ```
 
+## Execution-provenance baseline
+
+This method consumes a leakage-safe prospective graph built from the same public
+catalog candidates. Candidate APIs become `tool_call` nodes and catalog
+connections become `depends_on` edges. Gold calls, parameters, outputs, final
+answer, and trajectory order remain label-only.
+
+It uses the same E5 model directory as Dense. Run the real stateless workflow
+with:
+
+```bash
+uv run python experiment/run.py \
+  name=traject_bench_provenance_smoke \
+  dataset=traject_bench profile=smoke device=cuda \
+  'methods=[execution_provenance_retriever]'
+
+uv run python experiment/run.py \
+  name=traject_bench_provenance_quick \
+  dataset=traject_bench profile=quick device=cuda \
+  'methods=[execution_provenance_retriever]'
+```
+
+To compare the three frozen baselines in one run:
+
+```bash
+uv run python experiment/run.py \
+  name=traject_bench_frozen_quick \
+  dataset=traject_bench profile=quick device=cuda \
+  'methods=[bm25,dense,execution_provenance_retriever]'
+```
+
 The result table's Recall, Evidence F1, Full Support, and MRR names retain the shared repository schema but mean tool-retrieval quality for this adapter. Do not report them as TRAJECT-Bench Exact Match, Usage, Trajectory Satisfaction, or Solution Accuracy.

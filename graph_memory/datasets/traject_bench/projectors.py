@@ -14,8 +14,16 @@ from graph_memory.graphs.requests import (
     EvidenceGraphBuildRequest,
     GraphBuildEdge,
 )
+from graph_memory.graphs.provenance import (
+    ExecutionProvenanceEdge,
+    ExecutionProvenanceGraph,
+    ExecutionProvenanceNode,
+    ProvenanceEdgeType,
+    ProvenanceNodeType,
+)
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
+    ExecutionProvenanceRankingRequest,
     TextCandidate,
     TextRankingRequest,
 )
@@ -89,6 +97,40 @@ class TrajectBenchToEvidenceGraphRankingRequest:
         )
 
 
+class TrajectBenchToExecutionProvenanceRankingRequest:
+    def project(
+        self,
+        record: TrajectBenchRankingRecord,
+    ) -> ExecutionProvenanceRankingRequest:
+        text_request = TrajectBenchToTextRankingRequest().project(record)
+        candidate_ids = {candidate.item_id for candidate in text_request.candidates}
+        graph = ExecutionProvenanceGraph(
+            task_id=record["task_id"],
+            nodes=tuple(
+                ExecutionProvenanceNode(
+                    node_id=candidate.item_id,
+                    node_type=ProvenanceNodeType.TOOL_CALL,
+                    text=candidate.text,
+                    metadata={
+                        **candidate.metadata,
+                        "prospective": True,
+                        "source": "traject_bench_catalog",
+                    },
+                )
+                for candidate in text_request.candidates
+            ),
+            edges=tuple(
+                _catalog_provenance_edges(record, candidate_ids=candidate_ids)
+            ),
+        )
+        return ExecutionProvenanceRankingRequest(
+            task_id=record["task_id"],
+            query_text=record["query"],
+            candidates=text_request.candidates,
+            graph=graph,
+        )
+
+
 class TrajectBenchToEvidenceEvaluationRequest:
     def project(
         self,
@@ -150,9 +192,35 @@ def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
     return edge[0], edge[1]
 
 
+def _catalog_provenance_edges(
+    record: TrajectBenchRankingRecord,
+    *,
+    candidate_ids: set[str],
+) -> list[ExecutionProvenanceEdge]:
+    edges: list[ExecutionProvenanceEdge] = []
+    seen: set[tuple[str, str]] = set()
+    for tool in record["candidate_tools"]:
+        source = tool["tool_id"]
+        for target in tool["connected_tool_ids"]:
+            key = (source, target)
+            if target not in candidate_ids or source == target or key in seen:
+                continue
+            seen.add(key)
+            edges.append(
+                ExecutionProvenanceEdge(
+                    source=source,
+                    target=target,
+                    edge_type=ProvenanceEdgeType.DEPENDS_ON,
+                    metadata={"source": "traject_bench_catalog_connection"},
+                )
+            )
+    return edges
+
+
 __all__ = [
     "TrajectBenchToEvidenceEvaluationRequest",
     "TrajectBenchToEvidenceGraphBuildRequest",
     "TrajectBenchToEvidenceGraphRankingRequest",
+    "TrajectBenchToExecutionProvenanceRankingRequest",
     "TrajectBenchToTextRankingRequest",
 ]

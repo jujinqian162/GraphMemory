@@ -20,6 +20,7 @@ from graph_memory.datasets.traject_bench.projectors import (
     TrajectBenchToEvidenceEvaluationRequest,
     TrajectBenchToEvidenceGraphBuildRequest,
     TrajectBenchToEvidenceGraphRankingRequest,
+    TrajectBenchToExecutionProvenanceRankingRequest,
     TrajectBenchToTextRankingRequest,
 )
 from graph_memory.datasets.traject_bench.records import (
@@ -53,6 +54,7 @@ __all__ = [
     "TrajectBenchToEvidenceEvaluationRequest",
     "TrajectBenchToEvidenceGraphBuildRequest",
     "TrajectBenchToEvidenceGraphRankingRequest",
+    "TrajectBenchToExecutionProvenanceRankingRequest",
     "TrajectBenchToTextRankingRequest",
     "TrajectBenchToolDefinition",
     "TrajectBenchToolParameter",

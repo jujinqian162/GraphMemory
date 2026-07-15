@@ -14,6 +14,7 @@ from graph_memory.experiment.config import (
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
     DenseRgcnMethodConfig,
+    ExecutionProvenanceMethodConfig,
     GraphRAGMethodConfig,
     MethodConfig,
     PublicStageName,
@@ -32,6 +33,7 @@ from graph_memory.experiment.stage_models import (
     DenseRetrieveStageConfig,
     EvidenceGraphStageConfig,
     EvaluateStageConfig,
+    ExecutionProvenanceRetrieveStageConfig,
     GraphRAGRetrieveStageConfig,
     OrdinaryAggregateStageConfig,
     OrdinaryRgcnTrainStageConfig,
@@ -440,6 +442,27 @@ class _StageInvocationFactory:
                 convergence_tolerance=config_method.convergence_tolerance,
                 semantic_weight=config_method.semantic_weight,
                 entity_weight=config_method.entity_weight,
+            )
+        elif isinstance(config_method, ExecutionProvenanceMethodConfig):
+            config = ExecutionProvenanceRetrieveStageConfig(
+                stage="retrieve",
+                method="execution_provenance_retriever",
+                variant=variant,
+                dataset=self.config.dataset.name,
+                tasks=tasks,
+                output=output,
+                top_k=self.config.top_k,
+                encoder=config_method.encoder,
+                seed_top_s=config_method.seed_top_s,
+                max_hops=config_method.max_hops,
+                top_paths=config_method.top_paths,
+                max_path_expansions=config_method.max_path_expansions,
+                semantic_weight=config_method.semantic_weight,
+                dependency_weight=config_method.dependency_weight,
+                binding_weight=config_method.binding_weight,
+                grounding_weight=config_method.grounding_weight,
+                hop_penalty=config_method.hop_penalty,
+                invalidation_penalty=config_method.invalidation_penalty,
             )
         elif isinstance(
             config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)
