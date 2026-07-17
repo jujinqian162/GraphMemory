@@ -11,9 +11,8 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from graph_memory.experiment.layout import RunLayout
-
 DEFAULT_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def collect_run_artifacts(
@@ -39,9 +38,7 @@ def collect_run_artifacts(
 
     if not dry_run:
         output_dir.parent.mkdir(parents=True, exist_ok=True)
-        staging_dir = output_dir.with_name(
-            f".{output_dir.name}.delivery-{uuid4().hex}"
-        )
+        staging_dir = output_dir.with_name(f".{output_dir.name}.delivery-{uuid4().hex}")
         staging_dir.mkdir(parents=True)
         for path in sorted(source.rglob("*")):
             if path.is_dir():
@@ -123,7 +120,7 @@ def collect_run_artifacts(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    run_dir = RunLayout(Path.cwd(), args.name).named_root
+    run_dir = REPOSITORY_ROOT / "runs" / args.name
     manifest = collect_run_artifacts(
         run_dir,
         output_root=args.output_root,
@@ -200,38 +197,44 @@ def _known_exclusion(parts: tuple[str, ...], name: str) -> str | None:
     if not parts:
         return "not_selected"
     directories = parts[:-1]
+    # New runs are output-only. These guards keep the collector safe when it is
+    # pointed at a historical run that still contains computation artifacts.
     if "inputs" in directories:
-        return "excluded_input"
+        return "historical_input"
     if "graphs" in directories and name.endswith(".graphs.json"):
-        return "excluded_graph"
+        return "historical_graph"
     if "predictions" in directories and name.endswith(".ranked.json"):
-        return "excluded_prediction"
+        return "historical_prediction"
     if "checkpoints" in directories or Path(name).suffix in {".pt", ".ckpt"}:
-        return "excluded_checkpoint"
+        return "historical_checkpoint"
     if name == "train.pairs.json":
-        return "excluded_train_pairs"
+        return "historical_train_pairs"
     if name.endswith(".dev_candidates.json"):
-        return "excluded_tuning_candidates"
+        return "historical_tuning_candidates"
     if Path(name).suffix in {".bin", ".safetensors", ".npy", ".npz"}:
         return "excluded_model_or_embedding"
     return None
 
 
 def _detect_run_structure(source: Path) -> tuple[str, list[str]]:
-    job_states = sorted(
-        path.parent.name for path in source.glob("*/run_state.yaml") if path.is_file()
+    jobs = sorted(
+        path.parent.parent.name
+        for path in source.glob("*/workflow/summary.yaml")
+        if path.is_file()
     )
-    if job_states or (source / "multirun.yaml").is_file():
-        return "multirun", job_states
+    if jobs or (source / "multirun.yaml").is_file():
+        return "multirun", jobs
     return "single", []
 
 
 def _reject_overlapping_paths(source: Path, output_dir: Path) -> None:
     resolved_source = source.resolve()
     resolved_output = output_dir.resolve()
-    if resolved_source == resolved_output or resolved_source.is_relative_to(
-        resolved_output
-    ) or resolved_output.is_relative_to(resolved_source):
+    if (
+        resolved_source == resolved_output
+        or resolved_source.is_relative_to(resolved_output)
+        or resolved_output.is_relative_to(resolved_source)
+    ):
         raise ValueError(
             "Delivery source and output directories cannot overlap: "
             f"source={resolved_source} output={resolved_output}"
@@ -241,9 +244,7 @@ def _reject_overlapping_paths(source: Path, output_dir: Path) -> None:
 def _replace_directory(staging_dir: Path, output_dir: Path) -> None:
     backup_dir: Path | None = None
     if output_dir.exists():
-        backup_dir = output_dir.with_name(
-            f".{output_dir.name}.backup-{uuid4().hex}"
-        )
+        backup_dir = output_dir.with_name(f".{output_dir.name}.backup-{uuid4().hex}")
         output_dir.replace(backup_dir)
     try:
         staging_dir.replace(output_dir)

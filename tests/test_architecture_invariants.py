@@ -102,3 +102,40 @@ def test_domain_packages_do_not_import_root_workflow_integration_ports() -> None
                     )
 
     assert violations == []
+
+
+def test_prefect_cutover_removes_runner_owned_orchestration() -> None:
+    forbidden_files = {
+        "experiment/plan.py",
+        "graph_memory/experiment/execution.py",
+        "graph_memory/experiment/invocation.py",
+        "graph_memory/experiment/planning.py",
+        "graph_memory/experiment/resume.py",
+        "graph_memory/experiment/stage_cli.py",
+        "graph_memory/experiment/stage_models.py",
+        "graph_memory/experiment/stage_status.py",
+        "graph_memory/experiment/state.py",
+    }
+    assert [
+        path for path in sorted(forbidden_files) if (REPO_ROOT / path).exists()
+    ] == []
+
+    production_roots = (REPO_ROOT / "experiment", PACKAGE_ROOT / "experiment")
+    forbidden_tokens = (
+        "WorkflowPlanner",
+        "StageInvocation",
+        "MlflowClient",
+        "subprocess.run(",
+        "nested=True",
+        ".submit(",
+        "ablation.variants",
+        "run_state.yaml",
+    )
+    violations: list[str] = []
+    for root in production_roots:
+        for path in root.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for token in forbidden_tokens:
+                if token in source:
+                    violations.append(f"{path.relative_to(REPO_ROOT)}:{token}")
+    assert violations == []

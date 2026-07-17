@@ -9,10 +9,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import hydra
 import mlflow
+import prefect
 import pydantic
 from omegaconf import OmegaConf
 
 import graph_memory
+from graph_memory.experiment.artifacts import ArtifactKind
+from graph_memory.experiment.workflow import run_experiment
 
 
 def main() -> int:
@@ -24,6 +27,15 @@ def main() -> int:
         raise RuntimeError(f"Expected Pydantic V2, got {pydantic.__version__}")
     if not mlflow.__version__.startswith("3."):
         raise RuntimeError(f"Expected MLflow 3.x, got {mlflow.__version__}")
+    if not prefect.__version__.startswith("3."):
+        raise RuntimeError(f"Expected Prefect 3.x, got {prefect.__version__}")
+    if (
+        ArtifactKind.MODEL.value != "model"
+        or run_experiment.name != "graph-memory-experiment"
+    ):
+        raise RuntimeError(
+            "Prefect workflow and processed artifact imports are inconsistent"
+        )
 
     resolved = OmegaConf.to_container(
         OmegaConf.create({"root": 13, "copy": "${root}"}),
@@ -39,6 +51,7 @@ def main() -> int:
                 "hydra-core": version("hydra-core"),
                 "pydantic": version("pydantic"),
                 "mlflow": version("mlflow"),
+                "prefect": version("prefect"),
                 "graph_memory": str(graph_memory.__path__),
             },
             sort_keys=True,

@@ -1,5 +1,5 @@
 name: musique
-prepare_script: scripts/prepare_musique.py
+strict_invalid_examples: false
 splits:
   train:
     kind: raw

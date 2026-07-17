@@ -1,0 +1,410 @@
+from __future__ import annotations
+
+import json
+from collections import Counter
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import cast
+
+from pydantic import JsonValue
+
+from graph_memory.datasets.hotpotqa import (
+    combined_hotpotqa_records,
+    convert_hotpotqa_example,
+    convert_hotpotqa_examples,
+    parse_hotpotqa_example,
+    parse_hotpotqa_examples,
+)
+from graph_memory.datasets.musique import (
+    combined_musique_records,
+    convert_musique_example,
+    convert_musique_examples,
+    parse_musique_example,
+    parse_musique_examples,
+)
+from graph_memory.datasets.splits import sample_split
+from graph_memory.datasets.twowiki import (
+    combined_twowiki_records,
+    convert_twowiki_example,
+    convert_twowiki_examples,
+    parse_twowiki_example,
+    parse_twowiki_examples,
+)
+from graph_memory.datasets.twowiki_provenance import (
+    TwoWikiProvenanceRawRecord,
+    parse_twowiki_provenance_record,
+)
+from graph_memory.experiment.artifacts import (
+    ArtifactKind,
+    ArtifactPublisher,
+    DatasetArtifactRef,
+    FileSourceRef,
+    ProcessedAssetStore,
+)
+from graph_memory.experiment.config import DatasetName, SplitName
+from graph_memory.io import read_json, write_json
+from graph_memory.stages.results import PreparedSplitResult
+from graph_memory.validation import (
+    validate_hotpotqa_label_records,
+    validate_hotpotqa_ranking_records,
+    validate_musique_label_records,
+    validate_musique_ranking_records,
+    validate_twowiki_label_records,
+    validate_twowiki_provenance_label_records,
+    validate_twowiki_provenance_ranking_records,
+    validate_twowiki_ranking_records,
+)
+
+
+@dataclass(frozen=True)
+class PreparedSplitData:
+    task_inputs: list[object]
+    task_labels: list[object]
+    combined: list[object]
+    counts: dict[str, JsonValue]
+
+
+def prepare_split(
+    dataset: DatasetName,
+    source: Path,
+    *,
+    count: int,
+    seed: int,
+    offset: int,
+    strict_invalid_examples: bool,
+) -> PreparedSplitData:
+    if dataset == "hotpotqa":
+        return _prepare_hotpotqa(
+            source,
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict=strict_invalid_examples,
+        )
+    if dataset == "twowiki":
+        return _prepare_twowiki(
+            source,
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict=strict_invalid_examples,
+        )
+    if dataset == "musique":
+        return _prepare_musique(
+            source,
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict=strict_invalid_examples,
+        )
+    if dataset == "twowiki_provenance":
+        return _prepare_twowiki_provenance(
+            source,
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict=strict_invalid_examples,
+        )
+    raise ValueError(f"unsupported dataset={dataset!r}")
+
+
+def materialize_prepared_split(
+    store: ProcessedAssetStore,
+    *,
+    dataset: DatasetName,
+    split: SplitName,
+    source: FileSourceRef,
+    count: int,
+    seed: int,
+    offset: int,
+    strict_invalid_examples: bool,
+    implementation_version: str,
+) -> PreparedSplitResult:
+    prepared = prepare_split(
+        dataset,
+        Path(source.uri),
+        count=count,
+        seed=seed,
+        offset=offset,
+        strict_invalid_examples=strict_invalid_examples,
+    )
+    with ArtifactPublisher(
+        store,
+        kind=ArtifactKind.DATASET,
+        namespace=dataset,
+        task_identity=f"prepare-{dataset}-{split}",
+        origin={
+            "stage": "prepare",
+            "dataset": dataset,
+            "split": split,
+            "source_digest": source.digest,
+            "implementation_version": implementation_version,
+        },
+    ) as publisher:
+        write_json(publisher.workspace / "tasks.json", prepared.task_inputs)
+        write_json(publisher.workspace / "labels.json", prepared.task_labels)
+        write_json(publisher.workspace / "combined.json", prepared.combined)
+        write_json(publisher.workspace / "counts.json", prepared.counts)
+        artifact = publisher.publish(
+            {
+                "tasks": "tasks.json",
+                "labels": "labels.json",
+                "combined": "combined.json",
+                "counts": "counts.json",
+            },
+            shape={
+                "tasks": len(prepared.task_inputs),
+                "labels": len(prepared.task_labels),
+            },
+            metadata={"split": split},
+        )
+    assert isinstance(artifact, DatasetArtifactRef)
+    return PreparedSplitResult(
+        split=split,
+        artifact=artifact,
+        counts=prepared.counts,
+    )
+
+
+def _prepare_hotpotqa(
+    source: Path, *, count: int, seed: int, offset: int, strict: bool
+) -> PreparedSplitData:
+    raw = read_json(source)
+    if not isinstance(raw, list):
+        raise ValueError("HotpotQA raw input must be a JSON list.")
+    valid, invalid = _valid_records(
+        raw,
+        strict=strict,
+        dataset="HotpotQA",
+        validate=lambda value, index: _validate_hotpotqa_raw(value, index),
+    )
+    selected = sample_split(valid, count=count, seed=seed, offset=offset)
+    parsed = parse_hotpotqa_examples(selected)
+    conversion = convert_hotpotqa_examples(parsed)
+    tasks = list(conversion.ranking_records)
+    labels = list(conversion.label_records)
+    validate_hotpotqa_ranking_records(tasks)
+    validate_hotpotqa_label_records(labels, {row["task_id"]: row for row in tasks})
+    return _prepared(
+        raw=raw,
+        valid=valid,
+        invalid=invalid,
+        selected=selected,
+        parsed_count=len(parsed),
+        tasks=cast(list[object], tasks),
+        labels=cast(list[object], labels),
+        combined=cast(list[object], combined_hotpotqa_records(tasks, labels)),
+    )
+
+
+def _validate_hotpotqa_raw(value: object, index: int) -> None:
+    converted = convert_hotpotqa_example(
+        parse_hotpotqa_example(value, record_index=index)
+    )
+    tasks = [converted.ranking_record]
+    validate_hotpotqa_ranking_records(tasks)
+    validate_hotpotqa_label_records(
+        [converted.label_record], {tasks[0]["task_id"]: tasks[0]}
+    )
+
+
+def _prepare_twowiki(
+    source: Path, *, count: int, seed: int, offset: int, strict: bool
+) -> PreparedSplitData:
+    raw = read_json(source)
+    if not isinstance(raw, list):
+        raise ValueError("2Wiki raw input must be a JSON list.")
+    valid, invalid = _valid_records(
+        raw,
+        strict=strict,
+        dataset="2Wiki",
+        validate=lambda value, index: _validate_twowiki_raw(value, index),
+    )
+    selected = sample_split(valid, count=count, seed=seed, offset=offset)
+    parsed = parse_twowiki_examples(selected)
+    conversion = convert_twowiki_examples(parsed)
+    tasks = list(conversion.ranking_records)
+    labels = list(conversion.label_records)
+    validate_twowiki_ranking_records(tasks)
+    validate_twowiki_label_records(labels, {row["task_id"]: row for row in tasks})
+    return _prepared(
+        raw=raw,
+        valid=valid,
+        invalid=invalid,
+        selected=selected,
+        parsed_count=len(parsed),
+        tasks=cast(list[object], tasks),
+        labels=cast(list[object], labels),
+        combined=cast(list[object], combined_twowiki_records(tasks, labels)),
+    )
+
+
+def _validate_twowiki_raw(value: object, index: int) -> None:
+    converted = convert_twowiki_example(
+        parse_twowiki_example(value, record_index=index)
+    )
+    tasks = [converted.ranking_record]
+    validate_twowiki_ranking_records(tasks)
+    validate_twowiki_label_records(
+        [converted.label_record], {tasks[0]["task_id"]: tasks[0]}
+    )
+
+
+def _prepare_musique(
+    source: Path, *, count: int, seed: int, offset: int, strict: bool
+) -> PreparedSplitData:
+    raw = _read_jsonl(source)
+    valid, invalid = _valid_records(
+        raw,
+        strict=strict,
+        dataset="MuSiQue",
+        validate=lambda value, index: _validate_musique_raw(value, index),
+    )
+    selected = sample_split(valid, count=count, seed=seed, offset=offset)
+    parsed = parse_musique_examples(selected)
+    conversion = convert_musique_examples(parsed)
+    tasks = list(conversion.ranking_records)
+    labels = list(conversion.label_records)
+    validate_musique_ranking_records(tasks)
+    validate_musique_label_records(labels, {row["task_id"]: row for row in tasks})
+    return _prepared(
+        raw=raw,
+        valid=valid,
+        invalid=invalid,
+        selected=selected,
+        parsed_count=len(parsed),
+        tasks=cast(list[object], tasks),
+        labels=cast(list[object], labels),
+        combined=cast(list[object], combined_musique_records(tasks, labels)),
+    )
+
+
+def _validate_musique_raw(value: object, index: int) -> None:
+    converted = convert_musique_example(
+        parse_musique_example(value, record_index=index)
+    )
+    tasks = [converted.ranking_record]
+    validate_musique_ranking_records(tasks)
+    validate_musique_label_records(
+        [converted.label_record], {tasks[0]["task_id"]: tasks[0]}
+    )
+
+
+def _prepare_twowiki_provenance(
+    source: Path, *, count: int, seed: int, offset: int, strict: bool
+) -> PreparedSplitData:
+    raw = read_json(source)
+    if not isinstance(raw, list):
+        raise ValueError("2Wiki provenance raw input must be a JSON list.")
+    valid: list[TwoWikiProvenanceRawRecord] = []
+    invalid: Counter[str] = Counter()
+    for index, value in enumerate(raw):
+        try:
+            record = parse_twowiki_provenance_record(value, record_index=index)
+            ranking = record["ranking"]
+            label = record["label"]
+            validate_twowiki_provenance_ranking_records([ranking])
+            validate_twowiki_provenance_label_records(
+                [label], {ranking["task_id"]: ranking}
+            )
+        except ValueError as error:
+            if strict:
+                raise ValueError(
+                    f"Invalid 2Wiki provenance raw example index={index}: {error}"
+                ) from error
+            invalid[str(error)] += 1
+            continue
+        valid.append(record)
+    selected = sample_split(valid, count=count, seed=seed, offset=offset)
+    tasks = [record["ranking"] for record in selected]
+    labels = [record["label"] for record in selected]
+    validate_twowiki_provenance_ranking_records(tasks)
+    validate_twowiki_provenance_label_records(
+        labels, {record["task_id"]: record for record in tasks}
+    )
+    counts: dict[str, JsonValue] = {
+        "raw_examples": len(raw),
+        "valid_examples": len(valid),
+        "invalid_examples_dropped": len(raw) - len(valid),
+        "invalid_example_reasons": dict(invalid),
+        "selected_examples": len(selected),
+        "task_inputs": len(tasks),
+        "task_labels": len(labels),
+        "path_supported_tasks": len(labels),
+    }
+    return PreparedSplitData(
+        task_inputs=cast(list[object], tasks),
+        task_labels=cast(list[object], labels),
+        combined=cast(list[object], selected),
+        counts=counts,
+    )
+
+
+def _valid_records(
+    raw: Sequence[object],
+    *,
+    strict: bool,
+    dataset: str,
+    validate: Callable[[object, int], None],
+) -> tuple[list[object], Counter[str]]:
+    valid: list[object] = []
+    invalid: Counter[str] = Counter()
+    for index, value in enumerate(raw):
+        try:
+            validate(value, index)
+        except ValueError as error:
+            if strict:
+                raise ValueError(
+                    f"Invalid {dataset} raw example index={index}: {error}"
+                ) from error
+            invalid[str(error)] += 1
+            continue
+        valid.append(value)
+    return valid, invalid
+
+
+def _prepared(
+    *,
+    raw: Sequence[object],
+    valid: Sequence[object],
+    invalid: Counter[str],
+    selected: Sequence[object],
+    parsed_count: int,
+    tasks: list[object],
+    labels: list[object],
+    combined: list[object],
+) -> PreparedSplitData:
+    counts: dict[str, JsonValue] = {
+        "raw_examples": len(raw),
+        "valid_examples": len(valid),
+        "invalid_examples_dropped": len(raw) - len(valid),
+        "invalid_example_reasons": dict(invalid),
+        "selected_examples": len(selected),
+        "parsed_examples": parsed_count,
+        "task_inputs": len(tasks),
+        "task_labels": len(labels),
+        "path_supported_tasks": sum(
+            1
+            for label in labels
+            if isinstance(label, dict) and bool(label.get("gold_dependency_edges"))
+        ),
+    }
+    return PreparedSplitData(tasks, labels, combined, counts)
+
+
+def _read_jsonl(path: Path) -> list[object]:
+    records: list[object] = []
+    with path.open("r", encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                records.append(json.loads(stripped))
+            except json.JSONDecodeError as error:
+                raise ValueError(f"invalid JSONL line={line_number}: {path}") from error
+    return records
+
+
+__all__ = ["PreparedSplitData", "materialize_prepared_split", "prepare_split"]

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from hydra import compose, initialize_config_dir
 
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.retrieval.contracts import RankedNode
@@ -18,33 +17,18 @@ from graph_memory.datasets.selection import (
     text_ranking_requests_for_dataset,
 )
 from graph_memory.evaluation.service import evaluate_results
-from graph_memory.training_pairs import build_train_pairs
-from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.datasets.twowiki_provenance import (
     ProvenanceGraphConstructionConfig,
     convert_twowiki_source_records,
     deterministic_dev_test_partition,
 )
 from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
-from graph_memory.experiment.config import (
-    resolve_experiment_config,
-    validate_composed_config,
-)
-from graph_memory.experiment.layout import RunLayout
-from graph_memory.experiment.inspect import inspect_catalog
-from graph_memory.experiment.planning import WorkflowPlanner
-from graph_memory.experiment.stage_models import (
-    PairStageConfig,
-    ProvenanceRgcnRetrieveStageConfig,
-    ProvenanceRgcnTrainStageConfig,
-)
 from graph_memory.validation import (
     ContractValidationError,
     validate_twowiki_provenance_label_records,
     validate_twowiki_provenance_ranking_records,
 )
 from scripts.data.convert_2wiki_to_execution_provenance import main as convert_main
-from scripts.build_train_pairs import _train_pair_tasks
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -104,13 +88,11 @@ def test_bm25_successor_edges_follow_semantic_matches_not_shuffled_order() -> No
 
     assert related["call_id"] in feeds_targets
     feed_edges = [
-        edge
-        for edge in ranking["graph"]["edges"]
-        if edge["edge_type"] == "feeds"
+        edge for edge in ranking["graph"]["edges"] if edge["edge_type"] == "feeds"
     ]
-    assert {
-        cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges
-    } == {"bm25"}
+    assert {cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges} == {
+        "bm25"
+    }
     assert all("semantic_rank" in edge["metadata"] for edge in feed_edges)
 
 
@@ -131,14 +113,10 @@ def test_dense_successor_strategy_uses_injected_dense_ranker() -> None:
         if edge["edge_type"] == "feeds"
     ]
 
-    assert {
-        cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges
-    } == {
+    assert {cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges} == {
         "dense"
     }
-    assert all(
-        cast(int, edge["metadata"]["semantic_rank"]) >= 1 for edge in feed_edges
-    )
+    assert all(cast(int, edge["metadata"]["semantic_rank"]) >= 1 for edge in feed_edges)
 
 
 def test_ambiguous_gold_chain_is_rejected_before_graph_construction() -> None:
@@ -179,9 +157,7 @@ def test_ranking_validation_rejects_inconsistent_binding_hash() -> None:
     ).records[0]["ranking"]
     broken = deepcopy(ranking)
     feeds = next(
-        edge
-        for edge in broken["graph"]["edges"]
-        if edge["edge_type"] == "feeds"
+        edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
     )
     assert feeds["binding"] is not None
     feeds["binding"]["binding_value_hash"] = "wrong-hash"
@@ -222,203 +198,6 @@ def test_ranking_validation_rejects_label_leakage() -> None:
 
     with pytest.raises(ContractValidationError, match="forbidden"):
         validate_twowiki_provenance_ranking_records([leaked])
-
-
-def test_provenance_rgcn_workflow_has_no_evidence_graph_stage(tmp_path: Path) -> None:
-    source = tmp_path / "generated.json"
-    source.write_text("[]", encoding="utf-8")
-    config = _provenance_config(
-        f"twowiki-provenance-plan-{tmp_path.name}", source=source
-    )
-
-    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
-        validate_external=False
-    )
-    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
-
-    assert {invocation.stage for invocation in plan.invocations} == {
-        "prepare",
-        "pairs",
-        "train",
-        "retrieve",
-        "evaluate",
-        "aggregate",
-    }
-    assert not any(item.stage == "evidence_graphs" for item in plan.invocations)
-    pair = by_id["pairs:execution_provenance_rgcn_retriever"]
-    train = by_id["train:execution_provenance_rgcn_retriever"]
-    retrieve = by_id["retrieve:execution_provenance_rgcn_retriever"]
-    assert isinstance(pair.config, PairStageConfig)
-    assert pair.config.evidence_graphs is None
-    assert isinstance(train.config, ProvenanceRgcnTrainStageConfig)
-    assert isinstance(retrieve.config, ProvenanceRgcnRetrieveStageConfig)
-    assert pair.dependencies == ("prepare:train",)
-    assert train.dependencies == (
-        "pairs:execution_provenance_rgcn_retriever",
-        "prepare:dev",
-    )
-    assert retrieve.dependencies == (
-        "prepare:test",
-        "train:execution_provenance_rgcn_retriever",
-    )
-
-
-def test_dense_ft_workflow_has_text_only_pairs_and_no_evidence_graph_stage(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "generated.json"
-    source.write_text("[]", encoding="utf-8")
-    config = _provenance_config(
-        f"twowiki-provenance-dense-ft-{tmp_path.name}",
-        source=source,
-        methods="[dense_ft]",
-    )
-
-    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
-        validate_external=False
-    )
-    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
-
-    assert {invocation.stage for invocation in plan.invocations} == {
-        "prepare",
-        "pairs",
-        "train",
-        "retrieve",
-        "evaluate",
-        "aggregate",
-    }
-    assert not any(item.stage == "evidence_graphs" for item in plan.invocations)
-    pair = by_id["pairs:dense_ft"]
-    assert isinstance(pair.config, PairStageConfig)
-    assert pair.config.evidence_graphs is None
-    assert pair.config.sampling.hard_graph_neighbor_per_positive == 0
-    assert all(input_ref.role != "evidence_graphs" for input_ref in pair.inputs)
-    assert pair.dependencies == ("prepare:train",)
-
-
-def test_graphless_pair_tasks_use_text_candidates_without_method_dispatch(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "generated.json"
-    source.write_text("[]", encoding="utf-8")
-    config = _provenance_config(
-        f"twowiki-provenance-pairs-{tmp_path.name}", source=source
-    )
-    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
-        validate_external=False
-    )
-    pair = next(
-        invocation
-        for invocation in plan.invocations
-        if invocation.identifier == "pairs:execution_provenance_rgcn_retriever"
-    )
-    assert isinstance(pair.config, PairStageConfig)
-    converted = convert_twowiki_source_records(
-        [_source_example("graphless-pairs")], candidate_cap=6, seed=13
-    ).records[0]
-
-    tasks = _train_pair_tasks(
-        pair.config,
-        [converted["ranking"]],
-        [converted["label"]],
-        [],
-    )
-    assert len(tasks) == 1
-    assert tasks[0].graph is None
-    result = build_train_pairs(
-        tasks,
-        NegativeSamplingConfig(
-            random_seed=13,
-            easy_random_per_positive=1,
-            hard_bm25_per_positive=1,
-            hard_dense_per_positive=0,
-            hard_graph_neighbor_per_positive=0,
-            hard_pool_size=10,
-        ),
-    )
-    assert result.summary["positive_count"] == 2
-    assert "hard_graph_neighbor" not in result.summary["negative_count_by_type"]
-
-
-def test_provenance_rgcn_ablation_discovery_and_planning(tmp_path: Path) -> None:
-    source = tmp_path / "generated.json"
-    source.write_text("[]", encoding="utf-8")
-    catalog = cast(dict[object, list[dict[str, object]]], inspect_catalog(
-        "ablations", repository_root=ROOT
-    ))
-    rows = catalog["execution_provenance_rgcn_retriever"]
-
-    assert [row["variant"] for row in rows] == [
-        "full_rgcn",
-        "wo_graph",
-        "wo_edge_type",
-        "wo_edge_weight",
-        "wo_hard_negatives",
-    ]
-
-    config = _provenance_config(
-        f"twowiki-provenance-ablation-{tmp_path.name}",
-        source=source,
-        extra=[
-            "ablation.enable=true",
-            "ablation.variants=[wo_graph,wo_edge_type]",
-        ],
-    )
-    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
-        validate_external=False
-    )
-    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
-    aliases = {alias.identifier: alias for alias in plan.aliases}
-
-    assert "pairs:execution_provenance_rgcn_retriever:wo_graph" in aliases
-    assert "pairs:execution_provenance_rgcn_retriever:wo_edge_type" in aliases
-    wo_graph = by_id["train:execution_provenance_rgcn_retriever:wo_graph"]
-    wo_edge_type = by_id[
-        "train:execution_provenance_rgcn_retriever:wo_edge_type"
-    ]
-    assert isinstance(wo_graph.config, ProvenanceRgcnTrainStageConfig)
-    assert wo_graph.config.train.model.ablation == "wo_graph"
-    assert wo_graph.config.train.model.num_layers == 0
-    assert isinstance(wo_edge_type.config, ProvenanceRgcnTrainStageConfig)
-    assert wo_edge_type.config.train.model.ablation == "wo_edge_type"
-    assert {(item.method.value, item.variant) for item in plan.ablation_selections} == {
-        ("execution_provenance_rgcn_retriever", "full_rgcn"),
-        ("execution_provenance_rgcn_retriever", "wo_graph"),
-        ("execution_provenance_rgcn_retriever", "wo_edge_type"),
-    }
-
-
-def test_provenance_rgcn_hard_negative_ablation_rebuilds_pairs(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "generated.json"
-    source.write_text("[]", encoding="utf-8")
-    config = _provenance_config(
-        f"twowiki-provenance-hard-negative-{tmp_path.name}",
-        source=source,
-        extra=[
-            "ablation.enable=true",
-            "ablation.variants=[wo_hard_negatives]",
-        ],
-    )
-    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
-        validate_external=False
-    )
-    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
-    pair = by_id[
-        "pairs:execution_provenance_rgcn_retriever:wo_hard_negatives"
-    ]
-
-    assert isinstance(pair.config, PairStageConfig)
-    assert pair.config.sampling.easy_random_per_positive == 2
-    assert pair.config.sampling.hard_bm25_per_positive == 0
-    assert pair.config.sampling.hard_dense_per_positive == 0
-    assert pair.config.sampling.hard_graph_neighbor_per_positive == 0
-    assert not any(
-        alias.identifier
-        == "pairs:execution_provenance_rgcn_retriever:wo_hard_negatives"
-        for alias in plan.aliases
-    )
 
 
 def test_converter_cli_is_byte_deterministic_and_writes_manifest(
@@ -510,43 +289,6 @@ def test_provenance_path_metrics_do_not_require_an_evidence_graph() -> None:
 
     assert rows[0]["Path Recall@10"] == 1.0
     assert rows[0]["Edge Recall@10"] == 1.0
-
-
-def _provenance_config(
-    name: str,
-    *,
-    source: Path,
-    methods: str = "[execution_provenance_rgcn_retriever]",
-    extra: list[str] | None = None,
-):
-    source_value = source.resolve().as_posix()
-    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
-        composed = compose(
-            config_name="config",
-            overrides=[
-                f"name={name}",
-                "dataset=twowiki_provenance",
-                "profile=smoke",
-                f"methods={methods}",
-                "device=cpu",
-                *[
-                    f"dataset.splits.{split}.source={source_value}"
-                    for split in ("train", "dev", "test")
-                ],
-                *[
-                    override
-                    for split in ("train", "dev", "test")
-                    for override in (
-                        f"dataset.splits.{split}.offset=0",
-                        f"dataset.splits.{split}.capacity=1",
-                    )
-                ],
-                *(extra or []),
-            ],
-        )
-    return resolve_experiment_config(
-        validate_composed_config(composed), repository_root=ROOT
-    )
 
 
 def _source_example(raw_id: str) -> dict[str, object]:

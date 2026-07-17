@@ -1,50 +1,54 @@
 # Experiment commands
 
-The maintained experiment matrix and workflow constraints come from [`execution-provenance-retrieval-domain-plan.md`](../10-plans/execution-provenance-retrieval-domain-plan.md).
+One command runs one final method and, where supported, one singular R-GCN variant. The command composes Hydra configuration, opens one MLflow run, and executes one synchronous Prefect Flow. There is no plan/status/reset command, stage range, or generated stage CLI.
 
-## Plan and run
+## Single jobs
 
 ```powershell
-uv run python experiment/plan.py name=quick_valid_100 profile=quick
-uv run python experiment/run.py name=quick_valid_100 profile=quick
+uv run python experiment/run.py name=hotpot_bm25 dataset=hotpotqa profile=quick method=bm25
 
 uv run python experiment/run.py `
-  name=twowiki_smoke dataset=2wiki profile=smoke device=cpu `
-  'methods=[bm25,dense,graphrag]'
+  name=hotpot_rgcn dataset=hotpotqa profile=smoke device=cpu `
+  method=dense_rgcn_graph_retriever method.variant=full_rgcn
 
 uv run python experiment/run.py `
-  name=rgcn_smoke profile=smoke device=cpu `
-  'methods=[dense_rgcn_graph_retriever]'
-
-uv run python experiment/run.py `
-  name=twowiki_provenance_smoke dataset=twowiki_provenance profile=smoke device=cpu `
-  'methods=[bm25,dense,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
+  name=provenance_rgcn dataset=twowiki_provenance profile=smoke device=cpu `
+  method=execution_provenance_rgcn_retriever method.variant=wo_graph
 ```
 
-The default evidence workflow selects BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, and Dense-FT R-GCN. The separately generated [`twowiki_provenance`](twowiki-provenance.md) dataset supports flat baselines plus both provenance methods. EvidenceGraph R-GCN methods are intentionally incompatible with it.
+Use `cache.refresh=true` to force every reusable Task in the selected Flow to execute again. The option is operational and does not become part of scientific cache identity.
 
-## Inspect and control
+## Baseline sweep
+
+Hydra multirun creates one process, Prefect Flow run, MLflow run, and deterministic child output directory per method:
 
 ```powershell
-uv run python experiment/status.py name=quick_valid_100
+uv run python experiment/run.py -m `
+  name=hotpot_baselines dataset=hotpotqa profile=quick `
+  method=bm25,dense,graphrag
+```
+
+## Ablations and multiple GPUs
+
+Variants are independent jobs; the Flow does not accept a variant list and does not call `task.submit()`. Launch one command per GPU so CUDA ownership and failures remain isolated while compatible prepared/graph/pair assets are reused through the shared Prefect cache:
+
+```powershell
+uv run python experiment/run.py name=rgcn_ablation_full dataset=hotpotqa profile=quick device=cuda:0 method=dense_rgcn_graph_retriever method.variant=full_rgcn
+uv run python experiment/run.py name=rgcn_ablation_wo_graph dataset=hotpotqa profile=quick device=cuda:1 method=dense_rgcn_graph_retriever method.variant=wo_graph
+```
+
+For Hydra-managed sequential or externally parallel jobs, keep a shared user-visible study name and vary the deterministic job/output selector.
+
+## Inspect and deliver
+
+```powershell
 uv run python experiment/inspect.py kind=methods
 uv run python experiment/inspect.py kind=profiles
-uv run python experiment/inspect.py kind=ablations
-uv run python experiment/reset.py name=quick_valid_100
+uv run python experiment/inspect.py kind=variants
+uv run python scripts/deliver/collect_run_artifacts.py --name hotpot_baselines
 ```
 
-## Direct typed-stage debugging
-
-```powershell
-uv run python scripts/prepare_hotpotqa.py --config runs/<name>/config/stages/prepare/train.yaml
-uv run python scripts/build_evidence_graphs.py --config runs/<name>/config/stages/evidence_graphs/train.yaml
-uv run python scripts/build_train_pairs.py --config runs/<name>/config/stages/pairs/dense_rgcn_graph_retriever.yaml
-uv run python scripts/train_method.py --config runs/<name>/config/stages/train/dense_rgcn_graph_retriever.yaml
-uv run python scripts/run_retrieval.py --config runs/<name>/config/stages/retrieve/graphrag.yaml
-uv run python scripts/evaluate_retrieval.py --config runs/<name>/config/stages/evaluate/graphrag.yaml
-```
-
-`EvidenceGraph` stages are planned only when training or running R-GCN-related paths needs them. GraphRAG runs directly from text candidates.
+The collector mirrors all small output-only files to `results/<name>/`, including every multirun child. It records processed asset URIs and digests from each `assets/manifest.yaml` without copying `data/processed/`.
 
 ## Verification
 
@@ -52,7 +56,7 @@ uv run python scripts/evaluate_retrieval.py --config runs/<name>/config/stages/e
 uv run pytest -q
 uv run ruff check .
 uv run basedpyright --level error
-uv run python -m compileall -q graph_memory scripts tests
-openspec validate add-twowiki-provenance-benchmark --strict
+uv run python -m compileall -q graph_memory experiment scripts tests
+openspec validate replace-experiment-runner-with-prefect-workflow --strict
 git diff --check
 ```

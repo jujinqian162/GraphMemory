@@ -1,29 +1,28 @@
 # Implementation handoff
 
-The experiment workflow is owned by `graph_memory/experiment/`:
+The experiment workflow has four explicit ownership layers:
 
-- `config.py` defines closed Hydra/Pydantic contracts and resolution.
-- `layout.py` is the only run-local path constructor and owns the Hydra/RunLayout concise multirun formatter.
-- `graph_memory/registry/methods.py` is the single lifecycle, dependency, and train-artifact authority for all eight methods.
-- `graph_memory/registry/ablations.py` owns typed ablation patches and invalidation stages.
-- `stage_models.py` defines discriminated stage payloads; `invocation.py` defines the one complete persisted execution contract.
-- `planning.py` owns workflow selection, ordering, dependencies, and stage bounds.
-- `state.py`, `status.py`, and `resume.py` own typed local truth and prefix resume.
-- `execution.py` owns sequential subprocess fail-fast execution and the direct baseline-child lifecycle map.
-- `tracking.py` owns the concise parent projection, unique baseline-child operations, explicit `final.*` mapping, `train.*` series, Overview table, and curated artifact policy.
-- `service.py` is shared by the five public entrypoints.
+- `graph_memory/experiment/config.py` defines the closed singular Hydra/Pydantic job contract.
+- `graph_memory/experiment/artifacts.py` owns external identities, processed references, manifests, validation, staging, and atomic publication below `data/processed/`.
+- `graph_memory/experiment/tasks.py` owns thin cached Prefect Tasks and shared Prefect result storage. It has no repository lock manager, broad retry policy, or cache-state projection.
+- `graph_memory/experiment/workflow.py` owns one synchronous Flow with direct method branches; `output.py` and `tracking.py` project the final result to output-only `runs/` files and one active MLflow run.
 
-Public commands are the five files `experiment/{plan,run,status,inspect,reset}.py`. The package-level command facades, positional runner, workflow helper package, JSON config codec, generic stage wrappers, and parameter-style stage parsers are removed without adapters.
+Importable scientific bodies live in `graph_memory/stages/{prepare,graphs,pairs,models,retrieve,evaluate}.py`. They consume typed external or processed references and return typed stage results. Large datasets, graphs, pairs, predictions, checkpoints, and model directories are processed assets; a later stage never reads them from `runs/`.
 
-All stage scripts under `scripts/` accept exactly `--config <absolute-yaml>`, validate a closed stage model, call reusable code under `graph_memory/stages/`, and use the shared stage lifecycle. Direct scripts never create MLflow runs.
+The public commands are:
+
+- `experiment/run.py` for one singular method/variant job, including Hydra multiruns of independent jobs;
+- `experiment/inspect.py` for output discovery and summaries;
+- `scripts/deliver/collect_run_artifacts.py` for copying complete output-only trees into `results/`.
 
 When extending the workflow:
 
-1. Add scientific defaults to the appropriate Hydra group.
-2. Extend the closed Pydantic contract and discriminated stage model.
-3. Project paths only through `RunLayout` and dependencies only through the runtime method registry and planner.
-4. Keep local artifacts and stage summaries authoritative.
-5. Add plan, direct-stage, status/resume, parent/baseline tracking, cross-dataset, and delivery tests as applicable.
-6. Update the command runbook and run the full verification gates.
+1. Add or change the singular Hydra method config and its closed Pydantic discriminator.
+2. Put scientific behavior in an importable stage service and keep the Prefect Task wrapper thin.
+3. Include every behavior-bearing input, external digest/revision, runtime identity, and implementation version in the Task signature.
+4. Publish every reusable file below `data/processed/` through `ArtifactPublisher`; declare every workspace output.
+5. Add the direct branch to the one Flow, then project only small current-run reports and asset references below `runs/`.
+6. Log through fluent active-run MLflow APIs only. One Hydra job is one Flow run and one MLflow run.
+7. Verify focused cache invalidation, fresh-name workflow execution, output collection, static checks, and the full test suite.
 
-Do not introduce Hydra object-instantiation runtime construction, a second default source, alternate workflow dispatch, custom run roots, stage-attempt MLflow children, parent result metrics, generated comparison plots, compatibility readers, MLflow-based cache decisions, or large artifact upload paths. Existing SQLite rows are historical; a former local name must be replaced or explicitly reset, never auto-migrated.
+Do not add a planner, arbitrary stage range, generated stage command, subprocess execution, completed-prefix resume, run-local cache truth, multi-method job, Flow-internal variant fan-out, MLflow parent/child lifecycle, run-ID reuse, or scientific reads from `runs/`. To compare methods or variants, launch independent Hydra jobs and group their peer MLflow runs with the shared study name.

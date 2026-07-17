@@ -28,18 +28,14 @@ Generated `manifest.json` records source hashes, schema/seed/split parameters, g
 Start with one train/dev/test record:
 
 ```powershell
-uv run python experiment/plan.py `
+uv run python experiment/run.py -m `
   name=twowiki_provenance_smoke dataset=twowiki_provenance profile=smoke device=cpu `
-  'methods=[bm25,dense,dense_ft,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
-
-uv run python experiment/run.py `
-  name=twowiki_provenance_smoke dataset=twowiki_provenance profile=smoke device=cpu `
-  'methods=[bm25,dense,dense_ft,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
+  method=bm25,dense,dense_ft,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever
 ```
 
 `dense_ft` is the supervised flat-text baseline. It trains and ranks the same dataset-owned ToolOutput candidates used by BM25 and Dense, but it does not receive the execution-provenance graph, bindings, or dependency labels. Its pair stage keeps easy/BM25/dense negatives, sets graph-neighbor negatives to zero, and schedules no EvidenceGraph stage. It therefore does not demonstrate provenance reasoning even if it improves candidate recall.
 
-The trainable provenance method reuses the existing `pairs -> train -> retrieve -> evaluate -> aggregate` workflow phases but does not schedule an EvidenceGraph stage. The pair stage materializes configured easy/BM25/dense negatives, and candidate BCE consumes only that artifact. The model uses relation-specific graph convolution over all typed nodes plus binding-schema-aware `feeds` relations, then independently scores legal output transitions. It has no beam, dynamic oracle, maximum-step, or path-loss contract. Its schema-v2 checkpoint family is distinct from both evidence R-GCN methods and rejects earlier provenance checkpoints.
+The trainable provenance method follows `prepare -> pairs -> train -> rank -> evaluate` and does not build an EvidenceGraph artifact. The pair Task materializes configured easy/BM25/dense negatives, and candidate BCE consumes only that artifact. The model uses relation-specific graph convolution over all typed nodes plus binding-schema-aware `feeds` relations, then independently scores legal output transitions. It has no beam, dynamic oracle, maximum-step, or path-loss contract. Its schema-v2 checkpoint family is distinct from both evidence R-GCN methods and rejects earlier provenance checkpoints.
 
 ## Provenance R-GCN ablations
 
@@ -50,30 +46,26 @@ The trainable provenance method reuses the existing `pairs -> train -> retrieve 
 - `wo_edge_weight`: replace graph artifact weights with uniform `1.0` weights.
 - `wo_hard_negatives`: rebuild pairs without BM25, dense, or graph-neighbor hard negatives while retaining easy random negatives.
 
-Select a non-empty subset explicitly for a provenance-only experiment:
+Run each variant as an independent job. For two GPUs, for example:
 
 ```powershell
-uv run python experiment/plan.py `
-  name=twowiki_provenance_rgcn_ablation dataset=twowiki_provenance profile=quick device=cuda `
-  'methods=[execution_provenance_rgcn_retriever]' `
-  ablation.enable=true `
-  'ablation.variants=[wo_graph,wo_edge_type,wo_edge_weight,wo_hard_negatives]'
+uv run python experiment/run.py `
+  name=twowiki_provenance_rgcn_full dataset=twowiki_provenance profile=quick device=cuda:0 `
+  method=execution_provenance_rgcn_retriever method.variant=full_rgcn
 
 uv run python experiment/run.py `
-  name=twowiki_provenance_rgcn_ablation dataset=twowiki_provenance profile=quick device=cuda `
-  'methods=[execution_provenance_rgcn_retriever]' `
-  ablation.enable=true `
-  'ablation.variants=[wo_graph,wo_edge_type,wo_edge_weight,wo_hard_negatives]'
+  name=twowiki_provenance_rgcn_wo_graph dataset=twowiki_provenance profile=quick device=cuda:1 `
+  method=execution_provenance_rgcn_retriever method.variant=wo_graph
 ```
 
-The ordinary method run is reused as the `full_rgcn` row. Model-only variants reuse the ordinary pair artifact; `wo_hard_negatives` owns variant-local pairs and reruns every downstream stage. Evidence-graph-only variants such as `wo_bridge` and `wo_seed_score` are intentionally unsupported for this method because the provenance R-GCN does not consume those signals.
+The jobs are peer Prefect/MLflow runs. Model-only variants reuse compatible pair artifacts; `wo_hard_negatives` owns variant-specific pairs and every downstream asset. Evidence-graph-only variants such as `wo_bridge` and `wo_seed_score` are intentionally unsupported for this method because the provenance R-GCN does not consume those signals.
 
 For a frozen-method diagnostic before training R-GCN:
 
 ```powershell
 uv run python experiment/run.py `
   name=twowiki_provenance_frozen_quick dataset=twowiki_provenance profile=quick device=cuda `
-  'methods=[bm25,dense,graphrag,execution_provenance_retriever]'
+  method=execution_provenance_retriever
 ```
 
 ## Interpretation

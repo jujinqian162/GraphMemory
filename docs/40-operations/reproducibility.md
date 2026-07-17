@@ -1,36 +1,27 @@
 # Reproducibility
 
-The reproducible unit is a named Hydra job. Its local source of truth is:
+The reproducible computation unit is the typed input set of one Prefect Task. Prepared splits, evidence graphs, training pairs, models, predictions, evaluations, and Prefect results live below `data/processed/`. The repository does not maintain separate cache-key files or filesystem locks. External files and local model directories are content-addressed; immutable remote models must be named with an explicit revision.
+
+The inspectable experiment unit is one Hydra job:
 
 ```text
-runs/<name>/
-  run_state.yaml
+runs/<name>/[<hydra-job-selector>/]
   config/resolved.yaml
   config/overrides.yaml
-  config/stages/**/*.yaml
-  **/*.run_summary.yaml
-  predictions/
-  metrics/
-  tables/
-  learned/
+  workflow/summary.yaml
+  workflow/ranking_origin.yaml
+  assets/manifest.yaml
+  metrics/final.metrics.csv
+  tables/*.csv
+  training/*                 # trainable methods only
+  debug/failure_cases.jsonl
 ```
 
-`run_state.yaml` fixes the resolved typed config, mode, selected methods/stages, artifact bindings, and MLflow parent id. Each stage summary fixes identity, effective config, input/output bindings, attempt, timestamps, counts, timings, error, and optional owning baseline-child id. A cache hit requires valid outputs and an exactly matching successful summary.
+The run directory is output-only and is not consumed by later computation. Re-running the complete command is the recovery operation: equal Tasks use Prefect cache results, failed Tasks run again, and changed inputs invalidate only their consumers. A missing or corrupt processed asset is a strict error; rerun with `cache.refresh=true` after correcting storage.
 
-Hydra groups under `configs/` own scientific defaults. `configs/config.yaml` is the only root. Dataset groups own sources and capacities, profile groups own count policies and trainable scale, method groups own method-specific settings, and search-space groups own tuning candidates. Fixed tracking paths resolve to `runs/.mlflow/tracking.db` and `runs/.mlflow/artifacts/`. Pydantic validation rejects unknown or unresolved values before planning.
+Run identity, Hydra job number, output path, Prefect IDs, MLflow IDs, and tracking configuration do not enter scientific Task signatures. Therefore an equal experiment under a new name can reuse all compatible assets while creating a new output directory and one new MLflow run.
 
-Use a fresh name for changed configuration:
-
-```powershell
-uv run python experiment/plan.py name=hotpot_smoke_13 profile=smoke seed=13 device=cpu
-uv run python experiment/run.py name=hotpot_smoke_13 profile=smoke seed=13 device=cpu
-```
-
-Reusing the name with different overrides fails. `cache.enabled=false` reruns the selected ordered plan without weakening summary validation. Interrupted runs resume only after the longest continuous complete/alias prefix.
-
-MLflow is a strict presentation mirror, not cache or artifact authority. One Hydra job maps to one concise parent and each selected baseline or executable ablation variant maps to one stable child, including fully cached baselines. The parent carries concise selections, the all-baseline Overview table, and `config/`, `results/`, and shared `workflow/` artifacts, but no native model metrics. Baseline children carry method-relative parameters, common `final.*` metrics, genuine `train.*` epoch series, and organized small artifacts. Counts, timings, statuses, errors, paths, kinds, and sizes stay outside the model-metric namespace. Datasets, graphs, predictions, pairs, checkpoints, and model directories are metadata-only and are never uploaded.
-
-Multirun directory names are concise identifiers such as `0_num_layers=2`; they are not a serialization of the full job. Reproduction still uses each job's complete `config/resolved.yaml`, `config/overrides.yaml`, typed summaries, and local artifacts. Existing MLflow rows from the former projection are historical and are not migrated. Use a fresh name or explicitly reset an old local name before executing the replacement projection.
+One singular method/variant per job also applies to sweeps. Hydra multirun or independent commands create peer jobs that share cache storage. Assign separate commands to `cuda:0`, `cuda:1`, and other devices for multi-GPU ablations; there is no in-Flow variant fan-out.
 
 For offline transfer:
 
@@ -38,4 +29,4 @@ For offline transfer:
 uv run python scripts/deliver/collect_run_artifacts.py --name hotpot_smoke_13
 ```
 
-The delivery can be inspected without MLflow and preserves the complete small-file structure under `results/hotpot_smoke_13`. For a multirun, the same command copies every job under `results/<name>/<job>`. Known large intermediates and files above the configured size limit are omitted and listed in the delivery index.
+The delivery preserves all output-only children under `results/<name>/` and the reusable asset references, but does not copy `data/processed/`. Historical planner-era runs and MLflow rows remain untouched and are not migration inputs for the new cache.

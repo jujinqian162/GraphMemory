@@ -1,50 +1,26 @@
 defaults:
   - dataset: musique
   - profile: full
-  - method_configs:
-      - bm25
-      - dense
-      - graphrag
-      - dense_rgcn_graph_retriever
-      - dense_ft
-      - dense_ft_rgcn_graph_retriever
-      - execution_provenance_retriever
-      - execution_provenance_rgcn_retriever
+  - method: bm25
   - _self_
 
 name: ???
-methods:
-  - bm25
-  - dense
-  - graphrag
-  - dense_rgcn_graph_retriever
-  - dense_ft
-  - dense_ft_rgcn_graph_retriever
 seed: 13
 device: cuda
 top_k: 10
-stages:
-  from: null
-  to: null
 cache:
-  enabled: true
-ablation:
-  enable: false
-  variants:
-    - wo_bridge
-    - wo_entity_overlap
-    - wo_sequential
-    - wo_query_overlap
-    - wo_graph
-    - wo_edge_type
-    - wo_edge_weight
-    - wo_seed_score
-    - wo_hard_negatives
+  refresh: false
+benchmark:
+  enabled: false
+  warmup: 1
+  repetitions: 5
 graph:
   max_query_overlap: 20
   max_entity_neighbors: 10
   max_bridge_edges: 50
   use_spacy: false
+evaluation:
+  failure_case_limit: 50
 tracking:
   database: runs/.mlflow/tracking.db
   artifact_root: runs/.mlflow/artifacts
@@ -58,9 +34,9 @@ hydra:
         exclude_keys:
           - name
           - profile
-          - methods
+          - method
   run:
     dir: runs/${name}
   sweep:
     dir: runs/${name}
-    subdir: ${hydra.job.num}_${concise_override:${hydra.job.override_dirname}}
+    subdir: ${hydra.job.num}_${method.method}

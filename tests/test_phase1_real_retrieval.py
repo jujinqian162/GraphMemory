@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-from graph_memory.experiment.config import DenseEncoderConfig
-from graph_memory.experiment.stage_models import (
-    Bm25RetrieveStageConfig,
-    DenseRetrieveStageConfig,
-    GraphRAGRetrieveStageConfig,
+from graph_memory.experiment.config import (
+    Bm25MethodConfig,
+    DenseEncoderConfig,
+    DenseMethodConfig,
+    GraphRAGMethodConfig,
 )
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
@@ -94,17 +93,16 @@ def _encoder_config() -> DenseEncoderConfig:
 
 def test_bm25_stage_runs_without_evidence_graph_artifact() -> None:
     result = run_retrieve_stage(
-        Bm25RetrieveStageConfig(
-            stage="retrieve",
+        Bm25MethodConfig(
             method="bm25",
-            variant=None,
-            dataset="hotpotqa",
-            tasks=Path("unused.json"),
-            output=Path("unused.ranked.json"),
-            top_k=2,
         ),
+        dataset="hotpotqa",
+        top_k=2,
         task_inputs=_task_inputs(),
         evidence_graphs=None,
+        model=None,
+        encoder_source=None,
+        device="cpu",
     )
 
     assert result.provenance.method.value == "bm25"
@@ -114,18 +112,17 @@ def test_bm25_stage_runs_without_evidence_graph_artifact() -> None:
 
 def test_dense_stage_runs_without_evidence_graph_artifact() -> None:
     result = run_retrieve_stage(
-        DenseRetrieveStageConfig(
-            stage="retrieve",
+        DenseMethodConfig(
             method="dense",
-            variant=None,
-            dataset="hotpotqa",
-            tasks=Path("unused.json"),
-            output=Path("unused.ranked.json"),
-            top_k=2,
             encoder=_encoder_config(),
         ),
+        dataset="hotpotqa",
+        top_k=2,
         task_inputs=_task_inputs(),
         evidence_graphs=None,
+        model=None,
+        encoder_source=None,
+        device="cpu",
         dense_encoder=KeywordEncoder(),
     )
 
@@ -136,14 +133,8 @@ def test_dense_stage_runs_without_evidence_graph_artifact() -> None:
 
 def test_graphrag_stage_builds_method_owned_entity_graph() -> None:
     result = run_retrieve_stage(
-        GraphRAGRetrieveStageConfig(
-            stage="retrieve",
+        GraphRAGMethodConfig(
             method="graphrag",
-            variant=None,
-            dataset="hotpotqa",
-            tasks=Path("unused.json"),
-            output=Path("unused.ranked.json"),
-            top_k=2,
             encoder=_encoder_config(),
             seed_top_s=2,
             restart_probability=0.2,
@@ -152,8 +143,13 @@ def test_graphrag_stage_builds_method_owned_entity_graph() -> None:
             semantic_weight=0.45,
             entity_weight=0.55,
         ),
+        dataset="hotpotqa",
+        top_k=2,
         task_inputs=_task_inputs(),
         evidence_graphs=None,
+        model=None,
+        encoder_source=None,
+        device="cpu",
         dense_encoder=KeywordEncoder(),
     )
 

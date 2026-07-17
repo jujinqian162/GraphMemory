@@ -1,4 +1,4 @@
-"""Typed experiment configuration, planning, state, execution, and tracking."""
+"""Typed single-method experiment configuration and Prefect workflow."""
 
 from graph_memory.experiment.config import (
     ExperimentConfig,

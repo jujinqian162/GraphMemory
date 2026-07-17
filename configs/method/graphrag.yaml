@@ -1,0 +1,12 @@
+method: graphrag
+encoder:
+  model_name: models/intfloat-e5-base-v2
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+  batch_size: 64
+seed_top_s: 8
+restart_probability: 0.2
+max_iterations: 30
+convergence_tolerance: 0.000001
+semantic_weight: 0.45
+entity_weight: 0.55

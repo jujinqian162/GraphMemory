@@ -1,5 +1,5 @@
 name: twowiki_provenance
-prepare_script: scripts/prepare_twowiki_provenance.py
+strict_invalid_examples: false
 splits:
   train:
     kind: raw

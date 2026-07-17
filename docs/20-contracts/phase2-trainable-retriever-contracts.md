@@ -104,13 +104,13 @@ data/hotpotqa/processed/{split}_pairs.json
 Producer:
 
 ```text
-scripts/build_train_pairs.py
+graph_memory.stages.pairs.materialize_training_pairs
 ```
 
 Consumers:
 
 ```text
-scripts/train_method.py --method dense_rgcn_graph_retriever
+graph_memory.stages.models.materialize_evidence_rgcn_model
 graph_memory.training_pairs
 ```
 

@@ -1,5 +1,5 @@
 name: hotpotqa
-prepare_script: scripts/prepare_hotpotqa.py
+strict_invalid_examples: false
 splits:
   train:
     kind: raw

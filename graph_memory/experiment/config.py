@@ -13,13 +13,11 @@ from pydantic import (
     Field,
     JsonValue,
     StrictBool,
-    field_validator,
     model_validator,
 )
 
-from graph_memory.registry.retrieval import RetrievalMethodId
-from graph_memory.registry.ablations import AblationVariantId
 from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
+from graph_memory.registry.retrieval import RetrievalMethodId
 
 
 def _scientific_int(value: object) -> int:
@@ -58,16 +56,25 @@ DatasetName: TypeAlias = Literal[
     "musique",
 ]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
-PublicStageName: TypeAlias = Literal[
-    "prepare",
-    "evidence_graphs",
-    "pairs",
-    "train",
-    "retrieve",
-    "evaluate",
-    "aggregate",
+EvidenceRgcnVariant: TypeAlias = Literal[
+    "full_rgcn",
+    "wo_bridge",
+    "wo_entity_overlap",
+    "wo_sequential",
+    "wo_query_overlap",
+    "wo_graph",
+    "wo_edge_type",
+    "wo_edge_weight",
+    "wo_seed_score",
+    "wo_hard_negatives",
 ]
-ArtifactKind: TypeAlias = Literal["file", "directory"]
+ProvenanceRgcnVariant: TypeAlias = Literal[
+    "full_rgcn",
+    "wo_graph",
+    "wo_edge_type",
+    "wo_edge_weight",
+    "wo_hard_negatives",
+]
 
 
 class ClosedModel(BaseModel):
@@ -77,19 +84,6 @@ class ClosedModel(BaseModel):
         populate_by_name=True,
         validate_default=True,
     )
-
-
-class ArtifactRef(ClosedModel):
-    role: str = Field(min_length=1)
-    path: Path
-    kind: ArtifactKind
-
-
-class AliasArtifactRef(ArtifactRef):
-    alias_of: Path
-
-
-ArtifactBinding: TypeAlias = ArtifactRef | AliasArtifactRef
 
 
 class DatasetSplitBase(ClosedModel):
@@ -121,7 +115,7 @@ class DatasetSplitsConfig(ClosedModel):
 
 class DatasetConfig(ClosedModel):
     name: DatasetName
-    prepare_script: Path
+    strict_invalid_examples: StrictBool = False
     splits: DatasetSplitsConfig
 
 
@@ -259,18 +253,71 @@ class RgcnTrainConfig(ClosedModel):
     selection: ModelSelectionConfig
 
 
-class DenseRgcnMethodConfig(ClosedModel):
+def _effective_rgcn_parts(
+    pairs: PairSamplingConfig,
+    train: RgcnTrainConfig,
+    variant: EvidenceRgcnVariant,
+) -> tuple[PairSamplingConfig, RgcnTrainConfig]:
+    if variant == "full_rgcn":
+        return pairs, train
+    if variant == "wo_hard_negatives":
+        return (
+            pairs.model_copy(
+                update={
+                    "hard_bm25_per_positive": 0,
+                    "hard_dense_per_positive": 0,
+                    "hard_graph_neighbor_per_positive": 0,
+                }
+            ),
+            train,
+        )
+    model_updates: dict[str, object] = {"ablation": variant}
+    if variant == "wo_graph":
+        model_updates["num_layers"] = 0
+    return pairs, train.model_copy(
+        update={"model": train.model.model_copy(update=model_updates)}
+    )
+
+
+class RgcnStageConfig(ClosedModel):
+    encoder: DenseEncoderConfig
+    pairs: PairSamplingConfig
+    train: RgcnTrainConfig
+
+    def for_variant(self, variant: EvidenceRgcnVariant) -> RgcnStageConfig:
+        pairs, train = _effective_rgcn_parts(self.pairs, self.train, variant)
+        return self.model_copy(update={"pairs": pairs, "train": train})
+
+
+class RgcnTrainStageConfig(ClosedModel):
+    method: Literal[
+        "dense_rgcn_graph_retriever",
+        "dense_ft_rgcn_graph_retriever",
+    ]
+    variant: EvidenceRgcnVariant
+    encoder: DenseEncoderConfig
+    train: RgcnTrainConfig
+
+
+class RgcnMethodConfig(RgcnStageConfig):
     method: Literal["dense_rgcn_graph_retriever"]
-    encoder: DenseEncoderConfig
-    pairs: PairSamplingConfig
-    train: RgcnTrainConfig
+    variant: EvidenceRgcnVariant = "full_rgcn"
+
+    def effective(self) -> RgcnMethodConfig:
+        stage = super().for_variant(self.variant)
+        return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
+
+    def train_stage(self) -> RgcnTrainStageConfig:
+        effective = self.effective()
+        return RgcnTrainStageConfig(
+            method=self.method,
+            variant=self.variant,
+            encoder=effective.encoder,
+            train=effective.train,
+        )
 
 
-class DenseFtRgcnMethodConfig(ClosedModel):
-    method: Literal["dense_ft_rgcn_graph_retriever"]
-    encoder: DenseEncoderConfig
-    pairs: PairSamplingConfig
-    train: RgcnTrainConfig
+DenseRgcnMethodConfig = RgcnMethodConfig
 
 
 class ProvenanceRgcnModelSettings(ClosedModel):
@@ -297,11 +344,50 @@ class ProvenanceRgcnTrainSettings(ClosedModel):
     trainer: ProvenanceRgcnTrainerSettings
 
 
-class ExecutionProvenanceRgcnMethodConfig(ClosedModel):
+class ProvenanceRgcnStageConfig(ClosedModel):
     method: Literal["execution_provenance_rgcn_retriever"]
+    variant: ProvenanceRgcnVariant = "full_rgcn"
     encoder: DenseEncoderConfig
-    pairs: PairSamplingConfig
     train: ProvenanceRgcnTrainSettings
+
+
+class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
+    pairs: PairSamplingConfig
+
+    def effective(self) -> ExecutionProvenanceRgcnMethodConfig:
+        if self.variant == "full_rgcn":
+            return self
+        if self.variant == "wo_hard_negatives":
+            return self.model_copy(
+                update={
+                    "pairs": self.pairs.model_copy(
+                        update={
+                            "hard_bm25_per_positive": 0,
+                            "hard_dense_per_positive": 0,
+                            "hard_graph_neighbor_per_positive": 0,
+                        }
+                    )
+                }
+            )
+        model_updates: dict[str, object] = {"ablation": self.variant}
+        if self.variant == "wo_graph":
+            model_updates["num_layers"] = 0
+        return self.model_copy(
+            update={
+                "train": self.train.model_copy(
+                    update={"model": self.train.model.model_copy(update=model_updates)}
+                )
+            }
+        )
+
+    def train_stage(self) -> ProvenanceRgcnStageConfig:
+        effective = self.effective()
+        return ProvenanceRgcnStageConfig(
+            method=effective.method,
+            variant=effective.variant,
+            encoder=effective.encoder,
+            train=effective.train,
+        )
 
 
 class DenseFinetuneDataConfig(ClosedModel):
@@ -331,11 +417,40 @@ class DenseFinetuneTrainConfig(ClosedModel):
     selection: DenseFinetuneSelectionConfig
 
 
-class DenseFinetuneMethodConfig(ClosedModel):
+class DenseFinetuneStageConfig(ClosedModel):
     method: Literal["dense_ft"]
     encoder: DenseEncoderConfig
-    pairs: PairSamplingConfig
     train: DenseFinetuneTrainConfig
+
+
+class DenseFinetuneMethodConfig(DenseFinetuneStageConfig):
+    pairs: PairSamplingConfig
+
+    def train_stage(self) -> DenseFinetuneStageConfig:
+        return DenseFinetuneStageConfig(
+            method=self.method,
+            encoder=self.encoder,
+            train=self.train,
+        )
+
+
+class DenseFtRgcnMethodConfig(ClosedModel):
+    method: Literal["dense_ft_rgcn_graph_retriever"]
+    variant: EvidenceRgcnVariant = "full_rgcn"
+    seed: DenseFinetuneMethodConfig
+    rgcn: RgcnStageConfig
+
+    def effective_rgcn(self) -> RgcnStageConfig:
+        return self.rgcn.for_variant(self.variant)
+
+    def rgcn_train_stage(self) -> RgcnTrainStageConfig:
+        effective = self.effective_rgcn()
+        return RgcnTrainStageConfig(
+            method=self.method,
+            variant=self.variant,
+            encoder=effective.encoder,
+            train=effective.train,
+        )
 
 
 MethodConfig: TypeAlias = Annotated[
@@ -344,7 +459,7 @@ MethodConfig: TypeAlias = Annotated[
         DenseMethodConfig,
         GraphRAGMethodConfig,
         ExecutionProvenanceMethodConfig,
-        DenseRgcnMethodConfig,
+        RgcnMethodConfig,
         DenseFinetuneMethodConfig,
         DenseFtRgcnMethodConfig,
         ExecutionProvenanceRgcnMethodConfig,
@@ -353,18 +468,49 @@ MethodConfig: TypeAlias = Annotated[
 ]
 
 
-class MethodConfigs(ClosedModel):
-    bm25: Bm25MethodConfig
-    dense: DenseMethodConfig
-    graphrag: GraphRAGMethodConfig
-    execution_provenance_retriever: ExecutionProvenanceMethodConfig
-    dense_rgcn_graph_retriever: DenseRgcnMethodConfig
-    dense_ft: DenseFinetuneMethodConfig
-    dense_ft_rgcn_graph_retriever: DenseFtRgcnMethodConfig
-    execution_provenance_rgcn_retriever: ExecutionProvenanceRgcnMethodConfig
+class TrainableRankingConfig(ClosedModel):
+    method: Literal[
+        "dense_ft",
+        "dense_rgcn_graph_retriever",
+        "dense_ft_rgcn_graph_retriever",
+        "execution_provenance_rgcn_retriever",
+    ]
+    variant: str | None = None
 
-    def get(self, method: RetrievalMethodId) -> MethodConfig:
-        return getattr(self, method.value)
+
+RankingMethodConfig: TypeAlias = Annotated[
+    Union[
+        Bm25MethodConfig,
+        DenseMethodConfig,
+        GraphRAGMethodConfig,
+        ExecutionProvenanceMethodConfig,
+        TrainableRankingConfig,
+    ],
+    Field(discriminator="method"),
+]
+
+
+def ranking_config(method: MethodConfig) -> RankingMethodConfig:
+    if isinstance(
+        method,
+        (
+            Bm25MethodConfig,
+            DenseMethodConfig,
+            GraphRAGMethodConfig,
+            ExecutionProvenanceMethodConfig,
+        ),
+    ):
+        return method
+    return TrainableRankingConfig(
+        method=method.method,
+        variant=getattr(method, "variant", None),
+    )
+
+
+class PairBuildConfig(ClosedModel):
+    sampling: PairSamplingConfig
+    encoder: DenseEncoderConfig
+    device: Device
 
 
 class GraphBuildConfig(ClosedModel):
@@ -374,59 +520,27 @@ class GraphBuildConfig(ClosedModel):
     use_spacy: StrictBool
 
 
-class StageBoundsConfig(ClosedModel):
-    from_stage: PublicStageName | None = Field(alias="from")
-    to_stage: PublicStageName | None = Field(alias="to")
-
-    @model_validator(mode="after")
-    def validate_order(self) -> StageBoundsConfig:
-        if self.from_stage is None or self.to_stage is None:
-            return self
-        order = (
-            "prepare",
-            "evidence_graphs",
-            "pairs",
-            "train",
-            "retrieve",
-            "evaluate",
-            "aggregate",
-        )
-        if order.index(self.from_stage) > order.index(self.to_stage):
-            raise ValueError(
-                f"stages.from={self.from_stage} must not follow stages.to={self.to_stage}"
-            )
-        return self
+class PrepareSplitConfig(ClosedModel):
+    dataset: DatasetName
+    split: SplitName
+    count: PositiveInt
+    offset: NonNegativeInt
+    seed: ScientificInt
+    strict_invalid_examples: StrictBool
 
 
 class CacheConfig(ClosedModel):
-    enabled: StrictBool
+    refresh: StrictBool = False
 
 
-class AblationConfig(ClosedModel):
-    enable: StrictBool
-    variants: list[AblationVariantId] = Field(min_length=1)
+class BenchmarkConfig(ClosedModel):
+    enabled: StrictBool = False
+    warmup: NonNegativeInt = 1
+    repetitions: PositiveInt = 5
 
-    @field_validator("variants", mode="before")
-    @classmethod
-    def validate_known_variants(cls, value: object) -> object:
-        if not isinstance(value, list):
-            return value
-        valid = {variant.value for variant in AblationVariantId}
-        invalid = [item for item in value if item not in valid]
-        if invalid:
-            choices = ", ".join(variant.value for variant in AblationVariantId)
-            raise ValueError(f"valid ablation variants are [{choices}]; got {invalid}")
-        return value
 
-    @field_validator("variants")
-    @classmethod
-    def validate_unique_variants(
-        cls,
-        value: list[AblationVariantId],
-    ) -> list[AblationVariantId]:
-        if len(value) != len(set(value)):
-            raise ValueError("ablation variants must be unique")
-        return value
+class EvaluationConfig(ClosedModel):
+    failure_case_limit: NonNegativeInt = 50
 
 
 class TrackingConfig(ClosedModel):
@@ -439,48 +553,15 @@ class ExperimentConfig(ClosedModel):
     name: str = Field(min_length=1)
     dataset: DatasetConfig
     profile: ProfileConfig
-    methods: list[RetrievalMethodId] = Field(min_length=1)
-    method_configs: MethodConfigs
+    method: MethodConfig
     seed: ScientificInt
     device: Device
     top_k: PositiveInt
-    stages: StageBoundsConfig
     cache: CacheConfig
-    ablation: AblationConfig
+    benchmark: BenchmarkConfig
     graph: GraphBuildConfig
+    evaluation: EvaluationConfig
     tracking: TrackingConfig
-
-    @field_validator("methods")
-    @classmethod
-    def validate_unique_methods(
-        cls,
-        value: list[RetrievalMethodId],
-    ) -> list[RetrievalMethodId]:
-        if len(value) != len(set(value)):
-            raise ValueError("methods must be unique")
-        return value
-
-    @model_validator(mode="after")
-    def validate_root_propagation(self) -> ExperimentConfig:
-        for method in (
-            self.method_configs.dense_rgcn_graph_retriever,
-            self.method_configs.dense_ft_rgcn_graph_retriever,
-            self.method_configs.dense_ft,
-            self.method_configs.execution_provenance_rgcn_retriever,
-        ):
-            if method.pairs.random_seed != self.seed:
-                raise ValueError(
-                    f"method_configs.{method.method}.pairs.random_seed must interpolate root seed"
-                )
-            if method.train.trainer.random_seed != self.seed:
-                raise ValueError(
-                    f"method_configs.{method.method}.train.trainer.random_seed must interpolate root seed"
-                )
-            if method.train.trainer.device != self.device:
-                raise ValueError(
-                    f"method_configs.{method.method}.train.trainer.device must interpolate root device"
-                )
-        return self
 
 
 class ResolvedRawSplitConfig(ClosedModel):
@@ -496,7 +577,7 @@ ResolvedSplitConfig: TypeAlias = ResolvedRawSplitConfig
 
 class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
-    prepare_script: Path
+    strict_invalid_examples: StrictBool
     splits: dict[SplitName, ResolvedSplitConfig]
 
 
@@ -514,16 +595,23 @@ class ResolvedExperimentConfig(ClosedModel):
     name: str
     dataset: ResolvedDatasetConfig
     profile: str
-    methods: list[RetrievalMethodId]
-    method_configs: MethodConfigs
+    method: MethodConfig
     seed: ScientificInt
-    device: str
+    device: Device
     top_k: PositiveInt
-    stages: StageBoundsConfig
     cache: CacheConfig
-    ablation: AblationConfig
+    benchmark: BenchmarkConfig
     graph: GraphBuildConfig
+    evaluation: EvaluationConfig
     tracking: ResolvedTrackingConfig
+
+    @property
+    def method_id(self) -> RetrievalMethodId:
+        return RetrievalMethodId(self.method.method)
+
+    @property
+    def variant(self) -> str | None:
+        return getattr(self.method, "variant", None)
 
     def normalized(self) -> dict[str, JsonValue]:
         return cast(
@@ -532,7 +620,7 @@ class ResolvedExperimentConfig(ClosedModel):
         )
 
 
-def validate_composed_config(config: DictConfig) -> ExperimentConfig:
+def parse_composed_config(config: DictConfig) -> ExperimentConfig:
     return ExperimentConfig.model_validate(
         OmegaConf.to_container(
             config,
@@ -559,7 +647,8 @@ def resolve_experiment_config(
         if count > available:
             raise ValueError(
                 f"profile={config.profile.name} split={split_name} requests "
-                f"offset+count={dataset_split.offset + count} beyond capacity={dataset_split.capacity}"
+                f"offset+count={dataset_split.offset + count} beyond "
+                f"capacity={dataset_split.capacity}"
             )
         resolved_splits[split_name] = ResolvedRawSplitConfig(
             kind="raw",
@@ -569,23 +658,23 @@ def resolve_experiment_config(
             count=count,
         )
 
+    _check_dataset_method_compatibility(config.dataset.name, config.method)
     return ResolvedExperimentConfig(
         name=config.name,
         dataset=ResolvedDatasetConfig(
             name=config.dataset.name,
-            prepare_script=_absolute_path(root, config.dataset.prepare_script),
+            strict_invalid_examples=config.dataset.strict_invalid_examples,
             splits=resolved_splits,
         ),
         profile=config.profile.name,
-        methods=list(config.methods),
-        method_configs=config.method_configs,
+        method=config.method,
         seed=config.seed,
         device=config.device,
         top_k=config.top_k,
-        stages=config.stages,
         cache=config.cache,
-        ablation=config.ablation,
+        benchmark=config.benchmark,
         graph=config.graph,
+        evaluation=config.evaluation,
         tracking=ResolvedTrackingConfig(
             database=_absolute_path(root, config.tracking.database),
             artifact_root=_absolute_path(root, config.tracking.artifact_root),
@@ -594,24 +683,50 @@ def resolve_experiment_config(
     )
 
 
+def _check_dataset_method_compatibility(
+    dataset: DatasetName,
+    method: MethodConfig,
+) -> None:
+    from graph_memory.registry import Registry
+    from graph_memory.registry.semantics import RetrievalTaskFamily
+
+    family = (
+        RetrievalTaskFamily.EXECUTION_PROVENANCE
+        if dataset == "twowiki_provenance"
+        else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    )
+    method_id = RetrievalMethodId(method.method)
+    supported = Registry.methods.get(method_id).input_spec.supported_families
+    if family not in supported:
+        raise ValueError(
+            f"dataset={dataset!r} uses family={family.value!r}, but "
+            f"method={method_id.value!r} does not support that family."
+        )
+
+
 def _absolute_path(root: Path, value: Path) -> Path:
     return value.resolve() if value.is_absolute() else (root / value).resolve()
 
 
 __all__ = [
-    "AblationConfig",
     "AllAvailableCountPolicy",
-    "AliasArtifactRef",
-    "ArtifactBinding",
-    "ArtifactRef",
+    "BenchmarkConfig",
     "Bm25MethodConfig",
     "CacheConfig",
+    "ClosedModel",
     "CountPolicy",
     "DatasetConfig",
+    "DatasetName",
+    "DenseEncoderConfig",
     "DenseFinetuneMethodConfig",
+    "DenseFinetuneStageConfig",
+    "DenseFinetuneTrainConfig",
+    "DenseFinetuneTrainerConfig",
     "DenseFtRgcnMethodConfig",
     "DenseMethodConfig",
     "DenseRgcnMethodConfig",
+    "Device",
+    "EvaluationConfig",
     "ExecutionProvenanceMethodConfig",
     "ExecutionProvenanceRgcnMethodConfig",
     "ExperimentConfig",
@@ -619,22 +734,34 @@ __all__ = [
     "GraphBuildConfig",
     "GraphRAGMethodConfig",
     "MethodConfig",
-    "MethodConfigs",
+    "ModelSelectionConfig",
     "NonNegativeFloat",
     "NonNegativeInt",
+    "PairSamplingConfig",
+    "PairBuildConfig",
     "PositiveFloat",
     "PositiveInt",
+    "ProfileConfig",
+    "PrepareSplitConfig",
     "ProvenanceRgcnModelSettings",
     "ProvenanceRgcnTrainerSettings",
     "ProvenanceRgcnTrainSettings",
-    "ProfileConfig",
-    "PublicStageName",
+    "ProvenanceRgcnStageConfig",
+    "RankingMethodConfig",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",
+    "RgcnMethodConfig",
+    "RgcnModelConfig",
+    "RgcnStageConfig",
+    "RgcnTrainStageConfig",
+    "RgcnTrainConfig",
+    "RgcnTrainerConfig",
     "ScientificFloat",
     "ScientificInt",
-    "StageBoundsConfig",
+    "SplitName",
     "TrackingConfig",
+    "TrainableRankingConfig",
+    "ranking_config",
     "resolve_experiment_config",
-    "validate_composed_config",
+    "parse_composed_config",
 ]

@@ -3,15 +3,11 @@
 MuSiQue-Ans uses paragraph-level candidates and decomposition-derived evidence dependency labels. It remains an evidence-retrieval dataset.
 
 ```powershell
-uv run python experiment/plan.py `
+uv run python experiment/run.py -m `
   name=musique_smoke dataset=musique profile=smoke device=cpu `
-  'methods=[bm25,dense,graphrag]'
-
-uv run python experiment/run.py `
-  name=musique_smoke dataset=musique profile=smoke device=cpu `
-  'methods=[bm25,dense,graphrag]'
+  method=bm25,dense,graphrag
 ```
 
-Preparation keeps answer/support/decomposition labels out of ranking inputs. GraphRAG builds its entity graph internally. Selecting either R-GCN method schedules the required EvidenceGraph, pair, training, and checkpoint-backed retrieval stages.
+Preparation keeps answer/support/decomposition labels out of ranking inputs. GraphRAG builds its entity graph internally. An R-GCN job follows the explicit EvidenceGraph, pair, training, checkpoint-backed ranking, and evaluation branch; equal upstream Tasks are reusable across peer jobs.
 
 R-GCN is a node-wise scorer: training uses node logits with BCE and inference produces one complete node ranking. Current checkpoints use the node-wise schema and incompatible older checkpoints must be retrained.

@@ -10,10 +10,8 @@ The separately named `twowiki_provenance` benchmark deterministically converts r
 
 ```powershell
 uv run pytest -q
-uv run python experiment/plan.py name=quick_valid_100 profile=quick
-uv run python experiment/run.py name=quick_valid_100 profile=quick
-uv run python experiment/status.py name=quick_valid_100
+uv run python experiment/run.py name=quick_bm25 profile=quick method=bm25
 uv run python experiment/inspect.py kind=methods
 ```
 
-Hydra YAML plus closed Pydantic models form the experiment configuration contract. Run artifacts live under `runs/<name>/`. See [`docs/40-operations/commands.md`](docs/40-operations/commands.md), [`docs/20-contracts/retrieval-contracts.md`](docs/20-contracts/retrieval-contracts.md), and [`docs/30-design/architecture.md`](docs/30-design/architecture.md).
+Each Hydra job selects one final method and, for R-GCN, one optional variant. Prefect runs the importable stage services in process and reuses scientific assets across jobs from `data/processed/`. `runs/<name>/` is output-only: it contains small configs, metrics, task/cache summaries, debug files, and asset references, never inputs to later computation. MLflow records exactly one top-level run per job. See [`docs/40-operations/commands.md`](docs/40-operations/commands.md), [`docs/20-contracts/retrieval-contracts.md`](docs/20-contracts/retrieval-contracts.md), and [`docs/30-design/architecture.md`](docs/30-design/architecture.md).

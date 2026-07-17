@@ -4,17 +4,15 @@ from pathlib import Path
 from typing import Literal
 
 from graph_memory.experiment.config import ClosedModel
-from graph_memory.experiment.planning import STAGE_ORDER
 from graph_memory.registry import Registry
 from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES
 
 InspectionKind = Literal[
-    "stages",
     "methods",
     "datasets",
     "profiles",
     "configs",
-    "ablations",
+    "variants",
     "jobs",
 ]
 
@@ -31,8 +29,6 @@ def inspect_catalog(
     name: str | None = None,
 ) -> object:
     config_root = repository_root.resolve() / "configs"
-    if kind == "stages":
-        return list(STAGE_ORDER)
     if kind == "methods":
         return [_method_row(method) for method in Registry.methods.list_ids()]
     if kind in {"datasets", "profiles"}:
@@ -40,7 +36,7 @@ def inspect_catalog(
         return sorted(path.stem for path in directory.glob("*.yaml"))
     if kind == "configs":
         return sorted(path.stem for path in config_root.glob("*.yaml"))
-    if kind == "ablations":
+    if kind == "variants":
         return {
             method: [
                 {
@@ -55,12 +51,10 @@ def inspect_catalog(
     if kind == "jobs":
         if name is None:
             raise ValueError("inspect kind=jobs requires name=<multirun-name>")
-        from graph_memory.experiment.layout import RunLayout
-
-        named_root = RunLayout(repository_root, name).named_root
+        named_root = repository_root.resolve() / "runs" / name
         return sorted(
-            path.parent.name
-            for path in named_root.glob("*/run_state.yaml")
+            path.parent.parent.name
+            for path in named_root.glob("*/workflow/summary.yaml")
             if path.is_file()
         )
     raise ValueError(f"unsupported inspection kind: {kind}")

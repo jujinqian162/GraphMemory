@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from graph_memory.experiment.config import (
+    DenseEncoderConfig,
+    DenseFinetuneStageConfig,
+    ProvenanceRgcnStageConfig,
+    RgcnTrainConfig,
+)
+from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
     DenseFinetuneSelectionSettings,
@@ -11,53 +18,48 @@ from graph_memory.models.dense_finetune.training import (
     DenseFinetuneTrainingResult,
     train_dense_finetune,
 )
-from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
 from graph_memory.registry.conversions import rgcn_training_config_from_trainer_settings
-from graph_memory.experiment.config import DenseEncoderConfig
-from graph_memory.experiment.stage_models import (
-    DenseFinetuneTrainStageConfig,
-    RgcnTrainStageConfig,
-    ProvenanceRgcnTrainStageConfig,
-)
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
-    RgcnTrainPayload,
     ProvenanceRgcnTrainPayload,
+    RgcnTrainPayload,
     TrainDependencies,
     TrainPayload,
 )
 
 if TYPE_CHECKING:
     from graph_memory.models.graph_retriever.training import RgcnTrainingResult
+    from graph_memory.models.provenance_rgcn.training import ProvenanceTrainingResult
 
 
 @dataclass(frozen=True)
 class RgcnGraphRetrieverTrainer:
-    config: RgcnTrainStageConfig
+    method: str
+    encoder: DenseEncoderConfig
+    train_config: RgcnTrainConfig
+    seed_checkpoint: Path | None = None
 
-    def train(self, payload: TrainPayload) -> "RgcnTrainingResult":
+    def train(self, payload: TrainPayload) -> RgcnTrainingResult:
         from graph_memory.models.graph_retriever.config.defaults import (
             default_model_config,
         )
+        from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
         from graph_memory.models.graph_retriever.training import train_graph_retriever
-        from graph_memory.models.graph_retriever.selection import (
-            RgcnSelectionSettings,
-        )
 
         if not isinstance(payload, RgcnTrainPayload):
             raise TypeError(
                 f"R-GCN trainer expected RgcnTrainPayload, got {type(payload).__name__}."
             )
-        settings = self.config.train
+        settings = self.train_config
         encoder_settings = _effective_rgcn_encoder_settings(
-            self.config.encoder, payload.seed_checkpoint
+            self.encoder, self.seed_checkpoint
         )
         deps = payload.dependencies or _build_rgcn_dependencies(
             encoder_settings, device=settings.trainer.device
         )
         model_config = default_model_config(
-            method_name=self.config.method,
+            method_name=self.method,
             encoder_model=encoder_settings.model_name,
             encoder_dim=deps.text_embedding_provider.embedding_dim,
             query_prefix=encoder_settings.query_prefix,
@@ -89,12 +91,13 @@ class RgcnGraphRetrieverTrainer:
 
 @dataclass(frozen=True)
 class DenseFinetuneMethodTrainer:
-    config: DenseFinetuneTrainStageConfig
+    config: DenseFinetuneStageConfig
 
     def train(self, payload: TrainPayload) -> DenseFinetuneTrainingResult:
         if not isinstance(payload, DenseFinetuneTrainPayload):
             raise TypeError(
-                f"Dense-ft trainer expected DenseFinetuneTrainPayload, got {type(payload).__name__}."
+                "Dense-ft trainer expected DenseFinetuneTrainPayload, "
+                f"got {type(payload).__name__}."
             )
         settings = self.config.train
         encoder = self.config.encoder
@@ -121,9 +124,9 @@ class DenseFinetuneMethodTrainer:
 
 @dataclass(frozen=True)
 class ProvenanceRgcnMethodTrainer:
-    config: ProvenanceRgcnTrainStageConfig
+    config: ProvenanceRgcnStageConfig
 
-    def train(self, payload: TrainPayload):
+    def train(self, payload: TrainPayload) -> ProvenanceTrainingResult:
         import numpy as np
 
         from graph_memory.embeddings import load_sentence_transformer
@@ -216,7 +219,7 @@ def _build_rgcn_dependencies(
         DenseGraphFeatureProvider,
     )
 
-    text_embedding_provider = DenseGraphFeatureProvider(
+    provider = DenseGraphFeatureProvider(
         model_name=encoder_settings.model_name,
         query_prefix=encoder_settings.query_prefix,
         passage_prefix=encoder_settings.passage_prefix,
@@ -224,13 +227,13 @@ def _build_rgcn_dependencies(
         device=device,
     )
     return TrainDependencies(
-        text_embedding_provider=text_embedding_provider,
-        seed_signal_provider=text_embedding_provider,
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
     )
 
 
 __all__ = [
     "DenseFinetuneMethodTrainer",
-    "RgcnGraphRetrieverTrainer",
     "ProvenanceRgcnMethodTrainer",
+    "RgcnGraphRetrieverTrainer",
 ]

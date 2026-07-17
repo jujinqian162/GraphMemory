@@ -1,7 +1,9 @@
 # Logging and run records
 
-Each stage writes a typed YAML run summary adjacent to its primary artifact. Summaries record invocation identity, inputs, outputs, counts, timings, status, and retrieval provenance. Local files and `run_state.yaml` remain authoritative; MLflow mirrors the job for comparison.
+Every Hydra job owns exactly one top-level MLflow run for its final method and optional variant. The active run receives the resolved scientific parameters, stable identity/study tags, common `final.*` metrics, Task cache metadata, reusable asset references, and small output artifacts. The tracking layer uses fluent active-run APIs only; there are no parent, child, dependency, or stage runs and no run-ID lookup/reuse.
 
-Retrieval summaries record the public method ID, encoder/model source when applicable, device, task count, and latency. GraphRAG and execution-provenance results may additionally contain the closed `metadata.native_trace` union: `entity_search` or `execution_provenance`. Entity relations, evidence edges, and execution-provenance edges remain distinct trace types.
+Prefect owns Task state and cache reuse. Tasks do not retry automatically in the initial workflow; rerunning the Flow reuses compatible completed results. Cached Task results still return complete typed result objects, so a new MLflow run and a new output-only run directory are complete even when no scientific stage executes freshly.
 
-The EvidenceGraph construction stage is `evidence_graphs` and its script is `scripts/build_evidence_graphs.py`. It is absent from plans that select only flat retrieval or GraphRAG and do not otherwise require evidence-graph evaluation/training.
+Reusable assets and Prefect persistence live below `data/processed/`. A run output below `runs/<name>/` is a presentation and delivery projection only. It is never cache truth and is never read by a scientific Task. Prefect remains the only authority for Task execution and cache state; `assets/manifest.yaml` records every reusable asset URI and digest without copying the large asset into the run directory.
+
+Production-time values stored with a cached ranking are provenance metadata, not a current runtime measurement. Enable `benchmark.enabled=true` to run the uncached warmup/repetition benchmark Task and log fresh `benchmark.*` metrics.

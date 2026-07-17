@@ -4,18 +4,18 @@ The only active experiment configuration root is `configs/config.yaml`.
 
 | Path | Ownership |
 | --- | --- |
-| `config.yaml` | root composition, graph/search-space values, tracking, and Hydra runtime layout |
-| `dataset/*.yaml` | HotpotQA, 2WikiMultiHopQA, MuSiQue, and synthetic 2Wiki provenance sources/capacities |
+| `config.yaml` | root composition, cache refresh, benchmark, tracking, and deterministic Hydra output layout |
+| `dataset/*.yaml` | raw source files, capacities, and dataset validation policy |
 | `profile/*.yaml` | split count policies and trainable scale |
-| `method_configs/*.yaml` | all eight method-specific scientific contracts |
+| `method/*.yaml` | one complete final-method contract |
+| `stage/*.yaml` | genuinely shared scientific stage fragments, currently canonical Dense-FT training |
 
-Hydra composes plan/run values and closed Pydantic V2 models validate the resolved container. The root `name: ???` is OmegaConf's mandatory-value marker and is legal only there: callers must supply `name=<name>`. Status, inspect, and reset use closed `key=value` command models, so they need neither Hydra nor command YAML files.
-
-Inspect current entries with:
+Each job composes exactly one `method`. R-GCN method configs expose one `method.variant`, default `full_rgcn`; list-valued variants and variants on stateless methods are rejected. The Dense-FT-seeded R-GCN config contains an explicit `method.seed` Dense-FT section and one R-GCN section.
 
 ```powershell
 uv run python experiment/inspect.py kind=configs
 uv run python experiment/inspect.py kind=datasets
 uv run python experiment/inspect.py kind=profiles
 uv run python experiment/inspect.py kind=methods
+uv run python experiment/inspect.py kind=variants
 ```

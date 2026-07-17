@@ -1,5 +1,5 @@
 name: twowiki
-prepare_script: scripts/prepare_2wiki.py
+strict_invalid_examples: false
 splits:
   train:
     kind: raw

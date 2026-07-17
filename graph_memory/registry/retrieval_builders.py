@@ -165,11 +165,13 @@ def _build_dense(
                 SeedRetrievalSettings(
                     method=RetrievalMethodId.DENSE,
                     encoder=settings.encoder,
+                    device=settings.device,
                 ),
                 SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
             ),
         ),
         method=settings.method,
+        device=settings.device,
         encoder=settings.encoder,
         execution_tasks=_text_execution_tasks(build_payload.text_requests),
     )
@@ -233,10 +235,13 @@ def _build_graphrag(
     build_payload = _require_payload(
         payload, GraphRAGBuildPayload, method=settings.method.value
     )
-    dense_ranker = _build_dense_ranker(settings.encoder, build_payload.dense_encoder)
+    dense_ranker = _build_dense_ranker(
+        settings.encoder, build_payload.dense_encoder, device=settings.device
+    )
     return _built(
         GraphRAGMethod(dense_ranker=dense_ranker, config=settings.config),
         method=settings.method,
+        device=settings.device,
         encoder=settings.encoder,
         execution_tasks=[
             RetrievalExecutionTask(
@@ -302,7 +307,9 @@ def _build_execution_provenance(
         ExecutionProvenanceBuildPayload,
         method=settings.method.value,
     )
-    dense_ranker = _build_dense_ranker(settings.encoder, build_payload.dense_encoder)
+    dense_ranker = _build_dense_ranker(
+        settings.encoder, build_payload.dense_encoder, device=settings.device
+    )
     tasks = [
         RetrievalExecutionTask(
             text_request=TextRankingRequest(
@@ -320,6 +327,7 @@ def _build_execution_provenance(
             config=settings.config,
         ),
         method=settings.method,
+        device=settings.device,
         encoder=settings.encoder,
         execution_tasks=tasks,
     )
@@ -475,6 +483,8 @@ def _resolve_encoder(
 def _build_dense_ranker(
     settings: DenseEncoderSettings,
     encoder: SentenceEncoder | None,
+    *,
+    device: str | None = None,
 ) -> DenseTaskRetriever:
     return DenseTaskRetriever(
         config=DenseConfig(
@@ -482,8 +492,9 @@ def _build_dense_ranker(
             query_prefix=settings.query_prefix,
             passage_prefix=settings.passage_prefix,
             batch_size=settings.batch_size,
+            device=device,
         ),
-        encoder=encoder or _resolve_encoder(settings, None),
+        encoder=encoder or _resolve_encoder(settings, None, device=device),
     )
 
 
@@ -525,8 +536,10 @@ def _build_seed_retriever(
             query_prefix=settings.encoder.query_prefix,
             passage_prefix=settings.encoder.passage_prefix,
             batch_size=settings.encoder.batch_size,
+            device=settings.device,
         ),
         encoder=build_payload.dense_encoder,
+        device=settings.device,
     )
 
 

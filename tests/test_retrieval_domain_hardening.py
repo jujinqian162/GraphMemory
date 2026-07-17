@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from hydra import compose, initialize_config_dir
 
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
@@ -15,12 +14,6 @@ from graph_memory.graphs.provenance import (
     ProvenanceEdgeType,
     ProvenanceNodeType,
 )
-from graph_memory.experiment.config import (
-    resolve_experiment_config,
-    validate_composed_config,
-)
-from graph_memory.experiment.layout import RunLayout
-from graph_memory.experiment.planning import WorkflowPlanner
 from graph_memory.registry import Registry
 from graph_memory.registry.methods import RequiredArtifact
 from graph_memory.registry.retrieval import (
@@ -184,9 +177,7 @@ def test_new_dense_methods_preserve_query_and_passage_prefixes() -> None:
             text_requests=[_graphrag_text_request()], dense_encoder=graph_encoder
         ),
     )
-    graph_built.method.rank_task(
-        graph_built.execution_tasks[0].method_request, top_k=2
-    )
+    graph_built.method.rank_task(graph_built.execution_tasks[0].method_request, top_k=2)
 
     provenance_encoder = RecordingEncoder()
     provenance_request = _alternative_path_request()
@@ -215,18 +206,10 @@ def test_provenance_rejects_untyped_support_transition() -> None:
         ExecutionProvenanceGraph(
             "invalid",
             (
-                ExecutionProvenanceNode(
-                    "answer", ProvenanceNodeType.ANSWER, "answer"
-                ),
-                ExecutionProvenanceNode(
-                    "call", ProvenanceNodeType.TOOL_CALL, "call"
-                ),
+                ExecutionProvenanceNode("answer", ProvenanceNodeType.ANSWER, "answer"),
+                ExecutionProvenanceNode("call", ProvenanceNodeType.TOOL_CALL, "call"),
             ),
-            (
-                ExecutionProvenanceEdge(
-                    "answer", "call", ProvenanceEdgeType.SUPPORTS
-                ),
-            ),
+            (ExecutionProvenanceEdge("answer", "call", ProvenanceEdgeType.SUPPORTS),),
         )
 
 
@@ -259,9 +242,7 @@ def test_provenance_scores_complete_bound_path_before_short_weak_path() -> None:
         ).total
         for path in target_paths
     }
-    assert scores[("seed", "call-a", "out-a", "target")] > scores[
-        ("seed", "target")
-    ]
+    assert scores[("seed", "call-a", "out-a", "target")] > scores[("seed", "target")]
 
 
 def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() -> None:
@@ -344,53 +325,4 @@ def test_registry_required_artifact_query_is_authoritative() -> None:
     assert not Registry.methods.requires_artifact(
         RetrievalMethodId.GRAPHRAG,
         RequiredArtifact.EVIDENCE_GRAPH,
-    )
-
-
-@pytest.mark.parametrize(
-    ("method", "expected_graph_splits"),
-    [
-        (RetrievalMethodId.GRAPHRAG, set()),
-        (
-            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
-            {"train", "dev", "test"},
-        ),
-    ],
-)
-def test_planner_derives_evidence_graphs_from_registry_artifacts(
-    method: RetrievalMethodId,
-    expected_graph_splits: set[str],
-) -> None:
-    with initialize_config_dir(
-        config_dir=str(ROOT / "configs"), version_base="1.3"
-    ):
-        composed = compose(
-            config_name="config",
-            overrides=[
-                f"name=registry-plan-{method.value}",
-                "profile=smoke",
-                "device=cpu",
-                f"methods=[{method.value}]",
-            ],
-        )
-    config = resolve_experiment_config(
-        validate_composed_config(composed), repository_root=ROOT
-    )
-    plan = WorkflowPlanner(
-        config, RunLayout(ROOT, f"registry-plan-{method.value}")
-    ).build(validate_external=False)
-
-    assert {
-        invocation.split
-        for invocation in plan.invocations
-        if invocation.stage == "evidence_graphs"
-    } == expected_graph_splits
-    evaluation = next(
-        invocation
-        for invocation in plan.invocations
-        if invocation.stage == "evaluate" and invocation.method is method
-    )
-    assert any(item.role == "evidence_graphs" for item in evaluation.inputs) is (
-        RequiredArtifact.EVIDENCE_GRAPH
-        is Registry.methods.get(method).input_spec.required_artifact
     )

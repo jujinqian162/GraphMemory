@@ -1,0 +1,6 @@
+method: dense
+encoder:
+  model_name: models/intfloat-e5-base-v2
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+  batch_size: 64

@@ -8,9 +8,12 @@ Root constraint: [`docs/10-plans/execution-provenance-retrieval-domain-plan.md`]
 | --- | --- | --- |
 | `*.input.json` | dataset preparation | text projection, GraphRAG, EvidenceGraph construction |
 | `*.labels.json` | dataset preparation | evaluation and training only |
-| `*.evidence_graphs.json` | `scripts/build_evidence_graphs.py` | R-GCN training/retrieval and graph-dependent evaluation |
-| `*.pairs.json` | `scripts/build_train_pairs.py` | Dense-FT or R-GCN training |
-| ranked result JSON | `scripts/run_retrieval.py` | evaluation |
+| prepared task/label payloads | `graph_memory.stages.prepare` | graph, pair, ranking, training, and evaluation Tasks |
+| evidence graph payload | `graph_memory.stages.graphs` | evidence R-GCN training/ranking and graph-dependent evaluation |
+| training pair payload | `graph_memory.stages.pairs` | Dense-FT or R-GCN training |
+| ranked prediction payload | `graph_memory.stages.retrieve` | evaluation |
+
+Reusable payloads are immutable processed assets below `data/processed/`. Prefect persists small typed references containing kind, URI, digest, manifest URI, origin, size/shape, and metadata; it does not serialize large scientific payloads into the run output. `runs/<name>/assets/manifest.yaml` is a delivery reference surface, not a computation input.
 
 EvidenceGraph construction consumes input-visible question/candidate fields only. Labels never enter retrieval graph construction.
 
