@@ -51,20 +51,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             if config.evidence_graphs is not None
             else []
         )
-        result = (
-            _build_provenance_pairs(
-                config,
-                task_inputs,
-                labels,
-                sampling_config=sampling_config,
-                dense_config=dense_config,
-            )
-            if config.method == "execution_provenance_rgcn_retriever"
-            else build_train_pairs(
-                _train_pair_tasks(config, task_inputs, labels, graphs),
-                sampling_config,
-                dense_config=dense_config,
-            )
+        result = build_train_pairs(
+            _train_pair_tasks(config, task_inputs, labels, graphs),
+            sampling_config,
+            dense_config=dense_config,
         )
         write_json(config.outputs.pairs, result.pairs)
         write_json(summary_path, result.summary)
@@ -106,40 +96,10 @@ def _train_pair_tasks(
             TrainPairBuildTask(
                 text_request=text_requests[task_id],
                 label=labels_by_task_id[task_id],
-                graph=graphs_by_task_id[task_id],
+                graph=graphs_by_task_id.get(task_id),
             )
         )
     return tasks
-
-
-def _build_provenance_pairs(
-    config: PairStageConfig,
-    task_inputs: list[Mapping[str, object]],
-    labels: list[object],
-    *,
-    sampling_config: NegativeSamplingConfig,
-    dense_config: DenseConfig | None,
-):
-    requests = {
-        request.task_id: request
-        for request in text_ranking_requests_for_dataset(config.dataset, task_inputs)
-    }
-    labels_by_task = {
-        label.task_id: label
-        for label in evidence_labels_for_dataset(config.dataset, labels)
-    }
-    tasks = [
-        TrainPairBuildTask(
-            text_request=requests[task_id],
-            label=labels_by_task[task_id],
-        )
-        for task_id in requests
-    ]
-    return build_train_pairs(
-        tasks,
-        sampling_config,
-        dense_config=dense_config,
-    )
 
 
 def _dense_config_from_config(config: PairStageConfig) -> DenseConfig | None:

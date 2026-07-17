@@ -191,14 +191,21 @@ class _StageInvocationFactory:
             )
         tasks = self.layout.inputs("train")["input"].resolve()
         labels = self.layout.inputs("train")["labels"].resolve()
-        uses_evidence_graph = not isinstance(
-            config_method, ExecutionProvenanceRgcnMethodConfig
-        )
+        family = _dataset_task_family(self.config.dataset.name)
+        uses_evidence_graph = family is RetrievalTaskFamily.EVIDENCE_RETRIEVAL
         graphs = (
             self.layout.evidence_graph("train").resolve()
             if uses_evidence_graph
             else None
         )
+        sampling = config_method.pairs
+        if (
+            method is RetrievalMethodId.DENSE_FT
+            and family is RetrievalTaskFamily.EXECUTION_PROVENANCE
+        ):
+            sampling = sampling.model_copy(
+                update={"hard_graph_neighbor_per_positive": 0}
+            )
         pairs = self.layout.train_pairs(method, variant=variant).resolve()
         pair_summary = self.layout.train_pair_summary(method, variant=variant).resolve()
         summary = self.layout.summary_for(pairs, stage="pairs").resolve()
@@ -222,7 +229,7 @@ class _StageInvocationFactory:
                 pairs=pairs,
                 pair_summary=pair_summary,
             ),
-            sampling=config_method.pairs,
+            sampling=sampling,
             hard_dense_encoder=config_method.encoder,
             device=config_method.train.trainer.device,
         )
@@ -989,9 +996,10 @@ class WorkflowPlanner:
     def _ordinary_invocations(self) -> tuple[StageInvocation, ...]:
         split_names: tuple[SplitName, ...] = ("train", "dev", "test")
         evidence_graph_splits: set[SplitName] = set()
-        if any(
-            method is not RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
-            for method in self.train_methods
+        if (
+            self.train_methods
+            and _dataset_task_family(self.config.dataset.name)
+            is RetrievalTaskFamily.EVIDENCE_RETRIEVAL
         ):
             evidence_graph_splits.add("train")
         if any(
@@ -1102,11 +1110,7 @@ def _validate_dataset_method_compatibility(
     config: ResolvedExperimentConfig,
     train_methods: tuple[RetrievalMethodId, ...],
 ) -> None:
-    family = (
-        RetrievalTaskFamily.EXECUTION_PROVENANCE
-        if config.dataset.name == "twowiki_provenance"
-        else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
-    )
+    family = _dataset_task_family(config.dataset.name)
     for method in dict.fromkeys((*config.methods, *train_methods)):
         supported = Registry.methods.get(method).input_spec.supported_families
         if family not in supported:
@@ -1114,6 +1118,12 @@ def _validate_dataset_method_compatibility(
                 f"dataset={config.dataset.name!r} uses family={family.value!r}, but "
                 f"method={method.value!r} does not support that family."
             )
+
+
+def _dataset_task_family(dataset: str) -> RetrievalTaskFamily:
+    if dataset == "twowiki_provenance":
+        return RetrievalTaskFamily.EXECUTION_PROVENANCE
+    return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
 
 
 def format_invocation(item: StageInvocation, *, index: int) -> str:

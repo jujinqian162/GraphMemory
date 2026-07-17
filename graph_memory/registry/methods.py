@@ -216,7 +216,7 @@ def build_method_registry() -> MethodRegistry:
             lifecycle=RetrievalLifecycle.DENSE_FINETUNE,
             retrieval_settings_type=DenseFinetunedRetrievalSettings,
             input_spec=MethodInputSpec(
-                TextRankingRequest, RequiredArtifact.NONE, evidence
+                TextRankingRequest, RequiredArtifact.NONE, shared
             ),
             capabilities=RetrievalCapabilities(True, False, True),
             dependencies=RetrievalDependencySpec(

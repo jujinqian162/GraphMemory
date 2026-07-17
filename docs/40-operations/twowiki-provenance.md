@@ -30,12 +30,14 @@ Start with one train/dev/test record:
 ```powershell
 uv run python experiment/plan.py `
   name=twowiki_provenance_smoke dataset=twowiki_provenance profile=smoke device=cpu `
-  'methods=[bm25,dense,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
+  'methods=[bm25,dense,dense_ft,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
 
 uv run python experiment/run.py `
   name=twowiki_provenance_smoke dataset=twowiki_provenance profile=smoke device=cpu `
-  'methods=[bm25,dense,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
+  'methods=[bm25,dense,dense_ft,graphrag,execution_provenance_retriever,execution_provenance_rgcn_retriever]'
 ```
+
+`dense_ft` is the supervised flat-text baseline. It trains and ranks the same dataset-owned ToolOutput candidates used by BM25 and Dense, but it does not receive the execution-provenance graph, bindings, or dependency labels. Its pair stage keeps easy/BM25/dense negatives, sets graph-neighbor negatives to zero, and schedules no EvidenceGraph stage. It therefore does not demonstrate provenance reasoning even if it improves candidate recall.
 
 The trainable provenance method reuses the existing `pairs -> train -> retrieve -> evaluate -> aggregate` workflow phases but does not schedule an EvidenceGraph stage. The pair stage materializes configured easy/BM25/dense negatives, and candidate BCE consumes only that artifact. The model uses relation-specific graph convolution over all typed nodes plus binding-schema-aware `feeds` relations, then independently scores legal output transitions. It has no beam, dynamic oracle, maximum-step, or path-loss contract. Its schema-v2 checkpoint family is distinct from both evidence R-GCN methods and rejects earlier provenance checkpoints.
 

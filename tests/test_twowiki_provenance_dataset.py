@@ -18,6 +18,8 @@ from graph_memory.datasets.selection import (
     text_ranking_requests_for_dataset,
 )
 from graph_memory.evaluation.service import evaluate_results
+from graph_memory.training_pairs import build_train_pairs
+from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.datasets.twowiki_provenance import (
     ProvenanceGraphConstructionConfig,
     convert_twowiki_source_records,
@@ -42,6 +44,7 @@ from graph_memory.validation import (
     validate_twowiki_provenance_ranking_records,
 )
 from scripts.data.convert_2wiki_to_execution_provenance import main as convert_main
+from scripts.build_train_pairs import _train_pair_tasks
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -260,6 +263,83 @@ def test_provenance_rgcn_workflow_has_no_evidence_graph_stage(tmp_path: Path) ->
     )
 
 
+def test_dense_ft_workflow_has_text_only_pairs_and_no_evidence_graph_stage(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "generated.json"
+    source.write_text("[]", encoding="utf-8")
+    config = _provenance_config(
+        f"twowiki-provenance-dense-ft-{tmp_path.name}",
+        source=source,
+        methods="[dense_ft]",
+    )
+
+    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
+        validate_external=False
+    )
+    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
+
+    assert {invocation.stage for invocation in plan.invocations} == {
+        "prepare",
+        "pairs",
+        "train",
+        "retrieve",
+        "evaluate",
+        "aggregate",
+    }
+    assert not any(item.stage == "evidence_graphs" for item in plan.invocations)
+    pair = by_id["pairs:dense_ft"]
+    assert isinstance(pair.config, PairStageConfig)
+    assert pair.config.evidence_graphs is None
+    assert pair.config.sampling.hard_graph_neighbor_per_positive == 0
+    assert all(input_ref.role != "evidence_graphs" for input_ref in pair.inputs)
+    assert pair.dependencies == ("prepare:train",)
+
+
+def test_graphless_pair_tasks_use_text_candidates_without_method_dispatch(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "generated.json"
+    source.write_text("[]", encoding="utf-8")
+    config = _provenance_config(
+        f"twowiki-provenance-pairs-{tmp_path.name}", source=source
+    )
+    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
+        validate_external=False
+    )
+    pair = next(
+        invocation
+        for invocation in plan.invocations
+        if invocation.identifier == "pairs:execution_provenance_rgcn_retriever"
+    )
+    assert isinstance(pair.config, PairStageConfig)
+    converted = convert_twowiki_source_records(
+        [_source_example("graphless-pairs")], candidate_cap=6, seed=13
+    ).records[0]
+
+    tasks = _train_pair_tasks(
+        pair.config,
+        [converted["ranking"]],
+        [converted["label"]],
+        [],
+    )
+    assert len(tasks) == 1
+    assert tasks[0].graph is None
+    result = build_train_pairs(
+        tasks,
+        NegativeSamplingConfig(
+            random_seed=13,
+            easy_random_per_positive=1,
+            hard_bm25_per_positive=1,
+            hard_dense_per_positive=0,
+            hard_graph_neighbor_per_positive=0,
+            hard_pool_size=10,
+        ),
+    )
+    assert result.summary["positive_count"] == 2
+    assert "hard_graph_neighbor" not in result.summary["negative_count_by_type"]
+
+
 def test_provenance_rgcn_ablation_discovery_and_planning(tmp_path: Path) -> None:
     source = tmp_path / "generated.json"
     source.write_text("[]", encoding="utf-8")
@@ -433,7 +513,11 @@ def test_provenance_path_metrics_do_not_require_an_evidence_graph() -> None:
 
 
 def _provenance_config(
-    name: str, *, source: Path, extra: list[str] | None = None
+    name: str,
+    *,
+    source: Path,
+    methods: str = "[execution_provenance_rgcn_retriever]",
+    extra: list[str] | None = None,
 ):
     source_value = source.resolve().as_posix()
     with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
@@ -443,7 +527,7 @@ def _provenance_config(
                 f"name={name}",
                 "dataset=twowiki_provenance",
                 "profile=smoke",
-                "methods=[execution_provenance_rgcn_retriever]",
+                f"methods={methods}",
                 "device=cpu",
                 *[
                     f"dataset.splits.{split}.source={source_value}"
