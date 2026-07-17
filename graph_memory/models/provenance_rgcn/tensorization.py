@@ -102,7 +102,9 @@ def tensorize_provenance_request(
             sources.append(message_source)
             targets.append(message_target)
             relation_ids.append(relation_id[relation_name])
-            weights.append(edge.weight)
+            weights.append(
+                edge.weight if config.edge_weight_policy == "artifact" else 1.0
+            )
     edge_index = (
         torch.tensor([sources, targets], dtype=torch.long)
         if sources

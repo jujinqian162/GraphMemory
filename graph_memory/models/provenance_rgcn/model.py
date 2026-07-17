@@ -5,6 +5,7 @@ from torch import nn
 
 from graph_memory.models.graph_retriever.internals.neural import (
     RGCNGraphEncoder,
+    SharedRelationTransform,
     TypedRelationTransform,
 )
 from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnModelConfig
@@ -26,16 +27,27 @@ class ExecutionProvenanceRGCN(nn.Module):
             nn.ReLU(),
             nn.Dropout(config.dropout),
         )
-        self.graph_encoder = RGCNGraphEncoder(
-            hidden_dim=config.hidden_dim,
-            num_relations=len(config.relation_vocab),
-            num_layers=config.num_layers,
-            message_transform_factory=lambda: TypedRelationTransform(
+        if config.message_transform_type == "typed":
+            self.graph_encoder = RGCNGraphEncoder(
                 hidden_dim=config.hidden_dim,
                 num_relations=len(config.relation_vocab),
-            ),
-            dropout=config.dropout,
-        )
+                num_layers=config.num_layers,
+                message_transform_factory=lambda: TypedRelationTransform(
+                    hidden_dim=config.hidden_dim,
+                    num_relations=len(config.relation_vocab),
+                ),
+                dropout=config.dropout,
+            )
+        else:
+            self.graph_encoder = RGCNGraphEncoder(
+                hidden_dim=config.hidden_dim,
+                num_relations=len(config.relation_vocab),
+                num_layers=config.num_layers,
+                message_transform_factory=lambda: SharedRelationTransform(
+                    hidden_dim=config.hidden_dim
+                ),
+                dropout=config.dropout,
+            )
         scorer_dim = config.hidden_dim * 3
         self.candidate_scorer = nn.Sequential(
             nn.Linear(scorer_dim, config.hidden_dim),

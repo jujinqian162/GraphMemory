@@ -780,7 +780,12 @@ class _StageInvocationFactory:
     ) -> tuple[tuple[StageInvocation, ...], tuple[StageAlias, ...]]:
         config_method = self.config.method_configs.get(method)
         if not isinstance(
-            config_method, (DenseRgcnMethodConfig, DenseFtRgcnMethodConfig)
+            config_method,
+            (
+                DenseRgcnMethodConfig,
+                DenseFtRgcnMethodConfig,
+                ExecutionProvenanceRgcnMethodConfig,
+            ),
         ):
             raise ValueError(f"method does not support R-GCN ablations: {method.value}")
         patched, invalidated_from = _apply_rgcn_ablation(config_method, variant)
@@ -1029,7 +1034,7 @@ class WorkflowPlanner:
                     continue
                 supported_names.add(variant.identifier)
                 if variant.identifier in requested:
-                    selected.append((method, variant.identifier))
+                    selected.append((method, variant.identifier.value))
         missing = sorted(variant.value for variant in requested - supported_names)
         if missing:
             raise ValueError(f"unknown ablation variants: {missing}")
@@ -1159,9 +1164,18 @@ def _external(
 
 
 def _apply_rgcn_ablation(
-    config: DenseRgcnMethodConfig | DenseFtRgcnMethodConfig,
+    config: (
+        DenseRgcnMethodConfig
+        | DenseFtRgcnMethodConfig
+        | ExecutionProvenanceRgcnMethodConfig
+    ),
     variant: str,
-) -> tuple[DenseRgcnMethodConfig | DenseFtRgcnMethodConfig, PublicStageName]:
+) -> tuple[
+    DenseRgcnMethodConfig
+    | DenseFtRgcnMethodConfig
+    | ExecutionProvenanceRgcnMethodConfig,
+    PublicStageName,
+]:
     suite = ABLATION_SUITE_PATCHES[RetrievalMethodId(config.method)]
     patch = next((item for item in suite.variants if item.identifier == variant), None)
     if not isinstance(patch, ExecutableAblationVariant):

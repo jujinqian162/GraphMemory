@@ -39,6 +39,33 @@ uv run python experiment/run.py `
 
 The trainable provenance method reuses the existing `pairs -> train -> retrieve -> evaluate -> aggregate` workflow phases but does not schedule an EvidenceGraph stage. The pair stage materializes configured easy/BM25/dense negatives, and candidate BCE consumes only that artifact. The model uses relation-specific graph convolution over all typed nodes plus binding-schema-aware `feeds` relations, then independently scores legal output transitions. It has no beam, dynamic oracle, maximum-step, or path-loss contract. Its schema-v2 checkpoint family is distinct from both evidence R-GCN methods and rejects earlier provenance checkpoints.
 
+## Provenance R-GCN ablations
+
+`execution_provenance_rgcn_retriever` exposes four executable variants:
+
+- `wo_graph`: set message-passing layers to zero.
+- `wo_edge_type`: share one message transform across all relation IDs.
+- `wo_edge_weight`: replace graph artifact weights with uniform `1.0` weights.
+- `wo_hard_negatives`: rebuild pairs without BM25, dense, or graph-neighbor hard negatives while retaining easy random negatives.
+
+Select a non-empty subset explicitly for a provenance-only experiment:
+
+```powershell
+uv run python experiment/plan.py `
+  name=twowiki_provenance_rgcn_ablation dataset=twowiki_provenance profile=quick device=cuda `
+  'methods=[execution_provenance_rgcn_retriever]' `
+  ablation.enable=true `
+  'ablation.variants=[wo_graph,wo_edge_type,wo_edge_weight,wo_hard_negatives]'
+
+uv run python experiment/run.py `
+  name=twowiki_provenance_rgcn_ablation dataset=twowiki_provenance profile=quick device=cuda `
+  'methods=[execution_provenance_rgcn_retriever]' `
+  ablation.enable=true `
+  'ablation.variants=[wo_graph,wo_edge_type,wo_edge_weight,wo_hard_negatives]'
+```
+
+The ordinary method run is reused as the `full_rgcn` row. Model-only variants reuse the ordinary pair artifact; `wo_hard_negatives` owns variant-local pairs and reruns every downstream stage. Evidence-graph-only variants such as `wo_bridge` and `wo_seed_score` are intentionally unsupported for this method because the provenance R-GCN does not consume those signals.
+
 For a frozen-method diagnostic before training R-GCN:
 
 ```powershell

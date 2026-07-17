@@ -11,6 +11,7 @@ from graph_memory.models.provenance_rgcn.config import (
     PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION,
     ProvenanceRgcnModelConfig,
     ProvenanceRgcnTrainingConfig,
+    default_provenance_rgcn_model_config,
 )
 from graph_memory.models.provenance_rgcn.inference import (
     ExecutionProvenanceRgcnRetriever,
@@ -41,6 +42,7 @@ __all__ = [
     "ProvenanceRgcnTrainingConfig",
     "ProvenanceTrainingResult",
     "compute_provenance_loss",
+    "default_provenance_rgcn_model_config",
     "load_provenance_rgcn_checkpoint",
     "move_provenance_tensor",
     "save_provenance_rgcn_checkpoint",

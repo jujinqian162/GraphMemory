@@ -278,6 +278,7 @@ class ProvenanceRgcnModelSettings(ClosedModel):
     node_type_dim: PositiveInt
     num_layers: NonNegativeInt
     dropout: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)]
+    ablation: str = Field(min_length=1)
 
 
 class ProvenanceRgcnTrainerSettings(ClosedModel):

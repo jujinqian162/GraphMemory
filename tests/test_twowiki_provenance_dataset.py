@@ -29,6 +29,7 @@ from graph_memory.experiment.config import (
     validate_composed_config,
 )
 from graph_memory.experiment.layout import RunLayout
+from graph_memory.experiment.inspect import inspect_catalog
 from graph_memory.experiment.planning import WorkflowPlanner
 from graph_memory.experiment.stage_models import (
     PairStageConfig,
@@ -259,6 +260,87 @@ def test_provenance_rgcn_workflow_has_no_evidence_graph_stage(tmp_path: Path) ->
     )
 
 
+def test_provenance_rgcn_ablation_discovery_and_planning(tmp_path: Path) -> None:
+    source = tmp_path / "generated.json"
+    source.write_text("[]", encoding="utf-8")
+    catalog = cast(dict[object, list[dict[str, object]]], inspect_catalog(
+        "ablations", repository_root=ROOT
+    ))
+    rows = catalog["execution_provenance_rgcn_retriever"]
+
+    assert [row["variant"] for row in rows] == [
+        "full_rgcn",
+        "wo_graph",
+        "wo_edge_type",
+        "wo_edge_weight",
+        "wo_hard_negatives",
+    ]
+
+    config = _provenance_config(
+        f"twowiki-provenance-ablation-{tmp_path.name}",
+        source=source,
+        extra=[
+            "ablation.enable=true",
+            "ablation.variants=[wo_graph,wo_edge_type]",
+        ],
+    )
+    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
+        validate_external=False
+    )
+    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
+    aliases = {alias.identifier: alias for alias in plan.aliases}
+
+    assert "pairs:execution_provenance_rgcn_retriever:wo_graph" in aliases
+    assert "pairs:execution_provenance_rgcn_retriever:wo_edge_type" in aliases
+    wo_graph = by_id["train:execution_provenance_rgcn_retriever:wo_graph"]
+    wo_edge_type = by_id[
+        "train:execution_provenance_rgcn_retriever:wo_edge_type"
+    ]
+    assert isinstance(wo_graph.config, ProvenanceRgcnTrainStageConfig)
+    assert wo_graph.config.train.model.ablation == "wo_graph"
+    assert wo_graph.config.train.model.num_layers == 0
+    assert isinstance(wo_edge_type.config, ProvenanceRgcnTrainStageConfig)
+    assert wo_edge_type.config.train.model.ablation == "wo_edge_type"
+    assert {(item.method.value, item.variant) for item in plan.ablation_selections} == {
+        ("execution_provenance_rgcn_retriever", "full_rgcn"),
+        ("execution_provenance_rgcn_retriever", "wo_graph"),
+        ("execution_provenance_rgcn_retriever", "wo_edge_type"),
+    }
+
+
+def test_provenance_rgcn_hard_negative_ablation_rebuilds_pairs(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "generated.json"
+    source.write_text("[]", encoding="utf-8")
+    config = _provenance_config(
+        f"twowiki-provenance-hard-negative-{tmp_path.name}",
+        source=source,
+        extra=[
+            "ablation.enable=true",
+            "ablation.variants=[wo_hard_negatives]",
+        ],
+    )
+    plan = WorkflowPlanner(config, RunLayout(ROOT, config.name)).build(
+        validate_external=False
+    )
+    by_id = {invocation.identifier: invocation for invocation in plan.invocations}
+    pair = by_id[
+        "pairs:execution_provenance_rgcn_retriever:wo_hard_negatives"
+    ]
+
+    assert isinstance(pair.config, PairStageConfig)
+    assert pair.config.sampling.easy_random_per_positive == 2
+    assert pair.config.sampling.hard_bm25_per_positive == 0
+    assert pair.config.sampling.hard_dense_per_positive == 0
+    assert pair.config.sampling.hard_graph_neighbor_per_positive == 0
+    assert not any(
+        alias.identifier
+        == "pairs:execution_provenance_rgcn_retriever:wo_hard_negatives"
+        for alias in plan.aliases
+    )
+
+
 def test_converter_cli_is_byte_deterministic_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
@@ -350,7 +432,9 @@ def test_provenance_path_metrics_do_not_require_an_evidence_graph() -> None:
     assert rows[0]["Edge Recall@10"] == 1.0
 
 
-def _provenance_config(name: str, *, source: Path):
+def _provenance_config(
+    name: str, *, source: Path, extra: list[str] | None = None
+):
     source_value = source.resolve().as_posix()
     with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
         composed = compose(
@@ -373,6 +457,7 @@ def _provenance_config(name: str, *, source: Path):
                         f"dataset.splits.{split}.capacity=1",
                     )
                 ],
+                *(extra or []),
             ],
         )
     return resolve_experiment_config(

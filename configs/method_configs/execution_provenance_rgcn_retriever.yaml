@@ -18,6 +18,7 @@ execution_provenance_rgcn_retriever:
       node_type_dim: 16
       num_layers: ${profile.trainable.rgcn.num_layers}
       dropout: 0.1
+      ablation: full_rgcn
     trainer:
       learning_rate: 0.0001
       batch_size: ${profile.trainable.rgcn.batch_size}

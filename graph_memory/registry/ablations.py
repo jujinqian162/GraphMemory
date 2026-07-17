@@ -114,6 +114,24 @@ RGCN_ABLATION_PATCHES: tuple[AblationVariantPatch, ...] = (
     ),
 )
 
+EXECUTION_PROVENANCE_RGCN_ABLATION_PATCHES: tuple[AblationVariantPatch, ...] = (
+    BaselineAblationVariant(),
+    ExecutableAblationVariant(
+        identifier=AblationVariantId.WO_GRAPH,
+        changed_dimensions=frozenset({"model_structure"}),
+        earliest_invalidated_stage="train",
+        config_patch=NoGraphModelPatch(ablation="wo_graph"),
+    ),
+    _model_variant(AblationVariantId.WO_EDGE_TYPE, "model_structure"),
+    _model_variant(AblationVariantId.WO_EDGE_WEIGHT, "model_structure"),
+    ExecutableAblationVariant(
+        identifier=AblationVariantId.WO_HARD_NEGATIVES,
+        changed_dimensions=frozenset({"pair_sampling"}),
+        earliest_invalidated_stage="pairs",
+        config_patch=PairSamplingPatch(),
+    ),
+)
+
 RGCN_ABLATION_PATCH_SUITE = AblationSuitePatch(
     method=RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
     variants=RGCN_ABLATION_PATCHES,
@@ -122,10 +140,17 @@ DENSE_FT_RGCN_ABLATION_PATCH_SUITE = AblationSuitePatch(
     method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
     variants=RGCN_ABLATION_PATCHES,
 )
+EXECUTION_PROVENANCE_RGCN_ABLATION_PATCH_SUITE = AblationSuitePatch(
+    method=RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER,
+    variants=EXECUTION_PROVENANCE_RGCN_ABLATION_PATCHES,
+)
 
 ABLATION_SUITE_PATCHES = {
     RGCN_ABLATION_PATCH_SUITE.method: RGCN_ABLATION_PATCH_SUITE,
     DENSE_FT_RGCN_ABLATION_PATCH_SUITE.method: DENSE_FT_RGCN_ABLATION_PATCH_SUITE,
+    EXECUTION_PROVENANCE_RGCN_ABLATION_PATCH_SUITE.method: (
+        EXECUTION_PROVENANCE_RGCN_ABLATION_PATCH_SUITE
+    ),
 }
 
 
@@ -138,6 +163,8 @@ __all__ = [
     "AblationVariantPatch",
     "BaselineAblationVariant",
     "DENSE_FT_RGCN_ABLATION_PATCH_SUITE",
+    "EXECUTION_PROVENANCE_RGCN_ABLATION_PATCHES",
+    "EXECUTION_PROVENANCE_RGCN_ABLATION_PATCH_SUITE",
     "ExecutableAblationVariant",
     "NoGraphModelPatch",
     "PairSamplingPatch",

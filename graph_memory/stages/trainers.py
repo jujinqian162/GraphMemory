@@ -128,8 +128,8 @@ class ProvenanceRgcnMethodTrainer:
 
         from graph_memory.embeddings import load_sentence_transformer
         from graph_memory.models.provenance_rgcn import (
-            ProvenanceRgcnModelConfig,
             ProvenanceRgcnTrainingConfig,
+            default_provenance_rgcn_model_config,
             train_provenance_rgcn,
         )
 
@@ -158,7 +158,7 @@ class ProvenanceRgcnMethodTrainer:
             train_labels=payload.train_labels,
             dev_requests=payload.dev_requests,
             dev_labels=payload.dev_labels,
-            model_config=ProvenanceRgcnModelConfig(
+            model_config=default_provenance_rgcn_model_config(
                 encoder_model=self.config.encoder.model_name,
                 encoder_dim=int(probe.shape[1]),
                 query_prefix=self.config.encoder.query_prefix,
@@ -168,6 +168,7 @@ class ProvenanceRgcnMethodTrainer:
                 node_type_dim=model.node_type_dim,
                 num_layers=model.num_layers,
                 dropout=model.dropout,
+                ablation_name=model.ablation,
             ),
             training_config=ProvenanceRgcnTrainingConfig(
                 learning_rate=trainer.learning_rate,

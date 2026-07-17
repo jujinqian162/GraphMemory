@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -18,10 +19,15 @@ from graph_memory.models.provenance_rgcn import (
     ProvenanceRgcnModelConfig,
     ProvenanceRgcnTrainingConfig,
     compute_provenance_loss,
+    default_provenance_rgcn_model_config,
     load_provenance_rgcn_checkpoint,
     save_provenance_rgcn_checkpoint,
     tensorize_provenance_request,
     train_provenance_rgcn,
+)
+from graph_memory.models.graph_retriever.internals.neural import (
+    SharedRelationTransform,
+    TypedRelationTransform,
 )
 from graph_memory.models.provenance_rgcn.contracts import ProvenanceModelOutput
 from graph_memory.contracts.training_pairs import TrainPairRecord
@@ -111,6 +117,42 @@ def test_tensorizer_and_model_preserve_full_typed_graph() -> None:
     )
     assert output.candidate_logits.shape == (len(request.candidates),)
     assert output.edge_logits.shape == (len(tensor.logical_transitions),)
+
+
+def test_provenance_model_ablations_remove_named_graph_signals() -> None:
+    request, _label = _request_and_label()
+    full = _default_model_config("full_rgcn")
+    wo_graph = _default_model_config("wo_graph")
+    wo_edge_type = _default_model_config("wo_edge_type")
+    wo_edge_weight = _default_model_config("wo_edge_weight")
+
+    full_model = ExecutionProvenanceRGCN(full)
+    edge_type_model = ExecutionProvenanceRGCN(wo_edge_type)
+    assert isinstance(
+        full_model.graph_encoder.layers[0].message_transform,
+        TypedRelationTransform,
+    )
+    assert isinstance(
+        edge_type_model.graph_encoder.layers[0].message_transform,
+        SharedRelationTransform,
+    )
+    assert wo_graph.num_layers == 0
+    assert len(ExecutionProvenanceRGCN(wo_graph).graph_encoder.layers) == 0
+
+    full_tensor = tensorize_provenance_request(
+        request, encoder=TinyEncoder(), config=full
+    )
+    uniform_tensor = tensorize_provenance_request(
+        request, encoder=TinyEncoder(), config=wo_edge_weight
+    )
+    assert torch.equal(
+        uniform_tensor.graph_batch.edge_index, full_tensor.graph_batch.edge_index
+    )
+    assert torch.equal(
+        uniform_tensor.graph_batch.relation_ids, full_tensor.graph_batch.relation_ids
+    )
+    assert torch.all(uniform_tensor.graph_batch.edge_weights == 1.0)
+    assert any(edge.weight != 1.0 for edge in request.graph.edges)
 
 
 def test_training_loss_consumes_only_materialized_candidate_pairs() -> None:
@@ -204,7 +246,7 @@ def test_checkpoint_family_round_trip_and_rejection(
     training = ProvenanceRgcnTrainingConfig()
     model = ExecutionProvenanceRGCN(config)
     checkpoint = tmp_path / "best.pt"
-    save_provenance_rgcn_checkpoint(
+    payload = save_provenance_rgcn_checkpoint(
         checkpoint,
         method_name="execution_provenance_rgcn_retriever",
         model=model,
@@ -218,6 +260,23 @@ def test_checkpoint_family_round_trip_and_rejection(
     assert loaded.training_config == training
     assert "beam_width" not in loaded.payload["model_config"]
     assert "max_steps" not in loaded.payload["model_config"]
+    assert loaded.model_config.ablation_name == "full_rgcn"
+    assert loaded.model_config.message_transform_type == "typed"
+    assert loaded.model_config.edge_weight_policy == "artifact"
+
+    legacy_payload = deepcopy(payload)
+    for field_name in (
+        "ablation_name",
+        "message_transform_type",
+        "edge_weight_policy",
+    ):
+        legacy_payload["model_config"].pop(field_name)
+    legacy_checkpoint = tmp_path / "legacy-full.pt"
+    torch.save(legacy_payload, legacy_checkpoint)
+    legacy = load_provenance_rgcn_checkpoint(legacy_checkpoint)
+    assert legacy.model_config.ablation_name == "full_rgcn"
+    assert legacy.model_config.message_transform_type == "typed"
+    assert legacy.model_config.edge_weight_policy == "artifact"
     assert "path_loss_weight" not in loaded.payload["training_config"]
     evidence_checkpoint = tmp_path / "evidence.pt"
     torch.save(
@@ -311,6 +370,21 @@ def _model_config() -> ProvenanceRgcnModelConfig:
         node_type_dim=4,
         num_layers=1,
         dropout=0.0,
+    )
+
+
+def _default_model_config(ablation_name: str) -> ProvenanceRgcnModelConfig:
+    return default_provenance_rgcn_model_config(
+        encoder_model="tiny",
+        encoder_dim=len(TinyEncoder.vocabulary),
+        query_prefix="",
+        passage_prefix="",
+        encoder_batch_size=8,
+        hidden_dim=16,
+        node_type_dim=4,
+        num_layers=1,
+        dropout=0.0,
+        ablation_name=ablation_name,
     )
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import Literal, TypeAlias, cast
 
 from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 
@@ -24,6 +24,12 @@ DEFAULT_RELATION_VOCAB = tuple(
     for relation in (f"{binding_relation}_forward", f"{binding_relation}_reverse")
 )
 
+ProvenanceRgcnMessageTransformType: TypeAlias = Literal["typed", "shared"]
+ProvenanceRgcnEdgeWeightPolicy: TypeAlias = Literal["artifact", "uniform"]
+SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS = frozenset(
+    {"full_rgcn", "wo_graph", "wo_edge_type", "wo_edge_weight"}
+)
+
 
 @dataclass(frozen=True)
 class ProvenanceRgcnModelConfig:
@@ -36,6 +42,9 @@ class ProvenanceRgcnModelConfig:
     node_type_dim: int = 16
     num_layers: int = 2
     dropout: float = 0.1
+    ablation_name: str = "full_rgcn"
+    message_transform_type: ProvenanceRgcnMessageTransformType = "typed"
+    edge_weight_policy: ProvenanceRgcnEdgeWeightPolicy = "artifact"
     node_type_vocab: tuple[str, ...] = DEFAULT_NODE_TYPE_VOCAB
     relation_vocab: tuple[str, ...] = DEFAULT_RELATION_VOCAB
 
@@ -52,6 +61,15 @@ class ProvenanceRgcnModelConfig:
             raise ValueError("num_layers must be non-negative.")
         if not 0.0 <= self.dropout < 1.0:
             raise ValueError("dropout must be in [0, 1).")
+        if self.ablation_name not in SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS:
+            raise ValueError(
+                "unsupported provenance R-GCN model ablation: "
+                f"{self.ablation_name!r}."
+            )
+        if self.message_transform_type not in {"typed", "shared"}:
+            raise ValueError("message_transform_type must be 'typed' or 'shared'.")
+        if self.edge_weight_policy not in {"artifact", "uniform"}:
+            raise ValueError("edge_weight_policy must be 'artifact' or 'uniform'.")
         if len(set(self.node_type_vocab)) != len(self.node_type_vocab):
             raise ValueError("node_type_vocab must be unique.")
         if len(set(self.relation_vocab)) != len(self.relation_vocab):
@@ -75,9 +93,62 @@ class ProvenanceRgcnModelConfig:
             node_type_dim=cast(int, value["node_type_dim"]),
             num_layers=cast(int, value["num_layers"]),
             dropout=cast(float, value["dropout"]),
+            ablation_name=cast(str, value.get("ablation_name", "full_rgcn")),
+            message_transform_type=cast(
+                ProvenanceRgcnMessageTransformType,
+                value.get("message_transform_type", "typed"),
+            ),
+            edge_weight_policy=cast(
+                ProvenanceRgcnEdgeWeightPolicy,
+                value.get("edge_weight_policy", "artifact"),
+            ),
             node_type_vocab=tuple(cast(Sequence[str], value["node_type_vocab"])),
             relation_vocab=tuple(cast(Sequence[str], value["relation_vocab"])),
         )
+
+
+def default_provenance_rgcn_model_config(
+    *,
+    encoder_model: str,
+    encoder_dim: int,
+    query_prefix: str,
+    passage_prefix: str,
+    encoder_batch_size: int,
+    hidden_dim: int = 128,
+    node_type_dim: int = 16,
+    num_layers: int = 2,
+    dropout: float = 0.1,
+    ablation_name: str = "full_rgcn",
+) -> ProvenanceRgcnModelConfig:
+    if ablation_name not in SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS:
+        raise ValueError(
+            f"unsupported provenance R-GCN model ablation: {ablation_name!r}."
+        )
+    effective_ablation = ablation_name
+    effective_layers = num_layers
+    message_transform_type: ProvenanceRgcnMessageTransformType = "typed"
+    edge_weight_policy: ProvenanceRgcnEdgeWeightPolicy = "artifact"
+    if ablation_name == "wo_graph" or num_layers == 0:
+        effective_ablation = "wo_graph"
+        effective_layers = 0
+    elif ablation_name == "wo_edge_type":
+        message_transform_type = "shared"
+    elif ablation_name == "wo_edge_weight":
+        edge_weight_policy = "uniform"
+    return ProvenanceRgcnModelConfig(
+        encoder_model=encoder_model,
+        encoder_dim=encoder_dim,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
+        encoder_batch_size=encoder_batch_size,
+        hidden_dim=hidden_dim,
+        node_type_dim=node_type_dim,
+        num_layers=effective_layers,
+        dropout=dropout,
+        ablation_name=effective_ablation,
+        message_transform_type=message_transform_type,
+        edge_weight_policy=edge_weight_policy,
+    )
 
 
 @dataclass(frozen=True)
@@ -126,6 +197,10 @@ __all__ = [
     "DEFAULT_RELATION_VOCAB",
     "PROVENANCE_RGCN_CHECKPOINT_FAMILY",
     "PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION",
+    "ProvenanceRgcnEdgeWeightPolicy",
+    "ProvenanceRgcnMessageTransformType",
     "ProvenanceRgcnModelConfig",
     "ProvenanceRgcnTrainingConfig",
+    "SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS",
+    "default_provenance_rgcn_model_config",
 ]
