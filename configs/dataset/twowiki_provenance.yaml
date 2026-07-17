@@ -5,14 +5,14 @@ splits:
     kind: raw
     source: data/twowiki_provenance/raw/train.json
     offset: 0
-    capacity: 75793
+    capacity: 74012
   dev:
     kind: raw
     source: data/twowiki_provenance/raw/dev.json
     offset: 0
-    capacity: 3042
+    capacity: 2850
   test:
     kind: raw
     source: data/twowiki_provenance/raw/test.json
     offset: 0
-    capacity: 3042
+    capacity: 2851

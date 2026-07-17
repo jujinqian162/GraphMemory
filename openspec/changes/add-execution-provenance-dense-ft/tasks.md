@@ -19,3 +19,8 @@
 - [x] 4.1 Run focused Registry, pair-building, Dense-FT workflow, and `twowiki_provenance` tests.
 - [x] 4.2 Run a one-example CPU `twowiki_provenance` Dense-FT smoke plan/workflow and verify pair, model, prediction, metric, and aggregate artifacts with no EvidenceGraph stage.
 - [x] 4.3 Run Ruff, basedpyright, compileall, strict OpenSpec validation, and `git diff --check`.
+
+## 5. Tracking Regression Fix
+
+- [x] 5.1 Add a failing `execute_experiment` regression proving provenance Dense-FT pair and train stages log one stable effective graph-neighbor sampling value.
+- [x] 5.2 Centralize provenance Dense-FT effective method-config projection across pair/train planning and rerun focused tracking/workflow plus quality gates.

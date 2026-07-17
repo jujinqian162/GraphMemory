@@ -99,6 +99,27 @@ class _StageInvocationFactory:
         self.layout = layout
         self.methods = tuple(config.methods)
 
+    def _effective_method_config(
+        self,
+        method: RetrievalMethodId,
+        method_config: MethodConfig | None = None,
+    ) -> MethodConfig:
+        config_method = (
+            method_config
+            if method_config is not None
+            else self.config.method_configs.get(method)
+        )
+        if (
+            isinstance(config_method, DenseFinetuneMethodConfig)
+            and _dataset_task_family(self.config.dataset.name)
+            is RetrievalTaskFamily.EXECUTION_PROVENANCE
+        ):
+            pairs = config_method.pairs.model_copy(
+                update={"hard_graph_neighbor_per_positive": 0}
+            )
+            return config_method.model_copy(update={"pairs": pairs})
+        return config_method
+
     def _prepare_invocation(self, split: SplitName) -> StageInvocation:
         split_config = self.config.dataset.splits[split]
         paths = self.layout.inputs(split)
@@ -176,7 +197,7 @@ class _StageInvocationFactory:
         variant: str | None = None,
         method_config: MethodConfig | None = None,
     ) -> StageInvocation:
-        config_method = method_config or self.config.method_configs.get(method)
+        config_method = self._effective_method_config(method, method_config)
         if not isinstance(
             config_method,
             (
@@ -198,14 +219,6 @@ class _StageInvocationFactory:
             if uses_evidence_graph
             else None
         )
-        sampling = config_method.pairs
-        if (
-            method is RetrievalMethodId.DENSE_FT
-            and family is RetrievalTaskFamily.EXECUTION_PROVENANCE
-        ):
-            sampling = sampling.model_copy(
-                update={"hard_graph_neighbor_per_positive": 0}
-            )
         pairs = self.layout.train_pairs(method, variant=variant).resolve()
         pair_summary = self.layout.train_pair_summary(method, variant=variant).resolve()
         summary = self.layout.summary_for(pairs, stage="pairs").resolve()
@@ -229,7 +242,7 @@ class _StageInvocationFactory:
                 pairs=pairs,
                 pair_summary=pair_summary,
             ),
-            sampling=sampling,
+            sampling=config_method.pairs,
             hard_dense_encoder=config_method.encoder,
             device=config_method.train.trainer.device,
         )
@@ -271,7 +284,7 @@ class _StageInvocationFactory:
         method_config: MethodConfig | None = None,
         pair_variant: str | None = None,
     ) -> StageInvocation:
-        config_method = method_config or self.config.method_configs.get(method)
+        config_method = self._effective_method_config(method, method_config)
         learned_root = self.layout.learned_root(method, variant=variant).resolve()
         metrics = self.layout.training_metrics(method, variant=variant).resolve()
         pair_path = self.layout.train_pairs(method, variant=pair_variant).resolve()

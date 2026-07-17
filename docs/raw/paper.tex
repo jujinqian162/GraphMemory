@@ -166,7 +166,7 @@
 \maketitle
 
 \begin{abstract}
-Evidence-heavy multi-agent systems increasingly rely on multiple agents to coordinate over tool outputs, retrieved documents, logs, intermediate claims, and evolving task states. Existing memory mechanisms typically store agent histories or retrieve semantically similar records, but they often return isolated memories without exposing how evidence is produced, verified, reused, contradicted, or propagated across agents. We propose Execution-Provenance Graph Memory, a structured memory layer that represents observations, tool outputs, intermediate claims, verifications, agent decisions, and final answers as a typed graph. Instead of retrieving standalone memory items, our method retrieves compact evidence paths that connect current claims to their supporting sources and prior agent actions. We further introduce downstream impact tracing to identify which claims and answers are affected when evidence is revised or invalidated. Experiments on agent benchmarks augmented with provenance annotations show that our method improves evidence-path recall, reduces unsupported claims, and enables more accurate impact tracing compared with chronological, vector-based, and graph-based memory baselines.
+Evidence-heavy multi-agent systems increasingly rely on multiple agents to coordinate over tool outputs, retrieved documents, logs, intermediate claims, and evolving task states. Existing memory mechanisms typically store agent histories or retrieve semantically similar records, but they often return isolated memories without exposing how evidence is produced, verified, reused, contradicted, or propagated across agents. We propose Execution-Provenance Graph Memory, a structured memory layer that represents observations, tool outputs, intermediate claims, verifications, agent decisions, and final answers as a typed graph. Instead of retrieving standalone memory items, our method retrieves compact evidence paths that connect current claims to their supporting sources and prior agent actions. We further introduce downstream impact tracing to identify which claims and answers are affected when evidence is revised or invalidated. Experiments on three multi-hop evidence-retrieval benchmarks show that relation-aware graph encoding improves complete-support and path recovery. On a controlled synthetic execution-provenance benchmark, our non-trained provenance retriever also outperforms BM25 and a lightweight non-LLM entity-graph baseline on complete-support retrieval.
 \end{abstract}
 
 \section{Introduction}
@@ -280,16 +280,17 @@ affected by revised, contradicted, or invalidated evidence.
     \label{fig:epgm-overview}
 \end{figure*}
 
-We evaluate EPGM on agent benchmarks augmented with provenance and
-evidence-revision annotations. Beyond final task success, we measure
-evidence recall, evidence-path recall, unsupported claim rate, and
-impact tracing accuracy. We compare EPGM with chronological,
-recency-based, vector-based, summary-based, and graph-based memory
-baselines. The results show that EPGM retrieves more complete evidence
-paths, reduces unsupported claims, and more accurately identifies
-outputs affected by revised evidence. Ablation studies further show
-that explicit provenance relations, support-aware expansion, and
-downstream dependency tracing each contribute to the observed gains.
+We first evaluate structure-aware evidence retrieval on HotpotQA,
+2WikiMultiHopQA, and MuSiQue, comparing lexical and dense retrieval,
+heuristic graph reranking, and relation-aware graph encoders. We then
+evaluate EPGM on a controlled 2Wiki-derived execution-provenance
+benchmark against BM25 and a lightweight non-LLM entity-graph
+baseline. We measure evidence recall, complete-support recovery, and,
+where graph labels are available, path and edge recall. Relation-aware
+encoding consistently improves complete-support recovery, and EPGM
+retrieves more complete execution dependencies than the two simulated
+trajectory baselines. R-GCN ablations further identify bridge edges
+and graph propagation as the main structural contributors.
 
 Our contributions are summarized as follows:
 \begin{itemize}
@@ -301,10 +302,10 @@ Our contributions are summarized as follows:
     with online graph construction, provenance-constrained evidence
     tracing, and downstream impact analysis.
 
-    \item We introduce provenance-aware evaluation settings and show
-    that EPGM improves evidence-path retrieval, reduces unsupported
-    claims, and enables more accurate revision impact tracing over
-    strong memory baselines.
+    \item We introduce a controlled provenance-aware retrieval setting
+    and show that execution dependencies improve complete-support
+    retrieval over sparse and lightweight non-LLM entity-graph
+    baselines.
 \end{itemize}
 
 
@@ -469,8 +470,6 @@ where $\mathcal{G}_{t-1}$ is the memory graph before step $t$, and $\mathcal{G}_
 
 In practice, relation extraction can be implemented using a hybrid strategy. Some edges are deterministic: for example, a tool output is always \texttt{derived\_from} the corresponding tool call, and a message is always \texttt{produced\_by} its agent. Other edges require semantic inference, such as whether an evidence node supports or contradicts a claim. These edges can be extracted using a lightweight LLM-based verifier or a trained entailment model. To reduce noise, we only add semantic edges when the confidence score exceeds a threshold $\theta$.
 
-```latex
-
 \subsection{Evidence Tracing over Graph Memory}
 \label{sec:evidence-tracing}
 
@@ -551,14 +550,311 @@ auditable, and revisable.
 
 
 \section{Experiments}
+
 \subsection{Experimental Setup}
-\subsection{Main Results}
-\subsection{Ablation Study}
-\subsection{Error and Efficiency Analysis}
+
+\paragraph{Research questions.}
+We evaluate three questions. \emph{RQ1} asks whether explicit graph
+structure improves the completeness of multi-hop evidence retrieval
+under a fixed top-$k$ budget. \emph{RQ2} asks whether relation-aware
+graph encoding further improves evidence-path recovery beyond
+heuristic graph reranking and task-adapted dense retrieval.
+\emph{RQ3} asks whether execution-level provenance is more suitable
+than lexical retrieval and entity-graph propagation for retrieving
+evidence from simulated agent trajectories.
+
+\paragraph{Datasets and splits.}
+The evidence-path experiments use HotpotQA, 2WikiMultiHopQA, and
+MuSiQue. For each dataset, we retain its training set, use the first
+500 labeled development examples for model selection, and reserve the
+remaining development examples for final testing. We additionally
+construct a controlled execution-provenance benchmark from
+2WikiMultiHopQA. It maps two recoverable supporting facts to typed
+tool calls, tool outputs, and data-flow dependencies, and introduces
+structurally similar non-gold branches. This benchmark isolates the
+value of execution dependencies, but it is not intended to substitute
+for naturally occurring multi-agent traces. Table~\ref{tab:data} gives
+the split sizes.
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Datasets, split sizes, and primary evaluation targets.}
+\label{tab:data}
+\begin{tabular}{lrrrrl}
+\hline
+Dataset & Train & Selection & Test & Top-$k$ & Primary target \\
+\hline
+HotpotQA & 90,025 & 500 & 6,869 & 10 & Evidence set and connectivity \\
+2WikiMultiHopQA & 167,454 & 500 & 12,076 & 10 & Evidence set and dependency path \\
+MuSiQue & 19,938 & 500 & 1,917 & 10 & Evidence set and multi-hop path \\
+Synthetic 2Wiki Provenance & 74,012 & 500 & 2,851 & 10 & Outputs and execution dependencies \\
+\hline
+\end{tabular}
+\end{table*}
+
+\paragraph{Compared methods.}
+For evidence-path retrieval, \textbf{BM25} and \textbf{Dense} are
+lexical and pretrained dense baselines. \textbf{BM25-Graph} and
+\textbf{Dense-Graph} rerank their initial results with fixed
+evidence-graph heuristics. \textbf{Dense R-GCN} uses frozen dense
+representations as node features in a relational graph convolutional
+network. \textbf{Dense-FT} fine-tunes the dense retriever on the task,
+whereas \textbf{Dense-FT R-GCN} initializes the R-GCN with the
+fine-tuned representations and is our full model for this setting.
+
+For simulated trajectories, \textbf{BM25} provides a sparse baseline.
+\textbf{FastGraphRAG-style} is a compact, non-LLM entity-graph
+baseline: it deterministically extracts and links entities, combines
+lexical and dense seeds with Personalized PageRank, and projects
+entity scores back to evidence. It follows the non-LLM entity-search
+idea of FastGraphRAG and is not a reproduction of a full GraphRAG
+pipeline with LLM-based community summarization or generation.
+\textbf{EPGM} performs bounded search over a typed
+execution-provenance graph and combines semantic relevance, dependency
+completeness, field binding, and grounding into a path score.
+
+\paragraph{Metrics.}
+Recall@$k$ measures the fraction of gold evidence retrieved in the
+top $k$, while Full Support@$k$ is one only when all gold evidence is
+present. MRR measures the rank of the first gold item. Connected
+Evidence Recall measures whether retrieved evidence remains connected
+in the induced graph. Path Recall@10 measures whether the retrieved
+subgraph contains a valid path connecting the gold evidence, and Edge
+Recall@10 measures direct recovery of gold dependency edges. HotpotQA
+does not provide directed gold dependency paths, so we report
+connectivity rather than path and edge recall for that dataset.
+
+\subsection{Evidence-Path Retrieval}
+
+\paragraph{Graph encoding consistently improves complete support
+recovery.}
+Table~\ref{tab:hotpot} reports HotpotQA results. Dense-FT R-GCN is best
+on every reported metric. Relative to Dense-FT, relational graph
+encoding raises Full Support@5 from 68.55\% to 80.08\% and Full
+Support@10 from 86.68\% to 93.29\%. Thus, even after task-specific
+dense fine-tuning, explicit evidence relations help place the complete
+support set within a limited retrieval budget.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{HotpotQA evidence retrieval results (\%).}
+\label{tab:hotpot}
+\begin{tabular}{lrrrrrrr}
+\hline
+Method & R@5 & R@10 & FS@5 & FS@10 & MRR & Conn.@5 & Conn.@10 \\
+\hline
+BM25 & 67.88 & 81.27 & 37.50 & 60.04 & 82.70 & 26.32 & 45.65 \\
+Dense & 76.98 & 88.86 & 53.20 & 75.38 & 85.30 & 37.73 & 59.44 \\
+BM25-Graph & 71.94 & 86.10 & 44.90 & 70.11 & 82.22 & 35.20 & 57.21 \\
+Dense-Graph & 77.78 & 89.47 & 55.03 & 77.06 & 85.22 & 40.70 & 62.21 \\
+Dense R-GCN & 88.67 & 95.97 & 76.12 & 91.21 & 91.44 & 57.69 & 73.58 \\
+Dense-FT & 85.22 & 94.32 & 68.55 & 86.68 & 88.47 & 49.18 & 69.24 \\
+\textbf{Dense-FT R-GCN} & \textbf{90.95} & \textbf{97.01} &
+\textbf{80.08} & \textbf{93.29} & \textbf{92.99} &
+\textbf{59.80} & \textbf{75.50} \\
+\hline
+\end{tabular}
+\end{table*}
+
+The advantage is larger on 2WikiMultiHopQA
+(Table~\ref{tab:2wiki}). Dense-FT R-GCN reaches 94.44\% Full
+Support@5, 10.72 percentage points above Dense-FT, and obtains
+93.70\% Path Recall@10 and 88.75\% Edge Recall@10. Compared with
+Dense-Graph, the path and edge gains are 35.58 and 31.53 points,
+respectively. Dense R-GCN also substantially outperforms the
+untrained Dense-Graph reranker, indicating that the gain is not solely
+caused by dense-encoder fine-tuning.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{2WikiMultiHopQA evidence-path retrieval results (\%).}
+\label{tab:2wiki}
+\begin{tabular}{lrrrrrrr}
+\hline
+Method & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 \\
+\hline
+BM25 & 52.33 & 67.74 & 18.46 & 36.24 & 65.93 & -- & -- \\
+Dense & 67.76 & 79.53 & 36.28 & 55.86 & 86.33 & -- & -- \\
+BM25-Graph & 55.00 & 73.46 & 22.71 & 47.21 & 62.43 & 38.39 & 38.19 \\
+Dense-Graph & 68.07 & 81.53 & 37.61 & 60.46 & 87.06 & 58.13 & 57.22 \\
+Dense R-GCN & 94.50 & 97.92 & 89.58 & 96.04 & 96.09 & 90.75 & 86.68 \\
+Dense-FT & 92.60 & 98.20 & 83.71 & 96.48 & 93.62 & -- & -- \\
+\textbf{Dense-FT R-GCN} & \textbf{97.07} & \textbf{99.10} &
+\textbf{94.44} & \textbf{98.28} & \textbf{97.78} &
+\textbf{93.70} & \textbf{88.75} \\
+\hline
+\end{tabular}
+\end{table*}
+
+MuSiQue exhibits the same pattern (Table~\ref{tab:musique}).
+Dense-FT R-GCN improves Full Support@5 from 58.42\% to 63.43\% and
+reaches 81.32\% Path Recall@10, 13.93 points above Dense-Graph.
+Dense-FT has a 0.12-point MRR advantage, showing that the main benefit
+of graph encoding is recovering complete evidence sets and paths,
+rather than merely moving the first relevant item upward.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{MuSiQue evidence-path retrieval results (\%).}
+\label{tab:musique}
+\begin{tabular}{lrrrrrrr}
+\hline
+Method & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 \\
+\hline
+BM25 & 55.20 & 70.18 & 18.83 & 37.92 & 75.44 & -- & -- \\
+Dense & 68.66 & 85.07 & 37.09 & 64.21 & 85.78 & -- & -- \\
+BM25-Graph & 60.48 & 77.09 & 29.32 & 52.95 & 75.93 & 51.02 & 53.41 \\
+Dense-Graph & 71.18 & 87.20 & 44.34 & 69.54 & 84.29 & 67.40 & 68.80 \\
+Dense R-GCN & 79.17 & 93.81 & 56.29 & 83.93 & 86.73 & 79.97 & 78.95 \\
+Dense-FT & 80.79 & 93.75 & 58.42 & 83.36 & \textbf{91.48} & -- & -- \\
+\textbf{Dense-FT R-GCN} & \textbf{84.33} & \textbf{94.85} &
+\textbf{63.43} & \textbf{86.28} & 91.36 &
+\textbf{81.32} & \textbf{79.45} \\
+\hline
+\end{tabular}
+\end{table*}
+
+Across all three datasets, graph encoding primarily improves complete
+support and path recovery. In particular, Dense-FT and Dense-FT
+R-GCN differ by less than one point on 2Wiki Recall@10, but by more
+than ten points on Full Support@5. The model is therefore not simply
+retrieving more isolated relevant sentences; it more reliably brings
+the members of the same reasoning chain into the top-$k$ context.
+Heuristic graph reranking sometimes helps, but is less stable across
+datasets than learned relation-aware propagation.
+
+\subsection{R-GCN Ablation}
+
+\paragraph{Bridge edges are the main driver of path recovery.}
+We ablate both R-GCN variants on the same 12,076-example 2Wiki test
+set. This ablation uses an independent training run, so
+Table~\ref{tab:ablation} compares each variant only with its
+corresponding full R-GCN within the table, rather than with the main
+results in Table~\ref{tab:2wiki}.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\caption{Core R-GCN structure ablations on 2WikiMultiHopQA (\%).}
+\label{tab:ablation}
+\begin{tabular}{llrrrr}
+\hline
+Encoder & Graph variant & R@5 & FS@5 & Conn.@10 & Path@10 \\
+\hline
+Dense & Full R-GCN & \textbf{94.13} & \textbf{88.79} & \textbf{70.41} & \textbf{90.39} \\
+Dense & w/o bridge & 93.02 & 86.95 & 69.96 & 71.82 \\
+Dense & w/o entity overlap & 93.89 & 88.49 & 69.48 & 86.62 \\
+Dense & w/o graph & 88.66 & 78.71 & 68.69 & 82.81 \\
+Dense & w/o edge type & 92.44 & 86.20 & 69.39 & 88.34 \\
+\hline
+Dense-FT & Full R-GCN & \textbf{97.29} & \textbf{94.77} & 73.18 & \textbf{94.33} \\
+Dense-FT & w/o bridge & 96.84 & 94.00 & 73.32 & 74.79 \\
+Dense-FT & w/o entity overlap & 96.77 & 93.89 & 72.35 & 89.45 \\
+Dense-FT & w/o graph & 95.24 & 90.88 & \textbf{73.71} & 92.59 \\
+Dense-FT & w/o edge type & 96.08 & 92.82 & 72.37 & 92.66 \\
+\hline
+\end{tabular}
+\end{table*}
+
+Removing bridge edges reduces Path Recall@10 by 18.57 points for
+Dense R-GCN and 19.55 points for Dense-FT R-GCN, while Recall@5 drops
+by only 1.12 and 0.45 points. Bridge edges therefore contribute
+specifically to connecting distributed support into recoverable
+multi-hop paths, rather than merely increasing isolated evidence
+recall. Removing entity-overlap edges also reduces Path Recall@10 by
+3.77 and 4.88 points.
+
+Removing graph propagation has the largest effect on complete support
+for the frozen encoder: Full Support@5 falls from 88.79\% to 78.71\%.
+With Dense-FT initialization, the decrease is smaller but remains
+3.89 points, suggesting that task-adapted semantics compensate for,
+but do not fully replace, relational structure. Removing edge types
+reduces Full Support@5 by 2.58 and 1.95 points for the two encoders.
+Other auxiliary choices are less stable: removing edge weights, hard
+negatives, or query-overlap edges does not consistently hurt both
+encoders. We therefore treat these as tuning choices rather than
+independently established contributions.
+
+\subsection{Simulated Agent-Trajectory Retrieval}
+
+\paragraph{Execution-level provenance improves complete dependency
+recovery.}
+Table~\ref{tab:provenance} compares lexical retrieval, lightweight
+entity-graph propagation, and execution-provenance path retrieval.
+EPGM outperforms BM25 and FastGraphRAG-style on every listed ranking
+metric. Relative to FastGraphRAG-style, EPGM increases Recall@5 from
+58.00\% to 63.87\%, Full Support@5 from 19.89\% to 32.83\% (a
+65.1\% relative improvement), Full Support@10 from 50.30\% to
+57.21\%, and MRR by 6.05 points.
+
+\begin{table*}[t]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrrr}
+\hline
+Method & R@2 & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & ms/query \\
+\hline
+BM25 & 28.32 & 44.05 & 58.59 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
+FastGraphRAG-style (non-LLM) & 40.27 & 58.00 & 74.92 & 19.89 & 50.30 & 71.86 & -- & -- & 105.53 \\
+\textbf{EPGM} & \textbf{43.21} & \textbf{63.87} & \textbf{78.52} &
+\textbf{32.83} & \textbf{57.21} & \textbf{77.91} &
+\textbf{28.83} & \textbf{28.73} & 41.10 \\
+\hline
+\end{tabular}%
+}
+\caption{Synthetic 2Wiki execution-provenance retrieval results.}
+\label{tab:provenance}
+\end{table*}
+
+The non-LLM FastGraphRAG-style baseline improves substantially over
+BM25 by propagating relevance through entity relations. Its graph,
+however, describes textual entity association rather than how a tool
+output enters a later call. EPGM instead expands along typed field
+bindings and data-flow relations, such as
+\texttt{ToolOutput}$\rightarrow$\texttt{ToolCall}$\rightarrow$
+\texttt{ToolOutput}. The largest difference appears in Full
+Support@5, supporting the interpretation that provenance mainly helps
+complete a dependency chain within a small context budget.
+
+EPGM recovers 28.83\% of gold paths and 28.73\% of gold dependency
+edges at $k=10$. These absolute values leave substantial room for
+learned relation-aware retrieval. Nevertheless, EPGM averages
+41.10 ms per query, 61.0\% lower than the 105.53 ms of the
+FastGraphRAG-style baseline. BM25 remains fastest, but its Full
+Support@5 is only 7.33\%. These latency numbers cover retrieval only;
+they exclude data generation, graph construction, and model training.
+
+\subsection{Limitations and Robustness}
+
+The experiments support structure-aware evidence retrieval, but do
+not yet establish all claims of a complete multi-agent memory system.
+First, the synthetic provenance benchmark is deterministically
+derived from question-answering evidence chains rather than collected
+from heterogeneous, naturally occurring agent logs. Second, results
+use one fixed split and do not yet include multi-seed variance or
+bootstrap confidence intervals. Third, the current experiments
+evaluate retrieval and path recovery only; they do not directly
+measure unsupported-claim reduction or downstream impact tracing.
+Finally, the R-GCN ablation concerns the conventional evidence graph,
+not the execution-provenance scorer. Direct EPGM ablations should
+remove field-binding and provenance-completeness terms and shuffle
+data-flow edges; invalidation penalties require a benchmark containing
+actual evidence revisions. We therefore interpret the present results
+as controlled evidence for execution-provenance retrieval, not as a
+final evaluation of the full multi-agent memory lifecycle.
 
 \section{Conclusion}
 
-We proposed Execution-Provenance Graph Memory for evidence tracing in evidence-heavy multi-agent systems. Instead of retrieving isolated memory records, our method represents observations, tool outputs, intermediate claims, verifications, agent decisions, and final answers as a typed provenance graph. This enables agents to retrieve compact evidence paths, ground claims in traceable sources, and identify downstream claims or answers affected by revised or invalid evidence. Experiments on agent benchmarks with provenance annotations show that our method improves evidence-path recall, reduces unsupported claims, and provides more accurate impact tracing than chronological, vector-based, and graph-based memory baselines. These results suggest that multi-agent memory should support not only recall, but also provenance, coordination, and auditabil
+We proposed Execution-Provenance Graph Memory for evidence tracing in evidence-heavy multi-agent systems. Instead of retrieving isolated memory records, our method represents observations, tool outputs, intermediate claims, verifications, agent decisions, and final answers as a typed provenance graph. This representation enables compact evidence-path retrieval and provides a structural basis for tracing outputs affected by revised evidence. Across three multi-hop evidence-retrieval benchmarks, relation-aware graph encoding consistently improves complete-support recovery and strengthens path retrieval. On a controlled synthetic execution-provenance benchmark, EPGM retrieves more complete evidence dependencies than BM25 and a lightweight non-LLM entity-graph baseline while remaining faster than the graph baseline. Evaluating unsupported-claim reduction and revision impact tracing on naturally occurring agent trajectories remains future work. These results suggest that multi-agent memory should support not only recall, but also provenance, coordination, and auditability.
 
 \section{Acknowledgments}
 

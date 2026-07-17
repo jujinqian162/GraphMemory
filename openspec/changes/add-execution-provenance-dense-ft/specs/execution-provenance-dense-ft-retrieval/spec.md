@@ -18,6 +18,10 @@ The execution-provenance Dense-FT pair stage SHALL omit EvidenceGraph artifacts 
 - **WHEN** a run selects `dense_ft` on an evidence-retrieval dataset
 - **THEN** its pair invocation retains the configured EvidenceGraph input and graph-neighbor negative count
 
+#### Scenario: Track one effective provenance sampling policy
+- **WHEN** pair and train stages for one provenance `dense_ft` baseline are logged to MLflow
+- **THEN** both stage configs expose `hard_graph_neighbor_per_positive=0` and parameter logging completes without an immutable-parameter conflict
+
 ### Requirement: Flat Dense-FT retrieval lifecycle
 The execution-provenance Dense-FT workflow SHALL use the existing `pairs -> train -> retrieve -> evaluate -> aggregate` lifecycle, save the existing model-directory artifact and metadata, and return a complete flat ranking over ToolOutput candidate IDs under method ID `dense_ft`. It SHALL NOT claim native-edge trace capability.
 

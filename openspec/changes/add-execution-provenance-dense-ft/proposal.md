@@ -7,6 +7,7 @@ The execution-provenance benchmark already exposes dataset-owned flat text reque
 - Allow the existing public `dense_ft` method to train, retrieve, evaluate, and aggregate on execution-provenance datasets through their dataset-owned `TextRankingRequest` projection.
 - Make pair planning task-family-aware so execution-provenance Dense-FT does not request an EvidenceGraph and builds text-only negatives.
 - Force the effective provenance Dense-FT pair-stage configuration to disable graph-neighbor negatives because no EvidenceGraph is available, while leaving evidence-dataset Dense-FT defaults unchanged.
+- Carry that effective sampling policy consistently through pair and train stage configs so MLflow sees one immutable parameter set for the Dense-FT baseline.
 - Extend config composition, workflow validation, focused tests, and the execution-provenance runbook for the new method/dataset combination.
 - Keep `execution_provenance_rgcn_retriever` Dense-seeded and unchanged; do not add a Dense-FT-seeded provenance R-GCN method in this change.
 
@@ -23,4 +24,4 @@ The execution-provenance benchmark already exposes dataset-owned flat text reque
 
 ## Impact
 
-Affected surfaces include Registry task-family metadata, experiment configuration validation, pair-stage planning and text-only pair construction, execution-provenance dataset method defaults/runbook, and focused registry/workflow/smoke tests. Public method IDs, dataset schemas, generated raw artifacts, Dense-FT checkpoints, evidence R-GCN methods, and both provenance retrievers remain unchanged.
+Affected surfaces include Registry task-family metadata, experiment configuration validation, effective method-config projection across pair/train planning, text-only pair construction, execution-provenance dataset method defaults/runbook, MLflow tracking, and focused registry/workflow/smoke tests. Public method IDs, dataset schemas, generated raw artifacts, Dense-FT checkpoints, evidence R-GCN methods, and both provenance retrievers remain unchanged.

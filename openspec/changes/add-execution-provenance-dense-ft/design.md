@@ -37,7 +37,7 @@ Alternative considered: convert the provenance graph into an EvidenceGraph so th
 
 ### 3. Derive pair graph usage from the selected dataset family
 
-The planner will identify the run's retrieval family once. Evidence-family trainable methods retain the current EvidenceGraph dependency and configured graph-neighbor negatives. Execution-provenance trainable methods receive no EvidenceGraph input. For `dense_ft` on that family, the emitted pair-stage config will copy the configured sampling policy but set `hard_graph_neighbor_per_positive` to `0`; the generated stage YAML and pair summary therefore expose the effective value.
+The planner will identify the run's retrieval family once. Evidence-family trainable methods retain the current EvidenceGraph dependency and configured graph-neighbor negatives. Execution-provenance trainable methods receive no EvidenceGraph input. For `dense_ft` on that family, one factory-owned effective method config will copy the configured sampling policy but set `hard_graph_neighbor_per_positive` to `0`; both pair and train stage configs consume that same effective method config. The generated stage YAML, pair summary, and MLflow parameters therefore expose one stable effective value.
 
 The pair script will build one generic `TrainPairBuildTask` per text request and attach a graph only when one was supplied. The existing pair builder remains the enforcement point that rejects a positive graph-neighbor count when all tasks omit graphs. This removes the method-name special case while preserving strict validation.
 
@@ -50,7 +50,7 @@ The ordinary `pairs -> train -> retrieve -> evaluate -> aggregate` stages and ex
 ## Risks / Trade-offs
 
 - [Provenance Dense-FT sees a different negative mix from evidence Dense-FT] -> Record the effective zero graph-neighbor count in stage config and pair summary, while retaining easy/BM25/dense negatives.
-- [Family logic becomes duplicated] -> Use one planner helper for dataset-to-family resolution and reuse it for compatibility and pair-stage decisions.
+- [Family logic becomes duplicated] -> Use one planner helper for dataset-to-family resolution and one factory-owned effective method-config projection reused by pair and train stages.
 - [A flat method is mistaken for provenance reasoning] -> Keep its request type, capabilities, docs, and output trace graph-free and describe it as a supervised text baseline.
 - [Synthetic label-derived data encourages overclaiming] -> Preserve the runbook disclosure and make no graph-reasoning claim from Dense-FT performance.
 

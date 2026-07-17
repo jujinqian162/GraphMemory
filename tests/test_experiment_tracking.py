@@ -22,6 +22,10 @@ from graph_memory.experiment.execution import (
 )
 from graph_memory.experiment.layout import MultirunIdentity, RunLayout
 from graph_memory.experiment.service import initialize_experiment
+from graph_memory.experiment.stage_models import (
+    DenseFinetuneTrainStageConfig,
+    PairStageConfig,
+)
 from graph_memory.experiment.state import read_stage_summary
 from graph_memory.experiment.state import stage_lifecycle
 from graph_memory.experiment.status import inspect_invocation_status
@@ -39,6 +43,7 @@ def _config(
     tmp_path: Path,
     name: str,
     *,
+    dataset: str = "hotpotqa",
     methods: str = "[bm25]",
     stages_from: str | None = None,
     stages_to: str = "prepare",
@@ -47,7 +52,7 @@ def _config(
     source = (ROOT / "tests/fixtures/hotpotqa_smoke.json").as_posix()
     overrides = [
         f"name={name}",
-        "dataset=hotpotqa",
+        f"dataset={dataset}",
         "profile=smoke",
         f"methods={methods}",
         "device=cpu",
@@ -244,6 +249,54 @@ def test_full_job_has_one_baseline_child_and_curated_parent_projection(
             )
             == 1
         )
+    finally:
+        shutil.rmtree(layout.run_dir, ignore_errors=True)
+
+
+def test_provenance_dense_ft_tracking_logs_one_effective_sampling_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(
+        tmp_path,
+        f"provenance-dense-ft-tracking-{tmp_path.name}",
+        dataset="twowiki_provenance",
+        methods="[dense_ft]",
+        stages_to="train",
+    )
+    layout = RunLayout(ROOT, config.name)
+    try:
+        initialized = initialize_experiment(config, layout=layout)
+
+        def succeed(invocation, _initialized):
+            _materialize_fake_success(invocation)
+            return _completed(invocation)
+
+        monkeypatch.setattr(execution_module, "_run_invocation", succeed)
+        execute_experiment(initialized)
+
+        pair = next(
+            item
+            for item in initialized.plan.invocations
+            if item.identifier == "pairs:dense_ft"
+        )
+        train = next(
+            item
+            for item in initialized.plan.invocations
+            if item.identifier == "train:dense_ft"
+        )
+        assert isinstance(pair.config, PairStageConfig)
+        assert isinstance(train.config, DenseFinetuneTrainStageConfig)
+        assert pair.config.sampling.hard_graph_neighbor_per_positive == 0
+        assert train.config.pairs.hard_graph_neighbor_per_positive == 0
+
+        adapter = TrackingAdapter(config, layout)
+        child = next(
+            run
+            for run in _runs(adapter)
+            if run.data.tags.get("graph_memory.method") == "dense_ft"
+        )
+        assert child.data.params["pairs.hard_graph_neighbor_per_positive"] == "0"
     finally:
         shutil.rmtree(layout.run_dir, ignore_errors=True)
 
