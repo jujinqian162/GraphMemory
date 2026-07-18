@@ -1,42 +1,38 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class ExecutionProvenanceConfig:
-    seed_top_s: int = 10
+    seed_top_s: int = 5
     beam_width: int = 8
-    max_hops: int = 4
-    top_paths: int = 5
+    max_hops: int = 2
+    max_paths_per_seed: int = 1
     max_path_expansions: int = 256
-    semantic_weight: float = 0.45
-    dependency_weight: float = 0.25
-    binding_weight: float = 0.2
-    grounding_weight: float = 0.1
+    min_path_confidence: float = 0.2
+    preserve_dense_top_n: int = 2
     hop_penalty: float = 0.04
-    invalidation_penalty: float = 0.5
 
     def __post_init__(self) -> None:
         for name in (
             "seed_top_s",
             "beam_width",
             "max_hops",
-            "top_paths",
+            "max_paths_per_seed",
             "max_path_expansions",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive.")
-        for name in (
-            "semantic_weight",
-            "dependency_weight",
-            "binding_weight",
-            "grounding_weight",
-            "hop_penalty",
-            "invalidation_penalty",
-        ):
-            if getattr(self, name) < 0.0:
-                raise ValueError(f"{name} must be non-negative.")
+        if self.max_paths_per_seed != 1:
+            raise ValueError("max_paths_per_seed must be exactly 1.")
+        if self.preserve_dense_top_n < 0:
+            raise ValueError("preserve_dense_top_n must be non-negative.")
+        for name in ("min_path_confidence", "hop_penalty"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
 
 
 __all__ = ["ExecutionProvenanceConfig"]

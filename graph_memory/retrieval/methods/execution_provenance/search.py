@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from graph_memory.graphs.provenance import (
@@ -40,84 +41,109 @@ class ProvenancePath:
 
 @dataclass(frozen=True)
 class ProvenancePathScore:
-    semantic_relevance: float
-    binding_consistency: float
-    provenance_completeness: float
-    explicit_grounding: float
-    path_length_penalty: float
-    invalidation_penalty: float
-    total: float
+    path_confidence: float
+    binding_valid: bool
+    completeness_valid: bool
+    lifecycle_valid: bool
+    valid: bool
+    rejection_reason: str | None
 
 
-def beam_search_provenance_paths(
+@dataclass(frozen=True)
+class ProvenancePathEvaluation:
+    anchor_id: str
+    partner_id: str
+    path: ProvenancePath
+    score: ProvenancePathScore
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.anchor_id,
+                self.partner_id,
+                self.path.node_ids,
+                tuple(_edge_key(edge) for edge in self.path.edges),
+            )
+        )
+
+
+def search_provenance_paths(
     request: ExecutionProvenanceRankingRequest,
-    seed_ids: tuple[str, ...] | list[str],
+    seed_ids: Sequence[str],
     *,
-    semantic_scores: dict[str, float],
-    invalidated_node_ids: frozenset[str],
     config: ExecutionProvenanceConfig,
-) -> list[ProvenancePath]:
+) -> tuple[ProvenancePathEvaluation, ...]:
     adjacency = _directed_adjacency(request)
     node_by_id = {node.node_id: node for node in request.graph.nodes}
     candidate_ids = {candidate.item_id for candidate in request.candidates}
-    beam = [ProvenancePath((seed_id,), ()) for seed_id in seed_ids]
-    completed: dict[
-        tuple[tuple[str, ...], tuple[tuple[str, str, str], ...]], ProvenancePath
-    ] = {}
+    invalidated = invalidated_node_ids(request)
+    evaluations: list[ProvenancePathEvaluation] = []
     expansion_count = 0
-    for _hop in range(config.max_hops):
-        expanded: list[tuple[ProvenancePathScore, ProvenancePath]] = []
-        for path in beam:
-            for neighbor, edge in adjacency.get(path.node_ids[-1], ()):
+    for seed_id in seed_ids:
+        beam = [ProvenancePath((seed_id,), ())]
+        completed: dict[
+            tuple[tuple[str, ...], tuple[tuple[str, str, str], ...]], ProvenancePath
+        ] = {}
+        for _hop in range(config.max_hops):
+            expanded: list[ProvenancePath] = []
+            for path in beam:
+                for neighbor, edge in adjacency.get(path.node_ids[-1], ()):
+                    if expansion_count >= config.max_path_expansions:
+                        break
+                    if neighbor in path.node_ids:
+                        continue
+                    next_path = ProvenancePath(
+                        node_ids=(*path.node_ids, neighbor),
+                        edges=(*path.edges, edge),
+                    )
+                    expansion_count += 1
+                    expanded.append(next_path)
+                    if neighbor in candidate_ids and neighbor != seed_id:
+                        completed[_path_key(next_path)] = next_path
                 if expansion_count >= config.max_path_expansions:
                     break
-                if neighbor in path.node_ids:
-                    continue
-                next_path = ProvenancePath(
-                    node_ids=(*path.node_ids, neighbor),
-                    edges=(*path.edges, edge),
-                )
-                expansion_count += 1
-                score = score_provenance_path(
-                    next_path,
-                    semantic_scores=semantic_scores,
-                    invalidated_node_ids=invalidated_node_ids,
+            if not expanded:
+                break
+            beam = sorted(
+                expanded,
+                key=lambda path: _beam_key(
+                    path,
+                    invalidated_node_ids=invalidated,
                     node_by_id=node_by_id,
                     config=config,
-                )
-                expanded.append((score, next_path))
-                if neighbor in candidate_ids and neighbor != next_path.node_ids[0]:
-                    completed[_path_key(next_path)] = next_path
+                ),
+            )[: config.beam_width]
             if expansion_count >= config.max_path_expansions:
                 break
-        if not expanded:
-            break
-        expanded.sort(key=_scored_path_sort_key)
-        beam = [path for _score, path in expanded[: config.beam_width]]
+        for path in completed.values():
+            score = score_provenance_path(
+                path,
+                invalidated_node_ids=invalidated,
+                node_by_id=node_by_id,
+                config=config,
+            )
+            evaluations.append(
+                ProvenancePathEvaluation(
+                    anchor_id=seed_id,
+                    partner_id=path.node_ids[-1],
+                    path=path,
+                    score=score,
+                )
+            )
         if expansion_count >= config.max_path_expansions:
             break
-    return sorted(
-        completed.values(),
-        key=lambda path: (
-            len(path.edges),
-            path.node_ids,
-            tuple(_edge_key(edge) for edge in path.edges),
-        ),
-    )
-
-
-def enumerate_provenance_paths(
-    request: ExecutionProvenanceRankingRequest,
-    seed_ids: tuple[str, ...] | list[str],
-    config: ExecutionProvenanceConfig,
-) -> list[ProvenancePath]:
-    """Compatibility entrypoint backed by the bounded directed beam search."""
-    return beam_search_provenance_paths(
-        request,
-        seed_ids,
-        semantic_scores={},
-        invalidated_node_ids=invalidated_node_ids(request),
-        config=config,
+    return tuple(
+        sorted(
+            evaluations,
+            key=lambda evaluation: (
+                seed_ids.index(evaluation.anchor_id),
+                not evaluation.score.valid,
+                -evaluation.score.path_confidence,
+                len(evaluation.path.edges),
+                evaluation.partner_id,
+                tuple(_edge_key(edge) for edge in evaluation.path.edges),
+            ),
+        )
     )
 
 
@@ -143,60 +169,47 @@ def invalidated_node_ids(
 def score_provenance_path(
     path: ProvenancePath,
     *,
-    semantic_scores: dict[str, float],
     invalidated_node_ids: frozenset[str],
     node_by_id: Mapping[str, ExecutionProvenanceNode],
     config: ExecutionProvenanceConfig,
 ) -> ProvenancePathScore:
-    available_semantics = [
-        semantic_scores[node_id]
-        for node_id in path.node_ids
-        if node_id in semantic_scores
-    ]
-    endpoint = semantic_scores.get(path.node_ids[-1], 0.0)
-    mean_semantic = (
-        sum(available_semantics) / len(available_semantics)
-        if available_semantics
-        else 0.0
-    )
-    bottleneck = min(available_semantics, default=0.0)
-    semantic = 0.5 * endpoint + 0.3 * mean_semantic + 0.2 * bottleneck
-    feeds_edges = [
+    feeds_edges = tuple(
         edge for edge in path.edges if edge.edge_type is ProvenanceEdgeType.FEEDS
-    ]
-    binding = (
-        sum(binding_matches_endpoints(edge, node_by_id) for edge in feeds_edges)
-        / len(feeds_edges)
-        if feeds_edges
+    )
+    returns_edges = tuple(
+        edge for edge in path.edges if edge.edge_type is ProvenanceEdgeType.RETURNS
+    )
+    binding_valid = len(feeds_edges) == 1 and all(
+        binding_matches_endpoints(edge, node_by_id) for edge in feeds_edges
+    )
+    completeness_valid = len(feeds_edges) == 1 and len(returns_edges) == 1
+    lifecycle_valid = not any(
+        node_id in invalidated_node_ids for node_id in path.node_ids
+    )
+    semantic_weights = [edge.weight for edge in feeds_edges]
+    confidence = (
+        math.exp(
+            sum(math.log(max(weight, 1e-300)) for weight in semantic_weights)
+            / len(semantic_weights)
+        )
+        if semantic_weights
         else 0.0
     )
-    edge_types = {edge.edge_type for edge in path.edges}
-    completeness = 0.5 * float(ProvenanceEdgeType.FEEDS in edge_types) + 0.5 * float(
-        ProvenanceEdgeType.RETURNS in edge_types
-    )
-    grounding = float(
-        bool({ProvenanceEdgeType.GROUNDS, ProvenanceEdgeType.SUPPORTS} & edge_types)
-    )
-    length_penalty = config.hop_penalty * max(0, len(path.edges) - 2)
-    lifecycle_penalty = config.invalidation_penalty * float(
-        any(node_id in invalidated_node_ids for node_id in path.node_ids)
-    )
-    total = (
-        config.semantic_weight * semantic
-        + config.binding_weight * binding
-        + config.dependency_weight * completeness
-        + config.grounding_weight * grounding
-        - length_penalty
-        - lifecycle_penalty
-    )
+    confidence *= math.exp(-config.hop_penalty * max(0, len(path.edges) - 2))
+    rejection_reason = None
+    if not completeness_valid:
+        rejection_reason = "incomplete_path"
+    elif not binding_valid:
+        rejection_reason = "binding_mismatch"
+    elif not lifecycle_valid:
+        rejection_reason = "invalidated_path"
     return ProvenancePathScore(
-        semantic_relevance=semantic,
-        binding_consistency=binding,
-        provenance_completeness=completeness,
-        explicit_grounding=grounding,
-        path_length_penalty=length_penalty,
-        invalidation_penalty=lifecycle_penalty,
-        total=total,
+        path_confidence=confidence,
+        binding_valid=binding_valid,
+        completeness_valid=completeness_valid,
+        lifecycle_valid=lifecycle_valid,
+        valid=(binding_valid and completeness_valid and lifecycle_valid),
+        rejection_reason=rejection_reason,
     )
 
 
@@ -213,12 +226,22 @@ def _directed_adjacency(
     }
 
 
-def _scored_path_sort_key(
-    record: tuple[ProvenancePathScore, ProvenancePath],
-) -> tuple[float, int, tuple[str, ...], tuple[tuple[str, str, str], ...]]:
-    score, path = record
+def _beam_key(
+    path: ProvenancePath,
+    *,
+    invalidated_node_ids: frozenset[str],
+    node_by_id: Mapping[str, ExecutionProvenanceNode],
+    config: ExecutionProvenanceConfig,
+) -> tuple[bool, float, int, tuple[str, ...], tuple[tuple[str, str, str], ...]]:
+    score = score_provenance_path(
+        path,
+        invalidated_node_ids=invalidated_node_ids,
+        node_by_id=node_by_id,
+        config=config,
+    )
     return (
-        -score.total,
+        not score.lifecycle_valid,
+        -score.path_confidence,
         len(path.edges),
         path.node_ids,
         tuple(_edge_key(edge) for edge in path.edges),
@@ -232,15 +255,15 @@ def _path_key(
 
 
 def _edge_key(edge: ExecutionProvenanceEdge) -> tuple[str, str, str]:
-    return (edge.source, edge.target, edge.edge_type.value)
+    return edge.source, edge.target, edge.edge_type.value
 
 
 __all__ = [
     "DEPENDENCY_EDGE_TYPES",
     "ProvenancePath",
+    "ProvenancePathEvaluation",
     "ProvenancePathScore",
-    "beam_search_provenance_paths",
-    "enumerate_provenance_paths",
     "invalidated_node_ids",
     "score_provenance_path",
+    "search_provenance_paths",
 ]

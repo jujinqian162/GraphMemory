@@ -1,36 +1,35 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
 class GraphRAGConfig:
-    seed_top_s: int = 8
-    restart_probability: float = 0.2
-    max_iterations: int = 30
-    convergence_tolerance: float = 1e-6
-    semantic_weight: float = 0.45
-    entity_weight: float = 0.55
-    min_entity_length: int = 2
-    max_entity_words: int = 8
+    seed_top_s: int = 5
+    max_entity_document_frequency_ratio: float = 0.25
+    sentence_resolver: Literal["frozen_dense"] = "frozen_dense"
+    min_sentence_score_margin: float = 0.02
+    min_bridge_confidence: float = 0.2
+    max_partners_per_anchor: int = 1
+    preserve_dense_top_n: int = 2
 
     def __post_init__(self) -> None:
         if self.seed_top_s <= 0:
             raise ValueError("seed_top_s must be positive.")
-        if not 0.0 < self.restart_probability <= 1.0:
-            raise ValueError("restart_probability must be in (0, 1].")
-        if self.max_iterations <= 0:
-            raise ValueError("max_iterations must be positive.")
-        if self.convergence_tolerance <= 0.0:
-            raise ValueError("convergence_tolerance must be positive.")
-        if self.semantic_weight < 0.0 or self.entity_weight < 0.0:
-            raise ValueError("GraphRAG score weights must be non-negative.")
-        if self.semantic_weight + self.entity_weight == 0.0:
-            raise ValueError("At least one GraphRAG score weight must be positive.")
-        if self.min_entity_length <= 0:
-            raise ValueError("min_entity_length must be positive.")
-        if self.max_entity_words <= 0:
-            raise ValueError("max_entity_words must be positive.")
+        if not 0.0 < self.max_entity_document_frequency_ratio <= 1.0:
+            raise ValueError("max_entity_document_frequency_ratio must be in (0, 1].")
+        if self.sentence_resolver != "frozen_dense":
+            raise ValueError("sentence_resolver must be 'frozen_dense'.")
+        for name in ("min_sentence_score_margin", "min_bridge_confidence"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+        if self.max_partners_per_anchor != 1:
+            raise ValueError("max_partners_per_anchor must be exactly 1.")
+        if self.preserve_dense_top_n < 0:
+            raise ValueError("preserve_dense_top_n must be non-negative.")
 
 
 __all__ = ["GraphRAGConfig"]

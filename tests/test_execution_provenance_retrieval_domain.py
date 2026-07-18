@@ -5,6 +5,7 @@ from collections.abc import Sequence
 import numpy as np
 import pytest
 
+from graph_memory.embeddings import SentenceEncoder
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
     ExecutionProvenanceGraph,
@@ -31,9 +32,12 @@ from graph_memory.retrieval.methods.execution_provenance import (
     ExecutionProvenanceRetriever,
 )
 from graph_memory.retrieval.methods.execution_provenance.search import (
-    enumerate_provenance_paths,
+    search_provenance_paths,
 )
-from graph_memory.retrieval.contracts import ExecutionProvenanceTrace, GraphRAGTrace
+from graph_memory.retrieval.contracts import (
+    GraphRAGTrace,
+    StatelessExecutionProvenanceTrace,
+)
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
 from graph_memory.retrieval.methods.graphrag import (
     GraphRAGConfig,
@@ -83,6 +87,47 @@ class KeywordEncoder:
         return np.asarray(rows, dtype=np.float32)
 
 
+class LocalPromotionEncoder:
+    def encode(
+        self,
+        texts: Sequence[str],
+        batch_size: int = 64,
+        normalize_embeddings: bool = True,
+    ) -> object:
+        _ = batch_size
+        rows: list[np.ndarray] = []
+        for text in texts:
+            lowered = text.casefold()
+            if lowered.startswith("q:") and "source evidence:" not in lowered:
+                vector = np.asarray([1.0, 0.0], dtype=np.float32)
+            elif "source evidence:" in lowered:
+                vector = np.asarray([0.0, 1.0], dtype=np.float32)
+            elif "alpha" in lowered:
+                vector = np.asarray([1.0, 0.1], dtype=np.float32)
+            elif "noise one" in lowered:
+                vector = np.asarray([0.9, 0.0], dtype=np.float32)
+            elif "noise two" in lowered:
+                vector = np.asarray([0.8, 0.0], dtype=np.float32)
+            elif "bridge city" in lowered:
+                vector = np.asarray([0.6, 1.0], dtype=np.float32)
+            else:
+                vector = np.asarray([0.1, 0.0], dtype=np.float32)
+            _ = normalize_embeddings
+            rows.append(vector)
+        return np.asarray(rows, dtype=np.float32)
+
+
+class EqualEncoder:
+    def encode(
+        self,
+        texts: Sequence[str],
+        batch_size: int = 64,
+        normalize_embeddings: bool = True,
+    ) -> object:
+        _ = batch_size, normalize_embeddings
+        return np.asarray([[1.0, 0.0] for _text in texts], dtype=np.float32)
+
+
 def _candidates() -> tuple[TextCandidate, ...]:
     return (
         TextCandidate("call-1", "lookup Alpha", {}),
@@ -98,6 +143,93 @@ def _dense_ranker() -> DenseTaskRetriever:
     )
 
 
+def _local_dense_ranker(
+    encoder: SentenceEncoder | None = None,
+) -> DenseTaskRetriever:
+    return DenseTaskRetriever(
+        encoder=encoder or LocalPromotionEncoder(),
+        query_prefix="Q:",
+        passage_prefix="P:",
+    )
+
+
+def _local_graphrag_candidates() -> tuple[TextCandidate, ...]:
+    return (
+        TextCandidate(
+            "a",
+            "Alpha. Alpha was born in Bridge City.",
+            {"title": "Alpha", "source_ref": "Alpha"},
+        ),
+        TextCandidate("x", "Noise One. Distractor.", {"title": "Noise One"}),
+        TextCandidate("y", "Noise Two. Distractor.", {"title": "Noise Two"}),
+        TextCandidate(
+            "b",
+            "Bridge City. Bridge City is located in Country Z.",
+            {"title": "Bridge City"},
+        ),
+    )
+
+
+def _local_provenance_request(
+    *, valid_binding: bool = True
+) -> ExecutionProvenanceRankingRequest:
+    binding_hash = "alpha-hash" if valid_binding else "wrong-hash"
+    nodes = (
+        ExecutionProvenanceNode(
+            "call-a",
+            ProvenanceNodeType.TOOL_CALL,
+            "Alpha call",
+            {"input_parameters": ["context"]},
+        ),
+        ExecutionProvenanceNode(
+            "a",
+            ProvenanceNodeType.TOOL_OUTPUT,
+            "Alpha source",
+            {"output_field_hashes": {"evidence": "alpha-hash"}},
+        ),
+        ExecutionProvenanceNode("x", ProvenanceNodeType.TOOL_OUTPUT, "Noise One"),
+        ExecutionProvenanceNode("y", ProvenanceNodeType.TOOL_OUTPUT, "Noise Two"),
+        ExecutionProvenanceNode(
+            "call-b",
+            ProvenanceNodeType.TOOL_CALL,
+            "Bridge call",
+            {"input_parameters": ["context"]},
+        ),
+        ExecutionProvenanceNode(
+            "b", ProvenanceNodeType.TOOL_OUTPUT, "Bridge City target"
+        ),
+    )
+    edges = (
+        ExecutionProvenanceEdge("call-a", "a", ProvenanceEdgeType.RETURNS),
+        ExecutionProvenanceEdge(
+            "a",
+            "call-b",
+            ProvenanceEdgeType.FEEDS,
+            binding=FieldBinding(
+                "evidence", "context", binding_hash, "semantic_reference"
+            ),
+            weight=0.8,
+            metadata={
+                "semantic_scorer": "frozen_dense",
+                "semantic_rank": 1,
+                "semantic_score": 0.7,
+            },
+        ),
+        ExecutionProvenanceEdge("call-b", "b", ProvenanceEdgeType.RETURNS),
+    )
+    return ExecutionProvenanceRankingRequest(
+        "local-path",
+        "base query",
+        (
+            TextCandidate("a", "Alpha source", {}),
+            TextCandidate("x", "Noise One", {}),
+            TextCandidate("y", "Noise Two", {}),
+            TextCandidate("b", "Bridge City target", {}),
+        ),
+        ExecutionProvenanceGraph("local-path", nodes, edges),
+    )
+
+
 def _provenance_graph(
     *, include_untraversed_edge: bool = False
 ) -> ExecutionProvenanceGraph:
@@ -106,10 +238,16 @@ def _provenance_graph(
         ExecutionProvenanceNode("agent", ProvenanceNodeType.AGENT, "assistant"),
         ExecutionProvenanceNode("call-1", ProvenanceNodeType.TOOL_CALL, "lookup Alpha"),
         ExecutionProvenanceNode(
-            "out-1", ProvenanceNodeType.TOOL_OUTPUT, "Alpha result"
+            "out-1",
+            ProvenanceNodeType.TOOL_OUTPUT,
+            "Alpha result",
+            {"output_field_hashes": {"result": "alpha-hash"}},
         ),
         ExecutionProvenanceNode(
-            "call-2", ProvenanceNodeType.TOOL_CALL, "use Alpha result"
+            "call-2",
+            ProvenanceNodeType.TOOL_CALL,
+            "use Alpha result",
+            {"input_parameters": ["input"]},
         ),
         ExecutionProvenanceNode(
             "out-2", ProvenanceNodeType.TOOL_OUTPUT, "final Alpha answer"
@@ -124,6 +262,12 @@ def _provenance_graph(
             "call-2",
             ProvenanceEdgeType.FEEDS,
             binding=FieldBinding("result", "input", "alpha-hash", "exact"),
+            weight=0.9,
+            metadata={
+                "semantic_scorer": "frozen_dense",
+                "semantic_rank": 1,
+                "semantic_score": 0.8,
+            },
         ),
         ExecutionProvenanceEdge("call-2", "out-2", ProvenanceEdgeType.RETURNS),
         ExecutionProvenanceEdge("out-2", "answer", ProvenanceEdgeType.GROUNDS),
@@ -219,8 +363,8 @@ def test_feeds_requires_binding_but_precedes_does_not() -> None:
     assert chronological.binding is None
 
 
-def test_graphrag_builds_entity_search_without_evidence_graph() -> None:
-    config = GraphRAGConfig(seed_top_s=2, max_iterations=20)
+def test_graphrag_builds_typed_mentions_without_evidence_graph() -> None:
+    config = GraphRAGConfig(seed_top_s=2)
     request = build_graphrag_request(
         TextRankingRequest("task-1", "Alpha answer", _candidates()), config
     )
@@ -233,8 +377,8 @@ def test_graphrag_builds_entity_search_without_evidence_graph() -> None:
 
     assert len(result.ranked_nodes) == len(request.candidates)
     assert isinstance(result.trace.native_trace, GraphRAGTrace)
-    assert result.trace.native_trace.entity_ids
-    assert result.trace.native_trace.linked_entity_ids
+    assert result.trace.native_trace.exact_dense_fallback
+    assert result.trace.native_trace.dense_ranks
     assert result.trace.retrieved_edges == []
 
 
@@ -255,7 +399,79 @@ def test_graphrag_semantic_fallback_keeps_complete_ranking() -> None:
 
     assert len(result.ranked_nodes) == len(candidates)
     assert isinstance(result.trace.native_trace, GraphRAGTrace)
-    assert result.trace.native_trace.relations == ()
+    assert result.trace.native_trace.bridges == ()
+    assert result.trace.native_trace.exact_dense_fallback
+
+
+def test_graphrag_promotes_only_resolved_partner_after_protected_prefix() -> None:
+    candidates = _local_graphrag_candidates()
+    config = GraphRAGConfig(
+        seed_top_s=1,
+        max_entity_document_frequency_ratio=0.75,
+        min_sentence_score_margin=0.02,
+        min_bridge_confidence=0.0,
+        preserve_dense_top_n=2,
+    )
+    ranker = _local_dense_ranker()
+    request = build_graphrag_request(
+        TextRankingRequest("local-bridge", "Which country?", candidates), config
+    )
+
+    result = GraphRAGMethod(ranker, config).rank_task(request, top_k=4)
+
+    assert [node.node_id for node in result.ranked_nodes] == ["a", "x", "b", "y"]
+    assert [node.score for node in result.ranked_nodes] == sorted(
+        [node.score for node in result.ranked_nodes], reverse=True
+    )
+    trace = result.trace.native_trace
+    assert isinstance(trace, GraphRAGTrace)
+    accepted = next(item for item in trace.bridges if item.accepted)
+    assert result.trace.retrieved_edges == [
+        {
+            "source": "a",
+            "target": "b",
+            "edge_type": "bridge_to",
+            "weight": accepted.bridge.confidence,
+            "directed": True,
+        }
+    ]
+    assert not trace.exact_dense_fallback
+
+
+def test_graphrag_low_margin_abstains_to_exact_dense_objects() -> None:
+    candidates = (
+        *_local_graphrag_candidates(),
+        TextCandidate(
+            "b2",
+            "Bridge City. Another possible sentence.",
+            {"title": "Bridge City"},
+        ),
+    )
+    config = GraphRAGConfig(
+        seed_top_s=1,
+        max_entity_document_frequency_ratio=0.8,
+        min_sentence_score_margin=0.02,
+        min_bridge_confidence=0.0,
+        preserve_dense_top_n=2,
+    )
+    ranker = _local_dense_ranker(EqualEncoder())
+    request = build_graphrag_request(
+        TextRankingRequest("ambiguous-bridge", "Which country?", candidates), config
+    )
+    dense = ranker.rank(
+        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+    )
+
+    result = GraphRAGMethod(ranker, config).rank_task(request, top_k=5)
+
+    assert result.ranked_nodes == dense
+    trace = result.trace.native_trace
+    assert isinstance(trace, GraphRAGTrace)
+    assert trace.exact_dense_fallback
+    assert any(
+        evidence.rejection_reason == "ambiguous_title_sentence"
+        for evidence in trace.resolver_evidence
+    )
 
 
 def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
@@ -265,28 +481,83 @@ def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
     )
     method = ExecutionProvenanceRetriever(
         dense_ranker=_dense_ranker(),
-        config=ExecutionProvenanceConfig(seed_top_s=1, max_hops=4, top_paths=2),
+        config=ExecutionProvenanceConfig(
+            seed_top_s=4,
+            max_hops=2,
+            preserve_dense_top_n=0,
+            min_path_confidence=0.0,
+        ),
     )
 
     result = method.rank_task(request, top_k=4)
 
     assert len(result.ranked_nodes) == len(request.candidates)
-    assert isinstance(result.trace.native_trace, ExecutionProvenanceTrace)
+    assert isinstance(result.trace.native_trace, StatelessExecutionProvenanceTrace)
     assert result.trace.native_trace.paths
     assert result.trace.native_trace.edges
     assert all(
         edge.edge_type is not ProvenanceEdgeType.PRECEDES
         for edge in result.trace.native_trace.edges
     )
+    assert all(
+        edge["source"] == "out-1" and edge["target"] == "out-2"
+        for edge in result.trace.retrieved_edges
+    )
+
+
+def test_provenance_local_path_promotes_partner_and_uses_confidence_once() -> None:
+    request = _local_provenance_request()
+    method = ExecutionProvenanceRetriever(
+        dense_ranker=_local_dense_ranker(),
+        config=ExecutionProvenanceConfig(
+            seed_top_s=1,
+            min_path_confidence=0.2,
+            preserve_dense_top_n=2,
+        ),
+    )
+
+    result = method.rank_task(request, top_k=4)
+
+    assert [node.node_id for node in result.ranked_nodes] == ["a", "x", "b", "y"]
     assert result.trace.retrieved_edges == [
         {
-            "source": "out-1",
-            "target": "out-2",
-            "edge_type": "sequential",
-            "weight": 1.0,
+            "source": "a",
+            "target": "b",
+            "edge_type": "feeds",
+            "weight": pytest.approx(0.8),
             "directed": True,
         }
     ]
+    trace = result.trace.native_trace
+    assert isinstance(trace, StatelessExecutionProvenanceTrace)
+    accepted = next(path for path in trace.paths if path.accepted)
+    assert accepted.path_confidence == pytest.approx(0.8)
+    assert not trace.exact_dense_fallback
+
+
+def test_provenance_binding_failure_abstains_to_exact_dense_objects() -> None:
+    request = _local_provenance_request(valid_binding=False)
+    ranker = _local_dense_ranker()
+    dense = ranker.rank(
+        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+    )
+    method = ExecutionProvenanceRetriever(
+        dense_ranker=ranker,
+        config=ExecutionProvenanceConfig(
+            seed_top_s=1,
+            min_path_confidence=0.0,
+            preserve_dense_top_n=2,
+        ),
+    )
+
+    result = method.rank_task(request, top_k=4)
+
+    assert result.ranked_nodes == dense
+    assert result.trace.retrieved_edges == []
+    trace = result.trace.native_trace
+    assert isinstance(trace, StatelessExecutionProvenanceTrace)
+    assert trace.exact_dense_fallback
+    assert any(path.rejection_reason == "binding_mismatch" for path in trace.paths)
 
 
 def test_provenance_graph_does_not_require_claim_or_verification_nodes() -> None:
@@ -304,13 +575,13 @@ def test_provenance_expansion_does_not_reverse_incoming_dependencies() -> None:
         "task-1", "Alpha answer", _candidates(), _provenance_graph()
     )
 
-    paths = enumerate_provenance_paths(
+    paths = search_provenance_paths(
         request,
         ("out-2",),
-        ExecutionProvenanceConfig(beam_width=2, max_hops=4),
+        config=ExecutionProvenanceConfig(beam_width=2, max_hops=2),
     )
 
-    assert all("out-1" not in path.node_ids for path in paths)
+    assert all("out-1" not in path.path.node_ids for path in paths)
 
 
 def test_provenance_config_rejects_empty_beam() -> None:

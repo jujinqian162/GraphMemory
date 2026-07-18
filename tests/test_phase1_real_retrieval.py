@@ -137,11 +137,12 @@ def test_graphrag_stage_builds_method_owned_entity_graph() -> None:
             method="graphrag",
             encoder=_encoder_config(),
             seed_top_s=2,
-            restart_probability=0.2,
-            max_iterations=20,
-            convergence_tolerance=1e-6,
-            semantic_weight=0.45,
-            entity_weight=0.55,
+            max_entity_document_frequency_ratio=0.75,
+            sentence_resolver="frozen_dense",
+            min_sentence_score_margin=0.02,
+            min_bridge_confidence=0.2,
+            max_partners_per_anchor=1,
+            preserve_dense_top_n=2,
         ),
         dataset="hotpotqa",
         top_k=2,
@@ -158,13 +159,18 @@ def test_graphrag_stage_builds_method_owned_entity_graph() -> None:
     assert len(result.predictions[0]["retrieved_subgraph"]["nodes"]) == 2
 
 
-def test_graphrag_propagates_query_entity_over_candidate_relations() -> None:
+def test_graphrag_builds_typed_local_bridge_evidence() -> None:
     candidates = (
-        TextCandidate("m0", "Eiffel Tower in Paris", {}),
-        TextCandidate("m1", "Seine runs through Paris", {}),
-        TextCandidate("m2", "Everest mountain", {}),
+        TextCandidate("m0", "Eiffel Tower in Paris", {"title": "Eiffel Tower"}),
+        TextCandidate("m1", "Seine runs through Paris", {"title": "Paris"}),
+        TextCandidate("m2", "Everest mountain", {"title": "Everest"}),
     )
-    config = GraphRAGConfig(seed_top_s=2, max_iterations=20)
+    config = GraphRAGConfig(
+        seed_top_s=2,
+        max_entity_document_frequency_ratio=0.75,
+        min_bridge_confidence=0.0,
+        preserve_dense_top_n=1,
+    )
     method = GraphRAGMethod(
         dense_ranker=DenseTaskRetriever(
             encoder=KeywordEncoder(), query_prefix="", passage_prefix=""
@@ -181,7 +187,8 @@ def test_graphrag_propagates_query_entity_over_candidate_relations() -> None:
 
     assert len(result.ranked_nodes) == len(candidates)
     assert isinstance(result.trace.native_trace, GraphRAGTrace)
-    assert result.trace.native_trace.relations
+    assert result.trace.native_trace.mentions
+    assert result.trace.native_trace.title_groups
     assert result.ranked_nodes[-1].node_id == "m2"
 
 

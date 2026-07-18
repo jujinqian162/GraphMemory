@@ -9,10 +9,13 @@ from graph_memory.retrieval.requests.execution_provenance import (
     ExecutionProvenanceRankingRequest,
 )
 from graph_memory.retrieval.requests.graphrag import (
-    EntityKnowledgeGraph,
-    EntityKnowledgeGraphEntity,
-    EntityKnowledgeGraphRelation,
+    EntityMentionType,
+    GraphRAGCandidateBridge,
+    GraphRAGEntityMention,
+    GraphRAGKnowledgeGraph,
     GraphRAGRequest,
+    GraphRAGResolverEvidence,
+    GraphRAGTitleEntityGroup,
 )
 from graph_memory.retrieval.requests.text import (
     DenseConfigLike,
@@ -32,12 +35,15 @@ RankingMethodRequest: TypeAlias = (
 __all__ = [
     "DenseConfigLike",
     "DenseRuntime",
-    "EntityKnowledgeGraph",
-    "EntityKnowledgeGraphEntity",
-    "EntityKnowledgeGraphRelation",
+    "EntityMentionType",
     "EvidenceGraphRankingRequest",
     "ExecutionProvenanceRankingRequest",
+    "GraphRAGCandidateBridge",
+    "GraphRAGEntityMention",
+    "GraphRAGKnowledgeGraph",
     "GraphRAGRequest",
+    "GraphRAGResolverEvidence",
+    "GraphRAGTitleEntityGroup",
     "JsonScalar",
     "RankingMethodRequest",
     "TextCandidate",

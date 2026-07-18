@@ -192,11 +192,14 @@ class GraphRAGMethodConfig(ClosedModel):
     method: Literal["graphrag"]
     encoder: DenseEncoderConfig
     seed_top_s: PositiveInt
-    restart_probability: Annotated[ScientificFloat, Field(gt=0.0, le=1.0)]
-    max_iterations: PositiveInt
-    convergence_tolerance: PositiveFloat
-    semantic_weight: NonNegativeFloat
-    entity_weight: NonNegativeFloat
+    max_entity_document_frequency_ratio: Annotated[
+        ScientificFloat, Field(gt=0.0, le=1.0)
+    ]
+    sentence_resolver: Literal["frozen_dense"]
+    min_sentence_score_margin: NonNegativeFloat
+    min_bridge_confidence: NonNegativeFloat
+    max_partners_per_anchor: Literal[1]
+    preserve_dense_top_n: NonNegativeInt
 
 
 class ExecutionProvenanceMethodConfig(ClosedModel):
@@ -205,14 +208,11 @@ class ExecutionProvenanceMethodConfig(ClosedModel):
     seed_top_s: PositiveInt
     beam_width: PositiveInt
     max_hops: PositiveInt
-    top_paths: PositiveInt
+    max_paths_per_seed: Literal[1]
     max_path_expansions: PositiveInt
-    semantic_weight: NonNegativeFloat
-    dependency_weight: NonNegativeFloat
-    binding_weight: NonNegativeFloat
-    grounding_weight: NonNegativeFloat
+    min_path_confidence: NonNegativeFloat
+    preserve_dense_top_n: NonNegativeInt
     hop_penalty: NonNegativeFloat
-    invalidation_penalty: NonNegativeFloat
 
 
 class PairSamplingConfig(ClosedModel):

@@ -7,7 +7,7 @@ Root constraint: [`docs/10-plans/execution-provenance-retrieval-domain-plan.md`]
 | Request | Meaning | Consumers |
 | --- | --- | --- |
 | `TextRankingRequest` | query plus flat text candidates | BM25, Dense, Dense-FT |
-| `GraphRAGRequest` | query, candidates, and the Registry-assembled `EntityKnowledgeGraph` | GraphRAG |
+| `GraphRAGRequest` | query, candidates, and the Registry-assembled typed mentions/title groups | GraphRAG |
 | `EvidenceGraphRankingRequest` | query, candidates, `EvidenceGraph`, and initial scores | two R-GCN methods |
 | `ExecutionProvenanceRankingRequest` | query, retrievable candidates, and native `ExecutionProvenanceGraph` | stateless and R-GCN Execution-Provenance retrievers |
 
@@ -36,7 +36,8 @@ All methods return the full ranked candidate list. `retrieved_subgraph` remains 
 
 | Trace kind | Required content |
 | --- | --- |
-| `entity_search` | all entity IDs, query-linked IDs, seed IDs, and typed entity relations with candidate projections |
-| `execution_provenance` | traced graph-context node IDs, selected paths with score components, and typed traversed edges with optional `feeds` binding |
+| `typed_local_bridge` | Dense ranks, linked entities, typed mentions/title groups, sentence resolver evidence, local bridge proposals, gates, displacement, fallback identity, and emitted promotion edges |
+| `execution_provenance` | existing selected-path trace used by the trainable provenance R-GCN path |
+| `execution_provenance_local` | Dense ranks, bounded path proposals over existing edge weights, structural gates, displacement, fallback identity, scorer identity, and emitted promotion edges |
 
-Serialization rejects unknown kinds or fields, non-finite weights/scores, duplicate IDs, relations, paths, or edges, unknown endpoints, and path steps without a corresponding traced edge. The runtime value objects are `GraphRAGTrace` and `ExecutionProvenanceTrace`; there are no generic dictionary-list compatibility fields.
+Serialization rejects unknown kinds or fields, non-finite weights/scores, duplicate IDs, paths, or edges, unknown endpoints, and path steps without a corresponding traced edge. Stateless traces report only accepted/rejected local interventions; when every proposal abstains, the ranked nodes and scores are byte-for-byte Dense identity.
