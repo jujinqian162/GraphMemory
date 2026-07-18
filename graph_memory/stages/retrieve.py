@@ -276,11 +276,14 @@ def _retrieval_settings(
             encoder=_encoder_settings(method.encoder, encoder_source),
             config=GraphRAGConfig(
                 seed_top_s=method.seed_top_s,
-                restart_probability=method.restart_probability,
-                max_iterations=method.max_iterations,
-                convergence_tolerance=method.convergence_tolerance,
-                semantic_weight=method.semantic_weight,
-                entity_weight=method.entity_weight,
+                max_entity_document_frequency_ratio=(
+                    method.max_entity_document_frequency_ratio
+                ),
+                sentence_resolver=method.sentence_resolver,
+                min_sentence_score_margin=method.min_sentence_score_margin,
+                min_bridge_confidence=method.min_bridge_confidence,
+                max_partners_per_anchor=method.max_partners_per_anchor,
+                preserve_dense_top_n=method.preserve_dense_top_n,
             ),
             device=device,
         )
@@ -292,14 +295,11 @@ def _retrieval_settings(
                 seed_top_s=method.seed_top_s,
                 beam_width=method.beam_width,
                 max_hops=method.max_hops,
-                top_paths=method.top_paths,
+                max_paths_per_seed=method.max_paths_per_seed,
                 max_path_expansions=method.max_path_expansions,
-                semantic_weight=method.semantic_weight,
-                dependency_weight=method.dependency_weight,
-                binding_weight=method.binding_weight,
-                grounding_weight=method.grounding_weight,
+                min_path_confidence=method.min_path_confidence,
+                preserve_dense_top_n=method.preserve_dense_top_n,
                 hop_penalty=method.hop_penalty,
-                invalidation_penalty=method.invalidation_penalty,
             ),
             device=device,
         )

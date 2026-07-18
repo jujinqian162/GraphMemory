@@ -4,9 +4,10 @@ encoder:
   query_prefix: "query: "
   passage_prefix: "passage: "
   batch_size: 64
-seed_top_s: 8
-restart_probability: 0.2
-max_iterations: 30
-convergence_tolerance: 0.000001
-semantic_weight: 0.45
-entity_weight: 0.55
+seed_top_s: 5
+max_entity_document_frequency_ratio: 0.25
+sentence_resolver: frozen_dense
+min_sentence_score_margin: 0.02
+min_bridge_confidence: 0.2
+max_partners_per_anchor: 1
+preserve_dense_top_n: 2

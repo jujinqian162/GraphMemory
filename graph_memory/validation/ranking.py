@@ -164,6 +164,31 @@ def _validate_native_trace(value: object, valid_candidate_ids: set[str], task_id
     if trace_kind == "execution_provenance":
         _validate_execution_provenance_trace(trace, task_id)
         return
+    if trace_kind == "typed_local_bridge":
+        _validate_local_intervention_trace(
+            trace,
+            valid_candidate_ids,
+            task_id,
+            proposal_field="bridges",
+            endpoint_fields=("source_candidate_id", "target_candidate_id"),
+            extra_fields={
+                "linked_entity_ids",
+                "mentions",
+                "title_groups",
+                "resolver_evidence",
+            },
+        )
+        return
+    if trace_kind == "execution_provenance_local":
+        _validate_local_intervention_trace(
+            trace,
+            valid_candidate_ids,
+            task_id,
+            proposal_field="paths",
+            endpoint_fields=("anchor_id", "partner_id"),
+            extra_fields={"edges", "scorer_identity"},
+        )
+        return
     raise ContractValidationError(
         f"Invalid native trace: task_id={task_id} unsupported trace_kind={trace_kind}."
     )
@@ -328,6 +353,150 @@ def _validate_execution_provenance_trace(trace: dict[str, Any], task_id: str) ->
                 )
         for field_name in score_fields:
             _required_finite_number(path, field_name, "native trace path", task_id)
+
+
+def _validate_local_intervention_trace(
+    trace: dict[str, Any],
+    valid_candidate_ids: set[str],
+    task_id: str,
+    *,
+    proposal_field: str,
+    endpoint_fields: tuple[str, str],
+    extra_fields: set[str],
+) -> None:
+    _reject_unknown_fields(
+        trace,
+        {
+            "trace_kind",
+            "dense_ranks",
+            "seed_candidate_ids",
+            proposal_field,
+            "protected_prefix",
+            "exact_dense_fallback",
+            "emitted_edges",
+            *extra_fields,
+        },
+        "native trace",
+        task_id,
+    )
+    dense_records = _native_trace_records(
+        trace.get("dense_ranks"), "dense_ranks", task_id
+    )
+    dense_ids: list[str] = []
+    for record in dense_records:
+        _reject_unknown_fields(
+            record,
+            {"node_id", "dense_rank", "dense_score", "final_rank"},
+            "native trace dense rank",
+            task_id,
+        )
+        dense_ids.append(
+            _required_string(record, "node_id", "native trace dense rank", task_id)
+        )
+        _required_int(
+            record, "dense_rank", "native trace dense rank", task_id, minimum=1
+        )
+        _required_int(
+            record, "final_rank", "native trace dense rank", task_id, minimum=1
+        )
+        _required_finite_number(
+            record, "dense_score", "native trace dense rank", task_id
+        )
+    _validate_candidate_references(
+        dense_ids, valid_candidate_ids, task_id, "dense_ranks"
+    )
+    seeds = _native_trace_string_list(
+        trace.get("seed_candidate_ids"), "seed_candidate_ids", task_id
+    )
+    protected = _native_trace_string_list(
+        trace.get("protected_prefix"), "protected_prefix", task_id
+    )
+    _validate_candidate_references(
+        [*seeds, *protected], valid_candidate_ids, task_id, "seed/prefix"
+    )
+    exact_fallback = trace.get("exact_dense_fallback")
+    if not isinstance(exact_fallback, bool):
+        raise ContractValidationError(
+            f"Invalid native trace: task_id={task_id} exact_dense_fallback must be boolean."
+        )
+    proposals = _native_trace_records(
+        trace.get(proposal_field), proposal_field, task_id
+    )
+    accepted_count = 0
+    for proposal in proposals:
+        endpoints = [
+            _required_string(proposal, field, "native trace proposal", task_id)
+            for field in endpoint_fields
+        ]
+        _validate_candidate_references(
+            endpoints, valid_candidate_ids, task_id, "proposal endpoint"
+        )
+        accepted = proposal.get("accepted")
+        if not isinstance(accepted, bool):
+            raise ContractValidationError(
+                f"Invalid native trace: task_id={task_id} proposal accepted must be boolean."
+            )
+        accepted_count += int(accepted)
+        reason = proposal.get("rejection_reason")
+        if accepted and reason is not None:
+            raise ContractValidationError(
+                f"Invalid native trace: task_id={task_id} accepted proposal has a rejection reason."
+            )
+        if not accepted and (not isinstance(reason, str) or not reason):
+            raise ContractValidationError(
+                f"Invalid native trace: task_id={task_id} rejected proposal needs a reason."
+            )
+    if exact_fallback != (accepted_count == 0):
+        raise ContractValidationError(
+            f"Invalid native trace: task_id={task_id} exact fallback state is inconsistent."
+        )
+    emitted = _native_trace_records(
+        trace.get("emitted_edges"), "emitted_edges", task_id
+    )
+    for edge in emitted:
+        _reject_unknown_fields(
+            edge,
+            {"source", "target", "edge_type", "confidence"},
+            "native trace emitted edge",
+            task_id,
+        )
+        endpoints = [
+            _required_string(edge, field, "native trace emitted edge", task_id)
+            for field in ("source", "target")
+        ]
+        _validate_candidate_references(
+            endpoints, valid_candidate_ids, task_id, "emitted edge"
+        )
+        _required_string(edge, "edge_type", "native trace emitted edge", task_id)
+        _required_finite_number(
+            edge,
+            "confidence",
+            "native trace emitted edge",
+            task_id,
+            minimum=0.0,
+        )
+    if "linked_entity_ids" in extra_fields:
+        _native_trace_string_list(
+            trace.get("linked_entity_ids"), "linked_entity_ids", task_id
+        )
+    for field in extra_fields - {"scorer_identity", "linked_entity_ids"}:
+        _native_trace_records(trace.get(field), field, task_id)
+    if "scorer_identity" in extra_fields:
+        _required_string(trace, "scorer_identity", "native trace", task_id)
+
+
+def _validate_candidate_references(
+    candidate_ids: Sequence[str],
+    valid_candidate_ids: set[str],
+    task_id: str,
+    field_name: str,
+) -> None:
+    unknown = sorted(set(candidate_ids) - valid_candidate_ids)
+    if unknown:
+        raise ContractValidationError(
+            f"Invalid native trace: task_id={task_id} {field_name} references "
+            f"unknown candidates={unknown}."
+        )
 
 
 def _validate_native_trace_binding(value: object, task_id: str) -> None:

@@ -44,6 +44,9 @@ from graph_memory.retrieval.methods.graphrag import (
     GraphRAGMethod,
     build_graphrag_request,
 )
+from graph_memory.retrieval.methods.graphrag.sentence_resolver import (
+    GraphRAGSentenceResolver,
+)
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
     EvidenceGraphRankingRequest,
@@ -238,8 +241,19 @@ def _build_graphrag(
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
+    sentence_resolver = GraphRAGSentenceResolver(
+        encoder=dense_ranker.encoder,
+        query_prefix=settings.encoder.query_prefix,
+        passage_prefix=settings.encoder.passage_prefix,
+        batch_size=settings.encoder.batch_size,
+        min_score_margin=settings.config.min_sentence_score_margin,
+    )
     return _built(
-        GraphRAGMethod(dense_ranker=dense_ranker, config=settings.config),
+        GraphRAGMethod(
+            dense_ranker=dense_ranker,
+            config=settings.config,
+            sentence_resolver=sentence_resolver,
+        ),
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,

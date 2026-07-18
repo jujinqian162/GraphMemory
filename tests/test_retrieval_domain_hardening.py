@@ -29,9 +29,8 @@ from graph_memory.retrieval.methods.execution_provenance import (
 )
 from graph_memory.retrieval.methods.execution_provenance.search import (
     DEPENDENCY_EDGE_TYPES,
-    enumerate_provenance_paths,
     invalidated_node_ids,
-    score_provenance_path,
+    search_provenance_paths,
 )
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.graphrag.index import build_graphrag_request
@@ -145,25 +144,25 @@ def test_graphrag_builder_assembles_explicit_alias_aware_graph() -> None:
 
     assert isinstance(first, GraphRAGRequest)
     assert first == second
-    ada = next(
-        entity
-        for entity in first.knowledge_graph.entities
-        if entity.normalized_name == "ada lovelace"
+    ada_title = next(
+        mention
+        for mention in first.knowledge_graph.mentions
+        if mention.normalized_surface == "ada lovelace"
+        and mention.mention_type == "TITLE_ENTITY"
     )
-    assert "ada" in ada.normalized_aliases
-    assert ada.candidate_ids == ("c1", "c2")
     assert any(
-        {relation.source_entity_id, relation.target_entity_id}
-        == {
-            ada.entity_id,
-            next(
-                entity.entity_id
-                for entity in first.knowledge_graph.entities
-                if entity.normalized_name == "analytical engine"
-            ),
-        }
-        for relation in first.knowledge_graph.relations
+        mention.candidate_id == "c2"
+        and mention.entity_id == ada_title.entity_id
+        and mention.mention_type == "MENTIONS"
+        and mention.alias_confidence == pytest.approx(0.9)
+        for mention in first.knowledge_graph.mentions
     )
+    analytical_group = next(
+        group
+        for group in first.knowledge_graph.title_groups
+        if group.normalized_title_entity == "analytical engine"
+    )
+    assert analytical_group.candidate_ids == ("c2",)
 
 
 def test_new_dense_methods_preserve_query_and_passage_prefixes() -> None:
@@ -213,36 +212,26 @@ def test_provenance_rejects_untyped_support_transition() -> None:
         )
 
 
-def test_provenance_scores_complete_bound_path_before_short_weak_path() -> None:
+def test_provenance_rejects_incomplete_and_multi_semantic_paths() -> None:
     request = _alternative_path_request()
     config = ExecutionProvenanceConfig(
-        max_hops=4,
-        top_paths=5,
+        max_hops=3,
         max_path_expansions=32,
-        semantic_weight=0.1,
-        dependency_weight=0.35,
-        binding_weight=0.4,
-        grounding_weight=0.0,
         hop_penalty=0.01,
     )
-    paths = enumerate_provenance_paths(request, ("seed",), config)
-    target_paths = [path for path in paths if path.node_ids[-1] == "target"]
+    evaluations = search_provenance_paths(request, ("seed",), config=config)
+    target_paths = [
+        evaluation for evaluation in evaluations if evaluation.partner_id == "target"
+    ]
 
-    assert {path.node_ids for path in target_paths} == {
+    assert {evaluation.path.node_ids for evaluation in target_paths} == {
         ("seed", "target"),
         ("seed", "call-a", "out-a", "target"),
     }
-    scores = {
-        path.node_ids: score_provenance_path(
-            path,
-            semantic_scores={"seed": 1.0, "target": 0.9},
-            invalidated_node_ids=frozenset(),
-            node_by_id={node.node_id: node for node in request.graph.nodes},
-            config=config,
-        ).total
-        for path in target_paths
+    assert all(not evaluation.score.valid for evaluation in target_paths)
+    assert {evaluation.score.rejection_reason for evaluation in target_paths} == {
+        "incomplete_path"
     }
-    assert scores[("seed", "call-a", "out-a", "target")] > scores[("seed", "target")]
 
 
 def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() -> None:

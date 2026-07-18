@@ -6,7 +6,14 @@ from typing import Literal, Protocol, TypeAlias
 from graph_memory.contracts.common import NodeId, Score
 from graph_memory.contracts.graphs import GraphEdge
 from graph_memory.graphs.provenance import ProvenanceEdgeType
-from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    GraphRAGCandidateBridge,
+    GraphRAGEntityMention,
+    GraphRAGResolverEvidence,
+    GraphRAGTitleEntityGroup,
+    RankingMethodRequest,
+    TextRankingRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -16,20 +23,43 @@ class RankedNode:
 
 
 @dataclass(frozen=True)
-class EntityRelationTrace:
-    source_entity_id: str
-    target_entity_id: str
-    weight: float
-    candidate_ids: tuple[str, ...]
+class DenseRankTrace:
+    node_id: str
+    dense_rank: int
+    dense_score: float
+    final_rank: int
+
+
+@dataclass(frozen=True)
+class CandidateEdgeTrace:
+    source: str
+    target: str
+    edge_type: str
+    confidence: float
+
+
+@dataclass(frozen=True)
+class GraphRAGBridgeTrace:
+    bridge: GraphRAGCandidateBridge
+    accepted: bool
+    rejection_reason: str | None
+    original_partner_rank: int
+    final_partner_rank: int
 
 
 @dataclass(frozen=True)
 class GraphRAGTrace:
-    entity_ids: tuple[str, ...]
+    dense_ranks: tuple[DenseRankTrace, ...]
+    seed_candidate_ids: tuple[str, ...]
     linked_entity_ids: tuple[str, ...]
-    seed_entity_ids: tuple[str, ...]
-    relations: tuple[EntityRelationTrace, ...]
-    trace_kind: Literal["entity_search"] = "entity_search"
+    mentions: tuple[GraphRAGEntityMention, ...]
+    title_groups: tuple[GraphRAGTitleEntityGroup, ...]
+    resolver_evidence: tuple[GraphRAGResolverEvidence, ...]
+    bridges: tuple[GraphRAGBridgeTrace, ...]
+    protected_prefix: tuple[str, ...]
+    exact_dense_fallback: bool
+    emitted_edges: tuple[CandidateEdgeTrace, ...]
+    trace_kind: Literal["typed_local_bridge"] = "typed_local_bridge"
 
 
 @dataclass(frozen=True)
@@ -46,6 +76,36 @@ class ProvenanceEdgeTrace:
     edge_type: ProvenanceEdgeType
     weight: float
     binding: ProvenanceBindingTrace | None = None
+    semantic_rank: int | None = None
+    semantic_score: float | None = None
+
+
+@dataclass(frozen=True)
+class StatelessProvenancePathTrace:
+    anchor_id: str
+    partner_id: str
+    node_ids: tuple[str, ...]
+    path_confidence: float
+    binding_valid: bool
+    completeness_valid: bool
+    lifecycle_valid: bool
+    accepted: bool
+    rejection_reason: str | None
+    original_partner_rank: int
+    final_partner_rank: int
+
+
+@dataclass(frozen=True)
+class StatelessExecutionProvenanceTrace:
+    dense_ranks: tuple[DenseRankTrace, ...]
+    seed_candidate_ids: tuple[str, ...]
+    paths: tuple[StatelessProvenancePathTrace, ...]
+    edges: tuple[ProvenanceEdgeTrace, ...]
+    protected_prefix: tuple[str, ...]
+    exact_dense_fallback: bool
+    emitted_edges: tuple[CandidateEdgeTrace, ...]
+    scorer_identity: str
+    trace_kind: Literal["execution_provenance_local"] = "execution_provenance_local"
 
 
 @dataclass(frozen=True)
@@ -68,7 +128,9 @@ class ExecutionProvenanceTrace:
     trace_kind: Literal["execution_provenance"] = "execution_provenance"
 
 
-NativeRetrievalTrace: TypeAlias = GraphRAGTrace | ExecutionProvenanceTrace
+NativeRetrievalTrace: TypeAlias = (
+    GraphRAGTrace | ExecutionProvenanceTrace | StatelessExecutionProvenanceTrace
+)
 
 
 @dataclass(frozen=True)
