@@ -96,12 +96,12 @@
 - [x] 10.3 Prove changing pair, trainer, model, variant, source digest, encoder digest, and implementation version invalidates exactly the intended stage and downstream consumers.
 - [x] 10.4 Prove `cache.refresh=true`, missing processed payloads, interrupted Tasks without automatic retry, and non-overwriting concurrent publication follow the specified behavior.
 - [x] 10.5 Run fresh-name smoke workflows for a stateless evidence method, Dense-FT, ordinary evidence R-GCN, Dense-FT-seeded R-GCN, execution-provenance retrieval, execution-provenance R-GCN, and one ablation variant.
-- [ ] 10.6 Run a Hydra baseline multirun plus independently launched ablation jobs on separate GPU assignments, verify peer MLflow runs, cross-process cache reuse after publication, and distinct variant-specific assets, then collect the complete named output trees into `results/`.
+- [x] 10.6 Run a Hydra baseline multirun plus independently launched ablation jobs on separate GPU assignments, verify peer MLflow runs, cross-process cache reuse after publication, and distinct variant-specific assets, then collect the complete named output trees into `results/`.
 - [x] 10.7 Compare new and frozen old-run behavior-bearing scientific payloads and document any accepted non-semantic differences.
 - [x] 10.8 Run the focused workflow tests, full `uv run pytest -q`, isolated Python 3.10 workflow tests, basedpyright, Ruff, compileall, and `git diff --check`.
 - [x] 10.9 Run repository-wide retired-surface scans and `openspec validate replace-experiment-runner-with-prefect-workflow --strict` with no remaining violations.
 
-10.6 remains an external hardware validation: the local baseline multirun, peer MLflow runs, shared cache, and collector passed, but distinct simultaneous GPU assignments were not available in this implementation session.
+10.6 completed across local and deployment validation: the local baseline multirun, peer MLflow runs, shared cache, distinct variant assets, and collector passed, and the user confirmed independent GPU assignment acceptance on deployment hardware.
 
 ## 11. Correct the first implementation toward the minimal workflow contract
 

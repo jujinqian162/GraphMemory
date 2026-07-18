@@ -99,11 +99,13 @@ def run_experiment(
             assets.extend((train.artifact, dev.artifact, test.artifact))
 
             encoder_source = resolve_encoder_source(method.encoder)
+            effective_pairs = method.pairs
+            if config.dataset.name == "twowiki_provenance":
+                effective_pairs = method.pairs.model_copy(
+                    update={"hard_graph_neighbor_per_positive": 0}
+                )
             train_graphs = None
-            if (
-                config.dataset.name != "twowiki_provenance"
-                and method.pairs.hard_graph_neighbor_per_positive > 0
-            ):
+            if effective_pairs.hard_graph_neighbor_per_positive > 0:
                 train_graphs = build_evidence_graphs_task(
                     prepared=train.artifact,
                     dataset=config.dataset.name,
@@ -119,7 +121,7 @@ def run_experiment(
                 ),
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
-                    sampling=method.pairs,
+                    sampling=effective_pairs,
                     encoder=method.encoder,
                     device=config.device,
                 ),

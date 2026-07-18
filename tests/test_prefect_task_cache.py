@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+from hydra import compose, initialize_config_dir
 from prefect import flow
+import pytest
 
 import graph_memory.experiment.tasks as experiment_tasks
 import graph_memory.experiment.workflow as experiment_workflow
@@ -16,11 +20,17 @@ from graph_memory.experiment.config import (
     ProvenanceRgcnStageConfig,
     RgcnTrainStageConfig,
     TrainableRankingConfig,
+    parse_composed_config,
+    resolve_experiment_config,
 )
 from graph_memory.experiment.tasks import prefect_storage_settings, prepare_split_task
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class PairInputsCaptured(Exception):
+    pass
 
 
 def test_scientific_tasks_have_no_retry_or_lock_layer() -> None:
@@ -104,6 +114,98 @@ def test_flow_calls_tasks_directly_without_forwarding_or_state_mirrors() -> None
     assert "return_state" not in source
     assert ".with_options(" not in source
     assert "task_runs" not in source
+
+
+@pytest.mark.parametrize(
+    ("dataset", "expects_graph", "expected_graph_neighbors"),
+    (
+        ("twowiki_provenance", False, 0),
+        ("hotpotqa", True, 1),
+    ),
+)
+def test_dense_ft_flow_uses_family_compatible_pair_inputs(
+    monkeypatch,
+    tmp_path: Path,
+    dataset: str,
+    expects_graph: bool,
+    expected_graph_neighbors: int,
+) -> None:
+    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
+        composed = compose(
+            config_name="config",
+            overrides=[
+                "name=dense-ft-pair-contract",
+                f"dataset={dataset}",
+                "profile=smoke",
+                "device=cpu",
+                "method=dense_ft",
+            ],
+        )
+    config = resolve_experiment_config(
+        parse_composed_config(composed),
+        repository_root=ROOT,
+    )
+    observed: dict[str, object] = {}
+    graph_artifact = object()
+
+    monkeypatch.setattr(
+        experiment_workflow,
+        "prefect_storage_settings",
+        lambda *, refresh_cache: nullcontext(),
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "_split_source",
+        lambda config, split: object(),
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "prepare_split_task",
+        lambda *, source, config: SimpleNamespace(
+            artifact=object(),
+            split=config.split,
+        ),
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "resolve_encoder_source",
+        lambda encoder: object(),
+    )
+
+    def capture_graph(**kwargs):
+        observed["built_graph"] = True
+        return SimpleNamespace(artifact=graph_artifact)
+
+    def capture_pairs(**kwargs):
+        observed["evidence_graphs"] = kwargs["evidence_graphs"]
+        observed["config"] = kwargs["config"]
+        raise PairInputsCaptured
+
+    monkeypatch.setattr(
+        experiment_workflow,
+        "build_evidence_graphs_task",
+        capture_graph,
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "build_training_pairs_task",
+        capture_pairs,
+    )
+
+    with pytest.raises(PairInputsCaptured):
+        experiment_workflow.run_experiment.fn(
+            config,
+            run_output=tmp_path / "run",
+        )
+
+    pair_config = observed["config"]
+    assert isinstance(pair_config, PairBuildConfig)
+    assert observed.get("built_graph", False) is expects_graph
+    assert observed["evidence_graphs"] is (graph_artifact if expects_graph else None)
+    assert (
+        pair_config.sampling.hard_graph_neighbor_per_positive
+        == expected_graph_neighbors
+    )
 
 
 def test_prepare_task_reuses_cache_and_flow_scoped_refreshes(
