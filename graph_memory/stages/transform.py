@@ -10,9 +10,12 @@ from pathlib import Path
 from typing import cast
 
 from graph_memory.datasets.twowiki_provenance import (
+    DenseRankerFactory,
     ProvenanceGraphConstructionConfig,
+    TwoWikiProvenanceConversionResult,
     convert_twowiki_source_records,
     deterministic_dev_test_partition,
+    resolve_worker_count,
 )
 from graph_memory.experiment.artifacts import (
     FileSourceRef,
@@ -106,6 +109,30 @@ def _dense_ranker(
     )
 
 
+def _dense_ranker_factory(
+    config: TwoWikiProvenanceTransformConfig,
+) -> DenseRankerFactory:
+    return DenseRankerFactory(
+        model_name=config.dense_model,
+        query_prefix=config.dense_query_prefix,
+        passage_prefix=config.dense_passage_prefix,
+        batch_size=config.dense_batch_size,
+    )
+
+
+def _resolve_devices(
+    config: TwoWikiProvenanceTransformConfig,
+    *,
+    is_dense: bool,
+    fallback: str,
+) -> tuple[str, ...]:
+    if not is_dense:
+        return ()
+    if config.devices:
+        return config.devices
+    return (fallback,)
+
+
 def _record_list(path: Path) -> list[object]:
     value = read_json(path)
     if not isinstance(value, list):
@@ -158,28 +185,36 @@ def materialize_transform_twowiki(
         return existing
 
     graph_config = _graph_config(config)
-    dense_ranker = (
-        _dense_ranker(config, device=device)
-        if config.edge_scorer in {"dense", "hybrid"}
-        else None
-    )
+    is_dense = config.edge_scorer in {"dense", "hybrid"}
+    workers = resolve_worker_count(config.workers)
 
-    train_conversion = convert_twowiki_source_records(
-        _record_list(Path(train_source.uri)),
-        candidate_cap=config.candidate_cap,
-        seed=config.seed,
-        strict=config.strict,
-        graph_config=graph_config,
-        dense_ranker=dense_ranker,
-    )
-    dev_conversion = convert_twowiki_source_records(
-        _record_list(Path(dev_source.uri)),
-        candidate_cap=config.candidate_cap,
-        seed=config.seed,
-        strict=config.strict,
-        graph_config=graph_config,
-        dense_ranker=dense_ranker,
-    )
+    # workers<=1 keeps the serial path (one main-process ranker); workers>1
+    # ships a picklable factory so each worker builds its own ranker, since a
+    # torch-backed ranker cannot cross a process boundary.
+    if workers > 1:
+        dense_ranker = None
+        dense_ranker_factory = _dense_ranker_factory(config) if is_dense else None
+        devices = _resolve_devices(config, is_dense=is_dense, fallback=device)
+    else:
+        dense_ranker = _dense_ranker(config, device=device) if is_dense else None
+        dense_ranker_factory = None
+        devices = ()
+
+    def _convert(source: FileSourceRef) -> TwoWikiProvenanceConversionResult:
+        return convert_twowiki_source_records(
+            _record_list(Path(source.uri)),
+            candidate_cap=config.candidate_cap,
+            seed=config.seed,
+            strict=config.strict,
+            graph_config=graph_config,
+            dense_ranker=dense_ranker,
+            workers=workers,
+            dense_ranker_factory=dense_ranker_factory,
+            devices=devices,
+        )
+
+    train_conversion = _convert(train_source)
+    dev_conversion = _convert(dev_source)
     dev_records, test_records = deterministic_dev_test_partition(
         dev_conversion.records,
         seed=config.seed,

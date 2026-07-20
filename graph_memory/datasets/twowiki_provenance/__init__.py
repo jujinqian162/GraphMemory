@@ -1,8 +1,10 @@
 from graph_memory.datasets.twowiki_provenance.converter import (
+    DenseRankerFactory,
     audit_twowiki_source_records,
     convert_twowiki_source_record,
     convert_twowiki_source_records,
     deterministic_dev_test_partition,
+    resolve_worker_count,
 )
 from graph_memory.datasets.twowiki_provenance.parser import (
     parse_twowiki_provenance_record,
@@ -35,6 +37,7 @@ from graph_memory.datasets.twowiki_provenance.scoring import (
 )
 
 __all__ = [
+    "DenseRankerFactory",
     "audit_twowiki_source_records",
     "ConvertedTwoWikiProvenanceExample",
     "ProvenanceBindingRecord",
@@ -57,6 +60,7 @@ __all__ = [
     "convert_twowiki_source_record",
     "convert_twowiki_source_records",
     "deterministic_dev_test_partition",
+    "resolve_worker_count",
     "parse_twowiki_provenance_record",
     "parse_twowiki_provenance_records",
     "provenance_graph_from_record",

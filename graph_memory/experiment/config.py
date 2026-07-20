@@ -158,6 +158,11 @@ class TwoWikiProvenanceTransformConfig(ClosedModel):
     dense_query_prefix: str = "query: "
     dense_passage_prefix: str = "passage: "
     dense_batch_size: PositiveInt = 64
+    # Performance-only knobs. They intentionally stay OUT of identity() so that
+    # changing parallelism never changes the version tag or invalidates the
+    # Prefect cache: transformed data is byte-identical regardless of them.
+    workers: PositiveInt | None = None
+    devices: tuple[str, ...] = ()
 
     def identity(self) -> dict[str, JsonValue]:
         return {

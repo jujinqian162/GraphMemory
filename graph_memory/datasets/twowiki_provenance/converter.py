@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import random
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
 from graph_memory.datasets.twowiki import (
@@ -35,6 +37,37 @@ from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 MINIMUM_CANDIDATES = 4
 
 
+@dataclass(frozen=True)
+class DenseRankerFactory:
+    """Picklable description that lets each worker rebuild its own dense ranker.
+
+    Torch-backed rankers cannot cross a process boundary, so the parallel path
+    ships this instead of a live ranker and materializes one ranker per worker.
+    """
+
+    model_name: str
+    query_prefix: str
+    passage_prefix: str
+    batch_size: int
+
+    def build(self, *, device: str | None) -> SeedRanker:
+        from graph_memory.retrieval.methods.flat.dense import (
+            DenseConfig,
+            DenseTaskRetriever,
+        )
+
+        return DenseTaskRetriever(
+            config=DenseConfig(
+                model_name=self.model_name,
+                query_prefix=self.query_prefix,
+                passage_prefix=self.passage_prefix,
+                batch_size=self.batch_size,
+                device=device,
+            ),
+            device=device,
+        )
+
+
 def convert_twowiki_source_records(
     raw_records: Sequence[object],
     *,
@@ -43,10 +76,27 @@ def convert_twowiki_source_records(
     strict: bool = False,
     graph_config: ProvenanceGraphConstructionConfig | None = None,
     dense_ranker: SeedRanker | None = None,
+    workers: int | None = None,
+    dense_ranker_factory: DenseRankerFactory | None = None,
+    devices: Sequence[str] | None = None,
 ) -> TwoWikiProvenanceConversionResult:
     if candidate_cap < MINIMUM_CANDIDATES:
         raise ValueError(f"candidate_cap must be at least {MINIMUM_CANDIDATES}.")
     resolved_graph_config = graph_config or ProvenanceGraphConstructionConfig()
+
+    resolved_workers = workers if workers is not None else 1
+    if resolved_workers > 1 and len(raw_records) > 1:
+        return _convert_in_parallel(
+            raw_records,
+            candidate_cap=candidate_cap,
+            seed=seed,
+            strict=strict,
+            graph_config=resolved_graph_config,
+            dense_ranker_factory=dense_ranker_factory,
+            workers=resolved_workers,
+            devices=tuple(devices) if devices else (),
+        )
+
     semantic_ranker = ProvenanceSemanticRanker(
         resolved_graph_config, dense_ranker=dense_ranker
     )
@@ -73,6 +123,133 @@ def convert_twowiki_source_records(
         records=records,
         rejected_reason_counts=dict(sorted(rejected.items())),
     )
+
+
+_worker_ranker: ProvenanceSemanticRanker | None = None
+_worker_state: _WorkerConfig | None = None
+
+
+@dataclass(frozen=True)
+class _WorkerConfig:
+    graph_config: ProvenanceGraphConstructionConfig
+    candidate_cap: int
+    seed: int
+    strict: bool
+    dense_ranker_factory: DenseRankerFactory | None
+    devices: tuple[str, ...]
+
+
+def _init_worker(config: _WorkerConfig) -> None:
+    # Each worker owns one core so N processes do not oversubscribe the CPU
+    # while torch also tries to fan matmuls across every core.
+    try:
+        import torch
+
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
+
+    device: str | None = None
+    if config.devices:
+        slot = _worker_slot() % len(config.devices)
+        device = config.devices[slot]
+
+    dense_ranker: SeedRanker | None = None
+    if config.dense_ranker_factory is not None:
+        dense_ranker = config.dense_ranker_factory.build(device=device)
+
+    global _worker_ranker, _worker_state
+    _worker_state = config
+    _worker_ranker = ProvenanceSemanticRanker(
+        config.graph_config, dense_ranker=dense_ranker
+    )
+
+
+def _worker_slot() -> int:
+    # ProcessPoolExecutor names workers "SpawnProcess-<n>"/"ForkProcess-<n>";
+    # the trailing integer gives each worker a stable slot for device binding.
+    import multiprocessing
+
+    name = multiprocessing.current_process().name
+    tail = name.rsplit("-", 1)[-1]
+    return int(tail) - 1 if tail.isdigit() else 0
+
+
+def _convert_chunk(
+    indexed_records: Sequence[tuple[int, object]],
+) -> tuple[list[TwoWikiProvenanceRawRecord], dict[str, int]]:
+    assert _worker_ranker is not None and _worker_state is not None
+    state = _worker_state
+    records: list[TwoWikiProvenanceRawRecord] = []
+    rejected: Counter[str] = Counter()
+    for index, raw_record in indexed_records:
+        try:
+            records.append(
+                convert_twowiki_source_record(
+                    raw_record,
+                    record_index=index,
+                    candidate_cap=state.candidate_cap,
+                    seed=state.seed,
+                    graph_config=state.graph_config,
+                    semantic_ranker=_worker_ranker,
+                ).raw_record
+            )
+        except ValueError as error:
+            if state.strict:
+                raise
+            rejected[_rejection_reason(error)] += 1
+    return records, dict(rejected)
+
+
+def _convert_in_parallel(
+    raw_records: Sequence[object],
+    *,
+    candidate_cap: int,
+    seed: int,
+    strict: bool,
+    graph_config: ProvenanceGraphConstructionConfig,
+    dense_ranker_factory: DenseRankerFactory | None,
+    workers: int,
+    devices: tuple[str, ...],
+) -> TwoWikiProvenanceConversionResult:
+    if graph_config.strategy != "bm25" and dense_ranker_factory is None:
+        raise ValueError(
+            "Parallel conversion with a dense/hybrid scorer requires a "
+            "dense_ranker_factory; a live ranker cannot cross a process boundary."
+        )
+    worker_config = _WorkerConfig(
+        graph_config=graph_config,
+        candidate_cap=candidate_cap,
+        seed=seed,
+        strict=strict,
+        dense_ranker_factory=dense_ranker_factory,
+        devices=devices,
+    )
+    indexed = list(enumerate(raw_records))
+    chunk_count = min(workers, len(indexed))
+    chunks = [indexed[start::chunk_count] for start in range(chunk_count)]
+
+    records: list[TwoWikiProvenanceRawRecord] = []
+    rejected: Counter[str] = Counter()
+    with ProcessPoolExecutor(
+        max_workers=chunk_count,
+        initializer=_init_worker,
+        initargs=(worker_config,),
+    ) as pool:
+        for chunk_records, chunk_rejected in pool.map(_convert_chunk, chunks):
+            records.extend(chunk_records)
+            rejected.update(chunk_rejected)
+    records.sort(key=lambda record: record["ranking"]["task_id"])
+    return TwoWikiProvenanceConversionResult(
+        records=records,
+        rejected_reason_counts=dict(sorted(rejected.items())),
+    )
+
+
+def resolve_worker_count(workers: int | None) -> int:
+    if workers is not None:
+        return max(1, workers)
+    return os.cpu_count() or 1
 
 
 def audit_twowiki_source_records(
@@ -776,9 +953,11 @@ def _rejection_reason(error: ValueError) -> str:
 
 
 __all__ = [
+    "DenseRankerFactory",
     "ProvenanceGraphConstructionConfig",
     "audit_twowiki_source_records",
     "convert_twowiki_source_record",
     "convert_twowiki_source_records",
     "deterministic_dev_test_partition",
+    "resolve_worker_count",
 ]

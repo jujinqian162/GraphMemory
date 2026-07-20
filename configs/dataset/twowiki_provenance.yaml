@@ -33,3 +33,11 @@ transform:
   dense_query_prefix: "query: "
   dense_passage_prefix: "passage: "
   dense_batch_size: 64
+  # Performance-only, excluded from the version tag: changing these never
+  # re-transforms and never invalidates the Prefect cache. workers>1 fans the
+  # per-record conversion across processes; for a dense/hybrid scorer each
+  # worker rebuilds its own encoder on the device assigned round-robin from
+  # `devices`. null workers keeps the serial path. On an 8-GPU host set e.g.
+  # workers: 8 and devices: [cuda:0, cuda:1, ..., cuda:7].
+  workers: null
+  devices: []
