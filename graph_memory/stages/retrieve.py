@@ -327,6 +327,7 @@ def _retrieval_settings(
             top_k=top_k,
             checkpoint=_model_payload(model, "checkpoint"),
             device=device,
+            variant=method.variant or "full_rgcn",
         )
     raise TypeError(f"unsupported method config={type(method).__name__}")
 

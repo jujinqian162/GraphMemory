@@ -12,6 +12,7 @@ class MetricRowValidator(Protocol):
 
 METRIC_COLUMNS = [
     "Method",
+    "Evaluation Schema",
     "Recall@2",
     "Recall@5",
     "Recall@10",
@@ -25,6 +26,9 @@ METRIC_COLUMNS = [
     "Query-Evidence Connectivity@10",
     "Path Recall@10",
     "Edge Recall@10",
+    "Edge Precision@10",
+    "Edge F1@10",
+    "Abstention Rate",
     "Retrieval Latency / Query",
 ]
 
@@ -49,7 +53,7 @@ def validate_evidence_metric_rows(rows: object) -> None:
                 f"Invalid metric rows: missing columns={missing}."
             )
         for column in METRIC_COLUMNS:
-            if column == "Method":
+            if column in {"Method", "Evaluation Schema"}:
                 continue
             if column in {
                 "Connected Evidence Recall@5",
@@ -57,6 +61,9 @@ def validate_evidence_metric_rows(rows: object) -> None:
                 "Query-Evidence Connectivity@10",
                 "Path Recall@10",
                 "Edge Recall@10",
+                "Edge Precision@10",
+                "Edge F1@10",
+                "Abstention Rate",
             }:
                 _validate_optional_metric_value(row[column], column)
                 continue
@@ -74,6 +81,10 @@ def validate_evidence_metric_rows(rows: object) -> None:
                 raise ContractValidationError(
                     f"Invalid metric rows: column={column} must be in [0.0, 1.0]."
                 )
+        if row["Evaluation Schema"] != "evidence_v3":
+            raise ContractValidationError(
+                "Invalid metric rows: Evaluation Schema must be evidence_v3."
+            )
 
 
 def _validate_optional_metric_value(value: object, column: str) -> None:

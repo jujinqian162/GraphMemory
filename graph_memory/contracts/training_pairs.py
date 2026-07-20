@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from graph_memory.contracts.common import NodeId, TaskId, TrainPairSampleType
 
@@ -19,6 +19,10 @@ class TrainPairBuildSummary(TypedDict):
     avg_negative_per_task: float
     tasks_with_no_positive: list[TaskId]
     sampling_config: dict[str, object]
+    requested_negative_count_by_type: NotRequired[dict[str, int]]
+    shortfall_by_type: NotRequired[dict[str, int]]
+    overlap_count_by_type: NotRequired[dict[str, int]]
+    source_overlap_by_task: NotRequired[dict[str, dict[str, list[str]]]]
 
 
 __all__ = ["TrainPairBuildSummary", "TrainPairRecord"]

@@ -11,9 +11,12 @@ from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
     RgcnMethodConfig,
+    ExecutionProvenanceRgcnMethodConfig,
     resolve_experiment_config,
     parse_composed_config,
 )
+from graph_memory.experiment.inspect import inspect_catalog
+from graph_memory.registry.retrieval import RetrievalMethodId
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,6 +144,46 @@ def test_model_only_variant_reuses_pair_contract_but_hard_negative_variant_does_
     assert isinstance(wo_hard_negatives.method, RgcnMethodConfig)
     assert full.method.effective().pairs == wo_graph.method.effective().pairs
     assert full.method.effective().pairs != wo_hard_negatives.method.effective().pairs
+
+
+def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
+    base = ("dataset=twowiki_provenance", "method=execution_provenance_rgcn_retriever")
+    full = parse_composed_config(_compose(*base))
+    wo_graph = parse_composed_config(_compose(*base, "method.variant=wo_graph"))
+    wo_hard = parse_composed_config(
+        _compose(*base, "method.variant=wo_hard_negatives")
+    )
+    wo_rerank = parse_composed_config(
+        _compose(*base, "method.variant=wo_edge_rerank")
+    )
+
+    assert isinstance(full.method, ExecutionProvenanceRgcnMethodConfig)
+    assert isinstance(wo_graph.method, ExecutionProvenanceRgcnMethodConfig)
+    assert isinstance(wo_hard.method, ExecutionProvenanceRgcnMethodConfig)
+    assert isinstance(wo_rerank.method, ExecutionProvenanceRgcnMethodConfig)
+    assert full.method.effective().pairs == wo_graph.method.effective().pairs
+    assert full.method.effective().pairs == wo_rerank.method.effective().pairs
+    assert full.method.effective().pairs != wo_hard.method.effective().pairs
+    assert wo_hard.method.effective().pairs.hard_provenance_successor_per_positive == 0
+    assert wo_hard.method.effective().pairs.hard_provenance_predecessor_per_positive == 0
+    assert full.method.train_stage() == wo_rerank.method.train_stage()
+    assert full.method.train_stage() != wo_graph.method.train_stage()
+
+    variants = inspect_catalog("variants", repository_root=ROOT)
+    assert isinstance(variants, dict)
+    provenance_rows = variants[
+        RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
+    ]
+    by_variant = {row["variant"]: row for row in provenance_rows}
+    assert by_variant["wo_hard_negatives"]["earliest_invalidated_stage"] == "pairs"
+    assert by_variant["wo_hard_negatives"]["config_patch"] == {
+        "hard_bm25_per_positive": 0,
+        "hard_dense_per_positive": 0,
+        "hard_graph_neighbor_per_positive": 0,
+        "hard_provenance_successor_per_positive": 0,
+        "hard_provenance_predecessor_per_positive": 0,
+    }
+    assert by_variant["wo_edge_rerank"]["earliest_invalidated_stage"] == "rank"
 
 
 def test_hydra_multirun_subdir_uses_only_native_interpolations() -> None:

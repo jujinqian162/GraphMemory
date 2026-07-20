@@ -26,6 +26,10 @@ TRAIN_PAIR_BUILD_SUMMARY_FIELDS = {
     "avg_negative_per_task",
     "tasks_with_no_positive",
     "sampling_config",
+    "requested_negative_count_by_type",
+    "shortfall_by_type",
+    "overlap_count_by_type",
+    "source_overlap_by_task",
 }
 NEGATIVE_SAMPLING_CONFIG_FIELDS = {
     "random_seed",
@@ -35,6 +39,13 @@ NEGATIVE_SAMPLING_CONFIG_FIELDS = {
     "hard_graph_neighbor_per_positive",
     "hard_pool_size",
 }
+PROVENANCE_NEGATIVE_SAMPLING_CONFIG_FIELDS = (
+    NEGATIVE_SAMPLING_CONFIG_FIELDS
+    | {
+        "hard_provenance_successor_per_positive",
+        "hard_provenance_predecessor_per_positive",
+    }
+)
 
 
 def validate_train_pairs(
@@ -135,6 +146,31 @@ def validate_negative_sampling_config(config: object) -> None:
         raise ContractValidationError("Invalid negative sampling config: hard_pool_size must be positive.")
 
 
+def validate_provenance_negative_sampling_config(config: object) -> None:
+    config_dict = _to_plain_dict(config)
+    _reject_unknown_fields(
+        config_dict,
+        PROVENANCE_NEGATIVE_SAMPLING_CONFIG_FIELDS,
+        "provenance negative sampling config",
+    )
+    _required_int(config_dict, "random_seed", "provenance negative sampling config")
+    for field_name in sorted(
+        PROVENANCE_NEGATIVE_SAMPLING_CONFIG_FIELDS - {"random_seed", "hard_pool_size"}
+    ):
+        _required_int(
+            config_dict,
+            field_name,
+            "provenance negative sampling config",
+            minimum=0,
+        )
+    _required_int(
+        config_dict,
+        "hard_pool_size",
+        "provenance negative sampling config",
+        minimum=1,
+    )
+
+
 def validate_train_pair_build_summary(summary: object) -> None:
     summary = _require_record(summary, "train pair build summary")
     _reject_unknown_fields(summary, TRAIN_PAIR_BUILD_SUMMARY_FIELDS, "train pair build summary")
@@ -168,7 +204,34 @@ def validate_train_pair_build_summary(summary: object) -> None:
     sampling_config = summary.get("sampling_config")
     if not isinstance(sampling_config, dict):
         raise ContractValidationError("Invalid train pair build summary: sampling_config must be an object.")
-    validate_negative_sampling_config(sampling_config)
+    if set(sampling_config) == PROVENANCE_NEGATIVE_SAMPLING_CONFIG_FIELDS:
+        validate_provenance_negative_sampling_config(sampling_config)
+    else:
+        validate_negative_sampling_config(sampling_config)
+    for field_name in (
+        "requested_negative_count_by_type",
+        "shortfall_by_type",
+        "overlap_count_by_type",
+    ):
+        counts = summary.get(field_name)
+        if counts is None:
+            continue
+        if not isinstance(counts, dict) or any(
+            not isinstance(name, str)
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 0
+            for name, count in counts.items()
+        ):
+            raise ContractValidationError(
+                f"Invalid train pair build summary: {field_name} must contain "
+                "non-negative integer counts."
+            )
+    source_overlap = summary.get("source_overlap_by_task")
+    if source_overlap is not None and not isinstance(source_overlap, dict):
+        raise ContractValidationError(
+            "Invalid train pair build summary: source_overlap_by_task must be an object."
+        )
 
 
 def _expected_candidate_ids_by_task_id(value: object) -> dict[str, set[str]]:
@@ -222,4 +285,9 @@ def _graph_mapping(value: object) -> dict[str, dict[str, object]]:
     raise ContractValidationError("Invalid graphs by task_id: expected mapping.")
 
 
-__all__ = ["validate_negative_sampling_config", "validate_train_pair_build_summary", "validate_train_pairs"]
+__all__ = [
+    "validate_negative_sampling_config",
+    "validate_provenance_negative_sampling_config",
+    "validate_train_pair_build_summary",
+    "validate_train_pairs",
+]

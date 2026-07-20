@@ -121,10 +121,33 @@ class ProvenancePathTrace:
 
 
 @dataclass(frozen=True)
+class ProvenanceStructuredTransitionTrace:
+    source_id: str
+    target_id: str
+    probability: float
+    original_source_rank: int
+    original_target_rank: int
+    final_target_rank: int
+    decision: Literal[
+        "promoted",
+        "already_above_source",
+        "target_conflict",
+        "lower_scoring_successor",
+        "below_threshold",
+        "outside_pool",
+        "promotion_disabled",
+        "stable_no_op",
+    ]
+
+
+@dataclass(frozen=True)
 class ExecutionProvenanceTrace:
     node_ids: tuple[str, ...]
     paths: tuple[ProvenancePathTrace, ...]
     edges: tuple[ProvenanceEdgeTrace, ...]
+    structured_transitions: tuple[ProvenanceStructuredTransitionTrace, ...] = ()
+    abstained_source_ids: tuple[str, ...] = ()
+    structured_promotion_enabled: bool = True
     trace_kind: Literal["execution_provenance"] = "execution_provenance"
 
 

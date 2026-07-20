@@ -28,6 +28,7 @@ from graph_memory.validation.twowiki_provenance import (
 )
 from graph_memory.validation.training_pairs import (
     validate_negative_sampling_config,
+    validate_provenance_negative_sampling_config,
     validate_train_pair_build_summary,
     validate_train_pairs,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "validate_musique_ranking_records",
     "validate_metric_rows",
     "validate_negative_sampling_config",
+    "validate_provenance_negative_sampling_config",
     "validate_no_label_fields",
     "validate_ranked_results",
     "validate_task_id_alignment",

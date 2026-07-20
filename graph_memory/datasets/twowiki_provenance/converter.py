@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import dataclass
 
 from graph_memory.datasets.twowiki import (
     convert_twowiki_example,
@@ -28,7 +29,7 @@ from graph_memory.datasets.twowiki_provenance.scoring import (
     ProvenanceGraphConstructionConfig,
     ProvenanceSemanticRanker,
 )
-from graph_memory.retrieval.contracts import SeedRanker
+from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 
 MINIMUM_CANDIDATES = 4
@@ -180,7 +181,8 @@ def convert_twowiki_source_record(
         )
 
     nodes = _graph_nodes(task_id, example.question, candidate_records)
-    edges, gold_semantic_rank, gold_fallback = _graph_edges(
+    edges, gold_semantic_rank, gold_rank_bucket, gold_branch_role, gold_weight = (
+        _graph_edges(
         example.raw_id,
         example.question,
         candidate_records,
@@ -189,6 +191,7 @@ def convert_twowiki_source_record(
         seed=seed,
         graph_config=resolved_graph_config,
         ranker=resolved_ranker,
+        )
     )
     ranking: TwoWikiProvenanceRankingRecord = {
         "task_id": task_id,
@@ -202,7 +205,7 @@ def convert_twowiki_source_record(
             "source_raw_id": example.raw_id,
             "synthetic_execution_graph": True,
             "schema_version": TWOWIKI_PROVENANCE_SCHEMA_VERSION,
-            "graph_construction": asdict(resolved_graph_config),
+            "graph_construction": resolved_graph_config.identity(),
         },
     }
     label: TwoWikiProvenanceLabelRecord = {
@@ -217,7 +220,10 @@ def convert_twowiki_source_record(
                 "path_label_source"
             ],
             "gold_edge_semantic_rank": gold_semantic_rank,
-            "gold_edge_fallback": gold_fallback,
+            "gold_edge_rank_bucket": gold_rank_bucket,
+            "gold_edge_branch_role": gold_branch_role,
+            "gold_edge_is_head": gold_branch_role == "semantic_head",
+            "gold_edge_calibrated_weight": gold_weight,
         },
     }
     return ConvertedTwoWikiProvenanceExample(
@@ -346,7 +352,7 @@ def _graph_edges(
     seed: int,
     graph_config: ProvenanceGraphConstructionConfig,
     ranker: ProvenanceSemanticRanker,
-) -> tuple[list[ProvenanceEdgeRecord], int, bool]:
+) -> tuple[list[ProvenanceEdgeRecord], int, str, str, float]:
     task_id = f"task_{_digest(f'2wiki_provenance_{raw_id}')}"
     agent_id = f"agent_{_digest(f'2wiki_provenance_{raw_id}')}"
     by_output = {candidate["output_id"]: candidate for candidate in candidates}
@@ -363,8 +369,7 @@ def _graph_edges(
             )
         )
 
-    gold_semantic_rank = 0
-    gold_fallback = False
+    source_requests: list[tuple[str, TextRankingRequest]] = []
     for source_output in sorted(by_output):
         source = by_output[source_output]
         target_candidates = tuple(
@@ -378,26 +383,102 @@ def _graph_edges(
         )
         request = TextRankingRequest(
             task_id=f"{raw_id}:{source_output}",
-            query_text=(
-                f"{question}\nSource evidence: {source['title']}. {source['text']}"
+            query_text=_source_query(
+                question,
+                source,
+                query_template_version=graph_config.query_template_version,
             ),
             candidates=target_candidates,
         )
-        ranked = ranker.rank(request)
-        rank_by_target = {
-            item.node_id: (rank_index, item.score)
-            for rank_index, item in enumerate(ranked, start=1)
-        }
-        successor_count = min(graph_config.successors_per_output, len(ranked))
-        selected_targets = [item.node_id for item in ranked[:successor_count]]
-        if source_output == gold_output_source:
-            gold_semantic_rank = rank_by_target[gold_output_target][0]
-            if gold_output_target not in selected_targets:
-                gold_fallback = True
-                selected_targets[-1] = gold_output_target
-        for target_output in selected_targets:
+        source_requests.append((source_output, request))
+    source_rankings: dict[str, _SourceRanking] = {}
+    ranked_requests = ranker.rank_many([request for _, request in source_requests])
+    for (source_output, _), ranked in zip(
+        source_requests, ranked_requests, strict=True
+    ):
+        if len(ranked) < graph_config.successors_per_output:
+            raise ValueError("insufficient_branch_candidates")
+        source_rankings[source_output] = _SourceRanking(
+            ranked=tuple(ranked),
+            normalized_scores=_normalized_scores(ranked),
+        )
+
+    selected_by_source: dict[str, list[_SelectedSuccessor]] = {}
+    gold_ranking = source_rankings[gold_output_source]
+    gold_semantic_rank, _, _ = gold_ranking.details(gold_output_target)
+    gold_bucket = "head" if gold_semantic_rank == 1 else _bucket_for_rank(
+        gold_semantic_rank, graph_config
+    )
+    if gold_bucket is None:
+        raise ValueError("unmatched_gold_branch_bucket")
+
+    for source_output in sorted(by_output):
+        ranking = source_rankings[source_output]
+        head_target = ranking.ranked[0].node_id
+        selected = [
+            ranking.selected(
+                head_target,
+                branch_role="semantic_head",
+                rank_bucket="head",
+            )
+        ]
+        if source_output == gold_output_source and gold_semantic_rank != 1:
+            selected.append(
+                ranking.selected(
+                    gold_output_target,
+                    branch_role="rank_banded_branch",
+                    rank_bucket=gold_bucket,
+                )
+            )
+        else:
+            selected.append(
+                _deterministic_branch(
+                    ranking,
+                    graph_config=graph_config,
+                    seed=seed,
+                    raw_id=raw_id,
+                    source_output=source_output,
+                )
+            )
+        selected_by_source[source_output] = selected
+
+    if gold_bucket != "head":
+        _ensure_matching_non_gold_branch(
+            selected_by_source,
+            source_rankings=source_rankings,
+            gold_output_source=gold_output_source,
+            gold_output_target=gold_output_target,
+            required_bucket=gold_bucket,
+            graph_config=graph_config,
+            seed=seed,
+            raw_id=raw_id,
+        )
+
+    gold_weight = 0.0
+    gold_branch_role = ""
+    for source_output in sorted(by_output):
+        source = by_output[source_output]
+        selected = selected_by_source[source_output]
+        probabilities = _source_probabilities(
+            [item.normalized_score for item in selected],
+            temperature=graph_config.semantic_temperature,
+        )
+        weights = [
+            graph_config.weight_floor
+            + (1.0 - graph_config.weight_floor) * probability
+            for probability in probabilities
+        ]
+        expected_mass = (
+            len(selected) * graph_config.weight_floor
+            + (1.0 - graph_config.weight_floor)
+        )
+        if not math.isclose(sum(weights), expected_mass, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("invalid_source_feed_mass")
+        for successor, probability, weight in zip(
+            selected, probabilities, weights, strict=True
+        ):
+            target_output = successor.target_output
             target_call = by_output[target_output]["call_id"]
-            semantic_rank, semantic_score = rank_by_target[target_output]
             edges.append(
                 _edge(
                     source_output,
@@ -409,16 +490,233 @@ def _graph_edges(
                         "binding_value_hash": _candidate_field_hash(source),
                         "binding_kind": "semantic_reference",
                     },
-                    weight=1.0 / semantic_rank,
+                    weight=weight,
                     metadata={
                         "semantic_scorer": graph_config.strategy,
-                        "semantic_rank": semantic_rank,
-                        "semantic_score": float(semantic_score),
+                        "scorer_identity": graph_config.scorer_identity,
+                        "query_template_version": graph_config.query_template_version,
+                        "semantic_rank": successor.semantic_rank,
+                        "semantic_score": successor.semantic_score,
+                        "normalized_score": successor.normalized_score,
+                        "source_probability": probability,
+                        "calibrated_weight": weight,
+                        "branch_role": successor.branch_role,
+                        "rank_bucket": successor.rank_bucket,
                     },
                 )
             )
+            if (
+                source_output == gold_output_source
+                and target_output == gold_output_target
+            ):
+                gold_weight = weight
+                gold_branch_role = successor.branch_role
     _rng(seed, raw_id, "edges").shuffle(edges)
-    return edges, gold_semantic_rank, gold_fallback
+    if not gold_branch_role:
+        raise ValueError("gold_candidate_missing")
+    return (
+        edges,
+        gold_semantic_rank,
+        gold_bucket,
+        gold_branch_role,
+        gold_weight,
+    )
+
+
+@dataclass(frozen=True)
+class _SelectedSuccessor:
+    target_output: str
+    semantic_rank: int
+    semantic_score: float
+    normalized_score: float
+    branch_role: str
+    rank_bucket: str
+
+
+@dataclass(frozen=True)
+class _SourceRanking:
+    ranked: tuple[RankedNode, ...]
+    normalized_scores: dict[str, float]
+
+    def details(self, target_output: str) -> tuple[int, float, float]:
+        for rank, item in enumerate(self.ranked, start=1):
+            node_id = item.node_id
+            if node_id == target_output:
+                return rank, item.score, self.normalized_scores[node_id]
+        raise ValueError("gold_candidate_missing")
+
+    def selected(
+        self,
+        target_output: str,
+        *,
+        branch_role: str,
+        rank_bucket: str,
+    ) -> _SelectedSuccessor:
+        semantic_rank, semantic_score, normalized_score = self.details(target_output)
+        return _SelectedSuccessor(
+            target_output=target_output,
+            semantic_rank=semantic_rank,
+            semantic_score=semantic_score,
+            normalized_score=normalized_score,
+            branch_role=branch_role,
+            rank_bucket=rank_bucket,
+        )
+
+
+def _normalized_scores(ranked: Sequence[RankedNode]) -> dict[str, float]:
+    scores = [item.score for item in ranked]
+    lower = min(scores)
+    upper = max(scores)
+    if math.isclose(lower, upper):
+        denominator = max(1, len(ranked) - 1)
+        return {
+            item.node_id: 1.0 - index / denominator
+            for index, item in enumerate(ranked)
+        }
+    return {
+        item.node_id: (item.score - lower) / (upper - lower)
+        for item in ranked
+    }
+
+
+def _bucket_for_rank(
+    semantic_rank: int,
+    graph_config: ProvenanceGraphConstructionConfig,
+) -> str | None:
+    for name, (start, end) in graph_config.rank_buckets:
+        if semantic_rank >= start and (end is None or semantic_rank <= end):
+            return name
+    return None
+
+
+def _bucket_candidates(
+    ranking: _SourceRanking,
+    *,
+    bucket: str,
+    graph_config: ProvenanceGraphConstructionConfig,
+    excluded_targets: set[str] | None = None,
+) -> list[str]:
+    bounds = dict(graph_config.rank_buckets)[bucket]
+    start, end = bounds
+    excluded = excluded_targets or set()
+    return [
+        item.node_id
+        for rank, item in enumerate(ranking.ranked, start=1)
+        if rank >= start
+        and (end is None or rank <= end)
+        and item.node_id not in excluded
+    ]
+
+
+def _deterministic_branch(
+    ranking: _SourceRanking,
+    *,
+    graph_config: ProvenanceGraphConstructionConfig,
+    seed: int,
+    raw_id: str,
+    source_output: str,
+    required_bucket: str | None = None,
+    excluded_targets: set[str] | None = None,
+) -> _SelectedSuccessor:
+    feasible = [
+        name
+        for name, _ in graph_config.rank_buckets
+        if _bucket_candidates(
+            ranking,
+            bucket=name,
+            graph_config=graph_config,
+            excluded_targets=excluded_targets,
+        )
+    ]
+    if required_bucket is not None:
+        feasible = [name for name in feasible if name == required_bucket]
+    if not feasible:
+        raise ValueError("unmatched_gold_branch_bucket")
+    bucket_rng = _rng(seed, raw_id, f"branch-bucket:{source_output}")
+    bucket = feasible[bucket_rng.randrange(len(feasible))]
+    candidates = _bucket_candidates(
+        ranking,
+        bucket=bucket,
+        graph_config=graph_config,
+        excluded_targets=excluded_targets,
+    )
+    target_rng = _rng(seed, raw_id, f"branch-target:{source_output}:{bucket}")
+    target = candidates[target_rng.randrange(len(candidates))]
+    return ranking.selected(
+        target,
+        branch_role="rank_banded_branch",
+        rank_bucket=bucket,
+    )
+
+
+def _ensure_matching_non_gold_branch(
+    selected_by_source: dict[str, list[_SelectedSuccessor]],
+    *,
+    source_rankings: Mapping[str, _SourceRanking],
+    gold_output_source: str,
+    gold_output_target: str,
+    required_bucket: str,
+    graph_config: ProvenanceGraphConstructionConfig,
+    seed: int,
+    raw_id: str,
+) -> None:
+    if any(
+        source != gold_output_source
+        and successors[1].rank_bucket == required_bucket
+        and successors[1].target_output != gold_output_target
+        for source, successors in selected_by_source.items()
+    ):
+        return
+    eligible_sources = [
+        source
+        for source in sorted(source_rankings)
+        if source != gold_output_source
+        and _bucket_candidates(
+            source_rankings[source],
+            bucket=required_bucket,
+            graph_config=graph_config,
+            excluded_targets={gold_output_target},
+        )
+    ]
+    if not eligible_sources:
+        raise ValueError("unmatched_gold_branch_bucket")
+    source_rng = _rng(seed, raw_id, f"gold-bucket-match:{required_bucket}")
+    source = eligible_sources[source_rng.randrange(len(eligible_sources))]
+    selected_by_source[source][1] = _deterministic_branch(
+        source_rankings[source],
+        graph_config=graph_config,
+        seed=seed,
+        raw_id=raw_id,
+        source_output=source,
+        required_bucket=required_bucket,
+        excluded_targets={gold_output_target},
+    )
+
+
+def _source_probabilities(
+    normalized_scores: Sequence[float],
+    *,
+    temperature: float,
+) -> list[float]:
+    maximum = max(normalized_scores)
+    exponentials = [
+        math.exp((score - maximum) / temperature) for score in normalized_scores
+    ]
+    total = sum(exponentials)
+    return [value / total for value in exponentials]
+
+
+def _source_query(
+    question: str,
+    source: ProvenanceCandidateRecord,
+    *,
+    query_template_version: str,
+) -> str:
+    if query_template_version != "question_source_v1":
+        raise ValueError(
+            f"Unsupported provenance query template={query_template_version!r}."
+        )
+    return f"{question}\nSource evidence: {source['title']}. {source['text']}"
 
 
 def _edge(
@@ -471,6 +769,8 @@ def _rejection_reason(error: ValueError) -> str:
         "duplicated_gold_support",
         "gold_candidate_missing",
         "insufficient_branch_candidates",
+        "unmatched_gold_branch_bucket",
+        "invalid_source_feed_mass",
     }
     return text if text in known else "invalid_source_record"
 

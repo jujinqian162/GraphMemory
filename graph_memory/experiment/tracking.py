@@ -26,6 +26,9 @@ FINAL_METRIC_KEYS = {
     "Query-Evidence Connectivity@10": "final.query_evidence_connectivity_at_10",
     "Path Recall@10": "final.path_recall_at_10",
     "Edge Recall@10": "final.edge_recall_at_10",
+    "Edge Precision@10": "final.edge_precision_at_10",
+    "Edge F1@10": "final.edge_f1_at_10",
+    "Abstention Rate": "final.abstention_rate",
     "Avg Retrieved Nodes": "final.avg_retrieved_nodes",
     "Avg Retrieved Edges": "final.avg_retrieved_edges",
 }

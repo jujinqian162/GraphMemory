@@ -31,6 +31,7 @@ from graph_memory.validation.metrics import validate_evidence_metric_rows
 
 EVIDENCE_METRIC_COLUMNS = [
     "Method",
+    "Evaluation Schema",
     "Recall@2",
     "Recall@5",
     "Recall@10",
@@ -44,6 +45,9 @@ EVIDENCE_METRIC_COLUMNS = [
     "Query-Evidence Connectivity@10",
     "Path Recall@10",
     "Edge Recall@10",
+    "Edge Precision@10",
+    "Edge F1@10",
+    "Abstention Rate",
     "Retrieval Latency / Query",
 ]
 
@@ -91,6 +95,11 @@ class EvidenceMetricSuite:
         )
         path_recall_values: list[float] = []
         edge_recall_values: list[float] = []
+        edge_true_positive_count = 0
+        predicted_edge_count = 0
+        gold_edge_count = 0
+        abstained_source_count = 0
+        considered_source_count = 0
 
         per_task_rows: list[TaskMetricRow] = []
         for prediction in request.predictions:
@@ -105,6 +114,17 @@ class EvidenceMetricSuite:
                 _validate_gold_nodes_exist(task_id, gold_nodes, graph)
             if path_metrics_supported and label.gold_dependency_edges:
                 gold_dependency_edges = set(label.gold_dependency_edges)
+                top_ten = set(ranked_node_ids[:10])
+                predicted_edges = {
+                    (edge["source"], edge["target"])
+                    for edge in prediction["retrieved_subgraph"]["edges"]
+                    if edge["source"] in top_ten and edge["target"] in top_ten
+                }
+                edge_true_positive_count += len(
+                    predicted_edges & gold_dependency_edges
+                )
+                predicted_edge_count += len(predicted_edges)
+                gold_edge_count += len(gold_dependency_edges)
                 path_recall_values.append(
                     path_recall_at(
                         prediction["retrieved_subgraph"], gold_dependency_edges
@@ -115,6 +135,9 @@ class EvidenceMetricSuite:
                         prediction["retrieved_subgraph"], gold_dependency_edges
                     )
                 )
+                abstained, considered = _abstention_counts(prediction)
+                abstained_source_count += abstained
+                considered_source_count += considered
             per_task_rows.append(
                 {
                     "Recall@2": recall_at(ranked_node_ids, gold_nodes, 2),
@@ -160,6 +183,7 @@ class EvidenceMetricSuite:
 
         aggregate_row: MetricRow = {
             "Method": method,
+            "Evaluation Schema": "evidence_v3",
             "Recall@2": 0.0,
             "Recall@5": 0.0,
             "Recall@10": 0.0,
@@ -173,6 +197,9 @@ class EvidenceMetricSuite:
             "Query-Evidence Connectivity@10": 0.0,
             "Path Recall@10": "N/A",
             "Edge Recall@10": "N/A",
+            "Edge Precision@10": "N/A",
+            "Edge F1@10": "N/A",
+            "Abstention Rate": "N/A",
             "Retrieval Latency / Query": 0.0,
             "Index Build Time": 0.0,
             "Graph Construction Time": 0.0,
@@ -199,7 +226,27 @@ class EvidenceMetricSuite:
         ]:
             aggregate_row[column] = _mean(row[column] for row in per_task_rows)
         aggregate_row["Path Recall@10"] = _mean_optional(path_recall_values)
-        aggregate_row["Edge Recall@10"] = _mean_optional(edge_recall_values)
+        if path_metrics_supported:
+            edge_precision = (
+                edge_true_positive_count / predicted_edge_count
+                if predicted_edge_count
+                else 0.0
+            )
+            edge_recall = (
+                edge_true_positive_count / gold_edge_count if gold_edge_count else 0.0
+            )
+            aggregate_row["Edge Precision@10"] = edge_precision
+            aggregate_row["Edge Recall@10"] = edge_recall
+            aggregate_row["Edge F1@10"] = (
+                2.0 * edge_precision * edge_recall / (edge_precision + edge_recall)
+                if edge_precision + edge_recall
+                else 0.0
+            )
+            aggregate_row["Abstention Rate"] = (
+                abstained_source_count / considered_source_count
+                if considered_source_count
+                else 0.0
+            )
         if not graph_task_ids:
             aggregate_row["Connected Evidence Recall@5"] = "N/A"
             aggregate_row["Connected Evidence Recall@10"] = "N/A"
@@ -288,6 +335,30 @@ def _mean_optional(values: Iterable[float]) -> float | str:
     if not materialized:
         return "N/A"
     return sum(materialized) / len(materialized)
+
+
+def _abstention_counts(prediction: object) -> tuple[int, int]:
+    if not isinstance(prediction, dict):
+        return 0, 0
+    metadata = prediction.get("metadata")
+    if not isinstance(metadata, dict):
+        return 0, 0
+    native_trace = metadata.get("native_trace")
+    if not isinstance(native_trace, dict):
+        return 0, 0
+    transitions = native_trace.get("structured_transitions")
+    abstained = native_trace.get("abstained_source_ids")
+    if not isinstance(transitions, list) or not isinstance(abstained, list):
+        return 0, 0
+    considered_sources = {
+        item.get("source_id")
+        for item in transitions
+        if isinstance(item, dict) and isinstance(item.get("source_id"), str)
+    }
+    abstained_sources = {
+        source for source in abstained if isinstance(source, str)
+    }
+    return len(abstained_sources & considered_sources), len(considered_sources)
 
 
 __all__ = [

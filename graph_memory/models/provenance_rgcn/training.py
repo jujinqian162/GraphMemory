@@ -19,11 +19,15 @@ from graph_memory.models.provenance_rgcn.contracts import (
     ProvenanceModelOutput,
 )
 from graph_memory.models.provenance_rgcn.model import ExecutionProvenanceRGCN
+from graph_memory.models.provenance_rgcn.inference import (
+    ExecutionProvenanceRgcnRetriever,
+)
 from graph_memory.models.provenance_rgcn.tensorization import (
     move_provenance_tensor,
     tensorize_provenance_request,
 )
 from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest
+from graph_memory.retrieval.contracts import ExecutionProvenanceTrace
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,7 @@ class ProvenanceLoss:
     total: Tensor
     candidate: Tensor
     edge: Tensor
+    comparison_count: int
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,47 @@ class ProvenanceTrainingResult:
     best_model_state_dict: dict[str, Tensor]
     best_epoch: int
     best_dev_metric: float
+    best_metrics: dict[str, float]
+
+
+@dataclass(frozen=True)
+class ProvenanceDevMetrics:
+    full_support_at_5: float
+    mrr: float
+    edge_precision_at_10: float
+    edge_recall_at_10: float
+    edge_f1_at_10: float
+    average_emitted_edges: float
+    abstention_rate: float
+
+    @property
+    def joint(self) -> float:
+        return (
+            0.50 * self.full_support_at_5
+            + 0.25 * self.mrr
+            + 0.25 * self.edge_f1_at_10
+        )
+
+    def selection_key(self, epoch: int) -> tuple[float, float, float, float, int]:
+        return (
+            self.joint,
+            self.full_support_at_5,
+            self.edge_f1_at_10,
+            self.mrr,
+            -epoch,
+        )
+
+    def to_record(self) -> dict[str, float]:
+        return {
+            "dev_joint": self.joint,
+            "dev_full_support_at_5": self.full_support_at_5,
+            "dev_mrr": self.mrr,
+            "dev_edge_precision_at_10": self.edge_precision_at_10,
+            "dev_edge_recall_at_10": self.edge_recall_at_10,
+            "dev_edge_f1_at_10": self.edge_f1_at_10,
+            "dev_average_emitted_edges": self.average_emitted_edges,
+            "dev_abstention_rate": self.abstention_rate,
+        }
 
 
 def compute_provenance_loss(
@@ -57,8 +103,9 @@ def compute_provenance_loss(
     candidate_index = {
         candidate_id: index for index, candidate_id in enumerate(tensor.candidate_ids)
     }
-    pair_indices: list[int] = []
-    pair_targets: list[float] = []
+    positive_indices: list[int] = []
+    negative_indices: list[int] = []
+    seen_pair_nodes: set[str] = set()
     for pair in train_pairs:
         if pair["task_id"] != label.task_id:
             raise ValueError(
@@ -70,16 +117,29 @@ def compute_provenance_loss(
             raise ValueError(
                 f"Provenance train pair node_id={node_id!r} is not a candidate."
             )
-        pair_indices.append(candidate_index[node_id])
-        pair_targets.append(float(pair["label"]))
-    if not pair_indices:
+        if node_id in seen_pair_nodes:
+            raise ValueError(
+                "Provenance train pairs must contain each candidate at most once: "
+                f"task_id={label.task_id!r} node_id={node_id!r}."
+            )
+        seen_pair_nodes.add(node_id)
+        if pair["label"] == 1:
+            positive_indices.append(candidate_index[node_id])
+        else:
+            negative_indices.append(candidate_index[node_id])
+    if not positive_indices:
         raise ValueError(
-            f"Provenance task_id={label.task_id!r} has no materialized train pairs."
+            f"Provenance task_id={label.task_id!r} has no positive train pairs."
         )
-    candidate_loss = F.binary_cross_entropy_with_logits(
-        output.candidate_logits[pair_indices],
-        output.candidate_logits.new_tensor(pair_targets),
-    )
+    comparison_count = len(positive_indices) * len(negative_indices)
+    if negative_indices:
+        margins = (
+            output.candidate_logits[positive_indices].unsqueeze(1)
+            - output.candidate_logits[negative_indices].unsqueeze(0)
+        )
+        candidate_loss = F.softplus(-margins).mean()
+    else:
+        candidate_loss = output.candidate_logits.sum() * 0.0
     gold_edges = set(label.gold_dependency_edges)
     if tensor.logical_transitions:
         edge_targets = output.edge_logits.new_tensor(
@@ -113,6 +173,7 @@ def compute_provenance_loss(
         total=total,
         candidate=candidate_loss,
         edge=edge_loss,
+        comparison_count=comparison_count,
     )
 
 
@@ -151,12 +212,16 @@ def train_provenance_rgcn(
     ]
     metrics: list[dict[str, float | int]] = []
     best_metric = float("-inf")
+    best_dev_metrics: ProvenanceDevMetrics | None = None
     best_epoch = 0
     best_state = _cpu_state_dict(model)
     for epoch in range(1, training_config.epochs + 1):
         model.train()
         optimizer.zero_grad()
         loss_total = 0.0
+        candidate_loss_total = 0.0
+        edge_loss_total = 0.0
+        comparison_count = 0
         for index, (request, tensor) in enumerate(
             zip(train_requests, tensors, strict=True), start=1
         ):
@@ -171,13 +236,16 @@ def train_provenance_rgcn(
             )
             (loss.total / training_config.batch_size).backward()
             loss_total += float(loss.total.detach().cpu())
+            candidate_loss_total += float(loss.candidate.detach().cpu())
+            edge_loss_total += float(loss.edge.detach().cpu())
+            comparison_count += loss.comparison_count
             if index % training_config.batch_size == 0 or index == len(tensors):
                 nn.utils.clip_grad_norm_(
                     model.parameters(), training_config.max_grad_norm
                 )
                 optimizer.step()
                 optimizer.zero_grad()
-        dev_metric = _dev_full_support(
+        dev_metrics = _dev_metrics(
             model,
             requests=dev_requests or train_requests,
             labels=dev_labels or train_labels,
@@ -185,18 +253,38 @@ def train_provenance_rgcn(
             config=model_config,
             device=target_device,
         )
-        if dev_metric > best_metric:
-            best_metric = dev_metric
+        if best_dev_metrics is None or dev_metrics.selection_key(
+            epoch
+        ) > best_dev_metrics.selection_key(best_epoch):
+            best_metric = dev_metrics.joint
+            best_dev_metrics = dev_metrics
             best_epoch = epoch
             best_state = _cpu_state_dict(model)
-        metrics.append(
+        epoch_metrics: dict[str, float | int] = {
+            "epoch": epoch,
+            "train_total_loss": loss_total / max(1, len(tensors)),
+            "train_candidate_loss": candidate_loss_total / max(1, len(tensors)),
+            "train_edge_loss": edge_loss_total / max(1, len(tensors)),
+            "train_task_count": len(tensors),
+            "train_comparison_count": comparison_count,
+            **dev_metrics.to_record(),
+        }
+        pair_category_counts = {
+            sample_type: sum(
+                pair["sample_type"] == sample_type for pair in train_pairs
+            )
+            for sample_type in sorted({pair["sample_type"] for pair in train_pairs})
+        }
+        epoch_metrics.update(
             {
-                "epoch": epoch,
-                "train_loss": loss_total / max(1, len(tensors)),
-                "dev_full_support_at_5": dev_metric,
+                f"train_pair_{sample_type}_count": count
+                for sample_type, count in pair_category_counts.items()
             }
         )
+        metrics.append(epoch_metrics)
     model.load_state_dict(best_state)
+    if best_dev_metrics is None:
+        raise RuntimeError("Provenance training did not evaluate any epoch.")
     return ProvenanceTrainingResult(
         model=model,
         model_config=model_config,
@@ -206,10 +294,11 @@ def train_provenance_rgcn(
         best_model_state_dict=best_state,
         best_epoch=best_epoch,
         best_dev_metric=best_metric,
+        best_metrics=best_dev_metrics.to_record(),
     )
 
 
-def _dev_full_support(
+def _dev_metrics(
     model: ExecutionProvenanceRGCN,
     *,
     requests: list[ExecutionProvenanceRankingRequest],
@@ -217,29 +306,79 @@ def _dev_full_support(
     encoder: SentenceEncoder,
     config: ProvenanceRgcnModelConfig,
     device: torch.device,
-) -> float:
+) -> ProvenanceDevMetrics:
     labels_by_task = {label.task_id: label for label in labels}
     complete = 0
-    model.eval()
-    with torch.no_grad():
-        for request in requests:
-            tensor = move_provenance_tensor(
-                tensorize_provenance_request(request, encoder=encoder, config=config),
-                device,
+    reciprocal_rank_total = 0.0
+    edge_true_positive_count = 0
+    predicted_edge_count = 0
+    gold_edge_count = 0
+    emitted_edge_count = 0
+    abstained_source_count = 0
+    considered_source_count = 0
+    retriever = ExecutionProvenanceRgcnRetriever(
+        model=model,
+        encoder=encoder,
+        config=config,
+        device=device,
+    )
+    for request in requests:
+        result = retriever.rank_task(request, top_k=10)
+        ranked_ids = [item.node_id for item in result.ranked_nodes]
+        label = labels_by_task[request.task_id]
+        gold_ids = set(label.gold_evidence_item_ids)
+        complete += int(gold_ids <= set(ranked_ids[:5]))
+        reciprocal_rank_total += next(
+            (
+                1.0 / rank
+                for rank, node_id in enumerate(ranked_ids, start=1)
+                if node_id in gold_ids
+            ),
+            0.0,
+        )
+        predicted_edges = {
+            (edge["source"], edge["target"])
+            for edge in result.trace.retrieved_edges
+        }
+        gold_edges = set(label.gold_dependency_edges)
+        edge_true_positive_count += len(predicted_edges & gold_edges)
+        predicted_edge_count += len(predicted_edges)
+        gold_edge_count += len(gold_edges)
+        emitted_edge_count += len(predicted_edges)
+        native_trace = result.trace.native_trace
+        if isinstance(native_trace, ExecutionProvenanceTrace):
+            considered_sources = {
+                item.source_id for item in native_trace.structured_transitions
+            }
+            considered_source_count += len(considered_sources)
+            abstained_source_count += len(
+                set(native_trace.abstained_source_ids) & considered_sources
             )
-            output = model(tensor)
-            order = sorted(
-                range(len(tensor.candidate_ids)),
-                key=lambda index: (
-                    -float(output.candidate_logits[index].detach().cpu()),
-                    tensor.candidate_ids[index],
-                ),
-            )
-            selected = {tensor.candidate_ids[index] for index in order[:5]}
-            complete += int(
-                set(labels_by_task[request.task_id].gold_evidence_item_ids) <= selected
-            )
-    return complete / max(1, len(requests))
+    task_count = max(1, len(requests))
+    edge_precision = (
+        edge_true_positive_count / predicted_edge_count if predicted_edge_count else 0.0
+    )
+    edge_recall = (
+        edge_true_positive_count / gold_edge_count if gold_edge_count else 0.0
+    )
+    edge_f1 = (
+        2.0 * edge_precision * edge_recall / (edge_precision + edge_recall)
+        if edge_precision + edge_recall
+        else 0.0
+    )
+    return ProvenanceDevMetrics(
+        full_support_at_5=complete / task_count,
+        mrr=reciprocal_rank_total / task_count,
+        edge_precision_at_10=edge_precision,
+        edge_recall_at_10=edge_recall,
+        edge_f1_at_10=edge_f1,
+        average_emitted_edges=emitted_edge_count / task_count,
+        abstention_rate=(
+            abstained_source_count / considered_source_count
+            if considered_source_count
+            else 0.0
+        ),
+    )
 
 
 def _cpu_state_dict(model: nn.Module) -> dict[str, Tensor]:
@@ -251,6 +390,7 @@ def _cpu_state_dict(model: nn.Module) -> dict[str, Tensor]:
 
 __all__ = [
     "ProvenanceLoss",
+    "ProvenanceDevMetrics",
     "ProvenanceTrainingResult",
     "compute_provenance_loss",
     "train_provenance_rgcn",

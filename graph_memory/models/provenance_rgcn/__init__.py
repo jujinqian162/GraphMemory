@@ -23,6 +23,7 @@ from graph_memory.models.provenance_rgcn.tensorization import (
 )
 from graph_memory.models.provenance_rgcn.training import (
     ProvenanceLoss,
+    ProvenanceDevMetrics,
     ProvenanceTrainingResult,
     compute_provenance_loss,
     train_provenance_rgcn,
@@ -37,6 +38,7 @@ __all__ = [
     "PROVENANCE_RGCN_CHECKPOINT_FAMILY",
     "PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION",
     "ProvenanceLoss",
+    "ProvenanceDevMetrics",
     "ProvenanceRgcnCheckpoint",
     "ProvenanceRgcnModelConfig",
     "ProvenanceRgcnTrainingConfig",

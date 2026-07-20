@@ -5,7 +5,7 @@ from typing import TypedDict
 
 from graph_memory.contracts.common import JsonValue
 
-TWOWIKI_PROVENANCE_SCHEMA_VERSION = 2
+TWOWIKI_PROVENANCE_SCHEMA_VERSION = 3
 
 
 class ProvenanceCandidateRecord(TypedDict):
@@ -22,6 +22,20 @@ class ProvenanceBindingRecord(TypedDict):
     input_parameter: str
     binding_value_hash: str
     binding_kind: str
+
+
+class ProvenanceFeedEdgeMetadataRecord(TypedDict):
+    synthetic: bool
+    semantic_scorer: str
+    scorer_identity: str
+    query_template_version: str
+    semantic_rank: int
+    semantic_score: float
+    normalized_score: float
+    source_probability: float
+    calibrated_weight: float
+    branch_role: str
+    rank_bucket: str
 
 
 class ProvenanceNodeRecord(TypedDict):
@@ -85,6 +99,7 @@ __all__ = [
     "ProvenanceBindingRecord",
     "ProvenanceCandidateRecord",
     "ProvenanceEdgeRecord",
+    "ProvenanceFeedEdgeMetadataRecord",
     "ProvenanceGraphRecord",
     "ProvenanceNodeRecord",
     "TWOWIKI_PROVENANCE_SCHEMA_VERSION",

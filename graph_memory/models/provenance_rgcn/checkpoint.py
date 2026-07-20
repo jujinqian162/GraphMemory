@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, cast
 
 import torch
@@ -32,6 +33,9 @@ def save_provenance_rgcn_checkpoint(
     optimizer_state_dict: dict[str, Any] | None = None,
     epoch: int = 0,
     best_dev_metric: float = 0.0,
+    effective_variant: str = "full_rgcn",
+    scientific_identity: Mapping[str, Any] | None = None,
+    best_metrics: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "checkpoint_family": PROVENANCE_RGCN_CHECKPOINT_FAMILY,
@@ -41,6 +45,21 @@ def save_provenance_rgcn_checkpoint(
         "optimizer_state_dict": optimizer_state_dict or {},
         "epoch": epoch,
         "best_dev_metric": float(best_dev_metric),
+        "best_metrics": dict(best_metrics or {"dev_joint": float(best_dev_metric)}),
+        "effective_variant": effective_variant,
+        "candidate_loss_type": "task_balanced_pairwise_logistic",
+        "selection_objective": (
+            "0.50*full_support_at_5+0.25*mrr+0.25*edge_f1_at_10"
+        ),
+        "scientific_identity": dict(
+            scientific_identity
+            or {
+                "dataset": "unspecified",
+                "construction": "unspecified",
+                "pairs": "unspecified",
+                "encoder": model_config.encoder_model,
+            }
+        ),
         "model_config": model_config.to_dict(),
         "training_config": training_config.to_dict(),
     }
@@ -93,9 +112,47 @@ def _validate_payload(payload: dict[str, Any], *, expected_method: str | None) -
         "model_state_dict",
         "model_config",
         "training_config",
+        "best_metrics",
+        "effective_variant",
+        "candidate_loss_type",
+        "selection_objective",
+        "scientific_identity",
     ):
         if field_name not in payload:
             raise ValueError(f"Provenance R-GCN checkpoint missing field={field_name}.")
+    model_config = payload.get("model_config")
+    required_model_fields = {
+        "ablation_name",
+        "message_transform_type",
+        "edge_weight_policy",
+        "structured_pool_size",
+        "structured_seed_top_s",
+        "preserve_node_top_n",
+        "edge_accept_threshold",
+        "feed_message_topology",
+        "feed_message_shuffle_seed",
+        "node_type_vocab",
+        "relation_vocab",
+    }
+    if not isinstance(model_config, dict) or not required_model_fields <= set(
+        model_config
+    ):
+        missing = sorted(
+            required_model_fields
+            - (set(model_config) if isinstance(model_config, dict) else set())
+        )
+        raise ValueError(
+            "Provenance R-GCN checkpoint model_config is incomplete for schema v3: "
+            f"missing={missing}."
+        )
+    scientific_identity = payload.get("scientific_identity")
+    required_identity = {"dataset", "construction", "pairs", "encoder"}
+    if not isinstance(scientific_identity, dict) or not required_identity <= set(
+        scientific_identity
+    ):
+        raise ValueError(
+            "Provenance R-GCN checkpoint scientific_identity is incomplete."
+        )
 
 
 __all__ = [

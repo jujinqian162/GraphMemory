@@ -74,6 +74,7 @@ ProvenanceRgcnVariant: TypeAlias = Literal[
     "wo_edge_type",
     "wo_edge_weight",
     "wo_hard_negatives",
+    "wo_edge_rerank",
 ]
 
 
@@ -224,6 +225,11 @@ class PairSamplingConfig(ClosedModel):
     hard_pool_size: PositiveInt
 
 
+class ProvenancePairSamplingConfig(PairSamplingConfig):
+    hard_provenance_successor_per_positive: NonNegativeInt
+    hard_provenance_predecessor_per_positive: NonNegativeInt
+
+
 class RgcnModelConfig(ClosedModel):
     hidden_dim: PositiveInt
     num_layers: NonNegativeInt
@@ -326,6 +332,18 @@ class ProvenanceRgcnModelSettings(ClosedModel):
     num_layers: NonNegativeInt
     dropout: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)]
     ablation: str = Field(min_length=1)
+    structured_pool_size: PositiveInt
+    structured_seed_top_s: PositiveInt
+    preserve_node_top_n: NonNegativeInt
+    edge_accept_threshold: Annotated[ScientificFloat, Field(ge=0.0, le=1.0)]
+
+    @model_validator(mode="after")
+    def validate_structured_bounds(self) -> ProvenanceRgcnModelSettings:
+        if self.structured_seed_top_s > self.structured_pool_size:
+            raise ValueError("structured_seed_top_s exceeds structured_pool_size")
+        if self.preserve_node_top_n > self.structured_pool_size:
+            raise ValueError("preserve_node_top_n exceeds structured_pool_size")
+        return self
 
 
 class ProvenanceRgcnTrainerSettings(ClosedModel):
@@ -352,10 +370,10 @@ class ProvenanceRgcnStageConfig(ClosedModel):
 
 
 class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
-    pairs: PairSamplingConfig
+    pairs: ProvenancePairSamplingConfig
 
     def effective(self) -> ExecutionProvenanceRgcnMethodConfig:
-        if self.variant == "full_rgcn":
+        if self.variant in {"full_rgcn", "wo_edge_rerank"}:
             return self
         if self.variant == "wo_hard_negatives":
             return self.model_copy(
@@ -365,6 +383,8 @@ class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
                             "hard_bm25_per_positive": 0,
                             "hard_dense_per_positive": 0,
                             "hard_graph_neighbor_per_positive": 0,
+                            "hard_provenance_successor_per_positive": 0,
+                            "hard_provenance_predecessor_per_positive": 0,
                         }
                     )
                 }
@@ -382,9 +402,12 @@ class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
 
     def train_stage(self) -> ProvenanceRgcnStageConfig:
         effective = self.effective()
+        train_variant: ProvenanceRgcnVariant = (
+            "full_rgcn" if self.variant == "wo_edge_rerank" else effective.variant
+        )
         return ProvenanceRgcnStageConfig(
             method=effective.method,
-            variant=effective.variant,
+            variant=train_variant,
             encoder=effective.encoder,
             train=effective.train,
         )
@@ -508,7 +531,7 @@ def ranking_config(method: MethodConfig) -> RankingMethodConfig:
 
 
 class PairBuildConfig(ClosedModel):
-    sampling: PairSamplingConfig
+    sampling: PairSamplingConfig | ProvenancePairSamplingConfig
     encoder: DenseEncoderConfig
     device: Device
 
@@ -744,6 +767,7 @@ __all__ = [
     "ProfileConfig",
     "PrepareSplitConfig",
     "ProvenanceRgcnModelSettings",
+    "ProvenancePairSamplingConfig",
     "ProvenanceRgcnTrainerSettings",
     "ProvenanceRgcnTrainSettings",
     "ProvenanceRgcnStageConfig",

@@ -18,6 +18,8 @@ from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
+from graph_memory.evaluation.tables import split_metric_tables
+from graph_memory.contracts.metrics import MetricRow
 from graph_memory.validation import ContractValidationError
 
 
@@ -154,7 +156,8 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
 
     assert rows == [
         {
-            "Method": "bm25",
+                "Method": "bm25",
+                "Evaluation Schema": "evidence_v3",
             "Recall@2": 1.0,
             "Recall@5": 1.0,
             "Recall@10": 1.0,
@@ -168,6 +171,9 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "Query-Evidence Connectivity@10": 1.0,
             "Path Recall@10": "N/A",
             "Edge Recall@10": "N/A",
+            "Edge Precision@10": "N/A",
+            "Edge F1@10": "N/A",
+            "Abstention Rate": "N/A",
             "Retrieval Latency / Query": 4.0,
             "Index Build Time": 0.0,
             "Graph Construction Time": 0.0,
@@ -176,6 +182,9 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "Avg Retrieved Edges": 0.0,
         }
     ]
+    legacy = cast(MetricRow, cast(object, {**rows[0], "Evaluation Schema": "evidence_v2"}))
+    with pytest.raises(ContractValidationError, match="mixed evaluation schemas"):
+        split_metric_tables([rows[0], legacy])
 
 
 def test_evaluate_results_rejects_task_id_mismatch():

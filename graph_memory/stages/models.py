@@ -294,6 +294,10 @@ def materialize_provenance_rgcn_model(
     pairs = cast(
         list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
     )
+    pair_summary = cast(
+        dict[str, object],
+        read_json(artifact_payload_path(train_pairs, "summary")),
+    )
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -326,6 +330,18 @@ def materialize_provenance_rgcn_model(
         )
         checkpoints = publisher.workspace / "checkpoints"
         epoch_checkpoint = checkpoints / f"checkpoint_epoch_{result.best_epoch}.pt"
+        first_train_task = train_tasks[0] if train_tasks else {}
+        train_metadata = (
+            first_train_task.get("metadata", {})
+            if isinstance(first_train_task, dict)
+            else {}
+        )
+        construction_identity = (
+            train_metadata.get("graph_construction", "missing")
+            if isinstance(train_metadata, dict)
+            else "missing"
+        )
+        best_metrics = result.best_metrics
         for path in (epoch_checkpoint, checkpoints / "best.pt"):
             save_provenance_rgcn_checkpoint(
                 path,
@@ -336,6 +352,22 @@ def materialize_provenance_rgcn_model(
                 best_dev_metric=result.best_dev_metric,
                 model_config=result.model_config,
                 training_config=result.training_config,
+                effective_variant=config.variant,
+                scientific_identity={
+                    "dataset": {
+                        "name": dataset,
+                        "schema_version": 3,
+                        "train_prepared_digest": train_prepared.digest,
+                        "dev_prepared_digest": dev_prepared.digest,
+                    },
+                    "construction": construction_identity,
+                    "pairs": {
+                        "digest": train_pairs.digest,
+                        "sampling": pair_summary.get("sampling_config", {}),
+                    },
+                    "encoder": _encoder_identity(encoder_source),
+                },
+                best_metrics=best_metrics,
             )
         history = tuple(
             cast(dict[str, JsonValue], dict(record)) for record in result.metric_records

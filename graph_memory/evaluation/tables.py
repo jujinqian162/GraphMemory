@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from graph_memory.contracts.metrics import MetricRow, MetricTableRow
+from graph_memory.validation.common import ContractValidationError
 
 MAIN_RESULT_COLUMNS = [
     "Method",
+    "Evaluation Schema",
     "Recall@2",
     "Recall@5",
     "Recall@10",
@@ -16,15 +18,20 @@ MAIN_RESULT_COLUMNS = [
 
 PATH_RESULT_COLUMNS = [
     "Method",
+    "Evaluation Schema",
     "Connected Evidence Recall@5",
     "Connected Evidence Recall@10",
     "Query-Evidence Connectivity@10",
     "Path Recall@10",
     "Edge Recall@10",
+    "Edge Precision@10",
+    "Edge F1@10",
+    "Abstention Rate",
 ]
 
 EFFICIENCY_RESULT_COLUMNS = [
     "Method",
+    "Evaluation Schema",
     "Index Build Time",
     "Graph Construction Time",
     "Retrieval Latency / Query",
@@ -40,6 +47,9 @@ WIDE_METRIC_COLUMNS = [
     "Query-Evidence Connectivity@10",
     "Path Recall@10",
     "Edge Recall@10",
+    "Edge Precision@10",
+    "Edge F1@10",
+    "Abstention Rate",
     "Retrieval Latency / Query",
     "Index Build Time",
     "Graph Construction Time",
@@ -52,6 +62,11 @@ WIDE_METRIC_COLUMNS = [
 def split_metric_tables(
     rows: list[MetricRow],
 ) -> tuple[list[MetricTableRow], list[MetricTableRow], list[MetricTableRow]]:
+    schemas = {row.get("Evaluation Schema", "evidence_v2") for row in rows}
+    if len(schemas) > 1:
+        raise ContractValidationError(
+            f"Cannot aggregate mixed evaluation schemas={sorted(schemas)}."
+        )
     main_rows = [_select_columns(row, MAIN_RESULT_COLUMNS) for row in rows]
     path_rows = [_select_columns(row, PATH_RESULT_COLUMNS) for row in rows]
     efficiency_rows = [_select_columns(row, EFFICIENCY_RESULT_COLUMNS) for row in rows]

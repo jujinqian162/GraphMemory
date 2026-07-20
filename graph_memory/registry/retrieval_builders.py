@@ -367,6 +367,15 @@ def _build_provenance_rgcn(
         expected_method=settings.method.value,
         map_location="cpu",
     )
+    expected_checkpoint_variant = (
+        "full_rgcn" if settings.variant == "wo_edge_rerank" else settings.variant
+    )
+    if checkpoint.payload.get("effective_variant") != expected_checkpoint_variant:
+        raise ValueError(
+            "Provenance R-GCN checkpoint variant mismatch: "
+            f"expected={expected_checkpoint_variant!r} "
+            f"observed={checkpoint.payload.get('effective_variant')!r}."
+        )
     model = ExecutionProvenanceRGCN(checkpoint.model_config)
     model.load_state_dict(checkpoint.payload["model_state_dict"])
     encoder = build_payload.dense_encoder or _resolve_encoder(
@@ -396,6 +405,7 @@ def _build_provenance_rgcn(
             encoder=encoder,
             config=checkpoint.model_config,
             device=settings.device,
+            enable_edge_rerank=settings.variant != "wo_edge_rerank",
         ),
         method=settings.method,
         model=settings.checkpoint,

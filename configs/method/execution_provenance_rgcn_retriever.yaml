@@ -8,9 +8,11 @@ encoder:
 pairs:
   random_seed: ${seed}
   easy_random_per_positive: 2
-  hard_bm25_per_positive: 2
-  hard_dense_per_positive: 2
+  hard_bm25_per_positive: 1
+  hard_dense_per_positive: 1
   hard_graph_neighbor_per_positive: 0
+  hard_provenance_successor_per_positive: 2
+  hard_provenance_predecessor_per_positive: 1
   hard_pool_size: 20
 train:
   model:
@@ -19,6 +21,10 @@ train:
     num_layers: ${profile.trainable.rgcn.num_layers}
     dropout: 0.1
     ablation: full_rgcn
+    structured_pool_size: 16
+    structured_seed_top_s: 5
+    preserve_node_top_n: 2
+    edge_accept_threshold: 0.5
   trainer:
     learning_rate: 0.0001
     batch_size: ${profile.trainable.rgcn.batch_size}

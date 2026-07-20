@@ -134,6 +134,20 @@ def _native_trace_record(trace: NativeRetrievalTrace) -> dict[str, object]:
                 for path in trace.paths
             ],
             "edges": [_provenance_edge_record(edge) for edge in trace.edges],
+            "structured_transitions": [
+                {
+                    "source_id": item.source_id,
+                    "target_id": item.target_id,
+                    "probability": item.probability,
+                    "original_source_rank": item.original_source_rank,
+                    "original_target_rank": item.original_target_rank,
+                    "final_target_rank": item.final_target_rank,
+                    "decision": item.decision,
+                }
+                for item in trace.structured_transitions
+            ],
+            "abstained_source_ids": list(trace.abstained_source_ids),
+            "structured_promotion_enabled": trace.structured_promotion_enabled,
         }
     assert isinstance(trace, StatelessExecutionProvenanceTrace)
     return {

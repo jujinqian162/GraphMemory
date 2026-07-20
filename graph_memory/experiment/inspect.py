@@ -5,7 +5,10 @@ from typing import Literal
 
 from graph_memory.experiment.config import ClosedModel
 from graph_memory.registry import Registry
-from graph_memory.registry.ablations import ABLATION_SUITE_PATCHES
+from graph_memory.registry.ablations import (
+    ABLATION_SUITE_PATCHES,
+    ExecutableAblationVariant,
+)
 
 InspectionKind = Literal[
     "methods",
@@ -40,9 +43,23 @@ def inspect_catalog(
         return {
             method: [
                 {
-                    "variant": variant.identifier,
+                    "variant": (
+                        variant.identifier.value
+                        if isinstance(variant, ExecutableAblationVariant)
+                        else variant.identifier
+                    ),
                     "changed_dimensions": sorted(variant.changed_dimensions),
                     "baseline_alias": variant.baseline_alias,
+                    "earliest_invalidated_stage": (
+                        variant.earliest_invalidated_stage
+                        if isinstance(variant, ExecutableAblationVariant)
+                        else None
+                    ),
+                    "config_patch": (
+                        variant.config_patch.updates()
+                        if isinstance(variant, ExecutableAblationVariant)
+                        else {}
+                    ),
                 }
                 for variant in suite.variants
             ]

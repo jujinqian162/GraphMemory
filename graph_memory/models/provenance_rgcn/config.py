@@ -7,7 +7,7 @@ from typing import Literal, TypeAlias, cast
 from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 
 PROVENANCE_RGCN_CHECKPOINT_FAMILY = "execution_provenance_rgcn"
-PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION = 2
+PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION = 3
 DEFAULT_NODE_TYPE_VOCAB = tuple(node_type.value for node_type in ProvenanceNodeType)
 DEFAULT_FEEDS_BINDING_RELATIONS = (
     "feeds:evidence:context:semantic_reference",
@@ -27,7 +27,13 @@ DEFAULT_RELATION_VOCAB = tuple(
 ProvenanceRgcnMessageTransformType: TypeAlias = Literal["typed", "shared"]
 ProvenanceRgcnEdgeWeightPolicy: TypeAlias = Literal["artifact", "uniform"]
 SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS = frozenset(
-    {"full_rgcn", "wo_graph", "wo_edge_type", "wo_edge_weight"}
+    {
+        "full_rgcn",
+        "wo_graph",
+        "wo_edge_type",
+        "wo_edge_weight",
+        "diagnostic_shuffled_feed",
+    }
 )
 
 
@@ -45,6 +51,12 @@ class ProvenanceRgcnModelConfig:
     ablation_name: str = "full_rgcn"
     message_transform_type: ProvenanceRgcnMessageTransformType = "typed"
     edge_weight_policy: ProvenanceRgcnEdgeWeightPolicy = "artifact"
+    structured_pool_size: int = 16
+    structured_seed_top_s: int = 5
+    preserve_node_top_n: int = 2
+    edge_accept_threshold: float = 0.5
+    feed_message_topology: Literal["native", "shuffled"] = "native"
+    feed_message_shuffle_seed: int = 13
     node_type_vocab: tuple[str, ...] = DEFAULT_NODE_TYPE_VOCAB
     relation_vocab: tuple[str, ...] = DEFAULT_RELATION_VOCAB
 
@@ -70,6 +82,26 @@ class ProvenanceRgcnModelConfig:
             raise ValueError("message_transform_type must be 'typed' or 'shared'.")
         if self.edge_weight_policy not in {"artifact", "uniform"}:
             raise ValueError("edge_weight_policy must be 'artifact' or 'uniform'.")
+        if self.structured_pool_size <= 0:
+            raise ValueError("structured_pool_size must be positive.")
+        if not 0 < self.structured_seed_top_s <= self.structured_pool_size:
+            raise ValueError(
+                "structured_seed_top_s must be in [1, structured_pool_size]."
+            )
+        if not 0 <= self.preserve_node_top_n <= self.structured_pool_size:
+            raise ValueError(
+                "preserve_node_top_n must be in [0, structured_pool_size]."
+            )
+        if not 0.0 <= self.edge_accept_threshold <= 1.0:
+            raise ValueError("edge_accept_threshold must be in [0, 1].")
+        if self.feed_message_topology not in {"native", "shuffled"}:
+            raise ValueError("feed_message_topology must be native or shuffled.")
+        if (
+            self.ablation_name == "diagnostic_shuffled_feed"
+        ) != (self.feed_message_topology == "shuffled"):
+            raise ValueError(
+                "diagnostic_shuffled_feed must exactly select shuffled feed topology."
+            )
         if len(set(self.node_type_vocab)) != len(self.node_type_vocab):
             raise ValueError("node_type_vocab must be unique.")
         if len(set(self.relation_vocab)) != len(self.relation_vocab):
@@ -93,15 +125,23 @@ class ProvenanceRgcnModelConfig:
             node_type_dim=cast(int, value["node_type_dim"]),
             num_layers=cast(int, value["num_layers"]),
             dropout=cast(float, value["dropout"]),
-            ablation_name=cast(str, value.get("ablation_name", "full_rgcn")),
+            ablation_name=cast(str, value["ablation_name"]),
             message_transform_type=cast(
                 ProvenanceRgcnMessageTransformType,
-                value.get("message_transform_type", "typed"),
+                value["message_transform_type"],
             ),
             edge_weight_policy=cast(
                 ProvenanceRgcnEdgeWeightPolicy,
-                value.get("edge_weight_policy", "artifact"),
+                value["edge_weight_policy"],
             ),
+            structured_pool_size=cast(int, value["structured_pool_size"]),
+            structured_seed_top_s=cast(int, value["structured_seed_top_s"]),
+            preserve_node_top_n=cast(int, value["preserve_node_top_n"]),
+            edge_accept_threshold=cast(float, value["edge_accept_threshold"]),
+            feed_message_topology=cast(
+                Literal["native", "shuffled"], value["feed_message_topology"]
+            ),
+            feed_message_shuffle_seed=cast(int, value["feed_message_shuffle_seed"]),
             node_type_vocab=tuple(cast(Sequence[str], value["node_type_vocab"])),
             relation_vocab=tuple(cast(Sequence[str], value["relation_vocab"])),
         )
@@ -119,6 +159,11 @@ def default_provenance_rgcn_model_config(
     num_layers: int = 2,
     dropout: float = 0.1,
     ablation_name: str = "full_rgcn",
+    structured_pool_size: int = 16,
+    structured_seed_top_s: int = 5,
+    preserve_node_top_n: int = 2,
+    edge_accept_threshold: float = 0.5,
+    feed_message_shuffle_seed: int = 13,
 ) -> ProvenanceRgcnModelConfig:
     if ablation_name not in SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS:
         raise ValueError(
@@ -135,6 +180,9 @@ def default_provenance_rgcn_model_config(
         message_transform_type = "shared"
     elif ablation_name == "wo_edge_weight":
         edge_weight_policy = "uniform"
+    feed_message_topology: Literal["native", "shuffled"] = (
+        "shuffled" if ablation_name == "diagnostic_shuffled_feed" else "native"
+    )
     return ProvenanceRgcnModelConfig(
         encoder_model=encoder_model,
         encoder_dim=encoder_dim,
@@ -148,6 +196,12 @@ def default_provenance_rgcn_model_config(
         ablation_name=effective_ablation,
         message_transform_type=message_transform_type,
         edge_weight_policy=edge_weight_policy,
+        structured_pool_size=structured_pool_size,
+        structured_seed_top_s=structured_seed_top_s,
+        preserve_node_top_n=preserve_node_top_n,
+        edge_accept_threshold=edge_accept_threshold,
+        feed_message_topology=feed_message_topology,
+        feed_message_shuffle_seed=feed_message_shuffle_seed,
     )
 
 

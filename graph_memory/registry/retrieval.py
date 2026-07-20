@@ -120,6 +120,7 @@ class ProvenanceRgcnRetrievalSettings:
     top_k: int
     checkpoint: Path
     device: str
+    variant: str = "full_rgcn"
     method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER] = (
         RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
     )

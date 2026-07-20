@@ -10,6 +10,7 @@ MetricRow = TypedDict(
     "MetricRow",
     {
         "Method": str,
+        "Evaluation Schema": str,
         "Recall@2": float,
         "Recall@5": float,
         "Recall@10": float,
@@ -23,6 +24,9 @@ MetricRow = TypedDict(
         "Query-Evidence Connectivity@10": MetricValue,
         "Path Recall@10": MetricValue,
         "Edge Recall@10": MetricValue,
+        "Edge Precision@10": MetricValue,
+        "Edge F1@10": MetricValue,
+        "Abstention Rate": MetricValue,
         "Retrieval Latency / Query": float,
         "Index Build Time": float,
         "Graph Construction Time": float,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ from graph_memory.models.provenance_rgcn import (
     ExecutionProvenanceRGCN,
     ExecutionProvenanceRgcnRetriever,
     ProvenanceRgcnModelConfig,
+    ProvenanceDevMetrics,
     ProvenanceRgcnTrainingConfig,
     compute_provenance_loss,
     default_provenance_rgcn_model_config,
@@ -30,6 +32,7 @@ from graph_memory.models.graph_retriever.internals.neural import (
     TypedRelationTransform,
 )
 from graph_memory.models.provenance_rgcn.contracts import ProvenanceModelOutput
+from graph_memory.models.provenance_rgcn.inference import _apply_structured_reranking
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
@@ -40,9 +43,15 @@ from graph_memory.registry.retrieval import (
 from graph_memory.retrieval.contracts import ExecutionProvenanceTrace
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.requests import TextRankingRequest
-from graph_memory.training_pairs import build_train_pairs
-from graph_memory.training_pairs.config import NegativeSamplingConfig
-from graph_memory.training_pairs.requests import TrainPairBuildTask
+from graph_memory.training_pairs import build_provenance_train_pairs, build_train_pairs
+from graph_memory.training_pairs.config import (
+    NegativeSamplingConfig,
+    ProvenanceNegativeSamplingConfig,
+)
+from graph_memory.training_pairs.requests import (
+    ProvenanceTrainPairBuildTask,
+    TrainPairBuildTask,
+)
 
 
 class TinyEncoder:
@@ -151,8 +160,68 @@ def test_provenance_model_ablations_remove_named_graph_signals() -> None:
     assert torch.equal(
         uniform_tensor.graph_batch.relation_ids, full_tensor.graph_batch.relation_ids
     )
-    assert torch.all(uniform_tensor.graph_batch.edge_weights == 1.0)
+    feed_weights_by_source: dict[str, list[float]] = {}
+    for edge in request.graph.edges:
+        if edge.edge_type.value == "feeds":
+            feed_weights_by_source.setdefault(edge.source, []).append(edge.weight)
+    source_means = {
+        source: sum(weights) / len(weights)
+        for source, weights in feed_weights_by_source.items()
+    }
+    expected_message_weights: list[float] = []
+    for edge in request.graph.edges:
+        resolved = (
+            source_means[edge.source]
+            if edge.edge_type.value == "feeds"
+            else edge.weight
+        )
+        expected_message_weights.extend((resolved, resolved))
+    assert torch.allclose(
+        uniform_tensor.graph_batch.edge_weights,
+        torch.tensor(expected_message_weights, dtype=torch.float32),
+    )
+    assert all(value == pytest.approx(0.75) for value in source_means.values())
     assert any(edge.weight != 1.0 for edge in request.graph.edges)
+
+
+def test_shuffled_feed_diagnostic_changes_only_feed_message_topology() -> None:
+    request, _label = _request_and_label()
+    native_config = _default_model_config("full_rgcn")
+    shuffled_config = _default_model_config("diagnostic_shuffled_feed")
+
+    native = tensorize_provenance_request(
+        request, encoder=TinyEncoder(), config=native_config
+    )
+    shuffled = tensorize_provenance_request(
+        request, encoder=TinyEncoder(), config=shuffled_config
+    )
+    repeated = tensorize_provenance_request(
+        request, encoder=TinyEncoder(), config=shuffled_config
+    )
+
+    assert torch.equal(shuffled.graph_batch.edge_index, repeated.graph_batch.edge_index)
+    assert torch.equal(
+        native.graph_batch.relation_ids, shuffled.graph_batch.relation_ids
+    )
+    assert torch.equal(
+        native.graph_batch.edge_weights, shuffled.graph_batch.edge_weights
+    )
+    feed_columns: list[int] = []
+    non_feed_columns: list[int] = []
+    for edge_index, edge in enumerate(request.graph.edges):
+        columns = [2 * edge_index, 2 * edge_index + 1]
+        if edge.edge_type.value == "feeds":
+            feed_columns.extend(columns)
+        else:
+            non_feed_columns.extend(columns)
+    assert torch.equal(
+        native.graph_batch.edge_index[:, non_feed_columns],
+        shuffled.graph_batch.edge_index[:, non_feed_columns],
+    )
+    assert not torch.equal(
+        native.graph_batch.edge_index[:, feed_columns],
+        shuffled.graph_batch.edge_index[:, feed_columns],
+    )
 
 
 def test_training_loss_consumes_only_materialized_candidate_pairs() -> None:
@@ -209,6 +278,158 @@ def test_training_loss_consumes_only_materialized_candidate_pairs() -> None:
     assert first.total.item() > 0.0
 
 
+def test_candidate_loss_is_pairwise_over_every_positive_negative_comparison() -> None:
+    request, label = _request_and_label()
+    tensor = tensorize_provenance_request(
+        request, encoder=TinyEncoder(), config=_model_config()
+    )
+    logits = torch.tensor(
+        [2.0, 1.0, -1.0, 0.5, -0.5, 0.0], dtype=torch.float32
+    )
+    output = ProvenanceModelOutput(
+        node_states=torch.empty((len(request.graph.nodes), 1)),
+        candidate_logits=logits,
+        edge_logits=torch.zeros(len(tensor.logical_transitions)),
+    )
+    gold_ids = set(label.gold_evidence_item_ids)
+    pairs = _train_pairs(request, label)
+    loss = compute_provenance_loss(
+        tensor,
+        output,
+        label,
+        pairs,
+        _model_config(),
+        ProvenanceRgcnTrainingConfig(edge_loss_weight=0.0),
+    )
+    positive_indices = [
+        index
+        for index, candidate_id in enumerate(tensor.candidate_ids)
+        if candidate_id in gold_ids
+    ]
+    negative_indices = [
+        index
+        for index, candidate_id in enumerate(tensor.candidate_ids)
+        if candidate_id not in gold_ids
+    ]
+    expected = torch.nn.functional.softplus(
+        -(logits[positive_indices].unsqueeze(1) - logits[negative_indices].unsqueeze(0))
+    ).mean()
+
+    assert loss.candidate == pytest.approx(expected)
+    assert loss.comparison_count == len(positive_indices) * len(negative_indices)
+
+
+def test_structured_reranking_is_bounded_stable_and_can_be_disabled() -> None:
+    request, _label = _request_and_label()
+    config = replace(
+        _model_config(),
+        structured_pool_size=6,
+        structured_seed_top_s=5,
+        preserve_node_top_n=2,
+        edge_accept_threshold=0.5,
+    )
+    tensor = tensorize_provenance_request(request, encoder=TinyEncoder(), config=config)
+    transition = tensor.logical_transitions[0]
+    remaining = [
+        candidate_id
+        for candidate_id in tensor.candidate_ids
+        if candidate_id not in {transition.source_id, transition.target_id}
+    ]
+    raw_ids = [
+        *remaining[:2],
+        transition.source_id,
+        *remaining[2:],
+        transition.target_id,
+    ]
+    raw = [
+        RankedNode(node_id, float(len(raw_ids) - index))
+        for index, node_id in enumerate(raw_ids)
+    ]
+    logits = torch.full((len(tensor.logical_transitions),), -10.0)
+    logits[0] = 10.0
+
+    structured = _apply_structured_reranking(
+        raw,
+        tensor.logical_transitions,
+        logits,
+        config=config,
+        promotion_enabled=True,
+    )
+    final_ids = [item.node_id for item in structured.ranked_nodes]
+    assert final_ids[:2] == raw_ids[:2]
+    assert final_ids.index(transition.target_id) == final_ids.index(transition.source_id) + 1
+    assert sorted(item.score for item in structured.ranked_nodes) == sorted(
+        item.score for item in raw
+    )
+    assert any(trace.decision == "promoted" for trace in structured.traces)
+
+    disabled = _apply_structured_reranking(
+        raw,
+        tensor.logical_transitions,
+        logits,
+        config=config,
+        promotion_enabled=False,
+    )
+    assert [item.node_id for item in disabled.ranked_nodes] == raw_ids
+    assert any(trace.decision == "promotion_disabled" for trace in disabled.traces)
+
+    below_threshold = _apply_structured_reranking(
+        raw,
+        tensor.logical_transitions,
+        torch.full((len(tensor.logical_transitions),), -10.0),
+        config=config,
+        promotion_enabled=True,
+    )
+    assert below_threshold.selected_transitions == ()
+    assert below_threshold.abstained_source_ids
+
+
+def test_structured_reranking_records_above_source_noop_and_target_conflict() -> None:
+    request, _label = _request_and_label()
+    config = replace(
+        _model_config(),
+        structured_pool_size=6,
+        structured_seed_top_s=5,
+        preserve_node_top_n=2,
+    )
+    tensor = tensorize_provenance_request(request, encoder=TinyEncoder(), config=config)
+    by_target: dict[str, list[int]] = {}
+    for index, transition in enumerate(tensor.logical_transitions):
+        by_target.setdefault(transition.target_id, []).append(index)
+    conflict_indices = next(indices for indices in by_target.values() if len(indices) >= 2)
+    first = tensor.logical_transitions[conflict_indices[0]]
+    second = tensor.logical_transitions[conflict_indices[1]]
+    remaining = [
+        candidate_id
+        for candidate_id in tensor.candidate_ids
+        if candidate_id not in {first.target_id, first.source_id, second.source_id}
+    ]
+    raw_ids = [first.target_id, first.source_id, second.source_id, *remaining]
+    raw = [
+        RankedNode(node_id, float(len(raw_ids) - index))
+        for index, node_id in enumerate(raw_ids)
+    ]
+    logits = torch.full((len(tensor.logical_transitions),), -10.0)
+    logits[conflict_indices[0]] = 9.0
+    logits[conflict_indices[1]] = 8.0
+
+    result = _apply_structured_reranking(
+        raw,
+        tensor.logical_transitions,
+        logits,
+        config=config,
+        promotion_enabled=True,
+    )
+
+    assert [item.node_id for item in result.ranked_nodes] == raw_ids
+    assert any(trace.decision == "already_above_source" for trace in result.traces)
+    assert any(trace.decision == "target_conflict" for trace in result.traces)
+    assert sum(
+        transition.target_id == first.target_id
+        for transition, _score in result.selected_transitions
+    ) == 1
+
+
 def test_provenance_pair_build_uses_real_bm25_and_dense_samplers() -> None:
     request, label = _request_and_label()
     text_request = TextRankingRequest(
@@ -237,6 +458,91 @@ def test_provenance_pair_build_uses_real_bm25_and_dense_samplers() -> None:
         "hard_bm25",
         "hard_dense",
     }
+
+
+def test_provenance_native_pairs_are_unique_and_use_hardness_precedence() -> None:
+    request, label = _request_and_label()
+    text_request = TextRankingRequest(
+        request.task_id, request.query_text, request.candidates
+    )
+
+    result = build_provenance_train_pairs(
+        [
+            ProvenanceTrainPairBuildTask(
+                text_request=text_request,
+                graph=request.graph,
+                label=label,
+            )
+        ],
+        ProvenanceNegativeSamplingConfig(
+            random_seed=13,
+            easy_random_per_positive=2,
+            hard_bm25_per_positive=1,
+            hard_dense_per_positive=1,
+            hard_graph_neighbor_per_positive=0,
+            hard_provenance_successor_per_positive=2,
+            hard_provenance_predecessor_per_positive=1,
+            hard_pool_size=10,
+        ),
+        bm25_retriever=OrderedRanker(),
+        dense_retriever=OrderedRanker(reverse=True),
+    )
+
+    negatives = [pair for pair in result.pairs if pair["label"] == 0]
+    assert len({pair["node_id"] for pair in negatives}) == len(negatives)
+    assert "hard_provenance_successor" in {
+        pair["sample_type"] for pair in negatives
+    }
+    assert "hard_provenance_predecessor" in {
+        pair["sample_type"] for pair in negatives
+    }
+    requested_counts = result.summary.get("requested_negative_count_by_type")
+    assert requested_counts == {
+        "easy_random": 4,
+        "hard_bm25": 2,
+        "hard_dense": 2,
+        "hard_provenance_predecessor": 2,
+        "hard_provenance_successor": 4,
+    }
+    source_overlap = result.summary.get("source_overlap_by_task")
+    assert source_overlap
+    precedence = {
+        "hard_provenance_successor": 0,
+        "hard_provenance_predecessor": 1,
+        "hard_dense": 2,
+        "hard_bm25": 3,
+        "easy_random": 4,
+    }
+    for sources in source_overlap[request.task_id].values():
+        assert sources == sorted(sources, key=precedence.__getitem__)
+    assert sum(result.summary["negative_count_by_type"].values()) == len(negatives)
+
+
+def test_provenance_wo_hard_negatives_retains_only_easy_random() -> None:
+    request, label = _request_and_label()
+    result = build_provenance_train_pairs(
+        [
+            ProvenanceTrainPairBuildTask(
+                text_request=TextRankingRequest(
+                    request.task_id, request.query_text, request.candidates
+                ),
+                graph=request.graph,
+                label=label,
+            )
+        ],
+        ProvenanceNegativeSamplingConfig(
+            easy_random_per_positive=2,
+            hard_bm25_per_positive=0,
+            hard_dense_per_positive=0,
+            hard_graph_neighbor_per_positive=0,
+            hard_provenance_successor_per_positive=0,
+            hard_provenance_predecessor_per_positive=0,
+        ),
+    )
+
+    assert {
+        pair["sample_type"] for pair in result.pairs if pair["label"] == 0
+    } == {"easy_random"}
 
 
 def test_checkpoint_family_round_trip_and_rejection(
@@ -273,10 +579,8 @@ def test_checkpoint_family_round_trip_and_rejection(
         legacy_payload["model_config"].pop(field_name)
     legacy_checkpoint = tmp_path / "legacy-full.pt"
     torch.save(legacy_payload, legacy_checkpoint)
-    legacy = load_provenance_rgcn_checkpoint(legacy_checkpoint)
-    assert legacy.model_config.ablation_name == "full_rgcn"
-    assert legacy.model_config.message_transform_type == "typed"
-    assert legacy.model_config.edge_weight_policy == "artifact"
+    with pytest.raises(ValueError, match="incomplete for schema v3"):
+        load_provenance_rgcn_checkpoint(legacy_checkpoint)
     assert "path_loss_weight" not in loaded.payload["training_config"]
     evidence_checkpoint = tmp_path / "evidence.pt"
     torch.save(
@@ -285,6 +589,36 @@ def test_checkpoint_family_round_trip_and_rejection(
     )
     with pytest.raises(ValueError, match="family mismatch"):
         load_provenance_rgcn_checkpoint(evidence_checkpoint)
+
+    provenance_v2 = deepcopy(payload)
+    provenance_v2["schema_version"] = 2
+    provenance_v2_checkpoint = tmp_path / "provenance-v2.pt"
+    torch.save(provenance_v2, provenance_v2_checkpoint)
+    with pytest.raises(ValueError, match="schema version"):
+        load_provenance_rgcn_checkpoint(provenance_v2_checkpoint)
+
+
+def test_joint_dev_selection_uses_declared_components_and_earlier_ties() -> None:
+    metrics = ProvenanceDevMetrics(
+        full_support_at_5=0.8,
+        mrr=0.6,
+        edge_precision_at_10=0.5,
+        edge_recall_at_10=0.5,
+        edge_f1_at_10=0.4,
+        average_emitted_edges=1.0,
+        abstention_rate=0.2,
+    )
+    same_joint_higher_full_support = replace(
+        metrics,
+        full_support_at_5=0.85,
+        mrr=0.5,
+        edge_f1_at_10=0.4,
+    )
+
+    assert metrics.joint == pytest.approx(0.65)
+    assert same_joint_higher_full_support.joint == pytest.approx(metrics.joint)
+    assert same_joint_higher_full_support.selection_key(2) > metrics.selection_key(1)
+    assert metrics.selection_key(1) > metrics.selection_key(2)
 
 
 def test_minimal_train_and_inference_return_logical_paths() -> None:

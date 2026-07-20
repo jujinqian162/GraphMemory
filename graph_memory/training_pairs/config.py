@@ -18,4 +18,14 @@ class NegativeSamplingConfig:
     hard_pool_size: int = 30
 
 
-__all__ = ["NegativeSamplingConfig"]
+@dataclass(frozen=True)
+class ProvenanceNegativeSamplingConfig(NegativeSamplingConfig):
+    easy_random_per_positive: int = 2
+    hard_bm25_per_positive: int = 1
+    hard_dense_per_positive: int = 1
+    hard_graph_neighbor_per_positive: int = 0
+    hard_provenance_successor_per_positive: int = 2
+    hard_provenance_predecessor_per_positive: int = 1
+
+
+__all__ = ["NegativeSamplingConfig", "ProvenanceNegativeSamplingConfig"]

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
@@ -18,6 +19,7 @@ from graph_memory.datasets.twowiki_provenance import (
     deterministic_dev_test_partition,
 )
 from graph_memory.datasets.twowiki_provenance.records import (
+    ProvenanceEdgeRecord,
     TwoWikiProvenanceRawRecord,
 )
 from graph_memory.io import read_json, write_json
@@ -34,6 +36,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         strategy=args.edge_scorer,
         successors_per_output=args.successors_per_output,
         hybrid_dense_weight=args.hybrid_dense_weight,
+        scorer_identity=args.scorer_identity,
+        query_template_version=args.query_template_version,
+        semantic_temperature=args.semantic_temperature,
+        weight_floor=args.weight_floor,
+        branch_policy_version=args.branch_policy_version,
+        near_rank_bucket=args.near_rank_bucket,
+        mid_rank_bucket=args.mid_rank_bucket,
+        tail_rank_bucket=args.tail_rank_bucket,
     )
     dense_ranker = _dense_ranker(args) if args.edge_scorer in {"dense", "hybrid"} else None
     if args.audit_only:
@@ -130,10 +140,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "dev_fraction": args.dev_fraction,
             "strict": args.strict,
             "graph_construction": {
-                "strategy": graph_config.strategy,
-                "successors_per_output": graph_config.successors_per_output,
-                "hybrid_dense_weight": graph_config.hybrid_dense_weight,
+                **graph_config.identity(),
                 "dense_model": args.dense_model if dense_ranker is not None else None,
+                "dense_query_prefix": (
+                    args.dense_query_prefix if dense_ranker is not None else None
+                ),
+                "dense_passage_prefix": (
+                    args.dense_passage_prefix if dense_ranker is not None else None
+                ),
             },
             "split_policy": "source_train_to_train_source_dev_seeded_dev_test",
         },
@@ -174,10 +188,59 @@ def _split_statistics(
         for record in records
         for candidate in record["ranking"]["candidates"]
     ]
-    gold_ranks = [
-        cast(int, record["label"]["metadata"]["gold_edge_semantic_rank"])
-        for record in records
-    ]
+    gold_ranks: list[int] = []
+    gold_weights: list[float] = []
+    non_gold_ranks: list[int] = []
+    non_gold_weights: list[float] = []
+    role_counts: Counter[str] = Counter()
+    gold_bucket_counts: Counter[str] = Counter()
+    non_gold_bucket_counts: Counter[str] = Counter()
+    source_masses: list[float] = []
+    source_mass_violations = 0
+    gold_head_count = 0
+    for record in records:
+        label = record["label"]
+        gold_source, gold_target = label["gold_dependency_edges"][0]
+        call_to_output = {
+            candidate["call_id"]: candidate["output_id"]
+            for candidate in record["ranking"]["candidates"]
+        }
+        feeds_by_source: defaultdict[str, list[ProvenanceEdgeRecord]] = defaultdict(
+            list
+        )
+        for edge in record["ranking"]["graph"]["edges"]:
+            if edge["edge_type"] != "feeds":
+                continue
+            feeds_by_source[edge["source"]].append(edge)
+            metadata = edge["metadata"]
+            role = cast(str, metadata["branch_role"])
+            bucket = cast(str, metadata["rank_bucket"])
+            role_counts[role] += 1
+            is_gold = (
+                edge["source"] == gold_source
+                and call_to_output[edge["target"]] == gold_target
+            )
+            if is_gold:
+                gold_ranks.append(cast(int, metadata["semantic_rank"]))
+                gold_weights.append(float(edge["weight"]))
+                gold_bucket_counts[bucket] += 1
+                gold_head_count += int(role == "semantic_head")
+            else:
+                non_gold_ranks.append(cast(int, metadata["semantic_rank"]))
+                non_gold_weights.append(float(edge["weight"]))
+                non_gold_bucket_counts[bucket] += 1
+        construction = record["ranking"]["metadata"]["graph_construction"]
+        if not isinstance(construction, dict):
+            raise TypeError("graph_construction metadata must be an object.")
+        floor_value = construction["weight_floor"]
+        if not isinstance(floor_value, int | float):
+            raise TypeError("graph_construction.weight_floor must be numeric.")
+        floor = float(floor_value)
+        expected_mass = 2.0 * floor + (1.0 - floor)
+        for edges in feeds_by_source.values():
+            mass = sum(float(edge["weight"]) for edge in edges)
+            source_masses.append(mass)
+            source_mass_violations += int(abs(mass - expected_mass) > 1e-9)
     return {
         "records": len(records),
         "candidate_outputs": _summary(candidate_counts),
@@ -186,14 +249,22 @@ def _split_statistics(
         "gold_path_length": 1,
         "feeds_out_degree": _summary(feed_out_degrees),
         "gold_edge_semantic_rank": _summary(gold_ranks),
-        "gold_edge_fallback_count": sum(
-            int(cast(bool, record["label"]["metadata"]["gold_edge_fallback"]))
-            for record in records
+        "non_gold_edge_semantic_rank": _summary(non_gold_ranks),
+        "gold_edge_weight": _summary(gold_weights),
+        "non_gold_edge_weight": _summary(non_gold_weights),
+        "branch_role_counts": dict(sorted(role_counts.items())),
+        "gold_rank_bucket_counts": dict(sorted(gold_bucket_counts.items())),
+        "non_gold_rank_bucket_counts": dict(
+            sorted(non_gold_bucket_counts.items())
         ),
+        "gold_head_count": gold_head_count,
+        "gold_head_rate": gold_head_count / len(records) if records else 0.0,
+        "source_feed_mass": _summary(source_masses),
+        "source_feed_mass_violation_count": source_mass_violations,
     }
 
 
-def _summary(values: list[int]) -> dict[str, float | int]:
+def _summary(values: Sequence[int | float]) -> dict[str, float | int]:
     if not values:
         return {"min": 0, "max": 0, "mean": 0.0}
     return {
@@ -246,6 +317,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--successors-per-output", type=int, default=2)
     parser.add_argument("--hybrid-dense-weight", type=float, default=0.5)
+    parser.add_argument("--scorer-identity", default="provenance_semantic_v3")
+    parser.add_argument("--query-template-version", default="question_source_v1")
+    parser.add_argument("--semantic-temperature", type=float, default=0.1)
+    parser.add_argument("--weight-floor", type=float, default=0.5)
+    parser.add_argument("--branch-policy-version", default="rank_banded_v1")
+    parser.add_argument("--near-rank-bucket", type=_rank_bucket, default=(2, 4))
+    parser.add_argument("--mid-rank-bucket", type=_rank_bucket, default=(5, 8))
+    parser.add_argument("--tail-rank-bucket", type=_rank_bucket, default=(9, None))
     parser.add_argument("--dense-model", default="models/intfloat-e5-base-v2")
     parser.add_argument("--dense-query-prefix", default="query: ")
     parser.add_argument("--dense-passage-prefix", default="passage: ")
@@ -254,6 +333,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
     return parser
+
+
+def _rank_bucket(value: str) -> tuple[int, int | None]:
+    try:
+        lower_text, upper_text = value.split(":", maxsplit=1)
+        lower = int(lower_text)
+        upper = None if upper_text in {"*", "none", "None"} else int(upper_text)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError(
+            "rank bucket must use LOWER:UPPER or LOWER:*"
+        ) from error
+    return lower, upper
 
 
 if __name__ == "__main__":

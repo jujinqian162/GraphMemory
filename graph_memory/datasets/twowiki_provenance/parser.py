@@ -37,7 +37,9 @@ def parse_twowiki_provenance_record(
         raise ValueError(f"{path} contains unknown fields={unknown}.")
     if value.get("schema_version") != TWOWIKI_PROVENANCE_SCHEMA_VERSION:
         raise ValueError(
-            f"{path} schema_version must be {TWOWIKI_PROVENANCE_SCHEMA_VERSION}."
+            f"{path} schema_version mismatch: expected "
+            f"{TWOWIKI_PROVENANCE_SCHEMA_VERSION}, observed "
+            f"{value.get('schema_version')!r}; v2 artifacts are not compatible."
         )
     if not isinstance(value.get("ranking"), Mapping):
         raise ValueError(f"{path} ranking must be an object.")

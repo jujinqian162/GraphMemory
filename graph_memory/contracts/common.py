@@ -13,12 +13,28 @@ JsonValue: TypeAlias = str | int | float | bool | None | JsonArray | JsonObject
 
 NodeType = Literal["question", "graph_item"]
 EdgeType = Literal["sequential", "query_overlap", "entity_overlap", "bridge", "bridge_to", "feeds"]
-TrainPairSampleType = Literal["positive", "easy_random", "hard_bm25", "hard_dense", "hard_graph_neighbor"]
+TrainPairSampleType = Literal[
+    "positive",
+    "easy_random",
+    "hard_bm25",
+    "hard_dense",
+    "hard_graph_neighbor",
+    "hard_provenance_successor",
+    "hard_provenance_predecessor",
+]
 
 ALLOWED_NODE_TYPES: set[str] = {"question", "graph_item"}
 ALLOWED_EDGE_TYPES: set[str] = {"sequential", "query_overlap", "entity_overlap", "bridge", "bridge_to", "feeds"}
 NEIGHBOR_TYPE_WEIGHT_EDGE_TYPES: set[str] = {"sequential", "entity_overlap", "bridge"}
-TRAIN_PAIR_SAMPLE_TYPES: set[str] = {"positive", "easy_random", "hard_bm25", "hard_dense", "hard_graph_neighbor"}
+TRAIN_PAIR_SAMPLE_TYPES: set[str] = {
+    "positive",
+    "easy_random",
+    "hard_bm25",
+    "hard_dense",
+    "hard_graph_neighbor",
+    "hard_provenance_successor",
+    "hard_provenance_predecessor",
+}
 NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES: set[str] = TRAIN_PAIR_SAMPLE_TYPES - {"positive"}
 
 __all__ = [

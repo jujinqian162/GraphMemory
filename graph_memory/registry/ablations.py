@@ -6,7 +6,7 @@ from typing import Literal, TypeAlias
 
 from graph_memory.registry.retrieval import RetrievalMethodId
 
-AblationInvalidationStage: TypeAlias = Literal["pairs", "train"]
+AblationInvalidationStage: TypeAlias = Literal["pairs", "train", "rank"]
 
 
 class AblationVariantId(str, Enum):
@@ -19,6 +19,7 @@ class AblationVariantId(str, Enum):
     WO_EDGE_WEIGHT = "wo_edge_weight"
     WO_SEED_SCORE = "wo_seed_score"
     WO_HARD_NEGATIVES = "wo_hard_negatives"
+    WO_EDGE_RERANK = "wo_edge_rerank"
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,34 @@ class PairSamplingPatch:
         }
 
 
-AblationConfigPatch: TypeAlias = RgcnModelPatch | NoGraphModelPatch | PairSamplingPatch
+@dataclass(frozen=True)
+class ProvenancePairSamplingPatch(PairSamplingPatch):
+    hard_provenance_successor_per_positive: Literal[0] = 0
+    hard_provenance_predecessor_per_positive: Literal[0] = 0
+
+    def updates(self) -> dict[str, int]:
+        return {
+            **super().updates(),
+            "hard_provenance_successor_per_positive": 0,
+            "hard_provenance_predecessor_per_positive": 0,
+        }
+
+
+@dataclass(frozen=True)
+class RankingPolicyPatch:
+    enable_edge_rerank: Literal[False] = False
+
+    def updates(self) -> dict[str, bool]:
+        return {"enable_edge_rerank": self.enable_edge_rerank}
+
+
+AblationConfigPatch: TypeAlias = (
+    RgcnModelPatch
+    | NoGraphModelPatch
+    | PairSamplingPatch
+    | ProvenancePairSamplingPatch
+    | RankingPolicyPatch
+)
 
 
 @dataclass(frozen=True)
@@ -128,7 +156,13 @@ EXECUTION_PROVENANCE_RGCN_ABLATION_PATCHES: tuple[AblationVariantPatch, ...] = (
         identifier=AblationVariantId.WO_HARD_NEGATIVES,
         changed_dimensions=frozenset({"pair_sampling"}),
         earliest_invalidated_stage="pairs",
-        config_patch=PairSamplingPatch(),
+        config_patch=ProvenancePairSamplingPatch(),
+    ),
+    ExecutableAblationVariant(
+        identifier=AblationVariantId.WO_EDGE_RERANK,
+        changed_dimensions=frozenset({"ranking_policy"}),
+        earliest_invalidated_stage="rank",
+        config_patch=RankingPolicyPatch(),
     ),
 )
 

@@ -8,6 +8,7 @@ from pydantic import JsonValue
 from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
+    execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
 )
 from graph_memory.experiment.artifacts import (
@@ -27,13 +28,20 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     PairBuildConfig,
     PairSamplingConfig,
+    ProvenancePairSamplingConfig,
 )
 from graph_memory.io import read_json, write_json
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.stages.results import TrainingPairsResult
-from graph_memory.training_pairs import build_train_pairs
-from graph_memory.training_pairs.config import NegativeSamplingConfig
-from graph_memory.training_pairs.requests import TrainPairBuildTask
+from graph_memory.training_pairs import build_provenance_train_pairs, build_train_pairs
+from graph_memory.training_pairs.config import (
+    NegativeSamplingConfig,
+    ProvenanceNegativeSamplingConfig,
+)
+from graph_memory.training_pairs.requests import (
+    ProvenanceTrainPairBuildTask,
+    TrainPairBuildTask,
+)
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -60,16 +68,28 @@ def build_training_pair_data(
         if evidence_graphs is not None
         else []
     )
-    result = build_train_pairs(
-        _pair_tasks(dataset, tasks, labels, graphs),
-        NegativeSamplingConfig(**config.sampling.model_dump()),
-        dense_config=_dense_config(
-            config.sampling,
-            encoder=config.encoder,
-            encoder_source=encoder_source,
-            device=config.device,
-        ),
+    dense_config = _dense_config(
+        config.sampling,
+        encoder=config.encoder,
+        encoder_source=encoder_source,
+        device=config.device,
     )
+    if dataset == "twowiki_provenance":
+        if not isinstance(config.sampling, ProvenancePairSamplingConfig):
+            raise ValueError(
+                "twowiki_provenance requires provenance pair sampling config."
+            )
+        result = build_provenance_train_pairs(
+            _provenance_pair_tasks(dataset, tasks, labels),
+            ProvenanceNegativeSamplingConfig(**config.sampling.model_dump()),
+            dense_config=dense_config,
+        )
+    else:
+        result = build_train_pairs(
+            _pair_tasks(dataset, tasks, labels, graphs),
+            NegativeSamplingConfig(**config.sampling.model_dump()),
+            dense_config=dense_config,
+        )
     return cast(list[object], result.pairs), cast(
         dict[str, JsonValue], dict(result.summary)
     )
@@ -141,6 +161,32 @@ def _pair_tasks(
             )
         )
     return result
+
+
+def _provenance_pair_tasks(
+    dataset: DatasetName,
+    task_inputs: list[Mapping[str, object]],
+    labels: list[object],
+) -> list[ProvenanceTrainPairBuildTask]:
+    execution_requests = {
+        request.task_id: request
+        for request in execution_provenance_requests_for_dataset(dataset, task_inputs)
+    }
+    text_requests = {
+        request.task_id: request
+        for request in text_ranking_requests_for_dataset(dataset, task_inputs)
+    }
+    labels_by_task_id = {
+        label.task_id: label for label in evidence_labels_for_dataset(dataset, labels)
+    }
+    return [
+        ProvenanceTrainPairBuildTask(
+            text_request=text_requests[task_id],
+            graph=execution_requests[task_id].graph,
+            label=labels_by_task_id[task_id],
+        )
+        for task_id in (str(record["task_id"]) for record in task_inputs)
+    ]
 
 
 def _dense_config(

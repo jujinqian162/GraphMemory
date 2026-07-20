@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.graphs.provenance import ExecutionProvenanceGraph
 from graph_memory.retrieval.requests import TextRankingRequest
 
 
@@ -14,4 +15,11 @@ class TrainPairBuildTask:
     graph: EvidenceGraph | None = None
 
 
-__all__ = ["TrainPairBuildTask"]
+@dataclass(frozen=True)
+class ProvenanceTrainPairBuildTask:
+    text_request: TextRankingRequest
+    graph: ExecutionProvenanceGraph
+    label: EvidenceLabel
+
+
+__all__ = ["ProvenanceTrainPairBuildTask", "TrainPairBuildTask"]

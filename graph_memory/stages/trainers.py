@@ -172,6 +172,10 @@ class ProvenanceRgcnMethodTrainer:
                 num_layers=model.num_layers,
                 dropout=model.dropout,
                 ablation_name=model.ablation,
+                structured_pool_size=model.structured_pool_size,
+                structured_seed_top_s=model.structured_seed_top_s,
+                preserve_node_top_n=model.preserve_node_top_n,
+                edge_accept_threshold=model.edge_accept_threshold,
             ),
             training_config=ProvenanceRgcnTrainingConfig(
                 learning_rate=trainer.learning_rate,

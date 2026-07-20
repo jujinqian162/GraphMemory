@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import random
 from collections import defaultdict
 
 import numpy as np
@@ -74,9 +76,22 @@ def tensorize_provenance_request(
     relation_ids: list[int] = []
     weights: list[float] = []
     node_by_id = {node.node_id: node for node in nodes}
+    feed_weights_by_source: defaultdict[str, list[float]] = defaultdict(list)
+    for edge in request.graph.edges:
+        if edge.edge_type is ProvenanceEdgeType.FEEDS:
+            feed_weights_by_source[edge.source].append(edge.weight)
+    feed_source_means = {
+        source: sum(source_weights) / len(source_weights)
+        for source, source_weights in feed_weights_by_source.items()
+    }
+    shuffled_feed_targets = _shuffled_feed_targets(request, node_index, config)
+    feed_index = 0
     for edge in request.graph.edges:
         source = node_index[edge.source]
         target = node_index[edge.target]
+        if edge.edge_type is ProvenanceEdgeType.FEEDS:
+            target = shuffled_feed_targets[feed_index]
+            feed_index += 1
         for message_source, message_target, suffix in (
             (source, target, "forward"),
             (target, source, "reverse"),
@@ -102,9 +117,13 @@ def tensorize_provenance_request(
             sources.append(message_source)
             targets.append(message_target)
             relation_ids.append(relation_id[relation_name])
-            weights.append(
-                edge.weight if config.edge_weight_policy == "artifact" else 1.0
-            )
+            resolved_weight = edge.weight
+            if (
+                config.edge_weight_policy == "uniform"
+                and edge.edge_type is ProvenanceEdgeType.FEEDS
+            ):
+                resolved_weight = feed_source_means[edge.source]
+            weights.append(resolved_weight)
     edge_index = (
         torch.tensor([sources, targets], dtype=torch.long)
         if sources
@@ -136,6 +155,30 @@ def tensorize_provenance_request(
             request, node_index, set(candidate_ids)
         ),
     )
+
+
+def _shuffled_feed_targets(
+    request: ExecutionProvenanceRankingRequest,
+    node_index: dict[str, int],
+    config: ProvenanceRgcnModelConfig,
+) -> list[int]:
+    targets = [
+        node_index[edge.target]
+        for edge in request.graph.edges
+        if edge.edge_type is ProvenanceEdgeType.FEEDS
+    ]
+    if config.feed_message_topology == "native" or len(targets) < 2:
+        return targets
+    material = (
+        f"{config.feed_message_shuffle_seed}|{request.task_id}|"
+        + "|".join(candidate.item_id for candidate in request.candidates)
+    ).encode("utf-8")
+    rng = random.Random(int.from_bytes(hashlib.sha256(material).digest()[:8], "big"))
+    shuffled = list(targets)
+    rng.shuffle(shuffled)
+    if shuffled == targets:
+        shuffled = [*targets[1:], targets[0]]
+    return shuffled
 
 
 def _logical_transitions(
