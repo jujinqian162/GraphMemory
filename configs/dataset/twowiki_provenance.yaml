@@ -3,16 +3,33 @@ strict_invalid_examples: false
 splits:
   train:
     kind: raw
-    source: data/twowiki_provenance/raw/train.json
+    source: data/2wiki/raw/train.json
     offset: 0
-    capacity: 74012
   dev:
     kind: raw
-    source: data/twowiki_provenance/raw/dev.json
+    source: data/2wiki/raw/dev.json
     offset: 0
-    capacity: 2850
   test:
     kind: raw
-    source: data/twowiki_provenance/raw/test.json
+    source: data/2wiki/raw/dev.json
     offset: 0
-    capacity: 2851
+transform:
+  edge_scorer: hybrid
+  seed: 13
+  candidate_cap: 32
+  dev_fraction: 0.5
+  strict: false
+  successors_per_output: 2
+  hybrid_dense_weight: 0.5
+  scorer_identity: provenance_semantic_v3
+  query_template_version: question_source_v1
+  semantic_temperature: 0.1
+  weight_floor: 0.5
+  branch_policy_version: rank_banded_v1
+  near_rank_bucket: {lower: 2, upper: 4}
+  mid_rank_bucket: {lower: 5, upper: 8}
+  tail_rank_bucket: {lower: 9, upper: null}
+  dense_model: models/intfloat-e5-base-v2
+  dense_query_prefix: "query: "
+  dense_passage_prefix: "passage: "
+  dense_batch_size: 64

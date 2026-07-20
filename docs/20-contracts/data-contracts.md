@@ -19,9 +19,9 @@ EvidenceGraph construction consumes input-visible question/candidate fields only
 
 ## Synthetic 2Wiki execution-provenance artifacts
 
-`scripts/data/convert_2wiki_to_execution_provenance.py` creates a separately named `twowiki_provenance` dataset. Each raw record has disjoint `ranking` and `label` objects. Ranking owns the question, ToolOutput candidates, and a typed Task/Agent/ToolCall/ToolOutput graph; label owns the answer, ordered gold output IDs, and contracted dependency edge. Standard `twowiki` remains unchanged.
+The in-flow `transform_twowiki_task` (see `graph_memory/stages/transform.py`) creates a separately named `twowiki_provenance` dataset. Each raw record has disjoint `ranking` and `label` objects. Ranking owns the question, ToolOutput candidates, and a typed Task/Agent/ToolCall/ToolOutput graph; label owns the answer, ordered gold output IDs, and contracted dependency edge. Standard `twowiki` remains unchanged.
 
-The graph is explicitly synthetic. It is built from a recoverable two-evidence gold chain, then completed with structurally matched query-relevant branches. Every candidate output has a paired call, `returns` edge, and equal public `feeds` degree. Gold flags, final answers, source support annotations, and gold-only topology are forbidden from ranking input. Source hashes, seed, filtering counts, split policy, and structural statistics are recorded in generated manifest files.
+The graph is explicitly synthetic. It is built from a recoverable two-evidence gold chain, then completed with structurally matched query-relevant branches. Every candidate output has a paired call, `returns` edge, and equal public `feeds` degree. Gold flags, final answers, source support annotations, and gold-only topology are forbidden from ranking input. The transform emits raw splits only; conversion parameters, seed, split policy, and the content-addressed encoder identity are captured by the version tag `v{schema_version}-{digest}` and the Prefect artifact origin rather than a manifest file.
 
 ## Execution provenance domain
 

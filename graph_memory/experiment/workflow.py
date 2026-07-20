@@ -13,6 +13,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
+    DenseEncoderConfig,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
@@ -24,6 +25,7 @@ from graph_memory.experiment.config import (
     ResolvedExperimentConfig,
     RgcnMethodConfig,
     SplitName,
+    TwoWikiProvenanceTransformConfig,
     ranking_config,
 )
 from graph_memory.experiment.output import project_run_output
@@ -40,6 +42,7 @@ from graph_memory.experiment.tasks import (
     train_dense_ft_task,
     train_evidence_rgcn_task,
     train_provenance_rgcn_task,
+    transform_twowiki_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
 from graph_memory.stages.results import (
@@ -49,6 +52,7 @@ from graph_memory.stages.results import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_SPLIT_NAMES: tuple[SplitName, ...] = ("train", "dev", "test")
 
 
 @flow(name="graph-memory-experiment", persist_result=False)
@@ -66,6 +70,7 @@ def run_experiment(
     assets: list[ArtifactRef] = []
 
     with prefect_storage_settings(refresh_cache=config.cache.refresh):
+        split_sources = _resolve_split_sources(config)
         if isinstance(
             method,
             (
@@ -76,7 +81,7 @@ def run_experiment(
             ),
         ):
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             assets.append(test.artifact)
@@ -85,15 +90,15 @@ def run_experiment(
 
         elif isinstance(method, DenseFinetuneMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             assets.extend((train.artifact, dev.artifact, test.artifact))
@@ -139,15 +144,15 @@ def run_experiment(
 
         elif isinstance(method, RgcnMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             train_graphs = build_evidence_graphs_task(
@@ -208,15 +213,15 @@ def run_experiment(
 
         elif isinstance(method, DenseFtRgcnMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             train_graphs = build_evidence_graphs_task(
@@ -302,15 +307,15 @@ def run_experiment(
 
         elif isinstance(method, ExecutionProvenanceRgcnMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             effective = method.effective()
@@ -409,7 +414,15 @@ def run_experiment(
     return completed
 
 
-def _split_source(
+def _resolve_split_sources(
+    config: ResolvedExperimentConfig,
+) -> dict[SplitName, FileSourceRef]:
+    if config.dataset.name == "twowiki_provenance":
+        return _transform_split_sources(config)
+    return {split: _direct_split_source(config, split) for split in _SPLIT_NAMES}
+
+
+def _direct_split_source(
     config: ResolvedExperimentConfig,
     split: SplitName,
 ) -> FileSourceRef:
@@ -420,6 +433,39 @@ def _split_source(
     if not isinstance(source, FileSourceRef):
         raise TypeError(f"raw split source must be a file: {source.uri}")
     return source
+
+
+def _transform_split_sources(
+    config: ResolvedExperimentConfig,
+) -> dict[SplitName, FileSourceRef]:
+    transform = config.dataset.transform
+    if transform is None:
+        raise ValueError(
+            "twowiki_provenance requires a resolved transform configuration"
+        )
+    train_source = _direct_split_source(config, "train")
+    dev_source = _direct_split_source(config, "dev")
+    encoder_source = _transform_encoder_source(transform)
+    result = transform_twowiki_task(
+        train_source=train_source,
+        dev_source=dev_source,
+        config=transform,
+        encoder_source=encoder_source,
+    )
+    return {"train": result.train, "dev": result.dev, "test": result.test}
+
+
+def _transform_encoder_source(config: TwoWikiProvenanceTransformConfig):
+    if config.edge_scorer not in {"dense", "hybrid"}:
+        return None
+    return resolve_encoder_source(
+        DenseEncoderConfig(
+            model_name=config.dense_model,
+            query_prefix=config.dense_query_prefix,
+            passage_prefix=config.dense_passage_prefix,
+            batch_size=config.dense_batch_size,
+        )
+    )
 
 
 def _prepare_config(

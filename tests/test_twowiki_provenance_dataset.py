@@ -31,7 +31,9 @@ from graph_memory.validation import (
     validate_twowiki_provenance_label_records,
     validate_twowiki_provenance_ranking_records,
 )
-from scripts.data.convert_2wiki_to_execution_provenance import main as convert_main
+from graph_memory.experiment.artifacts import identify_external_source
+from graph_memory.experiment.config import TwoWikiProvenanceTransformConfig
+from graph_memory.stages.transform import materialize_transform_twowiki
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -371,7 +373,7 @@ def test_ranking_validation_rejects_label_leakage() -> None:
         validate_twowiki_provenance_ranking_records([leaked])
 
 
-def test_converter_cli_is_byte_deterministic_and_writes_manifest(
+def test_transform_is_byte_deterministic_and_raw_only(
     tmp_path: Path,
 ) -> None:
     train_source = tmp_path / "train.json"
@@ -384,38 +386,45 @@ def test_converter_cli_is_byte_deterministic_and_writes_manifest(
         json.dumps([_source_example(f"dev-{index}") for index in range(6)]),
         encoding="utf-8",
     )
-    output_a = tmp_path / "output-a"
-    output_b = tmp_path / "output-b"
-    common_args = [
-        "--train-source",
-        str(train_source),
-        "--dev-source",
-        str(dev_source),
-        "--candidate-cap",
-        "6",
-        "--seed",
-        "17",
-    ]
+    train_ref = identify_external_source(train_source, repository_root=tmp_path)
+    dev_ref = identify_external_source(dev_source, repository_root=tmp_path)
+    config = TwoWikiProvenanceTransformConfig(edge_scorer="bm25", candidate_cap=6, seed=17)
+    output_a = tmp_path / "out-a"
+    output_b = tmp_path / "out-b"
 
-    assert convert_main([*common_args, "--output-dir", str(output_a)]) == 0
-    assert convert_main([*common_args, "--output-dir", str(output_b)]) == 0
+    result_a = materialize_transform_twowiki(
+        train_source=train_ref,
+        dev_source=dev_ref,
+        config=config,
+        schema_version=3,
+        output_root=output_a,
+        repository_root=tmp_path,
+    )
+    result_b = materialize_transform_twowiki(
+        train_source=train_ref,
+        dev_source=dev_ref,
+        config=config,
+        schema_version=3,
+        output_root=output_b,
+        repository_root=tmp_path,
+    )
 
-    for filename in (
-        "train.json",
-        "dev.json",
-        "test.json",
-        "manifest.json",
-        "statistics.json",
-    ):
-        assert (output_a / filename).read_bytes() == (output_b / filename).read_bytes()
-    manifest = json.loads((output_a / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["counts"] == {
-        "train": 2,
-        "dev": 3,
-        "test": 3,
-        "train_rejected": {},
-        "dev_source_rejected": {},
-    }
+    assert result_a.version_tag == result_b.version_tag
+    version_dir_a = output_a / result_a.version_tag
+    version_dir_b = output_b / result_b.version_tag
+    for filename in ("train.json", "dev.json", "test.json"):
+        assert (
+            (version_dir_a / filename).read_bytes()
+            == (version_dir_b / filename).read_bytes()
+        )
+    assert not (version_dir_a / "manifest.json").exists()
+    assert not (version_dir_a / "statistics.json").exists()
+    assert result_a.train.digest == result_b.train.digest
+    assert result_a.dev.digest == result_b.dev.digest
+    assert result_a.test.digest == result_b.test.digest
+    assert len(json.loads((version_dir_a / "train.json").read_text("utf-8"))) == 2
+    assert len(json.loads((version_dir_a / "dev.json").read_text("utf-8"))) == 3
+    assert len(json.loads((version_dir_a / "test.json").read_text("utf-8"))) == 3
 
 
 def test_committed_smoke_fixture_matches_schema_v3_generator_input() -> None:

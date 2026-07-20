@@ -99,7 +99,14 @@ def test_flow_calls_tasks_directly_without_forwarding_or_state_mirrors() -> None
         for name, value in vars(experiment_workflow).items()
         if inspect.isfunction(value) and value.__module__ == experiment_workflow.__name__
     }
-    assert owned_helpers == {"_prepare_config", "_split_source", "_unique_assets"}
+    assert owned_helpers == {
+        "_prepare_config",
+        "_resolve_split_sources",
+        "_direct_split_source",
+        "_transform_split_sources",
+        "_transform_encoder_source",
+        "_unique_assets",
+    }
 
     source = inspect.getsource(experiment_workflow.run_experiment.fn)
     for task_name in (
@@ -155,8 +162,8 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     )
     monkeypatch.setattr(
         experiment_workflow,
-        "_split_source",
-        lambda config, split: object(),
+        "_resolve_split_sources",
+        lambda config: {split: object() for split in ("train", "dev", "test")},
     )
     monkeypatch.setattr(
         experiment_workflow,

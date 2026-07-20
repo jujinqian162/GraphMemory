@@ -2,38 +2,27 @@
 
 `twowiki_provenance` is a separately named synthetic retrieval benchmark. It is not a claim that 2Wiki contains agent executions. A one-time deterministic converter maps each recoverable ordered two-evidence chain to one ordinary typed output dependency and adds structurally matched non-gold branches. Standard `twowiki` files and results are unchanged.
 
-## Audit and convert
+## Automatic in-flow transform
 
-The default sources are the labeled local 2Wiki train/dev files. Source train becomes target train; source dev is split deterministically into target dev/test.
+Conversion is a Prefect-cached `transform_twowiki_task` inside the experiment flow, running before `prepare_split_task`. There is no standalone convert script. The dataset config points `splits.*.source` at the labeled local 2Wiki files (train source becomes target train; dev source is split deterministically into target dev/test), and the `transform` block in `configs/dataset/twowiki_provenance.yaml` holds all conversion parameters. Formal v3 uses the pinned `hybrid` scorer.
+
+Running the flow with `dataset=twowiki_provenance` transforms automatically:
 
 ```powershell
-uv run python scripts/data/convert_2wiki_to_execution_provenance.py --audit-only
-
-uv run python scripts/data/convert_2wiki_to_execution_provenance.py `
-  --train-source data/2wiki/raw/train.json `
-  --dev-source data/2wiki/raw/dev.json `
-  --output-dir data/twowiki_provenance/v3/raw `
-  --candidate-cap 32 --seed 13 --dev-fraction 0.5 `
-  --edge-scorer hybrid --successors-per-output 2 `
-  --hybrid-dense-weight 0.5 --semantic-temperature 0.1 `
-  --weight-floor 0.5 `
-  --near-rank-bucket 2:4 --mid-rank-bucket 5:8 --tail-rank-bucket '9:*'
+uv run python experiment/run.py `
+  name=twowiki_provenance_full dataset=twowiki_provenance profile=provenance_full device=cuda `
+  method=execution_provenance_rgcn_retriever
 ```
 
-`--edge-scorer` accepts `bm25`, `dense`, or `hybrid`; BM25-only and dense-only are construction interventions, while formal v3 data uses the pinned hybrid scorer. Dense requests for all sources in one graph are batched. Every source ranks all non-self candidates from `question + source evidence`, receives one rank-1 semantic head and one deterministic near/mid/tail branch, and has exactly two `feeds` edges.
+The transform writes `data/twowiki_provenance/raw/<version_tag>/{train,dev,test}.json`, where `version_tag = v{schema_version}-{digest}` and the digest is a canonical-JSON sha256 over the schema version, the transform parameters, and (for dense/hybrid) the content-addressed encoder digest. Different schema versions or parameters land in different version directories and never overwrite each other. No `manifest.json` or `statistics.json` is emitted; parameters and the encoder identity are implicit in the version tag and the Prefect artifact origin.
+
+`edge_scorer` accepts `bm25`, `dense`, or `hybrid`; BM25-only and dense-only are construction interventions, while formal v3 data uses the pinned hybrid scorer. When `edge_scorer` is `dense` or `hybrid`, the dense model is resolved through `resolve_encoder_source` and its content digest participates in both the Prefect cache key and the version tag, so changing model weights (even without renaming) forces a re-transform. Every source ranks all non-self candidates from `question + source evidence`, receives one rank-1 semantic head and one deterministic near/mid/tail branch, and has exactly two `feeds` edges.
 
 The ordered gold dependency is materialized as an ordinary head or branch edge. When it occupies a branch bucket, an ordinary non-gold branch from the same bucket is required; otherwise the record is rejected as `unmatched_gold_branch_bucket`. No gold/fallback/support field enters ranking input. This is intentionally label-conditioned synthetic construction: it tests retrieval from a hidden required path plus matched distractors, not whether 2Wiki itself contains real agent trajectories.
 
-Each source-local confidence is temperature-normalized and converted to `weight = 0.5 + 0.5 * probability`; therefore two feed weights always sum to `1.5`. `wo_edge_weight` replaces the two values by their source mean (`0.75/0.75`) rather than raising both to `1.0`. `manifest.json` records all scorer/query/bucket/calibration and encoder identities. `statistics.json` records gold/non-gold bucket, rank, weight, head-rate, rejection, and source-mass audits. Every feed edge has the same confidence metadata schema; gold diagnostics remain label-side.
+Each source-local confidence is temperature-normalized and converted to `weight = 0.5 + 0.5 * probability`; therefore two feed weights always sum to `1.5`. `wo_edge_weight` replaces the two values by their source mean (`0.75/0.75`) rather than raising both to `1.0`. Every feed edge has the same confidence metadata schema; gold diagnostics remain label-side.
 
-Before switching `configs/dataset/twowiki_provenance.yaml`, generate the pilot twice and compare all outputs:
-
-```powershell
-Get-FileHash data/twowiki_provenance/v3/pilot-a/* | Sort-Object Path
-Get-FileHash data/twowiki_provenance/v3/pilot-b/* | Sort-Object Path
-```
-
-The raw, manifest, and statistics hashes must match. Confirm zero source-mass violations, fixed out-degree two, no ranking-side forbidden fields, and matching non-gold buckets for every gold branch. Then set the three dataset sources to `data/twowiki_provenance/v3/raw/*.json` and set capacities from the actual manifest counts; do not reuse historical v2 capacities blindly.
+Split counts do not need to be pinned in the config. `splits.*.capacity` is optional, and profiles that request `all_available` consume every valid record the transform produces (after `strict=False` drops unrecoverable records). Set a `capacity` only when you deliberately want to cap a split; `all_available` without a capacity reads whatever the transformed file contains.
 
 ## Smoke and comparison runs
 
@@ -101,4 +90,4 @@ uv run python experiment/run.py `
 
 Report Recall/Evidence F1/Full Support for ToolOutput candidates and path metrics for contracted output dependencies. Edge Precision guards against recall-through-overproduction; abstention reports how often considered sources emit no accepted dependency. Always disclose that topology is label-derived and synthetic. Method ordering is an experimental result, not a converter invariant; topology-free and explicitly requested shuffled-feed diagnostics are required before claiming graph reasoning gains.
 
-Rollback means pointing the dataset config back to the old v2 raw directory and restoring the previous method config. Never mix v2/v3 raw, prepared, pair, checkpoint, prediction, or evaluation rows: schemas and artifact digests are intentionally incompatible, and there is no translation fallback. Do not update paper-facing result claims until the complete three-seed v3 matrix exists.
+Rollback means switching back to the older code branch and config; the schema version and transform parameters revert with them, the version tag reproduces, and the flow hits the Prefect cache for the old version directory (if it is still on disk) without a manual config edit or a re-transform. Version directories accumulate under `data/twowiki_provenance/raw/`; keeping old ones on disk is what makes rollback a cache hit. Deleting a version directory is safe but means rolling back to it will re-run the transform instead of hitting the cache. Never mix raw, prepared, pair, checkpoint, prediction, or evaluation rows across schema versions: schemas and artifact digests are intentionally incompatible, and there is no translation fallback. Do not update paper-facing result claims until the complete three-seed v3 matrix exists.

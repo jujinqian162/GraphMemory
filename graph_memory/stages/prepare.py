@@ -69,7 +69,7 @@ def prepare_split(
     dataset: DatasetName,
     source: Path,
     *,
-    count: int,
+    count: int | None,
     seed: int,
     offset: int,
     strict_invalid_examples: bool,
@@ -115,7 +115,7 @@ def materialize_prepared_split(
     dataset: DatasetName,
     split: SplitName,
     source: FileSourceRef,
-    count: int,
+    count: int | None,
     seed: int,
     offset: int,
     strict_invalid_examples: bool,
@@ -168,7 +168,7 @@ def materialize_prepared_split(
 
 
 def _prepare_hotpotqa(
-    source: Path, *, count: int, seed: int, offset: int, strict: bool
+    source: Path, *, count: int | None, seed: int, offset: int, strict: bool
 ) -> PreparedSplitData:
     raw = read_json(source)
     if not isinstance(raw, list):
@@ -210,7 +210,7 @@ def _validate_hotpotqa_raw(value: object, index: int) -> None:
 
 
 def _prepare_twowiki(
-    source: Path, *, count: int, seed: int, offset: int, strict: bool
+    source: Path, *, count: int | None, seed: int, offset: int, strict: bool
 ) -> PreparedSplitData:
     raw = read_json(source)
     if not isinstance(raw, list):
@@ -252,7 +252,7 @@ def _validate_twowiki_raw(value: object, index: int) -> None:
 
 
 def _prepare_musique(
-    source: Path, *, count: int, seed: int, offset: int, strict: bool
+    source: Path, *, count: int | None, seed: int, offset: int, strict: bool
 ) -> PreparedSplitData:
     raw = _read_jsonl(source)
     valid, invalid = _valid_records(
@@ -292,7 +292,7 @@ def _validate_musique_raw(value: object, index: int) -> None:
 
 
 def _prepare_twowiki_provenance(
-    source: Path, *, count: int, seed: int, offset: int, strict: bool
+    source: Path, *, count: int | None, seed: int, offset: int, strict: bool
 ) -> PreparedSplitData:
     raw = read_json(source)
     if not isinstance(raw, list):
