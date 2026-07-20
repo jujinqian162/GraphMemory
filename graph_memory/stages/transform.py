@@ -190,13 +190,18 @@ def materialize_transform_twowiki(
 
     # workers<=1 keeps the serial path (one main-process ranker); workers>1
     # ships a picklable factory so each worker builds its own ranker, since a
-    # torch-backed ranker cannot cross a process boundary.
+    # torch-backed ranker cannot cross a process boundary. `config.devices` is
+    # the single source of GPU truth for both paths: the serial ranker binds to
+    # the first configured card, parallel workers round-robin across all of them.
     if workers > 1:
         dense_ranker = None
         dense_ranker_factory = _dense_ranker_factory(config) if is_dense else None
         devices = _resolve_devices(config, is_dense=is_dense, fallback=device)
     else:
-        dense_ranker = _dense_ranker(config, device=device) if is_dense else None
+        serial_device = config.devices[0] if config.devices else device
+        dense_ranker = (
+            _dense_ranker(config, device=serial_device) if is_dense else None
+        )
         dense_ranker_factory = None
         devices = ()
 

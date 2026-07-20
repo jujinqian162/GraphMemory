@@ -25,6 +25,7 @@ from graph_memory.validation.tasks import (
 from graph_memory.validation.twowiki_provenance import (
     validate_twowiki_provenance_label_records,
     validate_twowiki_provenance_ranking_records,
+    validate_twowiki_provenance_record,
 )
 from graph_memory.validation.training_pairs import (
     validate_negative_sampling_config,
@@ -52,6 +53,7 @@ __all__ = [
     "validate_twowiki_ranking_records",
     "validate_twowiki_provenance_label_records",
     "validate_twowiki_provenance_ranking_records",
+    "validate_twowiki_provenance_record",
     "validate_train_pair_build_summary",
     "validate_train_pairs",
     "validate_rgcn_checkpoint_metadata",

@@ -51,8 +51,7 @@ from graph_memory.validation import (
     validate_musique_label_records,
     validate_musique_ranking_records,
     validate_twowiki_label_records,
-    validate_twowiki_provenance_label_records,
-    validate_twowiki_provenance_ranking_records,
+    validate_twowiki_provenance_record,
     validate_twowiki_ranking_records,
 )
 
@@ -299,15 +298,15 @@ def _prepare_twowiki_provenance(
         raise ValueError("2Wiki provenance raw input must be a JSON list.")
     valid: list[TwoWikiProvenanceRawRecord] = []
     invalid: Counter[str] = Counter()
+    seen_task_ids: set[str] = set()
     for index, value in enumerate(raw):
         try:
             record = parse_twowiki_provenance_record(value, record_index=index)
             ranking = record["ranking"]
-            label = record["label"]
-            validate_twowiki_provenance_ranking_records([ranking])
-            validate_twowiki_provenance_label_records(
-                [label], {ranking["task_id"]: ranking}
-            )
+            task_id = ranking["task_id"]
+            if task_id in seen_task_ids:
+                raise ValueError(f"duplicate task_id={task_id}")
+            validate_twowiki_provenance_record(ranking, record["label"])
         except ValueError as error:
             if strict:
                 raise ValueError(
@@ -315,14 +314,11 @@ def _prepare_twowiki_provenance(
                 ) from error
             invalid[str(error)] += 1
             continue
+        seen_task_ids.add(task_id)
         valid.append(record)
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
     tasks = [record["ranking"] for record in selected]
     labels = [record["label"] for record in selected]
-    validate_twowiki_provenance_ranking_records(tasks)
-    validate_twowiki_provenance_label_records(
-        labels, {record["task_id"]: record for record in tasks}
-    )
     counts: dict[str, JsonValue] = {
         "raw_examples": len(raw),
         "valid_examples": len(valid),

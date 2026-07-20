@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 import random
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -247,9 +246,12 @@ def _convert_in_parallel(
 
 
 def resolve_worker_count(workers: int | None) -> int:
-    if workers is not None:
-        return max(1, workers)
-    return os.cpu_count() or 1
+    # None means "unset" -> serial. Auto-fanning across every core made a
+    # `workers: null` config silently spawn os.cpu_count() model-loading
+    # processes; opting into parallelism must be explicit.
+    if workers is None:
+        return 1
+    return max(1, workers)
 
 
 def audit_twowiki_source_records(
