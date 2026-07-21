@@ -10,5 +10,6 @@ class SentenceEncoder(Protocol):
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
         ...

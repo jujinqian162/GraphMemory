@@ -36,8 +36,9 @@ class KeywordEncoder:
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
-        _ = batch_size, normalize_embeddings
+        _ = batch_size, normalize_embeddings, show_progress_bar
         rows = []
         for text in texts:
             lowered = text.casefold()

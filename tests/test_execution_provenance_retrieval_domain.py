@@ -73,8 +73,9 @@ class KeywordEncoder:
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
-        _ = batch_size, normalize_embeddings
+        _ = batch_size, normalize_embeddings, show_progress_bar
         rows = []
         for text in texts:
             lowered = text.lower()
@@ -93,8 +94,9 @@ class LocalPromotionEncoder:
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
-        _ = batch_size
+        _ = batch_size, show_progress_bar
         rows: list[np.ndarray] = []
         for text in texts:
             lowered = text.casefold()
@@ -123,8 +125,9 @@ class EqualEncoder:
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
-        _ = batch_size, normalize_embeddings
+        _ = batch_size, normalize_embeddings, show_progress_bar
         return np.asarray([[1.0, 0.0] for _text in texts], dtype=np.float32)
 
 

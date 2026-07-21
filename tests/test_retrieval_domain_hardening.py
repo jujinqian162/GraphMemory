@@ -55,8 +55,9 @@ class RecordingEncoder:
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
-        _ = batch_size, normalize_embeddings
+        _ = batch_size, normalize_embeddings, show_progress_bar
         self.calls.append(list(texts))
         rows = []
         for index, _text in enumerate(texts):

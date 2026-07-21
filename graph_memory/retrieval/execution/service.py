@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+from tqdm.auto import tqdm
+
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.retrieval.contracts import RetrievalMethod
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
@@ -19,7 +21,7 @@ def run_retrieval(
         raise ValueError("top_k must be a positive integer.")
 
     predictions: list[RankedResult] = []
-    for task in tasks:
+    for task in tqdm(tasks, desc="retrieval", unit="query"):
         started = time.perf_counter()
         result = retrieval_method.rank_task(task.method_request, top_k=top_k)
         latency_ms = (time.perf_counter() - started) * 1000.0
