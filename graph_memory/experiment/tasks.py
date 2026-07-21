@@ -7,6 +7,7 @@ from typing import cast
 
 from prefect import task
 from prefect.cache_policies import INPUTS, TASK_SOURCE
+from prefect.logging import get_run_logger
 from prefect.settings import (
     PREFECT_LOCAL_STORAGE_PATH,
     PREFECT_TASKS_REFRESH_CACHE,
@@ -107,6 +108,9 @@ def transform_twowiki_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef | None,
     schema_version: int = TWOWIKI_PROVENANCE_SCHEMA_VERSION,
 ) -> TwoWikiProvenanceTransformResult:
+    get_run_logger().info(
+        "transform twowiki_provenance | edge_scorer=%s", config.edge_scorer
+    )
     if encoder_source is None:
         encoder_digest = None
     elif isinstance(encoder_source, RevisionSourceRef):
@@ -134,6 +138,12 @@ def prepare_split_task(
     config: PrepareSplitConfig,
     implementation_version: str = "prepare-v1",
 ) -> PreparedSplitResult:
+    get_run_logger().info(
+        "prepare split | dataset=%s split=%s count=%s",
+        config.dataset,
+        config.split,
+        config.count,
+    )
     return materialize_prepared_split(
         processed_store(),
         dataset=config.dataset,
@@ -159,6 +169,9 @@ def build_evidence_graphs_task(
     graph: GraphBuildConfig,
     implementation_version: str = "evidence-graphs-v1",
 ) -> EvidenceGraphResult:
+    get_run_logger().info(
+        "build evidence graphs | dataset=%s split=%s", dataset, split
+    )
     return materialize_evidence_graphs(
         processed_store(),
         dataset=dataset,
@@ -182,6 +195,7 @@ def build_training_pairs_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "training-pairs-v1",
 ) -> TrainingPairsResult:
+    get_run_logger().info("build training pairs | dataset=%s", dataset)
     return materialize_training_pairs(
         processed_store(),
         dataset=dataset,
@@ -207,6 +221,9 @@ def train_dense_ft_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "dense-ft-train-v1",
 ) -> ModelResult:
+    get_run_logger().info(
+        "train dense-ft | dataset=%s epochs=%s", dataset, config.trainer.epochs
+    )
     return materialize_dense_finetune_model(
         processed_store(),
         dataset=dataset,
@@ -236,6 +253,9 @@ def train_evidence_rgcn_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "evidence-rgcn-train-v1",
 ) -> ModelResult:
+    get_run_logger().info(
+        "train evidence-rgcn | dataset=%s epochs=%s", dataset, config.trainer.epochs
+    )
     return materialize_evidence_rgcn_model(
         processed_store(),
         dataset=dataset,
@@ -265,6 +285,9 @@ def train_provenance_rgcn_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "provenance-rgcn-train-v1",
 ) -> ModelResult:
+    get_run_logger().info(
+        "train provenance-rgcn | dataset=%s epochs=%s", dataset, config.trainer.epochs
+    )
     return materialize_provenance_rgcn_model(
         processed_store(),
         dataset=dataset,
@@ -293,6 +316,12 @@ def generate_rankings_task(
     device: str,
     implementation_version: str = "ranking-v2-device-aware",
 ) -> RankingResult:
+    get_run_logger().info(
+        "generate rankings | dataset=%s method=%s top_k=%s",
+        dataset,
+        method.method,
+        top_k,
+    )
     return materialize_rankings(
         processed_store(),
         dataset=dataset,
@@ -321,6 +350,7 @@ def evaluate_rankings_task(
     failure_case_limit: int,
     implementation_version: str = "evaluation-v1",
 ) -> EvaluationResult:
+    get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(
         processed_store(),
         dataset=dataset,
@@ -349,6 +379,12 @@ def benchmark_retrieval_task(
     warmup: int,
     repetitions: int,
 ) -> BenchmarkResult:
+    get_run_logger().info(
+        "benchmark retrieval | dataset=%s warmup=%s repetitions=%s",
+        dataset,
+        warmup,
+        repetitions,
+    )
     task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
     graph_values = (
         cast(

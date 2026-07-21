@@ -8,6 +8,7 @@ from typing import Callable, TypeAlias
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from tqdm.auto import tqdm
 
 from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.contracts.training_pairs import TrainPairRecord
@@ -134,7 +135,11 @@ def train_graph_retriever(
     negative_count_by_type = _negative_count_by_type(train_pairs)
     positive_count = sum(1 for pair in train_pairs if pair["label"] == 1)
 
-    for epoch in range(1, training_config.epochs + 1):
+    for epoch in tqdm(
+        range(1, training_config.epochs + 1),
+        desc="evidence-rgcn epochs",
+        unit="epoch",
+    ):
         model.train()
         train_loss_total = 0.0
         train_sample_count = 0

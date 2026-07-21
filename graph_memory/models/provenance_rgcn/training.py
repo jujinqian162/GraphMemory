@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from tqdm.auto import tqdm
 
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.contracts.training_pairs import TrainPairRecord
@@ -215,7 +216,11 @@ def train_provenance_rgcn(
     best_dev_metrics: ProvenanceDevMetrics | None = None
     best_epoch = 0
     best_state = _cpu_state_dict(model)
-    for epoch in range(1, training_config.epochs + 1):
+    for epoch in tqdm(
+        range(1, training_config.epochs + 1),
+        desc="provenance-rgcn epochs",
+        unit="epoch",
+    ):
         model.train()
         optimizer.zero_grad()
         loss_total = 0.0
