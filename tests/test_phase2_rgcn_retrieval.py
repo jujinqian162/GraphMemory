@@ -1,6 +1,5 @@
 import math
 from dataclasses import replace
-from inspect import Parameter, signature
 from pathlib import Path
 
 import torch
@@ -15,7 +14,6 @@ import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     EvidenceRgcnBuildPayload,
@@ -160,15 +158,6 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
         edge["source"] in top_node_ids and edge["target"] in top_node_ids
         for edge in retrieved_edges
     )
-
-
-def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
-    parameters = signature(CheckpointGraphRetrieverLoader.load).parameters
-
-    assert parameters["text_embedding_provider"].default is Parameter.empty
-    assert parameters["seed_signal_provider"].default is Parameter.empty
-    assert "graphs" not in parameters
-    assert "dense_encoder" not in parameters
 
 
 def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:

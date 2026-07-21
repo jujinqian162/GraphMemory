@@ -5,10 +5,7 @@ from typing import cast
 from pydantic import JsonValue
 
 from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.datasets.selection import (
-    evidence_graph_build_requests_for_dataset,
-    validate_ranking_records_for_dataset,
-)
+from graph_memory.datasets.selection import evidence_graph_build_requests_for_dataset
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPublisher,
@@ -37,7 +34,6 @@ def build_evidence_graph_data(
 ) -> tuple[list[EvidenceGraph], dict[str, JsonValue]]:
     tasks_path = artifact_payload_path(prepared, "tasks")
     ranking_records = read_json(tasks_path)
-    validate_ranking_records_for_dataset(dataset, ranking_records)
     requests = evidence_graph_build_requests_for_dataset(dataset, ranking_records)
     domain_config = DomainGraphBuildConfig(**config.model_dump())
     graphs = build_graphs(requests, domain_config)

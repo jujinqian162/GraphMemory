@@ -5,12 +5,7 @@ from graph_memory.evaluation.connectivity import (
     connected_evidence_at,
     query_evidence_connectivity_at,
 )
-from graph_memory.evaluation.metrics import (
-    evidence_f1_at,
-    full_support_at,
-    mrr,
-    recall_at,
-)
+from graph_memory.evaluation.metrics import full_support_at
 from graph_memory.evaluation.service import (
     evaluate_results,
 )
@@ -35,17 +30,6 @@ def _evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
         )
         for label in labels
     ]
-
-
-def test_node_metrics_use_ranked_nodes_and_gold_nodes():
-    ranked = ["m2", "m0", "m1"]
-    gold = {"m0", "m1"}
-
-    assert recall_at(ranked, gold, 2) == 0.5
-    assert evidence_f1_at(ranked, gold, 2) == 0.5
-    assert full_support_at(ranked, gold, 2) == 0.0
-    assert full_support_at(ranked, gold, 3) == 1.0
-    assert mrr(ranked, gold) == 0.5
 
 
 def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():

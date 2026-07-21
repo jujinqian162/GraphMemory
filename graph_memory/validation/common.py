@@ -172,23 +172,3 @@ def _validate_string_sequence(value: object, field_name: str, *, allow_empty: bo
     if len(strings) != len(set(strings)):
         raise ContractValidationError(f"Invalid trainable model config: {field_name} contains duplicate entries.")
     return tuple(strings)
-
-
-def _required_attr(value: object, field_name: str, artifact_name: str) -> Any:
-    if not hasattr(value, field_name):
-        raise ContractValidationError(f"Invalid {artifact_name}: missing field={field_name}.")
-    return getattr(value, field_name)
-
-
-def _require_tensor_1d(value: object, field_name: str, artifact_name: str) -> Any:
-    tensor = _required_attr(value, field_name, artifact_name)
-    if getattr(tensor, "ndim", None) != 1:
-        raise ContractValidationError(f"Invalid {artifact_name}: {field_name} must be a 1D tensor.")
-    return tensor
-
-
-def _require_tensor_2d(value: object, field_name: str, artifact_name: str) -> Any:
-    tensor = _required_attr(value, field_name, artifact_name)
-    if getattr(tensor, "ndim", None) != 2:
-        raise ContractValidationError(f"Invalid {artifact_name}: {field_name} must be a 2D tensor.")
-    return tensor

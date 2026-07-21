@@ -466,15 +466,14 @@ def test_provenance_native_pairs_are_unique_and_use_hardness_precedence() -> Non
     text_request = TextRankingRequest(
         request.task_id, request.query_text, request.candidates
     )
+    task = ProvenanceTrainPairBuildTask(
+        text_request=text_request,
+        graph=request.graph,
+        label=label,
+    )
 
     result = build_provenance_train_pairs(
-        [
-            ProvenanceTrainPairBuildTask(
-                text_request=text_request,
-                graph=request.graph,
-                label=label,
-            )
-        ],
+        [task],
         ProvenanceNegativeSamplingConfig(
             random_seed=13,
             easy_random_per_positive=2,
@@ -518,19 +517,8 @@ def test_provenance_native_pairs_are_unique_and_use_hardness_precedence() -> Non
         assert sources == sorted(sources, key=precedence.__getitem__)
     assert sum(result.summary["negative_count_by_type"].values()) == len(negatives)
 
-
-def test_provenance_wo_hard_negatives_retains_only_easy_random() -> None:
-    request, label = _request_and_label()
-    result = build_provenance_train_pairs(
-        [
-            ProvenanceTrainPairBuildTask(
-                text_request=TextRankingRequest(
-                    request.task_id, request.query_text, request.candidates
-                ),
-                graph=request.graph,
-                label=label,
-            )
-        ],
+    easy_only = build_provenance_train_pairs(
+        [task],
         ProvenanceNegativeSamplingConfig(
             easy_random_per_positive=2,
             hard_bm25_per_positive=0,
@@ -540,9 +528,8 @@ def test_provenance_wo_hard_negatives_retains_only_easy_random() -> None:
             hard_provenance_predecessor_per_positive=0,
         ),
     )
-
     assert {
-        pair["sample_type"] for pair in result.pairs if pair["label"] == 0
+        pair["sample_type"] for pair in easy_only.pairs if pair["label"] == 0
     } == {"easy_random"}
 
 

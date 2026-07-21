@@ -222,7 +222,7 @@ def train_dense_ft_task(
     implementation_version: str = "dense-ft-train-v1",
 ) -> ModelResult:
     get_run_logger().info(
-        "train dense-ft | dataset=%s epochs=%s", dataset, config.trainer.epochs
+        "train dense-ft | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
     )
     return materialize_dense_finetune_model(
         processed_store(),
@@ -254,7 +254,7 @@ def train_evidence_rgcn_task(
     implementation_version: str = "evidence-rgcn-train-v1",
 ) -> ModelResult:
     get_run_logger().info(
-        "train evidence-rgcn | dataset=%s epochs=%s", dataset, config.trainer.epochs
+        "train evidence-rgcn | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
     )
     return materialize_evidence_rgcn_model(
         processed_store(),
@@ -286,7 +286,7 @@ def train_provenance_rgcn_task(
     implementation_version: str = "provenance-rgcn-train-v1",
 ) -> ModelResult:
     get_run_logger().info(
-        "train provenance-rgcn | dataset=%s epochs=%s", dataset, config.trainer.epochs
+        "train provenance-rgcn | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
     )
     return materialize_provenance_rgcn_model(
         processed_store(),

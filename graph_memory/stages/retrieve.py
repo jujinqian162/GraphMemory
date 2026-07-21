@@ -13,7 +13,6 @@ from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.selection import (
     execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
-    validate_ranking_records_for_dataset,
 )
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.experiment.artifacts import (
@@ -69,7 +68,6 @@ from graph_memory.retrieval.requests import (
     TextRankingRequest,
 )
 from graph_memory.stages.results import RankingResult
-from graph_memory.validation import validate_ranked_results
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -126,7 +124,6 @@ def run_retrieve_stage(
         tasks=built.execution_tasks,
         top_k=top_k,
     )
-    validate_ranked_results(predictions, text_requests)
     return RetrieveStageResult(predictions=predictions, provenance=built.provenance)
 
 
@@ -143,8 +140,8 @@ def materialize_rankings(
     device: str,
     implementation_version: str,
 ) -> RankingResult:
+    # Prepared tasks already passed dataset validation at materialize_prepared_split.
     task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
-    validate_ranking_records_for_dataset(dataset, task_inputs)
     graph_values = (
         cast(
             list[EvidenceGraph],

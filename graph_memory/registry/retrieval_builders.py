@@ -144,9 +144,8 @@ def _build_bm25(
     settings: Bm25RetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, FlatRetrievalBuildPayload, method=settings.method.value
-    )
+    # Payload type already checked by RetrievalRegistry.build.
+    build_payload = cast(FlatRetrievalBuildPayload, payload)
     return _built(
         ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever()),
         method=settings.method,
@@ -158,9 +157,7 @@ def _build_dense(
     settings: DenseRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, FlatRetrievalBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(FlatRetrievalBuildPayload, payload)
     return _built(
         ScorePipelineMethod(
             name=settings.method.value,
@@ -184,9 +181,7 @@ def _build_dense_ft(
     settings: DenseFinetunedRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, FlatRetrievalBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(FlatRetrievalBuildPayload, payload)
     metadata = load_dense_ft_model_metadata(settings.checkpoint)
     encoder = build_payload.dense_encoder
     if encoder is None:
@@ -235,9 +230,7 @@ def _build_graphrag(
     settings: GraphRAGRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, GraphRAGBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(GraphRAGBuildPayload, payload)
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
@@ -275,9 +268,7 @@ def _build_evidence_rgcn(
         TrainableGraphRetrievalMethod,
     )
 
-    build_payload = _require_payload(
-        payload, EvidenceRgcnBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(EvidenceRgcnBuildPayload, payload)
     graph_index = _validated_graph_index(
         settings.method.value,
         build_payload.text_requests,
@@ -316,11 +307,7 @@ def _build_execution_provenance(
     settings: ExecutionProvenanceRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload,
-        ExecutionProvenanceBuildPayload,
-        method=settings.method.value,
-    )
+    build_payload = cast(ExecutionProvenanceBuildPayload, payload)
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
@@ -357,11 +344,7 @@ def _build_provenance_rgcn(
         load_provenance_rgcn_checkpoint,
     )
 
-    build_payload = _require_payload(
-        payload,
-        ProvenanceRgcnBuildPayload,
-        method=settings.method.value,
-    )
+    build_payload = cast(ProvenanceRgcnBuildPayload, payload)
     checkpoint = load_provenance_rgcn_checkpoint(
         settings.checkpoint,
         expected_method=settings.method.value,

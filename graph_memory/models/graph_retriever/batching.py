@@ -28,12 +28,7 @@ from graph_memory.models.graph_retriever.internals.tensorization import (
 )
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.validation import (
-    validate_graph_batch,
-    validate_graphs,
-    validate_task_id_alignment,
-    validate_training_batch,
-)
+from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 
 @dataclass(frozen=True)
@@ -331,8 +326,7 @@ def _build_batch(
         node_ids_by_task=node_ids_by_task,
     )
     scorer_feature_dim = len(model_config.feature_config.scorer_feature_names)
-    validate_graph_batch(graph_batch)
-    training_batch = TrainingBatch(
+    return TrainingBatch(
         graph_batch=graph_batch,
         sample_node_indices=torch.tensor(sample_node_indices, dtype=torch.long),
         sample_query_indices=torch.tensor(sample_query_indices, dtype=torch.long),
@@ -346,5 +340,3 @@ def _build_batch(
         sample_node_ids=sample_node_ids,
         sample_types=sample_types,
     )
-    validate_training_batch(training_batch)
-    return training_batch

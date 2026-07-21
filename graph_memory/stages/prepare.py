@@ -198,14 +198,8 @@ def _prepare_hotpotqa(
 
 
 def _validate_hotpotqa_raw(value: object, index: int) -> None:
-    converted = convert_hotpotqa_example(
-        parse_hotpotqa_example(value, record_index=index)
-    )
-    tasks = [converted.ranking_record]
-    validate_hotpotqa_ranking_records(tasks)
-    validate_hotpotqa_label_records(
-        [converted.label_record], {tasks[0]["task_id"]: tasks[0]}
-    )
+    # Filter-only: full ranking/label contracts run once after batch convert.
+    convert_hotpotqa_example(parse_hotpotqa_example(value, record_index=index))
 
 
 def _prepare_twowiki(
@@ -240,14 +234,8 @@ def _prepare_twowiki(
 
 
 def _validate_twowiki_raw(value: object, index: int) -> None:
-    converted = convert_twowiki_example(
-        parse_twowiki_example(value, record_index=index)
-    )
-    tasks = [converted.ranking_record]
-    validate_twowiki_ranking_records(tasks)
-    validate_twowiki_label_records(
-        [converted.label_record], {tasks[0]["task_id"]: tasks[0]}
-    )
+    # Filter-only: full ranking/label contracts run once after batch convert.
+    convert_twowiki_example(parse_twowiki_example(value, record_index=index))
 
 
 def _prepare_musique(
@@ -280,14 +268,8 @@ def _prepare_musique(
 
 
 def _validate_musique_raw(value: object, index: int) -> None:
-    converted = convert_musique_example(
-        parse_musique_example(value, record_index=index)
-    )
-    tasks = [converted.ranking_record]
-    validate_musique_ranking_records(tasks)
-    validate_musique_label_records(
-        [converted.label_record], {tasks[0]["task_id"]: tasks[0]}
-    )
+    # Filter-only: full ranking/label contracts run once after batch convert.
+    convert_musique_example(parse_musique_example(value, record_index=index))
 
 
 def _prepare_twowiki_provenance(

@@ -75,37 +75,25 @@ def test_identity_graph_encoder_returns_input_states():
     assert output is node_states
 
 
-def test_identity_graph_encoder_supports_torch_module_device_transfer():
-    model = EvidenceScoringModel(
-        encoder_dim=3,
-        node_feature_dim=3,
-        hidden_dim=8,
-        graph_encoder=IdentityGraphEncoder(),
-        scorer_feature_dim=2,
-        dropout=0.0,
-    )
-
-    assert model.to("cpu").graph_encoder is model.graph_encoder
-
-
-def test_rgcn_graph_encoder_supports_typed_and_shared_relation_transforms():
+def test_rgcn_graph_encoder_typed_and_shared_transforms() -> None:
     batch = tiny_graph_batch()
     node_states = torch.randn(4, 8)
+    num_relations = len(DEFAULT_RELATION_VOCAB)
 
     typed_encoder = RGCNGraphEncoder(
         hidden_dim=8,
-        num_relations=len(DEFAULT_RELATION_VOCAB),
-        num_layers=1,
+        num_relations=num_relations,
+        num_layers=2,
         message_transform_factory=lambda: TypedRelationTransform(
             hidden_dim=8,
-            num_relations=len(DEFAULT_RELATION_VOCAB),
+            num_relations=num_relations,
         ),
         dropout=0.0,
     )
     shared_encoder = RGCNGraphEncoder(
         hidden_dim=8,
-        num_relations=len(DEFAULT_RELATION_VOCAB),
-        num_layers=1,
+        num_relations=num_relations,
+        num_layers=2,
         message_transform_factory=lambda: SharedRelationTransform(hidden_dim=8),
         dropout=0.0,
     )
@@ -113,39 +101,15 @@ def test_rgcn_graph_encoder_supports_typed_and_shared_relation_transforms():
     assert typed_encoder.forward(batch, node_states).shape == node_states.shape
     assert shared_encoder.forward(batch, node_states).shape == node_states.shape
 
-
-def test_rgcn_graph_encoder_applies_shared_transform_to_every_layer():
-    encoder = RGCNGraphEncoder(
-        hidden_dim=8,
-        num_relations=len(DEFAULT_RELATION_VOCAB),
-        num_layers=2,
-        message_transform_factory=lambda: SharedRelationTransform(hidden_dim=8),
-        dropout=0.0,
+    typed_transforms = [layer.message_transform for layer in typed_encoder.layers]
+    assert all(
+        isinstance(transform, TypedRelationTransform) for transform in typed_transforms
     )
-
-    assert [type(layer.message_transform) for layer in encoder.layers] == [
+    assert typed_transforms[0] is not typed_transforms[1]
+    assert [type(layer.message_transform) for layer in shared_encoder.layers] == [
         SharedRelationTransform,
         SharedRelationTransform,
     ]
-
-
-def test_rgcn_graph_encoder_builds_independent_typed_transform_per_layer():
-    encoder = RGCNGraphEncoder(
-        hidden_dim=8,
-        num_relations=len(DEFAULT_RELATION_VOCAB),
-        num_layers=2,
-        message_transform_factory=lambda: TypedRelationTransform(
-            hidden_dim=8,
-            num_relations=len(DEFAULT_RELATION_VOCAB),
-        ),
-        dropout=0.0,
-    )
-
-    transforms = [layer.message_transform for layer in encoder.layers]
-    assert all(
-        isinstance(transform, TypedRelationTransform) for transform in transforms
-    )
-    assert transforms[0] is not transforms[1]
 
 
 def test_typed_relation_transform_rejects_invalid_relation_ids():

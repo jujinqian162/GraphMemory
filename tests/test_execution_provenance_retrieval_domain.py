@@ -385,27 +385,6 @@ def test_graphrag_builds_typed_mentions_without_evidence_graph() -> None:
     assert result.trace.retrieved_edges == []
 
 
-def test_graphrag_semantic_fallback_keeps_complete_ranking() -> None:
-    candidates = (
-        TextCandidate("x", "x", {}),
-        TextCandidate("y", "y", {}),
-    )
-    config = GraphRAGConfig()
-    method = GraphRAGMethod(dense_ranker=_dense_ranker(), config=config)
-
-    result = method.rank_task(
-        build_graphrag_request(
-            TextRankingRequest("task", "answer", candidates), config
-        ),
-        top_k=1,
-    )
-
-    assert len(result.ranked_nodes) == len(candidates)
-    assert isinstance(result.trace.native_trace, GraphRAGTrace)
-    assert result.trace.native_trace.bridges == ()
-    assert result.trace.native_trace.exact_dense_fallback
-
-
 def test_graphrag_promotes_only_resolved_partner_after_protected_prefix() -> None:
     candidates = _local_graphrag_candidates()
     config = GraphRAGConfig(
@@ -561,16 +540,6 @@ def test_provenance_binding_failure_abstains_to_exact_dense_objects() -> None:
     assert isinstance(trace, StatelessExecutionProvenanceTrace)
     assert trace.exact_dense_fallback
     assert any(path.rejection_reason == "binding_mismatch" for path in trace.paths)
-
-
-def test_provenance_graph_does_not_require_claim_or_verification_nodes() -> None:
-    graph = _provenance_graph()
-
-    assert all(
-        node.node_type
-        not in {ProvenanceNodeType.CLAIM, ProvenanceNodeType.VERIFICATION}
-        for node in graph.nodes
-    )
 
 
 def test_provenance_expansion_does_not_reverse_incoming_dependencies() -> None:

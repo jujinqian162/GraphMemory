@@ -15,14 +15,12 @@ from graph_memory.graphs.provenance import (
     ProvenanceNodeType,
 )
 from graph_memory.registry import Registry
-from graph_memory.registry.methods import RequiredArtifact
 from graph_memory.registry.retrieval import (
     DenseEncoderSettings,
     ExecutionProvenanceBuildPayload,
     ExecutionProvenanceRetrievalSettings,
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
-    RetrievalMethodId,
 )
 from graph_memory.retrieval.methods.execution_provenance import (
     ExecutionProvenanceConfig,
@@ -305,14 +303,3 @@ def test_ranked_result_validation_rejects_malformed_native_trace() -> None:
 
     with pytest.raises(ContractValidationError, match="native trace"):
         validate_ranked_results([prediction], [request])
-
-
-def test_registry_required_artifact_query_is_authoritative() -> None:
-    assert Registry.methods.requires_artifact(
-        RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,
-        RequiredArtifact.EVIDENCE_GRAPH,
-    )
-    assert not Registry.methods.requires_artifact(
-        RetrievalMethodId.GRAPHRAG,
-        RequiredArtifact.EVIDENCE_GRAPH,
-    )

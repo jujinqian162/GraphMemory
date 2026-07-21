@@ -195,33 +195,60 @@ def test_schema_v3_parser_rejects_v2_artifact_explicitly() -> None:
         parse_twowiki_provenance_record(legacy)
 
 
-def test_schema_v3_validation_rejects_invalid_feed_mass() -> None:
-    ranking = convert_twowiki_source_records(
-        [_source_example("bad-mass")], candidate_cap=6, seed=13
-    ).records[0]["ranking"]
+def _mutate_feed_mass(ranking: dict[str, object]) -> dict[str, object]:
     broken = deepcopy(ranking)
     feed = next(
         edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
     )
     feed["weight"] = 0.5
     feed["metadata"]["calibrated_weight"] = 0.5
-
-    with pytest.raises(ContractValidationError, match="feed mass"):
-        validate_twowiki_provenance_ranking_records([broken])
+    return broken
 
 
-def test_schema_v3_validation_rejects_incomplete_confidence_metadata() -> None:
-    ranking = convert_twowiki_source_records(
-        [_source_example("missing-confidence")], candidate_cap=6, seed=13
-    ).records[0]["ranking"]
+def _mutate_confidence_metadata(ranking: dict[str, object]) -> dict[str, object]:
     broken = deepcopy(ranking)
     feed = next(
         edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
     )
     del feed["metadata"]["source_probability"]
+    return broken
 
-    with pytest.raises(ContractValidationError, match="confidence metadata"):
-        validate_twowiki_provenance_ranking_records([broken])
+
+def _mutate_binding_hash(ranking: dict[str, object]) -> dict[str, object]:
+    broken = deepcopy(ranking)
+    feeds = next(
+        edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
+    )
+    assert feeds["binding"] is not None
+    feeds["binding"]["binding_value_hash"] = "wrong-hash"
+    return broken
+
+
+def _mutate_label_leakage(ranking: dict[str, object]) -> dict[str, object]:
+    leaked = deepcopy(ranking)
+    leaked["metadata"]["is_gold"] = True
+    return leaked
+
+
+@pytest.mark.parametrize(
+    ("mutator", "match"),
+    (
+        (_mutate_feed_mass, "feed mass"),
+        (_mutate_confidence_metadata, "confidence metadata"),
+        (_mutate_binding_hash, "inconsistent bindings"),
+        (_mutate_label_leakage, "forbidden"),
+    ),
+    ids=("feed-mass", "confidence-metadata", "binding-hash", "label-leakage"),
+)
+def test_ranking_validation_rejects_contract_violations(
+    mutator, match: str
+) -> None:
+    ranking = convert_twowiki_source_records(
+        [_source_example("validation")], candidate_cap=6, seed=13
+    ).records[0]["ranking"]
+
+    with pytest.raises(ContractValidationError, match=match):
+        validate_twowiki_provenance_ranking_records([mutator(ranking)])
 
 
 def test_bm25_successor_edges_follow_semantic_matches_not_shuffled_order() -> None:
@@ -254,8 +281,9 @@ def test_bm25_successor_edges_follow_semantic_matches_not_shuffled_order() -> No
     assert all("semantic_rank" in edge["metadata"] for edge in feed_edges)
 
 
-def test_dense_successor_strategy_uses_injected_dense_ranker() -> None:
-    converted = convert_twowiki_source_records(
+def test_dense_successor_uses_injected_ranker_and_batches_queries() -> None:
+    ranker = _BatchCountingRanker()
+    result = convert_twowiki_source_records(
         [_source_example("dense-semantic")],
         candidate_cap=6,
         seed=13,
@@ -263,33 +291,20 @@ def test_dense_successor_strategy_uses_injected_dense_ranker() -> None:
             strategy="dense",
             successors_per_output=2,
         ),
-        dense_ranker=_ReverseIdRanker(),
-    ).records[0]
-    feed_edges = [
-        edge
-        for edge in converted["ranking"]["graph"]["edges"]
-        if edge["edge_type"] == "feeds"
-    ]
-
-    assert {cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges} == {
-        "dense"
-    }
-    assert all(cast(int, edge["metadata"]["semantic_rank"]) >= 1 for edge in feed_edges)
-
-
-def test_dense_successor_ranking_batches_all_source_queries() -> None:
-    ranker = _BatchCountingRanker()
-
-    result = convert_twowiki_source_records(
-        [_source_example("dense-batch")],
-        candidate_cap=6,
-        seed=13,
-        graph_config=ProvenanceGraphConstructionConfig(strategy="dense"),
         dense_ranker=ranker,
     )
 
     assert result.rejected_reason_counts == {}
     assert ranker.batch_sizes == [1, 6]
+    feed_edges = [
+        edge
+        for edge in result.records[0]["ranking"]["graph"]["edges"]
+        if edge["edge_type"] == "feeds"
+    ]
+    assert {cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges} == {
+        "dense"
+    }
+    assert all(cast(int, edge["metadata"]["semantic_rank"]) >= 1 for edge in feed_edges)
 
 
 def test_ambiguous_gold_chain_is_rejected_before_graph_construction() -> None:
@@ -324,21 +339,6 @@ def test_generated_bindings_match_source_field_hash_and_target_input() -> None:
         assert binding["input_parameter"] in target_inputs
 
 
-def test_ranking_validation_rejects_inconsistent_binding_hash() -> None:
-    ranking = convert_twowiki_source_records(
-        [_source_example("bad-binding")], candidate_cap=6, seed=13
-    ).records[0]["ranking"]
-    broken = deepcopy(ranking)
-    feeds = next(
-        edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
-    )
-    assert feeds["binding"] is not None
-    feeds["binding"]["binding_value_hash"] = "wrong-hash"
-
-    with pytest.raises(ContractValidationError, match="inconsistent bindings"):
-        validate_twowiki_provenance_ranking_records([broken])
-
-
 def test_flat_projection_and_split_partition_preserve_identity() -> None:
     records = convert_twowiki_source_records(
         [_source_example(str(index)) for index in range(6)],
@@ -360,17 +360,6 @@ def test_flat_projection_and_split_partition_preserve_identity() -> None:
     assert all(
         candidate.item_id.startswith("output_") for candidate in text_request.candidates
     )
-
-
-def test_ranking_validation_rejects_label_leakage() -> None:
-    converted = convert_twowiki_source_records(
-        [_source_example("leak")], candidate_cap=6, seed=13
-    ).records[0]
-    leaked = deepcopy(converted["ranking"])
-    leaked["metadata"]["is_gold"] = True
-
-    with pytest.raises(ContractValidationError, match="forbidden"):
-        validate_twowiki_provenance_ranking_records([leaked])
 
 
 def test_transform_is_byte_deterministic_and_raw_only(
@@ -561,21 +550,6 @@ def _ambiguous_source_example() -> dict[str, object]:
         "answer_id": "Country Z",
         "answer": "Country Z",
     }
-
-
-class _ReverseIdRanker:
-    @property
-    def method_name(self) -> str:
-        return "reverse_id_test_ranker"
-
-    def rank(self, request: TextRankingRequest) -> list[RankedNode]:
-        return [
-            RankedNode(candidate.item_id, float(index))
-            for index, candidate in enumerate(
-                sorted(request.candidates, key=lambda item: item.item_id, reverse=True),
-                start=1,
-            )
-        ]
 
 
 class _GoldTargetLastRanker:

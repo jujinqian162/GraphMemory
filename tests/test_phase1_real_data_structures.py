@@ -7,7 +7,6 @@ from graph_memory.datasets.hotpotqa import (
     convert_hotpotqa_examples,
     parse_hotpotqa_examples,
 )
-from graph_memory.datasets.hotpotqa.compatibility import combined_hotpotqa_records
 from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
 from graph_memory.datasets.splits import sample_split
 
@@ -54,70 +53,43 @@ def test_supporting_facts_map_title_sentence_to_node_ids():
     assert "supporting_facts" not in inputs[0]
 
 
-def test_convert_hotpotqa_requires_raw_id():
-    raw = hotpot_raw_example()
-    del raw["_id"]
-
+def test_hotpotqa_parse_and_convert_reject_invalid_records() -> None:
+    missing_id = hotpot_raw_example()
+    del missing_id["_id"]
     with pytest.raises(ValueError, match="_id"):
-        parse_hotpotqa_examples([raw])
+        parse_hotpotqa_examples([missing_id])
 
-
-def test_parse_hotpotqa_rejects_non_text_sentence():
-    malformed = {
+    non_text = {
         **hotpot_raw_example(),
         "context": [["Ada Lovelace", ["ok", 3]]],
         "_id": "abc123",
     }
-
     with pytest.raises(ValueError, match="must be text"):
-        parse_hotpotqa_example(malformed)
+        parse_hotpotqa_example(non_text)
 
-
-def test_combined_hotpotqa_records_joins_ranking_and_label_by_task():
-    parsed = parse_hotpotqa_examples([hotpot_raw_example()])
-    conversion = convert_hotpotqa_examples(parsed)
-    ranking_record = conversion.ranking_records[0]
-    label_record = conversion.label_records[0]
-
-    assert combined_hotpotqa_records([ranking_record], [label_record]) == [
-        {**ranking_record, **label_record}
-    ]
-
-
-def test_convert_hotpotqa_fails_when_supporting_fact_cannot_map():
-    raw = hotpot_raw_example()
-    raw["supporting_facts"] = [["Missing Title", 0]]
-
-    parsed_examples = parse_hotpotqa_examples([raw])
+    unmapped = hotpot_raw_example()
+    unmapped["supporting_facts"] = [["Missing Title", 0]]
     with pytest.raises(ValueError, match="supporting fact"):
-        convert_hotpotqa_examples(parsed_examples)
+        convert_hotpotqa_examples(parse_hotpotqa_examples([unmapped]))
 
 
-def test_sample_split_is_deterministic_for_same_seed_and_offset():
-    examples = [{"_id": str(index)} for index in range(10)]
-
-    assert sample_split(examples, count=4, seed=13, offset=2) == sample_split(
-        examples, count=4, seed=13, offset=2
-    )
-
-
-def test_sample_split_uses_offset_for_disjoint_slices():
+def test_sample_split_is_deterministic_disjoint_and_bounds_checked() -> None:
     examples = [{"_id": str(index)} for index in range(20)]
 
-    dev = sample_split(examples, count=5, seed=13, offset=0)
-    test = sample_split(examples, count=5, seed=13, offset=5)
+    first = sample_split(examples, count=5, seed=13, offset=0)
+    second = sample_split(examples, count=5, seed=13, offset=0)
+    assert first == second
 
-    assert {example["_id"] for example in dev}.isdisjoint(
-        {example["_id"] for example in test}
+    later = sample_split(examples, count=5, seed=13, offset=5)
+    assert {example["_id"] for example in first}.isdisjoint(
+        {example["_id"] for example in later}
     )
 
-
-@pytest.mark.parametrize(
-    ("count", "offset"),
-    [(-1, 0), (1, -1), (5, 6)],
-)
-def test_sample_split_rejects_invalid_bounds(count: int, offset: int):
-    examples = [{"_id": str(index)} for index in range(10)]
-
-    with pytest.raises(ValueError):
-        sample_split(examples, count=count, seed=13, offset=offset)
+    for count, offset in ((-1, 0), (1, -1), (5, 6)):
+        with pytest.raises(ValueError):
+            sample_split(
+                [{"_id": str(index)} for index in range(10)],
+                count=count,
+                seed=13,
+                offset=offset,
+            )

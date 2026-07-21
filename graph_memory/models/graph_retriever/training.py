@@ -35,8 +35,6 @@ from graph_memory.models.graph_retriever.selection import (
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.validation import (
-    validate_graphs,
-    validate_rgcn_model_config,
     validate_rgcn_training_config,
     validate_train_pairs,
 )
@@ -86,10 +84,9 @@ def train_graph_retriever(
     训练一个 frozen-encoder R-GCN 二分类节点 scorer。
     """
 
-    validate_rgcn_model_config(model_config)
     validate_rgcn_training_config(training_config)
-    validate_graphs(train_graphs, train_requests)
-    validate_graphs(dev_graphs, dev_requests)
+    # Graph/request alignment is checked once inside batch builders.
+    # Model config is checked once inside build_model_from_config.
     if train_labels is not None:
         validate_train_pairs(
             train_pairs,

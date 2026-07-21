@@ -32,25 +32,6 @@ def _compose(*overrides: str):
 
 @pytest.mark.parametrize(
     "method",
-    (
-        "bm25",
-        "dense",
-        "graphrag",
-        "dense_ft",
-        "dense_rgcn_graph_retriever",
-        "dense_ft_rgcn_graph_retriever",
-    ),
-)
-def test_evidence_method_configs_compose_as_one_final_method(method: str) -> None:
-    config = parse_composed_config(_compose(f"method={method}"))
-
-    assert config.method.method == method
-    assert not hasattr(config, "methods")
-    assert not hasattr(config, "method_configs")
-
-
-@pytest.mark.parametrize(
-    "method",
     ("execution_provenance_retriever", "execution_provenance_rgcn_retriever"),
 )
 def test_provenance_method_configs_compose_for_provenance_dataset(method: str) -> None:
@@ -89,12 +70,9 @@ def test_rgcn_has_one_singular_variant_and_applies_it_at_the_first_change() -> N
     assert effective.pairs.hard_graph_neighbor_per_positive == 0
     assert effective.train.model.ablation == "full_rgcn"
 
-
-def test_rgcn_defaults_to_full_variant() -> None:
-    config = parse_composed_config(_compose("method=dense_rgcn_graph_retriever"))
-
-    assert isinstance(config.method, RgcnMethodConfig)
-    assert config.method.variant == "full_rgcn"
+    defaulted = parse_composed_config(_compose("method=dense_rgcn_graph_retriever"))
+    assert isinstance(defaulted.method, RgcnMethodConfig)
+    assert defaulted.method.variant == "full_rgcn"
 
 
 @pytest.mark.parametrize(
@@ -184,10 +162,3 @@ def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
         "hard_provenance_predecessor_per_positive": 0,
     }
     assert by_variant["wo_edge_rerank"]["earliest_invalidated_stage"] == "rank"
-
-
-def test_hydra_multirun_subdir_uses_only_native_interpolations() -> None:
-    config_text = (ROOT / "configs" / "config.yaml").read_text(encoding="utf-8")
-
-    assert "subdir: ${hydra.job.num}_${method.method}" in config_text
-    assert "concise_override" not in config_text

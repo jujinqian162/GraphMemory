@@ -10,6 +10,7 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     DenseMethodConfig,
     GraphRAGMethodConfig,
+    RankingMethodConfig,
 )
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
@@ -17,14 +18,6 @@ from graph_memory.registry.retrieval import (
     FlatRetrievalBuildPayload,
     GraphRAGRetrievalSettings,
 )
-from graph_memory.retrieval.contracts import GraphRAGTrace
-from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
-from graph_memory.retrieval.methods.graphrag import (
-    GraphRAGConfig,
-    GraphRAGMethod,
-    build_graphrag_request,
-)
-from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 from graph_memory.stages.retrieve import run_retrieve_stage
 
 
@@ -92,105 +85,57 @@ def _encoder_config() -> DenseEncoderConfig:
     )
 
 
-def test_bm25_stage_runs_without_evidence_graph_artifact() -> None:
-    result = run_retrieve_stage(
-        Bm25MethodConfig(
-            method="bm25",
-        ),
-        dataset="hotpotqa",
-        top_k=2,
-        task_inputs=_task_inputs(),
-        evidence_graphs=None,
-        model=None,
-        encoder_source=None,
-        device="cpu",
-    )
-
-    assert result.provenance.method.value == "bm25"
-    assert len(result.predictions[0]["ranked_nodes"]) == 3
-    assert len(result.predictions[0]["retrieved_subgraph"]["nodes"]) == 2
+def _bm25_method() -> RankingMethodConfig:
+    return Bm25MethodConfig(method="bm25")
 
 
-def test_dense_stage_runs_without_evidence_graph_artifact() -> None:
-    result = run_retrieve_stage(
-        DenseMethodConfig(
-            method="dense",
-            encoder=_encoder_config(),
-        ),
-        dataset="hotpotqa",
-        top_k=2,
-        task_inputs=_task_inputs(),
-        evidence_graphs=None,
-        model=None,
-        encoder_source=None,
-        device="cpu",
-        dense_encoder=KeywordEncoder(),
-    )
-
-    assert result.provenance.method.value == "dense"
-    assert len(result.predictions[0]["ranked_nodes"]) == 3
-    assert len(result.predictions[0]["retrieved_subgraph"]["nodes"]) == 2
+def _dense_method() -> RankingMethodConfig:
+    return DenseMethodConfig(method="dense", encoder=_encoder_config())
 
 
-def test_graphrag_stage_builds_method_owned_entity_graph() -> None:
-    result = run_retrieve_stage(
-        GraphRAGMethodConfig(
-            method="graphrag",
-            encoder=_encoder_config(),
-            seed_top_s=2,
-            max_entity_document_frequency_ratio=0.75,
-            sentence_resolver="frozen_dense",
-            min_sentence_score_margin=0.02,
-            min_bridge_confidence=0.2,
-            max_partners_per_anchor=1,
-            preserve_dense_top_n=2,
-        ),
-        dataset="hotpotqa",
-        top_k=2,
-        task_inputs=_task_inputs(),
-        evidence_graphs=None,
-        model=None,
-        encoder_source=None,
-        device="cpu",
-        dense_encoder=KeywordEncoder(),
-    )
-
-    assert result.provenance.method.value == "graphrag"
-    assert len(result.predictions[0]["ranked_nodes"]) == 3
-    assert len(result.predictions[0]["retrieved_subgraph"]["nodes"]) == 2
-
-
-def test_graphrag_builds_typed_local_bridge_evidence() -> None:
-    candidates = (
-        TextCandidate("m0", "Eiffel Tower in Paris", {"title": "Eiffel Tower"}),
-        TextCandidate("m1", "Seine runs through Paris", {"title": "Paris"}),
-        TextCandidate("m2", "Everest mountain", {"title": "Everest"}),
-    )
-    config = GraphRAGConfig(
+def _graphrag_method() -> RankingMethodConfig:
+    return GraphRAGMethodConfig(
+        method="graphrag",
+        encoder=_encoder_config(),
         seed_top_s=2,
         max_entity_document_frequency_ratio=0.75,
-        min_bridge_confidence=0.0,
-        preserve_dense_top_n=1,
-    )
-    method = GraphRAGMethod(
-        dense_ranker=DenseTaskRetriever(
-            encoder=KeywordEncoder(), query_prefix="", passage_prefix=""
-        ),
-        config=config,
+        sentence_resolver="frozen_dense",
+        min_sentence_score_margin=0.02,
+        min_bridge_confidence=0.2,
+        max_partners_per_anchor=1,
+        preserve_dense_top_n=2,
     )
 
-    result = method.rank_task(
-        build_graphrag_request(
-            TextRankingRequest("task", "Eiffel river city", candidates), config
-        ),
+
+@pytest.mark.parametrize(
+    ("method_factory", "expected_method", "needs_encoder"),
+    (
+        (_bm25_method, "bm25", False),
+        (_dense_method, "dense", True),
+        (_graphrag_method, "graphrag", True),
+    ),
+    ids=("bm25", "dense", "graphrag"),
+)
+def test_retrieve_stage_runs_without_evidence_graph_artifact(
+    method_factory,
+    expected_method: str,
+    needs_encoder: bool,
+) -> None:
+    result = run_retrieve_stage(
+        method_factory(),
+        dataset="hotpotqa",
         top_k=2,
+        task_inputs=_task_inputs(),
+        evidence_graphs=None,
+        model=None,
+        encoder_source=None,
+        device="cpu",
+        dense_encoder=KeywordEncoder() if needs_encoder else None,
     )
 
-    assert len(result.ranked_nodes) == len(candidates)
-    assert isinstance(result.trace.native_trace, GraphRAGTrace)
-    assert result.trace.native_trace.mentions
-    assert result.trace.native_trace.title_groups
-    assert result.ranked_nodes[-1].node_id == "m2"
+    assert result.provenance.method.value == expected_method
+    assert len(result.predictions[0]["ranked_nodes"]) == 3
+    assert len(result.predictions[0]["retrieved_subgraph"]["nodes"]) == 2
 
 
 def test_graphrag_builder_rejects_flat_payload() -> None:

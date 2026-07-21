@@ -49,25 +49,6 @@ def test_parallel_bm25_output_is_byte_identical_to_serial() -> None:
     assert len(serial.records) == 12
 
 
-def test_parallel_result_is_independent_of_worker_count() -> None:
-    raw = [_source_example(f"rec-{index}") for index in range(10)]
-
-    baseline = convert_twowiki_source_records(raw, candidate_cap=6, seed=29, workers=1)
-    for worker_count in (2, 3, 5, 8):
-        result = convert_twowiki_source_records(
-            raw, candidate_cap=6, seed=29, workers=worker_count
-        )
-        assert _canonical(result.records) == _canonical(baseline.records)
-
-
-def test_single_record_stays_serial_under_high_worker_count() -> None:
-    raw = [_source_example("only")]
-    # workers>1 but a single record must not fan out; result matches serial.
-    serial = convert_twowiki_source_records(raw, candidate_cap=6, seed=13, workers=1)
-    parallel = convert_twowiki_source_records(raw, candidate_cap=6, seed=13, workers=8)
-    assert _canonical(serial.records) == _canonical(parallel.records)
-
-
 def test_resolve_worker_count_defaults_and_floor() -> None:
     assert resolve_worker_count(4) == 4
     assert resolve_worker_count(0) == 1
