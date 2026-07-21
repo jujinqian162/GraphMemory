@@ -58,7 +58,6 @@ from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegistry:
     return RetrievalRegistry(
-        seed_build=_build_seed_retriever,
         method_registry=method_registry,
         builders={
             Bm25RetrievalSettings: RetrievalBuilderSpec(

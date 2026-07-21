@@ -21,7 +21,7 @@ from graph_memory.retrieval.requests import (
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-    from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
+    from graph_memory.retrieval.contracts import RetrievalMethod
     from graph_memory.retrieval.signals import SeedSignalProvider
 
 PayloadT = TypeVar("PayloadT")
@@ -215,13 +215,7 @@ class RetrievalBuilderSpec:
 @dataclass(frozen=True)
 class RetrievalRegistry:
     builders: Mapping[type[object], RetrievalBuilderSpec]
-    seed_build: Callable[[SeedRetrievalSettings, object], "SeedRanker"]
     method_registry: RequestValidator
-
-    def build_seed(
-        self, settings: SeedRetrievalSettings, payload: object
-    ) -> SeedRanker:
-        return self.seed_build(settings, payload)
 
     def build(
         self, settings: RetrievalJobSettings, payload: object
