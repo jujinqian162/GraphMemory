@@ -29,6 +29,7 @@ from graph_memory.experiment.config import (
     ranking_config,
 )
 from graph_memory.experiment.output import project_run_output
+from graph_memory.experiment.inputs import ensure_inputs
 from graph_memory.experiment.results import FinalExperimentResult
 from graph_memory.experiment.tasks import (
     benchmark_retrieval_task,
@@ -68,6 +69,8 @@ def run_experiment(
     ranking_graphs: EvidenceGraphArtifactRef | None = None
     ranking_encoder = None
     assets: list[ArtifactRef] = []
+
+    ensure_inputs(config)
 
     with prefect_storage_settings(refresh_cache=config.cache.refresh):
         split_sources = _resolve_split_sources(config)
