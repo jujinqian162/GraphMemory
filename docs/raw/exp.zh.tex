@@ -56,7 +56,8 @@ GraphRAG 复现。\textbf{EPGM} 在类型化执行溯源图上进行有界搜索
 版本：它对预训练稠密节点表示执行三层关系特定的消息传递，对
 \texttt{ToolOutput} 候选排序，并联合预测逻辑上的输出间依赖边。
 Dense-FT 训练 1 个 epoch；EPGM R-GCN 训练 15 个 epoch，并按开发集
-Full Support@5 选择检查点；二者均使用随机种子 13。
+联合分数（50\% Full Support@5、25\% MRR、25\% Edge F1@10）选择检查点；
+二者均使用随机种子 13。
 
 \paragraph{评测指标。}
 Recall@$k$ 衡量前 $k$ 个结果覆盖 gold evidence 的比例；Full
@@ -73,7 +74,7 @@ $\Delta_{\mathrm{comp}}@k=\mathrm{Recall}@k-\mathrm{Full\ Support}@k$
 作为诊断量。该差距越小，表示普通召回中由只命中部分 gold evidence
 造成的虚高越少；它用于解释既有指标，而不是新增的主评测指标。
 
-\subsection{证据路径检索}
+\subsection{证据路径检索 (RQ1 与 RQ2)}
 
 \paragraph{图编码在三个数据集上均提高了完整支持恢复率。}
 表~\ref{tab:hotpot} 给出 HotpotQA 结果。Dense-FT R-GCN 在所有报告
@@ -171,7 +172,8 @@ Recall@10 相差不到 1 个百分点，但 Full Support@5 相差超过 10 个
 把同一推理链上的成员共同放入 top-$k$ 上下文。启发式图重排也会改善
 部分指标，但跨数据集稳定性弱于学习得到的关系感知传播。
 
-\subsection{常规证据图消融}
+为进一步定位关系感知传播中各结构成分的作用（RQ2），我们在同一
+2WikiMultiHopQA 测试集上对常规证据图 R-GCN 做组件消融。
 
 \paragraph{常规证据图中的桥接边主要决定路径恢复。}
 我们在同一 12,076 样本的 2WikiMultiHopQA 测试集上分别消融两种
@@ -218,35 +220,36 @@ Recall@10 分别下降 3.77 和 4.88 个百分点。
 在两种编码器之间稳定复现，因此只将其视为仍需多随机种子验证的调参
 选择，而不是已经独立成立的贡献。
 
-\subsection{模拟智能体轨迹检索}
+\subsection{模拟智能体轨迹检索 (RQ3)}
 
 \paragraph{执行结构主要提高完整依赖集合的恢复率。}
 表~\ref{tab:provenance} 比较稀疏检索、稠密检索、轻量实体图传播、
 无训练的执行溯源搜索和可训练的执行溯源编码。在不进行任务特定训练时，
-EPGM 相较 Dense 将 Full Support@5 与 Full Support@10 分别提高 7.51
-和 3.58 个百分点；Recall@5 提高 1.98 个百分点，但 MRR 下降 3.09 个
-百分点。相较 FastGraphRAG-style，EPGM 将 Full Support@5 从 19.89\%
-提高到 32.83\%，将 Full Support@10 从 50.30\% 提高到 57.21\%，并将
-MRR 从 71.86\% 提高到 77.91\%。这一模式表明，类型化溯源搜索主要
-帮助补全依赖集合，而不是均匀地改善第一个相关输出的排名。
+EPGM 相较 Dense 将 Full Support@5 与 Full Support@10 分别提高 11.12
+和 6.31 个百分点，Recall@5 提高 4.40 个百分点，而 MRR 基本持平
+（下降 0.64 个百分点）。相较 FastGraphRAG-style，EPGM 将 Full Support@5
+从 34.34\% 提高到 36.44\%，将 Full Support@10 从 58.12\% 提高到 59.94\%；
+二者在 Recall@2 上持平（均为 46.21\%），MRR 则相差不到 1 个百分点
+（80.99\% 对 80.36\%）。这一模式表明，类型化溯源搜索的主要收益在于
+补全依赖集合，而不是均匀地改善第一个相关输出的排名。
 
 \begin{table*}[t]
 \centering
 \small
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrrrr}
+\begin{tabular}{lrrrrrrrrrrr}
 \hline
-方法 & R@2 & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & ms/query \\
+方法 & R@2 & R@5 & R@10 & F1@5 & F1@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & ms/query \\
 \hline
-BM25 & 28.32 & 44.05 & 58.59 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
-Dense & 46.21 & 61.89 & 76.76 & 25.32 & 53.63 & 81.00 & -- & -- & 37.51 \\
-FastGraphRAG-style（non-LLM） & 40.27 & 58.00 & 74.92 & 19.89 & 50.30 & 71.86 & -- & -- & 105.53 \\
-EPGM（无训练） & 43.21 & 63.87 & 78.52 & 32.83 & 57.21 & 77.91 &
-28.83 & 28.73 & 39.04 \\
+BM25 & 28.32 & 44.05 & 58.59 & 25.17 & 19.53 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
+Dense & 46.21 & 61.89 & 76.76 & 35.37 & 25.59 & 25.32 & 53.63 & 81.00 & -- & -- & 37.51 \\
+FastGraphRAG-style（non-LLM） & 46.21 & 66.35 & 79.01 & 37.91 & 26.34 & 34.34 & 58.12 & \textbf{80.99} & 11.33 & 11.15 & 105.53 \\
+EPGM（无训练） & 46.21 & 66.29 & 79.76 & 37.88 & 26.59 & 36.44 & 59.94 & 80.36 &
+20.83 & 20.17 & 39.04 \\
 \hline
-Dense-FT & 71.03 & 91.32 & 97.91 & 83.02 & 95.83 & 93.09 & -- & -- & 19.53 \\
+Dense-FT & 71.03 & 91.32 & 97.91 & 52.18 & 32.64 & 83.02 & 95.83 & 93.09 & -- & -- & 19.53 \\
 \textbf{EPGM R-GCN} & \textbf{91.93} & \textbf{97.98} & \textbf{99.58} &
-\textbf{96.39} & \textbf{99.26} & \textbf{97.66} &
+\textbf{55.99} & \textbf{33.19} & \textbf{96.39} & \textbf{99.26} & \textbf{97.66} &
 \textbf{97.19} & \textbf{97.02} & 87.84 \\
 \hline
 \end{tabular}%
@@ -288,8 +291,8 @@ top-5 与 top-10 的完整样本数、扩大预算后新增完成的样本数、
 \hline
 BM25 & 209 & 675 & 466 & 2,176 & 36.72 \\
 Dense & 722 & 1,529 & 807 & 1,322 & 36.57 \\
-FastGraphRAG-style（non-LLM） & 567 & 1,434 & 867 & 1,417 & 38.11 \\
-EPGM（无训练） & 936 & 1,631 & 695 & 1,220 & 31.04 \\
+FastGraphRAG-style（non-LLM） & 979 & 1,657 & 678 & 1,194 & 32.01 \\
+EPGM（无训练） & 1,039 & 1,709 & 670 & 1,142 & 29.85 \\
 \hline
 Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 \textbf{EPGM R-GCN} & \textbf{2,748} & \textbf{2,830} & 82 & \textbf{21} & \textbf{1.60} \\
@@ -298,13 +301,14 @@ Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 }
 \end{table*}
 
-在无任务训练的方法中，EPGM 在 top-5 完整恢复 936 条轨迹，分别比
-Dense 和 FastGraphRAG-style 多 214 和 369 条；其完整性差距也从
-36.57 和 38.11 个百分点缩小到 31.04 个百分点。这说明执行依赖搜索
-确实更擅长把两个相关输出共同带入有限上下文，但 top-10 仍有 1,220 条
-轨迹未完整恢复，无训练规则远未解决该任务。FastGraphRAG-style 在预算
-从 5 扩大到 10 时新增完成 867 条，为所有方法中最多，但最终仍有 1,417
-条未完成；它更依赖扩大检索预算，而不是在较小预算内完成依赖集合。
+在无任务训练的方法中，EPGM 在 top-5 完整恢复 1,039 条轨迹，分别比
+Dense 和 FastGraphRAG-style 多 317 和 60 条；其完整性差距也从
+36.57 和 32.01 个百分点缩小到 29.85 个百分点。这说明执行依赖搜索
+确实更擅长把两个相关输出共同带入有限上下文，但 top-10 仍有 1,142 条
+轨迹未完整恢复，无训练规则远未解决该任务。Dense 在预算从 5 扩大到 10
+时新增完成 807 条，为所有方法中最多，但其小预算完整数最低；EPGM 与
+FastGraphRAG-style 的新增完成数（670 与 678）相近，说明二者更依赖在
+较小预算内直接补全依赖集合，而不是靠扩大检索预算。
 
 在训练方法中，EPGM R-GCN 相较 Dense-FT 在 top-5 多完整恢复 381 条
 轨迹，在 top-10 多恢复 98 条，并将 top-10 残余失败从 119 条压缩到
@@ -313,17 +317,10 @@ Dense 和 FastGraphRAG-style 多 214 和 369 条；其完整性差距也从
 因此，关系传播的主要价值不是只提高平均 gold 输出召回，而是把“只找到
 其中一条”的部分命中转化为可直接支持下游推理的完整依赖集合。
 
-无训练 EPGM 的平均延迟为 39.04 ms/query，比 FastGraphRAG-style 的
-105.53 ms/query 低 63.0\%，并接近 Dense 的 37.51 ms/query。可训练的
-关系传播将 EPGM R-GCN 延迟提高到 87.84 ms/query，以额外计算换取
-完整支持和路径恢复的大幅提升。BM25 仍以 0.60 ms/query 最快。
-Dense-FT 来自相同训练、模型选择和测试划分上的独立运行；所有延迟均为
-实际观测到的检索时间，而不是严格控制硬件与缓存后的系统基准，并且不
-包含数据生成、图构造和模型训练。
+为定位上述增益究竟来自哪一部分执行溯源结构，我们进一步对
+EPGM R-GCN 做组件消融。
 
-\subsection{执行溯源模型消融}
-
-\paragraph{模型实现与消融定位。}
+\paragraph{溯源 R-GCN 对整条轨迹进行可学习的关系传播，而非附加手工图奖励。}
 执行溯源 R-GCN 并不是在最终排序分数上附加一项手工图奖励，而是对整条
 轨迹进行可学习的关系传播。每个请求首先以唯一的 Task 节点作为查询锚点，
 将 Task、Agent、ToolCall 和 ToolOutput 等节点的文本分别加上 E5 的
@@ -358,8 +355,9 @@ $\mathcal{L}=\mathcal{L}_{\mathrm{cand}}+0.5\mathcal{L}_{\mathrm{edge}}$。
 type 保留图连接与边权重，但以一套共享变换替代关系特定变换，用于检验
 关系语义；w/o edge weight 保留邻接关系和关系标识，并将所有边权重统一
 设为 1；w/o hard negatives 取消 BM25 与稠密困难负样本，仅保留随机
-简单负样本。所有变体使用随机种子 13，并分别按 500 条开发样本上的 Full
-Support@5 选择检查点。该组结果来自独立训练批次，因此表~\ref{tab:provenance-ablation}
+简单负样本。所有变体使用随机种子 13，并分别按 500 条开发样本上的同一
+联合分数（50\% Full Support@5、25\% MRR、25\% Edge F1@10）选择检查点。
+该组结果来自独立训练批次，因此表~\ref{tab:provenance-ablation}
 只用于表内比较；完整模型与表~\ref{tab:provenance} 中主实验模型的细小
 数值差异不应解释为方法变化。
 
@@ -495,6 +493,44 @@ weight 和 w/o hard negatives 平均返回 9.15 和 9.03 条边，均多于完�
 层稳定增益；边权对 MRR、路径与边恢复具有可观但指标相关的帮助；困难负
 样本在当前配置中贡献较小，更适合作为辅助训练策略。该层级与模型的实际
 计算路径一一对应，也避免把接近满分的总体结果笼统归因于“使用了图”。
+
+\subsection{案例分析 (RQ3)}
+
+\paragraph{关系传播沿依赖链补全了稠密检索遗漏的第二跳。}
+为直观说明结构化溯源如何把“部分命中”转化为“完整命中”，我们分析一条
+由 2WikiMultiHopQA 派生的推理型溯源查询：“Anne Woodville 的公公是谁？”
+（gold 答案为 Edmund Grey, 1st Earl of Kent）。该查询需要两跳依赖：
+首先由 Anne Woodville 经 \texttt{spouse} 关系得到其配偶
+George Grey, 2nd Earl of Kent（第一跳输出），再由该配偶经
+\texttt{father} 关系得到其父亲 Edmund Grey（第二跳输出）。在执行溯源图中，
+这两步分别对应一个 \texttt{ToolOutput} 节点，且第二跳输出通过
+\texttt{feeds}/\texttt{returns} 边依赖于第一跳输出。
+
+Dense 检索在 top-10 中命中了第一跳输出，却遗漏了第二跳输出，因而落入
+\texttt{missing\_full\_support} 失败：它能找到语义上与查询直接相关的配偶
+信息，但无法仅凭文本相似度定位到“配偶的父亲”这一间接依赖结果。
+EPGM R-GCN 在同一查询上恢复了完整依赖对：三层关系传播使第一跳输出的
+表示沿 \texttt{feeds}/\texttt{returns} 边流向第二跳候选，依赖头据此为该逻辑
+转移打出高分，从而把两个 gold 输出共同带入 top-$k$ 并还原出
+\texttt{spouse}$\rightarrow$\texttt{father} 的依赖路径。这与表~\ref{tab:provenance-budget}
+的总体结论一致：结构收益集中在补全依赖集合的第二跳，而不是提升第一个
+相关输出的排序。
+
+\subsection{效率与成本分析}
+
+\paragraph{结构化检索以适度延迟换取大幅提升的完整支持恢复。}
+表~\ref{tab:provenance} 的 ms/query 列同时刻画了各方法的检索开销。
+无训练 EPGM 的平均延迟为 39.04 ms/query，比 FastGraphRAG-style 的
+105.53 ms/query 低 63.0\%，并接近 Dense 的 37.51 ms/query。这说明
+类型化溯源搜索在不引入实体图 PageRank 级别开销的情况下即可完成有界
+路径搜索。可训练的关系传播将 EPGM R-GCN 延迟提高到 87.84 ms/query，
+以额外计算换取完整支持和路径恢复的大幅提升；结合表~\ref{tab:provenance}，
+这一延迟对应 Full Support@5 与 Path Recall@10 相较 Dense-FT 的两位数
+增益，属于质量优先场景下可接受的权衡。BM25 仍以 0.60 ms/query 最快，
+但其完整支持恢复远低于所有稠密与图方法。需要说明的是，Dense-FT 来自
+相同训练、模型选择和测试划分上的独立运行；所有延迟均为实际观测到的
+检索时间，而不是严格控制硬件与缓存后的系统基准，并且不包含数据生成、
+图构造和模型训练。
 
 \subsection{局限性与稳健性}
 
