@@ -20,7 +20,7 @@ dataset adapter
 - `graph_memory/retrieval/methods/graphrag/` owns deterministic entity-graph assembly, linking, PPR, projection, and `GraphRAGTrace`; the Registry builder assembles the graph before method execution.
 - `graph_memory/retrieval/methods/execution_provenance/` owns bounded alternative-path search, single-pass path scoring, invalidation, and `ExecutionProvenanceTrace`.
 - `graph_memory/models/graph_retriever/` owns node-wise R-GCN training and inference.
-- `graph_memory/registry/` owns public IDs, request/family/artifact compatibility, capabilities, settings, and builders.
+- `graph_memory/registry/` owns public method IDs, request/family compatibility, retrieval settings, and concrete builders. Workflow scheduling stays explicit in `graph_memory/experiment/workflow.py` rather than being duplicated as Registry metadata.
 - `graph_memory/experiment/` schedules stages from actual artifact dependencies.
 
 Only the R-GCN paths require prebuilt `EvidenceGraph` artifacts. GraphRAG and the provenance retriever cannot cause that stage to be scheduled. No compatibility aliases translate one graph domain into another.

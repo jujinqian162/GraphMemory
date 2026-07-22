@@ -18,7 +18,7 @@ from graph_memory.models.dense_finetune.training import (
     DenseFinetuneTrainingResult,
     train_dense_finetune,
 )
-from graph_memory.registry.conversions import rgcn_training_config_from_trainer_settings
+from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
@@ -55,7 +55,7 @@ class RgcnGraphRetrieverTrainer:
         encoder_settings = _effective_rgcn_encoder_settings(
             self.encoder, self.seed_checkpoint
         )
-        deps = payload.dependencies or _build_rgcn_dependencies(
+        deps = _build_rgcn_dependencies(
             encoder_settings, device=settings.trainer.device
         )
         model_config = default_model_config(
@@ -74,13 +74,18 @@ class RgcnGraphRetrieverTrainer:
             train_requests=payload.train_requests,
             train_graphs=payload.train_graphs,
             train_pairs=payload.train_pairs,
-            train_labels=payload.train_labels,
             dev_requests=payload.dev_requests,
             dev_labels=payload.dev_labels,
             dev_graphs=payload.dev_graphs,
             model_config=model_config,
-            training_config=rgcn_training_config_from_trainer_settings(
-                settings.trainer
+            training_config=RgcnTrainingConfig(
+                optimizer_name=settings.trainer.optimizer_name,
+                learning_rate=settings.trainer.learning_rate,
+                batch_size=settings.trainer.batch_size,
+                max_grad_norm=settings.trainer.max_grad_norm,
+                random_seed=settings.trainer.random_seed,
+                pos_weight_enabled=settings.trainer.pos_weight_enabled,
+                epochs=settings.trainer.epochs,
             ),
             text_embedding_provider=deps.text_embedding_provider,
             seed_signal_provider=deps.seed_signal_provider,
@@ -141,7 +146,7 @@ class ProvenanceRgcnMethodTrainer:
                 "Provenance R-GCN trainer expected ProvenanceRgcnTrainPayload, "
                 f"got {type(payload).__name__}."
             )
-        encoder = payload.encoder or load_sentence_transformer(
+        encoder = load_sentence_transformer(
             self.config.encoder.model_name,
             device=self.config.train.trainer.device,
         )

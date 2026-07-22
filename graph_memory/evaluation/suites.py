@@ -311,7 +311,7 @@ def evidence_metric_suite() -> EvidenceMetricSuite:
 def _validate_gold_nodes_exist(
     task_id: str, gold_nodes: set[NodeId], graph: EvidenceGraph
 ) -> None:
-    graph_node_ids = {str(node.get("id")) for node in graph.get("nodes", [])}
+    graph_node_ids = {node["id"] for node in graph["nodes"]}
     missing = sorted(gold_nodes - graph_node_ids)
     if missing:
         raise ContractValidationError(
@@ -320,7 +320,7 @@ def _validate_gold_nodes_exist(
 
 
 def _memory_node_count(graph: EvidenceGraph) -> int:
-    return sum(1 for node in graph.get("nodes", []) if node.get("id") != "q")
+    return sum(1 for node in graph["nodes"] if node["id"] != "q")
 
 
 def _mean(values: Iterable[float]) -> float:

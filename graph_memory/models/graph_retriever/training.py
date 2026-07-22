@@ -34,10 +34,6 @@ from graph_memory.models.graph_retriever.selection import (
 )
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.validation import (
-    validate_rgcn_training_config,
-    validate_train_pairs,
-)
 
 
 MetricRecord: TypeAlias = dict[str, object]
@@ -74,7 +70,6 @@ def train_graph_retriever(
     training_config: RgcnTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
-    train_labels: list[EvidenceLabel] | None = None,
     selection_settings: RgcnSelectionSettings = RgcnSelectionSettings(),
     checkpoint_callback: CheckpointCallback | None = None,
     device: str | torch.device = "cpu",
@@ -83,17 +78,6 @@ def train_graph_retriever(
     Train a frozen-encoder R-GCN binary node scorer.
     训练一个 frozen-encoder R-GCN 二分类节点 scorer。
     """
-
-    validate_rgcn_training_config(training_config)
-    # Graph/request alignment is checked once inside batch builders.
-    # Model config is checked once inside build_model_from_config.
-    if train_labels is not None:
-        validate_train_pairs(
-            train_pairs,
-            train_requests,
-            train_labels,
-            {graph["task_id"]: graph for graph in train_graphs},
-        )
 
     _ = torch.manual_seed(training_config.random_seed)
     device = torch.device(device)

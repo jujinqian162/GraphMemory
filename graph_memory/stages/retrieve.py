@@ -56,8 +56,8 @@ from graph_memory.registry.retrieval import (
     ProvenanceRgcnRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
+    RetrievalTaskFamily,
 )
-from graph_memory.registry.semantics import RetrievalTaskFamily
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.execution_provenance import (
     ExecutionProvenanceConfig,

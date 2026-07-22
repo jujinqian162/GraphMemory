@@ -208,10 +208,7 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
     write_tiny_checkpoint(checkpoint_path)
 
     definition = Registry.methods.get("dense_rgcn_graph_retriever")
-    assert definition.input_spec.required_artifact.value == "evidence_graph"
-    assert definition.dependencies.model.value == "checkpoint_file"
-    assert definition.seed_method is not None
-    assert definition.seed_method.value == "dense"
+    assert definition.identifier is RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",
         task_inputs=tiny_task_inputs(),

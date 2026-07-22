@@ -4,7 +4,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
@@ -53,12 +52,11 @@ from graph_memory.retrieval.requests import (
     TextRankingRequest,
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 
 def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegistry:
     return RetrievalRegistry(
-        method_registry=method_registry,
+        validate_request=method_registry.validate_request,
         builders={
             Bm25RetrievalSettings: RetrievalBuilderSpec(
                 Bm25RetrievalSettings,
@@ -268,11 +266,7 @@ def _build_evidence_rgcn(
     )
 
     build_payload = cast(EvidenceRgcnBuildPayload, payload)
-    graph_index = _validated_graph_index(
-        settings.method.value,
-        build_payload.text_requests,
-        build_payload.evidence_graphs,
-    )
+    graph_index = GraphIndex.from_graphs(build_payload.evidence_graphs)
     text_embedding_provider, seed_signal_provider, checkpoint = (
         _evidence_rgcn_providers(settings, build_payload)
     )
@@ -547,25 +541,6 @@ def _build_seed_retriever(
         encoder=build_payload.dense_encoder,
         device=settings.device,
     )
-
-
-def _validated_graph_index(
-    method: str,
-    ranking_requests: list[TextRankingRequest],
-    graphs: list[EvidenceGraph],
-) -> GraphIndex:
-    if not graphs:
-        raise ValueError(
-            f"Evidence R-GCN method={method} requires EvidenceGraph artifacts."
-        )
-    requests_by_task_id = {request.task_id: request for request in ranking_requests}
-    validate_graphs(graphs, ranking_requests)
-    validate_task_id_alignment(
-        "retrieval evidence graph inputs",
-        set(requests_by_task_id),
-        {graph["task_id"] for graph in graphs},
-    )
-    return GraphIndex.from_graphs(graphs)
 
 
 def _text_execution_tasks(

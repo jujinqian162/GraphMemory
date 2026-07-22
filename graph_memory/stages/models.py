@@ -157,9 +157,6 @@ def materialize_evidence_rgcn_model(
     train_tasks = cast(
         list[object], read_json(artifact_payload_path(train_prepared, "tasks"))
     )
-    train_labels = cast(
-        list[object], read_json(artifact_payload_path(train_prepared, "labels"))
-    )
     dev_tasks = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "tasks"))
     )
@@ -208,13 +205,11 @@ def materialize_evidence_rgcn_model(
         ).train(
             RgcnTrainPayload(
                 train_requests=text_ranking_requests_for_dataset(dataset, train_tasks),
-                train_labels=evidence_labels_for_dataset(dataset, train_labels),
                 train_graphs=train_graph_values,
                 train_pairs=pair_values,
                 dev_requests=text_ranking_requests_for_dataset(dataset, dev_tasks),
                 dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
                 dev_graphs=dev_graph_values,
-                seed_checkpoint=seed_dir,
             )
         )
         checkpoints = publisher.workspace / "checkpoints"

@@ -149,16 +149,13 @@ def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
 
     variants = inspect_catalog("variants", repository_root=ROOT)
     assert isinstance(variants, dict)
-    provenance_rows = variants[
+    assert variants[
         RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
+    ] == [
+        "full_rgcn",
+        "wo_graph",
+        "wo_edge_type",
+        "wo_edge_weight",
+        "wo_hard_negatives",
+        "wo_edge_rerank",
     ]
-    by_variant = {row["variant"]: row for row in provenance_rows}
-    assert by_variant["wo_hard_negatives"]["earliest_invalidated_stage"] == "pairs"
-    assert by_variant["wo_hard_negatives"]["config_patch"] == {
-        "hard_bm25_per_positive": 0,
-        "hard_dense_per_positive": 0,
-        "hard_graph_neighbor_per_positive": 0,
-        "hard_provenance_successor_per_positive": 0,
-        "hard_provenance_predecessor_per_positive": 0,
-    }
-    assert by_variant["wo_edge_rerank"]["earliest_invalidated_stage"] == "rank"

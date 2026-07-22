@@ -2,7 +2,7 @@
 
 The canonical behavior is fixed by [`execution-provenance-retrieval-domain-plan.md`](../10-plans/execution-provenance-retrieval-domain-plan.md).
 
-`MethodInputSpec` states the exact request type, supported task families, and required artifact. `RetrievalCapabilities` states whether a method returns ranked nodes, a native edge trace, and whether it is trainable. Workflow code must consult these meanings rather than infer them from a generic “graph method” flag.
+The method Registry is intentionally small. Each method definition records only its public identifier, concrete request type, and supported retrieval families. Retrieval settings and builders assemble concrete methods. Prefect workflow scheduling remains explicit in `graph_memory/experiment/workflow.py`; lifecycle, training dependency, artifact, and ablation scheduling metadata are not duplicated in the Registry.
 
 The three graph meanings remain separate:
 
@@ -12,4 +12,4 @@ The three graph meanings remain separate:
 
 BM25 and Dense share one flat implementation across evidence and provenance families. GraphRAG shares one entity-search implementation but receives `GraphRAGRequest`. R-GCN and the provenance retriever have no cross-domain projection.
 
-R-GCN performs independent node scoring with BCE training and full-ranking inference. The provenance retriever is intentionally nontrainable in this change; it selects semantic seeds and scores actual typed paths.
+R-GCN performs independent node scoring with BCE training and full-ranking inference. The stateless provenance retriever selects semantic seeds and scores actual typed paths.

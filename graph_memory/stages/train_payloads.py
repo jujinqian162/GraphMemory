@@ -13,7 +13,6 @@ from graph_memory.retrieval.requests import (
 )
 
 if TYPE_CHECKING:
-    from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
     from graph_memory.retrieval.signals import SeedSignalProvider
 
@@ -32,9 +31,6 @@ class RgcnTrainPayload:
     dev_requests: list[TextRankingRequest]
     dev_labels: list[EvidenceLabel]
     dev_graphs: list[EvidenceGraph]
-    train_labels: list[EvidenceLabel] | None = None
-    seed_checkpoint: Path | None = None
-    dependencies: TrainDependencies | None = None
 
 
 @dataclass(frozen=True)
@@ -55,7 +51,6 @@ class ProvenanceRgcnTrainPayload:
     train_pairs: list[TrainPairRecord]
     dev_requests: list[ExecutionProvenanceRankingRequest]
     dev_labels: list[EvidenceLabel]
-    encoder: "SentenceEncoder | None" = None
 
 
 TrainPayload: TypeAlias = (

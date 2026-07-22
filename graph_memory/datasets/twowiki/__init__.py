@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from graph_memory.datasets.twowiki.compatibility import (
-    coerce_twowiki_label_records,
-    coerce_twowiki_ranking_records,
-    combined_twowiki_records,
-)
 from graph_memory.datasets.twowiki.converter import (
+    combined_twowiki_records,
     convert_twowiki_example,
     convert_twowiki_examples,
 )
@@ -47,8 +43,6 @@ __all__ = [
     "TwoWikiToEvidenceGraphBuildRequest",
     "TwoWikiToEvidenceGraphRankingRequest",
     "TwoWikiToTextRankingRequest",
-    "coerce_twowiki_label_records",
-    "coerce_twowiki_ranking_records",
     "combined_twowiki_records",
     "convert_twowiki_example",
     "convert_twowiki_examples",

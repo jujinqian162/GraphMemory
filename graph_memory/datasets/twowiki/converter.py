@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.twowiki.records import (
+    CombinedTwoWikiRecord,
     ConvertedTwoWikiExample,
     TwoWikiCandidateSentence,
     TwoWikiConversionResult,
@@ -36,6 +38,20 @@ def convert_twowiki_examples(examples: Sequence[TwoWikiExample]) -> TwoWikiConve
         ranking_records=[converted_example.ranking_record for converted_example in converted_examples],
         label_records=[converted_example.label_record for converted_example in converted_examples],
     )
+
+
+def combined_twowiki_records(
+    ranking_records: Sequence[TwoWikiRankingRecord],
+    label_records: Sequence[TwoWikiLabelRecord],
+) -> list[CombinedTwoWikiRecord]:
+    labels_by_task_id = {record["task_id"]: record for record in label_records}
+    return [
+        cast(
+            CombinedTwoWikiRecord,
+            cast(object, {**record, **labels_by_task_id[record["task_id"]]}),
+        )
+        for record in ranking_records
+    ]
 
 
 def convert_twowiki_example(example: TwoWikiExample) -> ConvertedTwoWikiExample:

@@ -29,13 +29,19 @@ read artifact
   -> write artifact
 ```
 
-Evaluation and tuning should also validate joins before computing anything:
+Evaluation should also validate joins before computing anything:
 
 ```text
 predictions + labels + graphs
   -> exact task_id join validation
   -> metric computation
 ```
+
+## Trust After The Boundary
+
+A value that has passed its input or output boundary validator is trusted by internal code. Typed requests, validated checkpoints, and processed artifact references must not be walked and validated again inside builders, batching, training, or retrieval assembly. Internal functions may rely on those invariants directly; a violated invariant is a programming error, not an alternate runtime branch.
+
+Code that accepts an external file or untyped object must validate it before constructing the trusted value. Processed artifacts are validated before publication and are subsequently consumed through their immutable artifact references.
 
 ## Recommended Validators
 

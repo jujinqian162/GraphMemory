@@ -28,7 +28,6 @@ from graph_memory.models.graph_retriever.internals.tensorization import (
 )
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 
 @dataclass(frozen=True)
@@ -82,18 +81,9 @@ def build_training_batches(
     按 task graph 分组构造监督 TrainingBatch 对象。
     """
 
-    requests_by_task_id = {request.task_id: request for request in ranking_requests}
-    validate_graphs(graphs, ranking_requests)
-    validate_task_id_alignment(
-        "training batch graphs",
-        set(requests_by_task_id),
-        {graph["task_id"] for graph in graphs},
-    )
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
     pairs_by_task_id: dict[TaskId, list[TrainPairRecord]] = defaultdict(list)
     for pair in pairs:
-        if pair["node_id"] == "q":
-            raise ValueError("Training pairs must not contain node_id=q.")
         pairs_by_task_id[pair["task_id"]].append(pair)
 
     task_batches = [
@@ -132,13 +122,6 @@ def build_full_ranking_batches(
     为 dev evaluation 或 retrieval 构造覆盖所有 memory node 的 scoring batch。
     """
 
-    requests_by_task_id = {request.task_id: request for request in ranking_requests}
-    validate_graphs(graphs, ranking_requests)
-    validate_task_id_alignment(
-        "full ranking graphs",
-        set(requests_by_task_id),
-        {graph["task_id"] for graph in graphs},
-    )
     graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
     labels_by_task_id = (
         {label.task_id: label for label in labels} if labels is not None else {}

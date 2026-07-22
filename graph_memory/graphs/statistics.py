@@ -19,19 +19,19 @@ def graph_statistics(
     isolated_memory_nodes = 0
 
     for graph in graphs:
-        nodes = graph.get("nodes", [])
-        edges = graph.get("edges", [])
+        nodes = graph["nodes"]
+        edges = graph["edges"]
         total_nodes += len(nodes)
         total_edges += len(edges)
         for edge in edges:
-            edge_counts[str(edge.get("edge_type"))] += 1
+            edge_counts[edge["edge_type"]] += 1
 
         incident_node_ids: set[str] = set()
         for edge in edges:
-            incident_node_ids.add(str(edge.get("source")))
-            incident_node_ids.add(str(edge.get("target")))
+            incident_node_ids.add(edge["source"])
+            incident_node_ids.add(edge["target"])
         for node in nodes:
-            if node.get("id") != "q" and node.get("id") not in incident_node_ids:
+            if node["id"] != "q" and node["id"] not in incident_node_ids:
                 isolated_memory_nodes += 1
 
     num_graphs = len(graphs)

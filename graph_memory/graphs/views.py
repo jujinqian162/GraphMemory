@@ -14,19 +14,19 @@ def induced_retrieved_subgraph(
         "nodes": list(node_ids),
         "edges": [
             edge
-            for edge in graph.get("edges", [])
-            if edge.get("source") in selected and edge.get("target") in selected
+            for edge in graph["edges"]
+            if edge["source"] in selected and edge["target"] in selected
         ],
     }
 
 
 def traversal_adjacency(graph: EvidenceGraph) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
-    for edge in graph.get("edges", []):
-        source = str(edge.get("source"))
-        target = str(edge.get("target"))
+    for edge in graph["edges"]:
+        source = edge["source"]
+        target = edge["target"]
         adjacency[source].add(target)
-        if not edge.get("directed", False):
+        if not edge["directed"]:
             adjacency[target].add(source)
     return dict(adjacency)
 
@@ -37,8 +37,6 @@ def model_visible_graph(
     return {
         **graph,
         "edges": [
-            edge
-            for edge in graph.get("edges", [])
-            if edge.get("edge_type") in enabled_edge_types
+            edge for edge in graph["edges"] if edge["edge_type"] in enabled_edge_types
         ],
     }

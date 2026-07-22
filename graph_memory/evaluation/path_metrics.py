@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 
 from graph_memory.contracts.common import NodeId
+from graph_memory.contracts.graphs import GraphEdge
+from graph_memory.contracts.ranking import RetrievedSubgraph
 
 DependencyEdge = tuple[NodeId, NodeId]
 
 
-def edge_recall_at(retrieved_subgraph: Mapping[str, object], gold_dependency_edges: set[DependencyEdge]) -> float:
+def edge_recall_at(
+    retrieved_subgraph: RetrievedSubgraph,
+    gold_dependency_edges: set[DependencyEdge],
+) -> float:
     if not gold_dependency_edges:
         return 0.0
-    retrieved_nodes = _retrieved_nodes(retrieved_subgraph)
-    retrieved_edges = _retrieved_edges(retrieved_subgraph)
+    retrieved_nodes = set(retrieved_subgraph["nodes"])
+    retrieved_edges = retrieved_subgraph["edges"]
     covered = 0
     for source, target in gold_dependency_edges:
         if source not in retrieved_nodes or target not in retrieved_nodes:
@@ -22,64 +27,61 @@ def edge_recall_at(retrieved_subgraph: Mapping[str, object], gold_dependency_edg
     return covered / len(gold_dependency_edges)
 
 
-def path_recall_at(retrieved_subgraph: Mapping[str, object], gold_dependency_edges: set[DependencyEdge]) -> float:
+def path_recall_at(
+    retrieved_subgraph: RetrievedSubgraph,
+    gold_dependency_edges: set[DependencyEdge],
+) -> float:
     if not gold_dependency_edges:
         return 0.0
-    retrieved_nodes = _retrieved_nodes(retrieved_subgraph)
+    retrieved_nodes = set(retrieved_subgraph["nodes"])
     gold_nodes = {node_id for edge in gold_dependency_edges for node_id in edge}
     if not gold_nodes.issubset(retrieved_nodes):
         return 0.0
-    adjacency = _traversal_adjacency(_retrieved_edges(retrieved_subgraph), retrieved_nodes)
+    adjacency = _traversal_adjacency(
+        retrieved_subgraph["edges"],
+        retrieved_nodes,
+    )
     for source, target in gold_dependency_edges:
         if target not in _reachable_from(source, adjacency):
             return 0.0
     return 1.0
 
 
-def _retrieved_nodes(retrieved_subgraph: Mapping[str, object]) -> set[NodeId]:
-    nodes = retrieved_subgraph.get("nodes", [])
-    if not isinstance(nodes, list):
-        return set()
-    return {node for node in nodes if isinstance(node, str)}
-
-
-def _retrieved_edges(retrieved_subgraph: Mapping[str, object]) -> list[Mapping[str, object]]:
-    edges = retrieved_subgraph.get("edges", [])
-    if not isinstance(edges, list):
-        return []
-    return [edge for edge in edges if isinstance(edge, Mapping)]
-
-
-def _has_direct_visible_edge(edges: Iterable[Mapping[str, object]], source: NodeId, target: NodeId) -> bool:
+def _has_direct_visible_edge(
+    edges: Iterable[GraphEdge],
+    source: NodeId,
+    target: NodeId,
+) -> bool:
     for edge in edges:
-        edge_source = edge.get("source")
-        edge_target = edge.get("target")
+        edge_source = edge["source"]
+        edge_target = edge["target"]
         if edge_source == source and edge_target == target:
             return True
-        if not edge.get("directed", False) and edge_source == target and edge_target == source:
+        if not edge["directed"] and edge_source == target and edge_target == source:
             return True
     return False
 
 
 def _traversal_adjacency(
-    edges: Iterable[Mapping[str, object]],
+    edges: Iterable[GraphEdge],
     allowed_nodes: set[NodeId],
 ) -> dict[NodeId, set[NodeId]]:
     adjacency: dict[NodeId, set[NodeId]] = defaultdict(set)
     for edge in edges:
-        source = edge.get("source")
-        target = edge.get("target")
-        if not isinstance(source, str) or not isinstance(target, str):
-            continue
+        source = edge["source"]
+        target = edge["target"]
         if source not in allowed_nodes or target not in allowed_nodes:
             continue
         adjacency[source].add(target)
-        if not edge.get("directed", False):
+        if not edge["directed"]:
             adjacency[target].add(source)
     return dict(adjacency)
 
 
-def _reachable_from(start_node: NodeId, adjacency: dict[NodeId, set[NodeId]]) -> set[NodeId]:
+def _reachable_from(
+    start_node: NodeId,
+    adjacency: dict[NodeId, set[NodeId]],
+) -> set[NodeId]:
     seen = {start_node}
     queue: deque[NodeId] = deque([start_node])
     while queue:

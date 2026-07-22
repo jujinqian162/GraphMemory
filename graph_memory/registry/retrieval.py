@@ -3,11 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.registry.ids import StrEnum
-from graph_memory.registry.semantics import RetrievalTaskFamily
+from graph_memory.compat import StrEnum
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.execution_provenance import (
     ExecutionProvenanceConfig,
@@ -27,6 +26,11 @@ if TYPE_CHECKING:
 PayloadT = TypeVar("PayloadT")
 
 
+class RetrievalTaskFamily(StrEnum):
+    EVIDENCE_RETRIEVAL = "evidence_retrieval"
+    EXECUTION_PROVENANCE = "execution_provenance"
+
+
 class RetrievalMethodId(StrEnum):
     BM25 = "bm25"
     DENSE = "dense"
@@ -36,15 +40,6 @@ class RetrievalMethodId(StrEnum):
     DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
     EXECUTION_PROVENANCE_RETRIEVER = "execution_provenance_retriever"
     EXECUTION_PROVENANCE_RGCN_RETRIEVER = "execution_provenance_rgcn_retriever"
-
-
-class RequestValidator(Protocol):
-    def validate_request(
-        self,
-        method: str | RetrievalMethodId,
-        request: object,
-        family: RetrievalTaskFamily,
-    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -215,7 +210,9 @@ class RetrievalBuilderSpec:
 @dataclass(frozen=True)
 class RetrievalRegistry:
     builders: Mapping[type[object], RetrievalBuilderSpec]
-    method_registry: RequestValidator
+    validate_request: Callable[
+        [str | RetrievalMethodId, object, RetrievalTaskFamily], None
+    ]
 
     def build(
         self, settings: RetrievalJobSettings, payload: object
@@ -230,11 +227,7 @@ class RetrievalRegistry:
         built = spec.build(settings, payload)
         family = _payload_family(payload)
         for task in built.execution_tasks:
-            self.method_registry.validate_request(
-                settings.method,
-                task.method_request,
-                family,
-            )
+            self.validate_request(settings.method, task.method_request, family)
         return built
 
 
@@ -270,6 +263,7 @@ __all__ = [
     "RetrievalMethodId",
     "RetrievalProvenance",
     "RetrievalRegistry",
+    "RetrievalTaskFamily",
     "SeedRetrieverBuildPayload",
     "SeedRetrievalSettings",
 ]

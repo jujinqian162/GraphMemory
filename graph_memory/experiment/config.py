@@ -817,7 +817,7 @@ def _check_dataset_method_compatibility(
     method: MethodConfig,
 ) -> None:
     from graph_memory.registry import Registry
-    from graph_memory.registry.semantics import RetrievalTaskFamily
+    from graph_memory.registry.retrieval import RetrievalTaskFamily
 
     family = (
         RetrievalTaskFamily.EXECUTION_PROVENANCE
@@ -825,7 +825,7 @@ def _check_dataset_method_compatibility(
         else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     )
     method_id = RetrievalMethodId(method.method)
-    supported = Registry.methods.get(method_id).input_spec.supported_families
+    supported = Registry.methods.get(method_id).supported_families
     if family not in supported:
         raise ValueError(
             f"dataset={dataset!r} uses family={family.value!r}, but "

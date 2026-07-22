@@ -15,12 +15,7 @@ from graph_memory.graphs.provenance import (
     ProvenanceNodeType,
 )
 from graph_memory.registry import Registry
-from graph_memory.registry.methods import (
-    ArtifactKind,
-    RequiredArtifact,
-    RetrievalLifecycle,
-    RetrievalTaskFamily,
-)
+from graph_memory.registry.methods import RetrievalTaskFamily
 from graph_memory.registry.retrieval import (
     DenseEncoderSettings,
     ExecutionProvenanceBuildPayload,
@@ -288,42 +283,19 @@ def test_registry_exposes_exact_method_matrix_and_semantic_inputs() -> None:
     } == EXPECTED_METHOD_IDS
 
     rgcn = Registry.methods.get(RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER)
-    assert rgcn.input_spec.request_type is EvidenceGraphRankingRequest
-    assert rgcn.input_spec.required_artifact is RequiredArtifact.EVIDENCE_GRAPH
-    assert rgcn.input_spec.supported_families == frozenset(
+    assert rgcn.request_type is EvidenceGraphRankingRequest
+    assert rgcn.supported_families == frozenset(
         {RetrievalTaskFamily.EVIDENCE_RETRIEVAL}
     )
 
     dense_ft = Registry.methods.get(RetrievalMethodId.DENSE_FT)
-    assert dense_ft.lifecycle is RetrievalLifecycle.DENSE_FINETUNE
-    assert dense_ft.input_spec.request_type is TextRankingRequest
-    assert dense_ft.input_spec.required_artifact is RequiredArtifact.NONE
-    assert dense_ft.input_spec.supported_families == frozenset(
+    assert dense_ft.request_type is TextRankingRequest
+    assert dense_ft.supported_families == frozenset(
         {
             RetrievalTaskFamily.EVIDENCE_RETRIEVAL,
             RetrievalTaskFamily.EXECUTION_PROVENANCE,
         }
     )
-    assert dense_ft.train_artifact is not None
-    assert dense_ft.train_artifact.basename == "best_model"
-    assert dense_ft.train_artifact.kind is ArtifactKind.DIRECTORY
-    assert dense_ft.capabilities.produces_ranked_nodes
-    assert not dense_ft.capabilities.produces_native_edge_trace
-    assert dense_ft.capabilities.trainable
-
-    assert {
-        method.value
-        for method in Registry.methods.list_by_family(
-            RetrievalTaskFamily.EXECUTION_PROVENANCE
-        )
-    } == {
-        "bm25",
-        "dense",
-        "dense_ft",
-        "graphrag",
-        "execution_provenance_retriever",
-        "execution_provenance_rgcn_retriever",
-    }
 
 
 def test_retired_method_id_is_explicitly_unsupported() -> None:
