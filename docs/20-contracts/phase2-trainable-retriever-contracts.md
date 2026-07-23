@@ -488,32 +488,16 @@ class TrainableModelConfig:
 ```python
 @dataclass(frozen=True)
 class TrainableTrainingConfig:
-    """
-    Minimal training config needed to resume or audit a trainable run.
-    用于恢复或审计可训练运行的最小训练配置。
-
-    Fields / 字段:
-    - optimizer_name: Optimizer name, default `AdamW`.
-      optimizer_name：优化器名称，默认 `AdamW`。
-    - learning_rate: Graph/scorer learning rate.
-      learning_rate：graph/scorer 学习率。
-    - batch_size: Number of task graphs per training batch.
-      batch_size：每个 training batch 中的 task graph 数量。
-    - max_grad_norm: Gradient clipping maximum norm.
-      max_grad_norm：梯度裁剪最大 norm。
-    - random_seed: Run-level random seed.
-      random_seed：运行级随机种子。
-    - pos_weight_enabled: Whether BCE positive weighting was enabled.
-      pos_weight_enabled：是否启用 BCE 正例权重。
-    """
-
     optimizer_name: str
     learning_rate: float
-    batch_size: int
+    per_device_graph_batch_size: int
     max_grad_norm: float
     random_seed: int
     pos_weight_enabled: bool
+    epochs: int
 ```
+
+`per_device_graph_batch_size` counts task graphs in one device-local disconnected-union forward, backward pass, and optimizer step. Metrics report actual tasks or supervised samples for the incomplete final DataLoader batch.
 
 ## Checkpoint Contract
 
@@ -522,6 +506,7 @@ Checkpoint files are PyTorch checkpoint dictionaries, not JSON artifacts. Their 
 Required top-level keys:
 
 ```text
+schema_version
 method_name
 model_state_dict
 optimizer_state_dict
@@ -536,7 +521,8 @@ created_at
 
 Rules:
 
-- The R-GCN checkpoint is current-only and contains no format version field.
+- Evidence R-GCN uses checkpoint schema v3; schema-v2 `batch_size` semantics are rejected without translation.
+- Provenance R-GCN uses its separate checkpoint family/schema v4 and retains candidate-loss protocol `provenance-candidate-loss-v2`.
 - Unknown top-level fields are rejected.
 - `model_config.feature_config` and `model_config.relation_vocab` are required for inference.
 - Loading must fail if checkpoint `method_name` does not match the requested retrieval method.

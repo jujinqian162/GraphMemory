@@ -32,6 +32,7 @@ def save_provenance_rgcn_checkpoint(
     training_config: ProvenanceRgcnTrainingConfig,
     optimizer_state_dict: dict[str, Any] | None = None,
     epoch: int = 0,
+    global_step: int = 0,
     best_dev_metric: float = 0.0,
     effective_variant: str = "full_rgcn",
     scientific_identity: Mapping[str, Any] | None = None,
@@ -44,10 +45,13 @@ def save_provenance_rgcn_checkpoint(
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer_state_dict or {},
         "epoch": epoch,
+        "global_step": global_step,
         "best_dev_metric": float(best_dev_metric),
         "best_metrics": dict(best_metrics or {"dev_joint": float(best_dev_metric)}),
         "effective_variant": effective_variant,
+        "candidate_loss_protocol": "provenance-candidate-loss-v2",
         "candidate_loss_type": "task_balanced_pairwise_logistic",
+        "batch_semantics": "disconnected_union_task_graphs",
         "selection_objective": (
             "0.50*full_support_at_5+0.25*mrr+0.25*edge_f1_at_10"
         ),
@@ -101,7 +105,13 @@ def _validate_payload(payload: dict[str, Any], *, expected_method: str | None) -
             "Provenance R-GCN checkpoint family mismatch: "
             f"expected={PROVENANCE_RGCN_CHECKPOINT_FAMILY!r} observed={family!r}."
         )
-    if payload.get("schema_version") != PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION:
+    observed_schema = payload.get("schema_version")
+    if observed_schema != PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION:
+        if observed_schema == 3:
+            raise ValueError(
+                "Legacy provenance R-GCN schema v3 does not use disconnected-union "
+                "graph-batch semantics; retrain with the current runtime."
+            )
         raise ValueError("Unsupported provenance R-GCN checkpoint schema version.")
     if expected_method is not None and payload.get("method_name") != expected_method:
         raise ValueError(
@@ -112,9 +122,12 @@ def _validate_payload(payload: dict[str, Any], *, expected_method: str | None) -
         "model_state_dict",
         "model_config",
         "training_config",
+        "global_step",
         "best_metrics",
         "effective_variant",
+        "candidate_loss_protocol",
         "candidate_loss_type",
+        "batch_semantics",
         "selection_objective",
         "scientific_identity",
     ):
@@ -142,9 +155,33 @@ def _validate_payload(payload: dict[str, Any], *, expected_method: str | None) -
             - (set(model_config) if isinstance(model_config, dict) else set())
         )
         raise ValueError(
-            "Provenance R-GCN checkpoint model_config is incomplete for schema v3: "
+            "Provenance R-GCN checkpoint model_config is incomplete for schema v4: "
             f"missing={missing}."
         )
+    training_config = payload.get("training_config")
+    expected_training_fields = {
+        "learning_rate",
+        "per_device_graph_batch_size",
+        "epochs",
+        "max_grad_norm",
+        "random_seed",
+        "candidate_loss_weight",
+        "edge_loss_weight",
+    }
+    if not isinstance(training_config, dict) or set(
+        training_config
+    ) != expected_training_fields:
+        raise ValueError(
+            "Provenance R-GCN checkpoint training_config uses legacy batch semantics "
+            "or does not match schema v4."
+        )
+    graph_batch = training_config["per_device_graph_batch_size"]
+    if not isinstance(graph_batch, int) or graph_batch <= 0:
+        raise ValueError("Invalid provenance R-GCN graph-batch metadata.")
+    if payload.get("candidate_loss_protocol") != "provenance-candidate-loss-v2":
+        raise ValueError("Unsupported provenance candidate-loss protocol.")
+    if payload.get("batch_semantics") != "disconnected_union_task_graphs":
+        raise ValueError("Unsupported provenance graph-batch semantics.")
     scientific_identity = payload.get("scientific_identity")
     required_identity = {"dataset", "construction", "pairs", "encoder"}
     if not isinstance(scientific_identity, dict) or not required_identity <= set(

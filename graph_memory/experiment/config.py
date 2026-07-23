@@ -240,7 +240,7 @@ class ProfileSplitPolicies(ClosedModel):
 class RgcnProfileSettings(ClosedModel):
     hidden_dim: PositiveInt
     num_layers: NonNegativeInt
-    batch_size: PositiveInt
+    per_device_graph_batch_size: PositiveInt
     epochs: PositiveInt
     easy_random_per_positive: NonNegativeInt
     hard_bm25_per_positive: NonNegativeInt
@@ -259,7 +259,8 @@ class DenseFinetuneProfileSettings(ClosedModel):
 
 
 class TrainableProfileSettings(ClosedModel):
-    rgcn: RgcnProfileSettings
+    evidence_rgcn: RgcnProfileSettings
+    provenance_rgcn: RgcnProfileSettings
     dense_ft: DenseFinetuneProfileSettings
 
 
@@ -336,7 +337,7 @@ class RgcnModelConfig(ClosedModel):
 class RgcnTrainerConfig(ClosedModel):
     optimizer_name: str = Field(min_length=1)
     learning_rate: PositiveFloat
-    batch_size: PositiveInt
+    per_device_graph_batch_size: PositiveInt
     max_grad_norm: PositiveFloat
     random_seed: ScientificInt
     pos_weight_enabled: StrictBool
@@ -444,7 +445,7 @@ class ProvenanceRgcnModelSettings(ClosedModel):
 
 class ProvenanceRgcnTrainerSettings(ClosedModel):
     learning_rate: PositiveFloat
-    batch_size: PositiveInt
+    per_device_graph_batch_size: PositiveInt
     epochs: PositiveInt
     max_grad_norm: PositiveFloat
     random_seed: ScientificInt

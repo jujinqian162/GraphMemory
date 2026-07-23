@@ -31,7 +31,7 @@ from graph_memory.validation import (
     validate_twowiki_provenance_label_records,
     validate_twowiki_provenance_ranking_records,
 )
-from graph_memory.experiment.artifacts import identify_external_source
+from graph_memory.experiment.artifacts import FileSourceRef, identify_external_source
 from graph_memory.experiment.config import TwoWikiProvenanceTransformConfig
 from graph_memory.stages.transform import materialize_transform_twowiki
 
@@ -195,38 +195,47 @@ def test_schema_v3_parser_rejects_v2_artifact_explicitly() -> None:
         parse_twowiki_provenance_record(legacy)
 
 
+def _mutable_ranking_edges(ranking: dict[str, object]) -> list[dict[str, object]]:
+    graph = cast(dict[str, object], ranking["graph"])
+    return cast(list[dict[str, object]], graph["edges"])
+
+
 def _mutate_feed_mass(ranking: dict[str, object]) -> dict[str, object]:
     broken = deepcopy(ranking)
     feed = next(
-        edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
+        edge for edge in _mutable_ranking_edges(broken) if edge["edge_type"] == "feeds"
     )
     feed["weight"] = 0.5
-    feed["metadata"]["calibrated_weight"] = 0.5
+    metadata = cast(dict[str, object], feed["metadata"])
+    metadata["calibrated_weight"] = 0.5
     return broken
 
 
 def _mutate_confidence_metadata(ranking: dict[str, object]) -> dict[str, object]:
     broken = deepcopy(ranking)
     feed = next(
-        edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
+        edge for edge in _mutable_ranking_edges(broken) if edge["edge_type"] == "feeds"
     )
-    del feed["metadata"]["source_probability"]
+    metadata = cast(dict[str, object], feed["metadata"])
+    del metadata["source_probability"]
     return broken
 
 
 def _mutate_binding_hash(ranking: dict[str, object]) -> dict[str, object]:
     broken = deepcopy(ranking)
     feeds = next(
-        edge for edge in broken["graph"]["edges"] if edge["edge_type"] == "feeds"
+        edge for edge in _mutable_ranking_edges(broken) if edge["edge_type"] == "feeds"
     )
     assert feeds["binding"] is not None
-    feeds["binding"]["binding_value_hash"] = "wrong-hash"
+    binding = cast(dict[str, object], feeds["binding"])
+    binding["binding_value_hash"] = "wrong-hash"
     return broken
 
 
 def _mutate_label_leakage(ranking: dict[str, object]) -> dict[str, object]:
     leaked = deepcopy(ranking)
-    leaked["metadata"]["is_gold"] = True
+    metadata = cast(dict[str, object], leaked["metadata"])
+    metadata["is_gold"] = True
     return leaked
 
 
@@ -375,8 +384,14 @@ def test_transform_is_byte_deterministic_and_raw_only(
         json.dumps([_source_example(f"dev-{index}") for index in range(6)]),
         encoding="utf-8",
     )
-    train_ref = identify_external_source(train_source, repository_root=tmp_path)
-    dev_ref = identify_external_source(dev_source, repository_root=tmp_path)
+    train_ref = cast(
+        FileSourceRef,
+        identify_external_source(train_source, repository_root=tmp_path),
+    )
+    dev_ref = cast(
+        FileSourceRef,
+        identify_external_source(dev_source, repository_root=tmp_path),
+    )
     config = TwoWikiProvenanceTransformConfig(edge_scorer="bm25", candidate_cap=6, seed=17)
     output_a = tmp_path / "out-a"
     output_b = tmp_path / "out-b"

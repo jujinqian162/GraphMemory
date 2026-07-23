@@ -81,7 +81,9 @@ class RgcnGraphRetrieverTrainer:
             training_config=RgcnTrainingConfig(
                 optimizer_name=settings.trainer.optimizer_name,
                 learning_rate=settings.trainer.learning_rate,
-                batch_size=settings.trainer.batch_size,
+                per_device_graph_batch_size=(
+                    settings.trainer.per_device_graph_batch_size
+                ),
                 max_grad_norm=settings.trainer.max_grad_norm,
                 random_seed=settings.trainer.random_seed,
                 pos_weight_enabled=settings.trainer.pos_weight_enabled,
@@ -184,7 +186,7 @@ class ProvenanceRgcnMethodTrainer:
             ),
             training_config=ProvenanceRgcnTrainingConfig(
                 learning_rate=trainer.learning_rate,
-                batch_size=trainer.batch_size,
+                per_device_graph_batch_size=trainer.per_device_graph_batch_size,
                 epochs=trainer.epochs,
                 max_grad_norm=trainer.max_grad_norm,
                 random_seed=trainer.random_seed,

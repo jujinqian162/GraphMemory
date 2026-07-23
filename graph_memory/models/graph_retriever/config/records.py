@@ -70,24 +70,25 @@ class RgcnModelConfig:
 
 @dataclass(frozen=True)
 class RgcnTrainingConfig:
-    """
-    Minimal training config needed to resume or audit a trainable run.
-    用于恢复或审计可训练运行的最小训练配置。
-    """
+    """Training and physical graph-batch semantics for evidence R-GCN."""
 
     optimizer_name: str = "AdamW"
     learning_rate: float = 1e-4
-    batch_size: int = 1
+    per_device_graph_batch_size: int = 1
     max_grad_norm: float = 1.0
     random_seed: int = 13
     pos_weight_enabled: bool = False
     epochs: int = 1
 
+    def __post_init__(self) -> None:
+        if self.per_device_graph_batch_size <= 0:
+            raise ValueError("per_device_graph_batch_size must be positive.")
+
     def to_json_dict(self) -> dict[str, object]:
         return {
             "optimizer_name": self.optimizer_name,
             "learning_rate": self.learning_rate,
-            "batch_size": self.batch_size,
+            "per_device_graph_batch_size": self.per_device_graph_batch_size,
             "max_grad_norm": self.max_grad_norm,
             "random_seed": self.random_seed,
             "pos_weight_enabled": self.pos_weight_enabled,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable
 
 import torch
 import torch.nn.functional as F
@@ -12,7 +12,8 @@ from graph_memory.contracts.ranking import RankedResult
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import (
-    build_full_ranking_batches,
+    build_evidence_dataloader,
+    materialize_full_ranking_tasks,
     move_training_batch,
 )
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
@@ -33,17 +34,22 @@ def predict_dev(
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
-    batch_size: int,
+    per_device_graph_batch_size: int,
     device: torch.device,
 ) -> tuple[list[RankedResult], float]:
-    batches = build_full_ranking_batches(
+    tasks = materialize_full_ranking_tasks(
         ranking_requests=ranking_requests,
         graphs=graphs,
         model_config=model_config,
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
-        batch_size=batch_size,
         labels=labels,
+    )
+    batches = build_evidence_dataloader(
+        tasks,
+        per_device_graph_batch_size=per_device_graph_batch_size,
+        shuffle=False,
+        random_seed=0,
     )
     return predict_dev_from_batches(
         model=model,
@@ -63,7 +69,7 @@ def predict_dev_from_batches(
     labels: list[EvidenceLabel],
     graphs: list[EvidenceGraph],
     model_config: RgcnModelConfig,
-    batches: Sequence[TrainingBatch],
+    batches: Iterable[TrainingBatch],
     device: torch.device,
 ) -> tuple[list[RankedResult], float]:
     labels_by_task_id = {label.task_id: label for label in labels}

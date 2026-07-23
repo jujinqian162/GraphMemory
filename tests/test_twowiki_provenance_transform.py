@@ -37,7 +37,9 @@ def test_identity_changes_when_any_parameter_changes(
     override: dict[str, object],
 ) -> None:
     base = TwoWikiProvenanceTransformConfig()
-    changed = TwoWikiProvenanceTransformConfig(**override)
+    changed = TwoWikiProvenanceTransformConfig.model_validate(
+        {**base.model_dump(mode="python"), **override}
+    )
     assert base.identity() != changed.identity()
     # Equal defaults stay equal (stable identity).
     assert TwoWikiProvenanceTransformConfig().identity() == base.identity()

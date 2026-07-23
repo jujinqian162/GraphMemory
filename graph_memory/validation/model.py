@@ -34,7 +34,7 @@ RGCN_MODEL_CONFIG_FIELDS = {
 RGCN_TRAINING_CONFIG_FIELDS = {
     "optimizer_name",
     "learning_rate",
-    "batch_size",
+    "per_device_graph_batch_size",
     "max_grad_norm",
     "random_seed",
     "pos_weight_enabled",
@@ -130,7 +130,12 @@ def validate_rgcn_training_config(config: object) -> None:
     _required_finite_number(
         config_dict, "learning_rate", "R-GCN training config", minimum=0.0
     )
-    _required_int(config_dict, "batch_size", "R-GCN training config", minimum=1)
+    _required_int(
+        config_dict,
+        "per_device_graph_batch_size",
+        "R-GCN training config",
+        minimum=1,
+    )
     _required_finite_number(
         config_dict, "max_grad_norm", "R-GCN training config", minimum=0.0
     )
@@ -148,9 +153,10 @@ def validate_rgcn_checkpoint_metadata(
     checkpoint = _require_record(checkpoint, "R-GCN checkpoint")
     _reject_unknown_fields(checkpoint, RGCN_CHECKPOINT_FIELDS, "R-GCN checkpoint")
     schema_version = checkpoint.get("schema_version")
-    if schema_version != 2:
+    if schema_version != 3:
         raise ContractValidationError(
-            "Incompatible R-GCN checkpoint schema; retrain the node-wise model."
+            "Incompatible R-GCN checkpoint schema or legacy batch_size semantics; "
+            "retrain the node-wise model."
         )
     method_name = _required_string(checkpoint, "method_name", "R-GCN checkpoint")
     if expected_method is not None and method_name != expected_method:

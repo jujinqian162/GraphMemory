@@ -7,7 +7,7 @@ from typing import Literal, TypeAlias, cast
 from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 
 PROVENANCE_RGCN_CHECKPOINT_FAMILY = "execution_provenance_rgcn"
-PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION = 3
+PROVENANCE_RGCN_CHECKPOINT_SCHEMA_VERSION = 4
 DEFAULT_NODE_TYPE_VOCAB = tuple(node_type.value for node_type in ProvenanceNodeType)
 DEFAULT_FEEDS_BINDING_RELATIONS = (
     "feeds:evidence:context:semantic_reference",
@@ -208,7 +208,7 @@ def default_provenance_rgcn_model_config(
 @dataclass(frozen=True)
 class ProvenanceRgcnTrainingConfig:
     learning_rate: float = 1e-4
-    batch_size: int = 1
+    per_device_graph_batch_size: int = 1
     epochs: int = 1
     max_grad_norm: float = 1.0
     random_seed: int = 13
@@ -226,8 +226,10 @@ class ProvenanceRgcnTrainingConfig:
                 raise ValueError(f"{name} must be non-negative.")
         if self.learning_rate == 0.0:
             raise ValueError("learning_rate must be positive.")
-        if self.batch_size <= 0 or self.epochs <= 0:
-            raise ValueError("batch_size and epochs must be positive.")
+        if self.per_device_graph_batch_size <= 0:
+            raise ValueError("per_device_graph_batch_size must be positive.")
+        if self.epochs <= 0:
+            raise ValueError("epochs must be positive.")
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -236,7 +238,9 @@ class ProvenanceRgcnTrainingConfig:
     def from_dict(cls, value: Mapping[str, object]) -> ProvenanceRgcnTrainingConfig:
         return cls(
             learning_rate=cast(float, value["learning_rate"]),
-            batch_size=cast(int, value["batch_size"]),
+            per_device_graph_batch_size=cast(
+                int, value["per_device_graph_batch_size"]
+            ),
             epochs=cast(int, value["epochs"]),
             max_grad_norm=cast(float, value["max_grad_norm"]),
             random_seed=cast(int, value["random_seed"]),

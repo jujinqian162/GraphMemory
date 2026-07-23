@@ -171,7 +171,7 @@ def tiny_training_config() -> RgcnTrainingConfig:
     return RgcnTrainingConfig(
         optimizer_name="AdamW",
         learning_rate=0.01,
-        batch_size=1,
+        per_device_graph_batch_size=1,
         max_grad_norm=1.0,
         random_seed=13,
         pos_weight_enabled=False,

@@ -3,32 +3,46 @@ from __future__ import annotations
 import hashlib
 import random
 from collections import defaultdict
+from collections.abc import Sequence
+from dataclasses import replace
 
 import numpy as np
 import torch
 
+from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.embeddings import SentenceEncoder
+from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.provenance import (
     ProvenanceEdgeType,
     ProvenanceNodeType,
     binding_matches_endpoints,
     binding_relation_key,
 )
-from graph_memory.models.graph_retriever.internals.contracts import GraphBatch
+from graph_memory.models.graph_batching import (
+    TaskGraphTensor,
+    collate_task_graphs,
+    move_graph_batch,
+)
 from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnModelConfig
 from graph_memory.models.provenance_rgcn.contracts import (
     LogicalProvenanceTransition,
     ProvenanceGraphTensor,
+    ProvenanceModelOutput,
+    ProvenanceTaskTensor,
+    ProvenanceTrainingBatch,
+    ProvenanceTrainingTask,
 )
 from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest
 
 
-def tensorize_provenance_request(
+def tensorize_provenance_task(
     request: ExecutionProvenanceRankingRequest,
     *,
     encoder: SentenceEncoder,
     config: ProvenanceRgcnModelConfig,
-) -> ProvenanceGraphTensor:
+) -> ProvenanceTaskTensor:
+    """Materialize one provenance graph with only task-local indices."""
+
     nodes = list(request.graph.nodes)
     node_index = {node.node_id: index for index, node in enumerate(nodes)}
     node_type_id = {name: index for index, name in enumerate(config.node_type_vocab)}
@@ -129,23 +143,20 @@ def tensorize_provenance_request(
         if sources
         else torch.empty((2, 0), dtype=torch.long)
     )
-    graph_batch = GraphBatch(
-        node_embeddings=torch.from_numpy(encoded),
-        node_features=torch.empty((len(nodes), 0), dtype=torch.float32),
-        edge_index=edge_index,
-        relation_ids=torch.tensor(relation_ids, dtype=torch.long),
-        edge_weights=torch.tensor(weights, dtype=torch.float32),
-        query_node_indices=torch.tensor(task_indices, dtype=torch.long),
-        task_node_offsets=[0],
-        task_ids=[request.task_id],
-        node_ids_by_task=[[node.node_id for node in nodes]],
-    )
-    return ProvenanceGraphTensor(
-        graph_batch=graph_batch,
+    return ProvenanceTaskTensor(
+        graph_tensor=TaskGraphTensor(
+            node_embeddings=torch.from_numpy(encoded),
+            node_features=torch.empty((len(nodes), 0), dtype=torch.float32),
+            edge_index=edge_index,
+            relation_ids=torch.tensor(relation_ids, dtype=torch.long),
+            edge_weights=torch.tensor(weights, dtype=torch.float32),
+            query_node_index=task_indices[0],
+            task_id=request.task_id,
+            node_ids=[node.node_id for node in nodes],
+        ),
         node_type_ids=torch.tensor(
             [node_type_id[node.node_type.value] for node in nodes], dtype=torch.long
         ),
-        query_node_index=task_indices[0],
         candidate_node_indices=torch.tensor(
             [node_index[candidate_id] for candidate_id in candidate_ids],
             dtype=torch.long,
@@ -155,6 +166,246 @@ def tensorize_provenance_request(
             request, node_index, set(candidate_ids)
         ),
     )
+
+
+def tensorize_provenance_request(
+    request: ExecutionProvenanceRankingRequest,
+    *,
+    encoder: SentenceEncoder,
+    config: ProvenanceRgcnModelConfig,
+) -> ProvenanceGraphTensor:
+    """Compatibility one-task entry point using the same batched contract."""
+
+    return collate_provenance_tasks(
+        [tensorize_provenance_task(request, encoder=encoder, config=config)]
+    )
+
+
+def collate_provenance_tasks(
+    tasks: Sequence[ProvenanceTaskTensor],
+) -> ProvenanceGraphTensor:
+    """Collate provenance tasks and preserve explicit task ownership."""
+
+    if not tasks:
+        raise ValueError("Provenance collation requires at least one task.")
+    graph_batch = collate_task_graphs([task.graph_tensor for task in tasks])
+    node_type_ids: list[torch.Tensor] = []
+    candidate_node_indices: list[torch.Tensor] = []
+    candidate_query_indices: list[torch.Tensor] = []
+    candidate_offsets = [0]
+    candidate_ids_by_task: list[tuple[str, ...]] = []
+    transition_node_indices: list[torch.Tensor] = []
+    transition_query_indices: list[torch.Tensor] = []
+    transition_offsets = [0]
+    transitions_by_task: list[tuple[LogicalProvenanceTransition, ...]] = []
+
+    for task_index, task in enumerate(tasks):
+        _validate_provenance_task(task)
+        node_offset = graph_batch.task_node_offsets[task_index]
+        query_index = int(graph_batch.query_node_indices[task_index])
+        node_type_ids.append(task.node_type_ids)
+        candidate_count = len(task.candidate_ids)
+        candidate_node_indices.append(task.candidate_node_indices + node_offset)
+        candidate_query_indices.append(
+            torch.full((candidate_count,), query_index, dtype=torch.long)
+        )
+        candidate_offsets.append(candidate_offsets[-1] + candidate_count)
+        candidate_ids_by_task.append(task.candidate_ids)
+
+        global_transitions = tuple(
+            replace(
+                transition,
+                source_node_index=transition.source_node_index + node_offset,
+                target_node_index=transition.target_node_index + node_offset,
+            )
+            for transition in task.logical_transitions
+        )
+        transition_count = len(global_transitions)
+        if global_transitions:
+            transition_node_indices.append(
+                torch.tensor(
+                    [
+                        [item.source_node_index for item in global_transitions],
+                        [item.target_node_index for item in global_transitions],
+                    ],
+                    dtype=torch.long,
+                )
+            )
+            transition_query_indices.append(
+                torch.full((transition_count,), query_index, dtype=torch.long)
+            )
+        transition_offsets.append(transition_offsets[-1] + transition_count)
+        transitions_by_task.append(task.logical_transitions)
+
+    return ProvenanceGraphTensor(
+        graph_batch=graph_batch,
+        node_type_ids=torch.cat(node_type_ids),
+        candidate_node_indices=torch.cat(candidate_node_indices),
+        candidate_query_indices=torch.cat(candidate_query_indices),
+        candidate_offsets=candidate_offsets,
+        candidate_ids_by_task=tuple(candidate_ids_by_task),
+        transition_node_indices=(
+            torch.cat(transition_node_indices, dim=1)
+            if transition_node_indices
+            else torch.empty((2, 0), dtype=torch.long)
+        ),
+        transition_query_indices=(
+            torch.cat(transition_query_indices)
+            if transition_query_indices
+            else torch.empty((0,), dtype=torch.long)
+        ),
+        transition_offsets=transition_offsets,
+        logical_transitions_by_task=tuple(transitions_by_task),
+    )
+
+
+def materialize_provenance_training_task(
+    request: ExecutionProvenanceRankingRequest,
+    label: EvidenceLabel,
+    train_pairs: list[TrainPairRecord],
+    *,
+    encoder: SentenceEncoder,
+    config: ProvenanceRgcnModelConfig,
+) -> ProvenanceTrainingTask:
+    """Materialize one provenance task and aligned `1/0/-1` v2 targets."""
+
+    if label.task_id != request.task_id:
+        raise ValueError("Provenance training request and label task IDs must match.")
+    task = tensorize_provenance_task(request, encoder=encoder, config=config)
+    candidate_targets = torch.full((len(task.candidate_ids),), -1, dtype=torch.int8)
+    candidate_index = {
+        candidate_id: index for index, candidate_id in enumerate(task.candidate_ids)
+    }
+    seen_pair_nodes: set[str] = set()
+    for pair in train_pairs:
+        if pair["task_id"] != label.task_id:
+            raise ValueError(
+                "Provenance train pair task mismatch: "
+                f"expected={label.task_id!r} observed={pair['task_id']!r}."
+            )
+        node_id = pair["node_id"]
+        if node_id not in candidate_index:
+            raise ValueError(
+                f"Provenance train pair node_id={node_id!r} is not a candidate."
+            )
+        if node_id in seen_pair_nodes:
+            raise ValueError(
+                "Provenance train pairs must contain each candidate at most once: "
+                f"task_id={label.task_id!r} node_id={node_id!r}."
+            )
+        seen_pair_nodes.add(node_id)
+        candidate_targets[candidate_index[node_id]] = int(pair["label"])
+    if not bool((candidate_targets == 1).any()):
+        raise ValueError(
+            f"Provenance task_id={label.task_id!r} has no positive train pairs."
+        )
+    gold_edges = set(label.gold_dependency_edges)
+    edge_targets = torch.tensor(
+        [
+            float((item.source_id, item.target_id) in gold_edges)
+            for item in task.logical_transitions
+        ],
+        dtype=torch.float32,
+    )
+    return ProvenanceTrainingTask(
+        tensor=task,
+        candidate_targets=candidate_targets,
+        edge_targets=edge_targets,
+    )
+
+
+def collate_provenance_training_tasks(
+    tasks: Sequence[ProvenanceTrainingTask],
+) -> ProvenanceTrainingBatch:
+    """Collate provenance tasks and their aligned loss targets."""
+
+    if not tasks:
+        raise ValueError("Provenance training collation requires at least one task.")
+    return ProvenanceTrainingBatch(
+        tensor=collate_provenance_tasks([task.tensor for task in tasks]),
+        candidate_targets=torch.cat([task.candidate_targets for task in tasks]),
+        edge_targets=torch.cat([task.edge_targets for task in tasks]),
+    )
+
+
+def move_provenance_tensor(
+    tensor: ProvenanceGraphTensor, device: torch.device | str
+) -> ProvenanceGraphTensor:
+    target = torch.device(device)
+    return ProvenanceGraphTensor(
+        graph_batch=move_graph_batch(tensor.graph_batch, target),
+        node_type_ids=tensor.node_type_ids.to(target),
+        candidate_node_indices=tensor.candidate_node_indices.to(target),
+        candidate_query_indices=tensor.candidate_query_indices.to(target),
+        candidate_offsets=tensor.candidate_offsets,
+        candidate_ids_by_task=tensor.candidate_ids_by_task,
+        transition_node_indices=tensor.transition_node_indices.to(target),
+        transition_query_indices=tensor.transition_query_indices.to(target),
+        transition_offsets=tensor.transition_offsets,
+        logical_transitions_by_task=tensor.logical_transitions_by_task,
+    )
+
+
+def move_provenance_training_batch(
+    batch: ProvenanceTrainingBatch, device: torch.device | str
+) -> ProvenanceTrainingBatch:
+    target = torch.device(device)
+    return ProvenanceTrainingBatch(
+        tensor=move_provenance_tensor(batch.tensor, target),
+        candidate_targets=batch.candidate_targets.to(target),
+        edge_targets=batch.edge_targets.to(target),
+    )
+
+
+def split_provenance_output(
+    tensor: ProvenanceGraphTensor,
+    output: ProvenanceModelOutput,
+) -> tuple[ProvenanceModelOutput, ...]:
+    """Split batched model output back into declared task order."""
+
+    if len(output.node_states) != tensor.graph_batch.task_node_offsets[-1]:
+        raise ValueError("Node-state count does not match the graph batch.")
+    if len(output.candidate_logits) != tensor.candidate_offsets[-1]:
+        raise ValueError("Candidate-logit count does not match candidate offsets.")
+    if len(output.edge_logits) != tensor.transition_offsets[-1]:
+        raise ValueError("Edge-logit count does not match transition offsets.")
+    results: list[ProvenanceModelOutput] = []
+    for task_index in range(tensor.task_count):
+        node_start = tensor.graph_batch.task_node_offsets[task_index]
+        node_end = tensor.graph_batch.task_node_offsets[task_index + 1]
+        candidate_start = tensor.candidate_offsets[task_index]
+        candidate_end = tensor.candidate_offsets[task_index + 1]
+        transition_start = tensor.transition_offsets[task_index]
+        transition_end = tensor.transition_offsets[task_index + 1]
+        results.append(
+            ProvenanceModelOutput(
+                node_states=output.node_states[node_start:node_end],
+                candidate_logits=output.candidate_logits[candidate_start:candidate_end],
+                edge_logits=output.edge_logits[transition_start:transition_end],
+            )
+        )
+    return tuple(results)
+
+
+def _validate_provenance_task(task: ProvenanceTaskTensor) -> None:
+    node_count = len(task.graph_tensor.node_ids)
+    if task.node_type_ids.shape != (node_count,):
+        raise ValueError("node_type_ids must contain one value per task node.")
+    if task.candidate_node_indices.shape != (len(task.candidate_ids),):
+        raise ValueError("Candidate IDs and indices must have equal lengths.")
+    if len(set(task.candidate_ids)) != len(task.candidate_ids):
+        raise ValueError("Provenance candidate IDs must be unique within a task.")
+    if len(task.candidate_node_indices):
+        minimum = int(task.candidate_node_indices.min().item())
+        maximum = int(task.candidate_node_indices.max().item())
+        if minimum < 0 or maximum >= node_count:
+            raise ValueError("A candidate index crosses its task node interval.")
+    for transition in task.logical_transitions:
+        if not (
+            0 <= transition.source_node_index < node_count
+            and 0 <= transition.target_node_index < node_count
+        ):
+            raise ValueError("A logical transition crosses its task node interval.")
 
 
 def _shuffled_feed_targets(
@@ -200,7 +451,8 @@ def _logical_transitions(
             key = (feeds.source, returns.target)
             if key in transitions:
                 raise ValueError(
-                    f"Duplicate logical provenance transition: {feeds.source}->{returns.target}."
+                    "Duplicate logical provenance transition: "
+                    f"{feeds.source}->{returns.target}."
                 )
             transitions[key] = LogicalProvenanceTransition(
                 source_id=feeds.source,
@@ -212,29 +464,13 @@ def _logical_transitions(
     return tuple(transitions[key] for key in sorted(transitions))
 
 
-def move_provenance_tensor(
-    tensor: ProvenanceGraphTensor, device: torch.device | str
-) -> ProvenanceGraphTensor:
-    target = torch.device(device)
-    batch = tensor.graph_batch
-    return ProvenanceGraphTensor(
-        graph_batch=GraphBatch(
-            node_embeddings=batch.node_embeddings.to(target),
-            node_features=batch.node_features.to(target),
-            edge_index=batch.edge_index.to(target),
-            relation_ids=batch.relation_ids.to(target),
-            edge_weights=batch.edge_weights.to(target),
-            query_node_indices=batch.query_node_indices.to(target),
-            task_node_offsets=batch.task_node_offsets,
-            task_ids=batch.task_ids,
-            node_ids_by_task=batch.node_ids_by_task,
-        ),
-        node_type_ids=tensor.node_type_ids.to(target),
-        query_node_index=tensor.query_node_index,
-        candidate_node_indices=tensor.candidate_node_indices.to(target),
-        candidate_ids=tensor.candidate_ids,
-        logical_transitions=tensor.logical_transitions,
-    )
-
-
-__all__ = ["move_provenance_tensor", "tensorize_provenance_request"]
+__all__ = [
+    "collate_provenance_tasks",
+    "collate_provenance_training_tasks",
+    "materialize_provenance_training_task",
+    "move_provenance_tensor",
+    "move_provenance_training_batch",
+    "split_provenance_output",
+    "tensorize_provenance_request",
+    "tensorize_provenance_task",
+]

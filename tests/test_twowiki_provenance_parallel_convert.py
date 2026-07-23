@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 
 from graph_memory.datasets.twowiki_provenance import (
     convert_twowiki_source_records,
@@ -33,7 +34,7 @@ def _source_example(raw_id: str) -> dict[str, object]:
     }
 
 
-def _canonical(records: list[object]) -> str:
+def _canonical(records: Sequence[object]) -> str:
     return json.dumps(records, sort_keys=True, separators=(",", ":"))
 
 

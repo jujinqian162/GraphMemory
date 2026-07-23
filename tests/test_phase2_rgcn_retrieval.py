@@ -160,6 +160,27 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     )
 
 
+def test_evidence_checkpoint_uses_explicit_graph_batch_schema(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    write_tiny_checkpoint(checkpoint_path)
+
+    checkpoint = load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
+
+    assert checkpoint.payload["schema_version"] == 3
+    training = checkpoint.payload["training_config"]
+    assert "batch_size" not in training
+    assert training["per_device_graph_batch_size"] == 1
+    assert set(training) == {
+        "optimizer_name",
+        "learning_rate",
+        "per_device_graph_batch_size",
+        "max_grad_norm",
+        "random_seed",
+        "pos_weight_enabled",
+        "epochs",
+    }
+
+
 def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:
     checkpoint_path = tmp_path / "legacy-beam.pt"
     write_tiny_checkpoint(checkpoint_path)
@@ -169,6 +190,28 @@ def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:
     torch.save(payload, checkpoint_path)
 
     with pytest.raises(ValueError, match="Incompatible R-GCN checkpoint schema"):
+        load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
+
+
+def test_evidence_checkpoint_rejects_legacy_batch_size_semantics(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "legacy-batch.pt"
+    write_tiny_checkpoint(checkpoint_path)
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    payload["schema_version"] = 2
+    payload["training_config"] = {
+        "optimizer_name": "AdamW",
+        "learning_rate": 0.01,
+        "batch_size": 128,
+        "max_grad_norm": 1.0,
+        "random_seed": 13,
+        "pos_weight_enabled": False,
+        "epochs": 1,
+    }
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(ValueError, match="legacy batch_size semantics"):
         load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
 
 

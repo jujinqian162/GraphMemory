@@ -15,7 +15,7 @@ from graph_memory.models.graph_retriever.config.records import (
 )
 from graph_memory.validation import validate_rgcn_checkpoint_metadata
 
-RGCN_CHECKPOINT_SCHEMA_VERSION = 2
+RGCN_CHECKPOINT_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)

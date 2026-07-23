@@ -44,6 +44,24 @@ def test_provenance_method_configs_compose_for_provenance_dataset(method: str) -
     assert resolved.dataset.name == "twowiki_provenance"
 
 
+def test_rgcn_profiles_define_true_graph_batches() -> None:
+    evidence = parse_composed_config(
+        _compose("profile=full", "method=dense_rgcn_graph_retriever")
+    )
+    provenance = parse_composed_config(
+        _compose(
+            "profile=provenance_full",
+            "dataset=twowiki_provenance",
+            "method=execution_provenance_rgcn_retriever",
+        )
+    )
+
+    assert isinstance(evidence.method, RgcnMethodConfig)
+    assert isinstance(provenance.method, ExecutionProvenanceRgcnMethodConfig)
+    assert evidence.method.train.trainer.per_device_graph_batch_size == 128
+    assert provenance.method.train.trainer.per_device_graph_batch_size == 8
+
+
 def test_dense_ft_seed_config_is_the_canonical_public_dense_ft_stage() -> None:
     dense_ft = parse_composed_config(_compose("method=dense_ft"))
     composite = parse_composed_config(

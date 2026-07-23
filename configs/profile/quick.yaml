@@ -4,10 +4,19 @@ splits:
   dev: {kind: fixed, count: 100}
   test: {kind: fixed, count: 100}
 trainable:
-  rgcn:
+  evidence_rgcn:
     hidden_dim: 128
     num_layers: 2
-    batch_size: 8
+    per_device_graph_batch_size: 8
+    epochs: 15
+    easy_random_per_positive: 2
+    hard_bm25_per_positive: 2
+    hard_dense_per_positive: 0
+    hard_graph_neighbor_per_positive: 1
+  provenance_rgcn:
+    hidden_dim: 128
+    num_layers: 2
+    per_device_graph_batch_size: 8
     epochs: 15
     easy_random_per_positive: 2
     hard_bm25_per_positive: 2

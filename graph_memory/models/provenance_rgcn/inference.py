@@ -8,7 +8,11 @@ import torch
 from graph_memory.contracts.graphs import GraphEdge
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnModelConfig
-from graph_memory.models.provenance_rgcn.contracts import LogicalProvenanceTransition
+from graph_memory.models.provenance_rgcn.contracts import (
+    LogicalProvenanceTransition,
+    ProvenanceGraphTensor,
+    ProvenanceModelOutput,
+)
 from graph_memory.models.provenance_rgcn.model import ExecutionProvenanceRGCN
 from graph_memory.models.provenance_rgcn.tensorization import (
     move_provenance_tensor,
@@ -68,64 +72,107 @@ class ExecutionProvenanceRgcnRetriever:
         self.model.eval()
         with torch.no_grad():
             output = self.model(tensor)
-        ranked_nodes = [
-            RankedNode(
-                candidate_id,
-                float(output.candidate_logits[index].detach().cpu()),
-            )
-            for index, candidate_id in enumerate(tensor.candidate_ids)
-        ]
-        ranked_nodes.sort(key=lambda item: (-item.score, item.node_id))
-        structured = _apply_structured_reranking(
-            ranked_nodes,
-            tensor.logical_transitions,
-            output.edge_logits,
+        return rank_provenance_output(
+            tensor,
+            output,
             config=self.config,
-            promotion_enabled=self.enable_edge_rerank,
+            top_k=top_k,
+            enable_edge_rerank=self.enable_edge_rerank,
         )
-        ranked_nodes = structured.ranked_nodes
-        top_ids = {item.node_id for item in ranked_nodes[:top_k]}
-        selected_transitions = tuple(
-            (transition, score)
-            for transition, score in structured.selected_transitions
-            if transition.source_id in top_ids and transition.target_id in top_ids
+
+
+def rank_provenance_output(
+    tensor: ProvenanceGraphTensor,
+    output: ProvenanceModelOutput,
+    *,
+    config: ProvenanceRgcnModelConfig,
+    top_k: int,
+    enable_edge_rerank: bool = True,
+) -> RetrievalMethodResult:
+    """Reconstruct one public result from a one-task tensor/output pair."""
+
+    if tensor.task_count != 1:
+        raise ValueError("rank_provenance_output requires a one-task tensor.")
+    return rank_provenance_task_output(
+        candidate_ids=tensor.candidate_ids_by_task[0],
+        transitions=tensor.logical_transitions_by_task[0],
+        output=output,
+        config=config,
+        top_k=top_k,
+        enable_edge_rerank=enable_edge_rerank,
+    )
+
+
+def rank_provenance_task_output(
+    *,
+    candidate_ids: tuple[str, ...],
+    transitions: tuple[LogicalProvenanceTransition, ...],
+    output: ProvenanceModelOutput,
+    config: ProvenanceRgcnModelConfig,
+    top_k: int,
+    enable_edge_rerank: bool = True,
+) -> RetrievalMethodResult:
+    """Reconstruct one task after splitting a batched model output."""
+
+    if len(candidate_ids) != len(output.candidate_logits):
+        raise ValueError("Candidate IDs and logits must have equal lengths.")
+    ranked_nodes = [
+        RankedNode(candidate_id, float(logit.detach().cpu()))
+        for candidate_id, logit in zip(
+            candidate_ids, output.candidate_logits, strict=True
         )
-        native_edges = _native_edges(selected_transitions)
-        logical_edges = _logical_edges(selected_transitions)
-        return RetrievalMethodResult(
-            ranked_nodes=ranked_nodes,
-            trace=RetrievalTrace(
-                retrieved_edges=logical_edges,
-                native_trace=ExecutionProvenanceTrace(
-                    node_ids=tuple(
-                        sorted(
-                            {
-                                node_id
-                                for transition, _score in selected_transitions
-                                for node_id in _native_node_ids(transition)
-                            }
-                        )
-                    ),
-                    paths=tuple(
-                        ProvenancePathTrace(
-                            node_ids=_native_node_ids(transition),
-                            score=score,
-                            semantic_relevance=score,
-                            binding_consistency=1.0,
-                            provenance_completeness=1.0,
-                            explicit_grounding=0.0,
-                            path_length_penalty=0.0,
-                            invalidation_penalty=0.0,
-                        )
-                        for transition, score in selected_transitions
-                    ),
-                    edges=tuple(_edge_trace(edge) for edge in native_edges),
-                    structured_transitions=structured.traces,
-                    abstained_source_ids=structured.abstained_source_ids,
-                    structured_promotion_enabled=self.enable_edge_rerank,
+    ]
+    ranked_nodes.sort(key=lambda item: (-item.score, item.node_id))
+    structured = _apply_structured_reranking(
+        ranked_nodes,
+        transitions,
+        output.edge_logits,
+        config=config,
+        promotion_enabled=enable_edge_rerank,
+    )
+    ranked_nodes = structured.ranked_nodes
+    top_ids = {item.node_id for item in ranked_nodes[:top_k]}
+    selected_transitions = tuple(
+        (transition, score)
+        for transition, score in structured.selected_transitions
+        if transition.source_id in top_ids and transition.target_id in top_ids
+    )
+    native_edges = _native_edges(selected_transitions)
+    logical_edges = _logical_edges(selected_transitions)
+    return RetrievalMethodResult(
+        ranked_nodes=ranked_nodes,
+        trace=RetrievalTrace(
+            retrieved_edges=logical_edges,
+            native_trace=ExecutionProvenanceTrace(
+                node_ids=tuple(
+                    sorted(
+                        {
+                            node_id
+                            for transition, _score in selected_transitions
+                            for node_id in _native_node_ids(transition)
+                        }
+                    )
                 ),
+                paths=tuple(
+                    ProvenancePathTrace(
+                        node_ids=_native_node_ids(transition),
+                        score=score,
+                        semantic_relevance=score,
+                        binding_consistency=1.0,
+                        provenance_completeness=1.0,
+                        explicit_grounding=0.0,
+                        path_length_penalty=0.0,
+                        invalidation_penalty=0.0,
+                    )
+                    for transition, score in selected_transitions
+                ),
+                edges=tuple(_edge_trace(edge) for edge in native_edges),
+                structured_transitions=structured.traces,
+                abstained_source_ids=structured.abstained_source_ids,
+                structured_promotion_enabled=enable_edge_rerank,
             ),
-        )
+        ),
+    )
 
 
 def _native_node_ids(
@@ -333,4 +380,8 @@ def _edge_trace(edge) -> ProvenanceEdgeTrace:
     )
 
 
-__all__ = ["ExecutionProvenanceRgcnRetriever"]
+__all__ = [
+    "ExecutionProvenanceRgcnRetriever",
+    "rank_provenance_output",
+    "rank_provenance_task_output",
+]

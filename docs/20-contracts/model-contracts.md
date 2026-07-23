@@ -92,30 +92,9 @@ Rules:
 ```python
 @dataclass(frozen=True)
 class TrainableTrainingConfig:
-    """
-    Minimal training config needed to resume or audit a trainable run.
-    用于恢复或审计可训练运行的最小训练配置。
-
-    Fields / 字段:
-    - optimizer_name: Optimizer name, default `AdamW`.
-      optimizer_name：优化器名称，默认 `AdamW`。
-    - learning_rate: Graph/scorer learning rate.
-      learning_rate：graph/scorer 学习率。
-    - batch_size: Number of task graphs per training batch.
-      batch_size：每个 training batch 中的 task graph 数量。
-    - max_grad_norm: Gradient clipping maximum norm.
-      max_grad_norm：梯度裁剪最大 norm。
-    - random_seed: Run-level random seed.
-      random_seed：运行级随机种子。
-    - pos_weight_enabled: Whether BCE positive weighting was enabled.
-      pos_weight_enabled：是否启用 BCE 正例权重。
-    - epochs: Number of training epochs.
-      epochs：训练 epoch 数量。
-    """
-
     optimizer_name: str
     learning_rate: float
-    batch_size: int
+    per_device_graph_batch_size: int
     max_grad_norm: float
     random_seed: int
     pos_weight_enabled: bool
@@ -124,9 +103,11 @@ class TrainableTrainingConfig:
 
 Rules:
 
+- `per_device_graph_batch_size` is the number of task graphs in one device-local disconnected-union forward, backward pass, and optimizer step.
+- Every DataLoader batch produces exactly one optimizer/global step; the final smaller batch uses its actual supervision denominator.
+- Training metrics record actual tasks per optimizer step and the model-specific denominator: supervised samples for evidence BCE, tasks for provenance v2 loss.
 - Training config records effective values after defaults and CLI overrides.
-- Training config is not a replacement for run summary; run summary still records paths, counts, timings, and environment notes.
-- `TrainableTrainingConfig.batch_size` counts task graphs. It is independent from `DenseEncoderSettings.batch_size`, which controls sentence-transformer text mini-batches.
+- These fields are independent from `DenseEncoderSettings.batch_size`, which controls frozen text-encoder mini-batches.
 
 ## Negative Sampling Config
 
@@ -260,9 +241,10 @@ Rules:
 - `task_node_offsets[i] <= global_node_index < task_node_offsets[i + 1]` defines task membership.
 - `node_ids_by_task[i]` has length `task_node_offsets[i + 1] - task_node_offsets[i]`.
 - No raw artifact dictionary should be passed into the model forward path.
-- All tasks in one graph batch request frozen text features through one provider bulk operation.
-- When the same joint dense provider supplies embeddings and seed signals, both values come from one normalized encoder result.
-- When providers are different objects or lack the joint capability, each provider is called through its own bulk-or-single compatibility path.
+- Each map-style dataset item is a validated CPU task tensor whose frozen text features were materialized before DataLoader iteration.
+- `__getitem__`, DataLoader workers, and epoch-time collators never invoke the encoder; this implementation uses `num_workers=0`.
+- The collator only offsets task-local indices and creates a disconnected union with no cross-task edge.
+- When the same joint dense provider supplies embeddings and seed signals, both values come from one normalized encoder result during materialization.
 
 ## Training Batch
 
@@ -342,6 +324,7 @@ Checkpoint files are PyTorch checkpoint dictionaries, not JSON artifacts. Their 
 Required top-level keys:
 
 ```text
+schema_version
 method_name
 model_state_dict
 optimizer_state_dict
@@ -356,7 +339,9 @@ created_at
 
 Rules:
 
-- The checkpoint is current-only and contains no format version field.
+- Evidence R-GCN checkpoint schema v3 records explicit disconnected-union graph-batch semantics in `training_config`.
+- Schema-v2 evidence checkpoints used the removed `batch_size` field and are rejected rather than translated.
+- Provenance R-GCN uses its separate checkpoint family/schema v4 and additionally records `candidate_loss_protocol=provenance-candidate-loss-v2` plus disconnected-union semantics.
 - Unknown top-level fields are rejected.
 - `model_config.feature_config` and `model_config.relation_vocab` are required for inference.
 - Loading must fail if checkpoint `method_name` does not match the requested retrieval method.
@@ -380,7 +365,7 @@ Dev evaluation during training should:
 3. Use existing retrieval metrics against dev labels and graphs.
 4. Select `best.pt` by the configured retrieval metric.
 
-Frozen full-ranking dev batches are constructed once before the epoch loop and retained as CPU values for the training invocation. Every epoch still moves a separate batch value to the target device and recomputes model logits, loss, retrieval metrics, and checkpoint selection. This reuse is invocation-scoped: it does not create a process-global cache or a persistent embedding artifact.
+Frozen train/dev task tensors are materialized once on CPU before the epoch loop. Seeded train and ordered dev DataLoaders dynamically collate them with `drop_last=False`; every epoch recomputes model logits, loss, retrieval metrics, and checkpoint selection without re-running the encoder. This reuse is invocation-scoped and creates neither a process-global cache nor a persistent embedding artifact.
 
 If dev BCE loss is needed, compute it from full-node labels derived in memory from `dev_memory_tasks.labels.json`, not from a separate dev pairs artifact.
 

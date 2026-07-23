@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -20,11 +21,17 @@ from graph_memory.models.provenance_rgcn import (
     ProvenanceRgcnModelConfig,
     ProvenanceDevMetrics,
     ProvenanceRgcnTrainingConfig,
+    collate_provenance_tasks,
+    collate_provenance_training_tasks,
+    compute_provenance_batch_loss,
     compute_provenance_loss,
     default_provenance_rgcn_model_config,
     load_provenance_rgcn_checkpoint,
     save_provenance_rgcn_checkpoint,
+    split_provenance_output,
     tensorize_provenance_request,
+    tensorize_provenance_task,
+    materialize_provenance_training_task,
     train_provenance_rgcn,
 )
 from graph_memory.models.graph_retriever.internals.neural import (
@@ -32,7 +39,10 @@ from graph_memory.models.graph_retriever.internals.neural import (
     TypedRelationTransform,
 )
 from graph_memory.models.provenance_rgcn.contracts import ProvenanceModelOutput
-from graph_memory.models.provenance_rgcn.inference import _apply_structured_reranking
+from graph_memory.models.provenance_rgcn.inference import (
+    _apply_structured_reranking,
+    rank_provenance_task_output,
+)
 from graph_memory.contracts.training_pairs import TrainPairRecord
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
@@ -89,6 +99,15 @@ class TinyEncoder:
         return np.asarray(rows, dtype=np.float32)
 
 
+class CountingTinyEncoder(TinyEncoder):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def encode(self, *args, **kwargs):
+        self.calls += 1
+        return super().encode(*args, **kwargs)
+
+
 class OrderedRanker:
     def __init__(self, *, reverse: bool = False) -> None:
         self.reverse = reverse
@@ -127,6 +146,166 @@ def test_tensorizer_and_model_preserve_full_typed_graph() -> None:
     )
     assert output.candidate_logits.shape == (len(request.candidates),)
     assert output.edge_logits.shape == (len(tensor.logical_transitions),)
+
+
+def test_disconnected_union_matches_separate_provenance_forwards() -> None:
+    request, label = _request_and_label()
+    second_request = _retask_request(request, "rgcn-second")
+    second_label = replace(
+        label,
+        task_id=second_request.task_id,
+        gold_dependency_edges=(),
+    )
+    config = _model_config()
+    tasks = [
+        tensorize_provenance_task(item, encoder=TinyEncoder(), config=config)
+        for item in (request, second_request)
+    ]
+    batch = collate_provenance_tasks(tasks)
+    model = ExecutionProvenanceRGCN(config)
+    model.eval()
+
+    with torch.no_grad():
+        batched_output = model(batch)
+        split_outputs = split_provenance_output(batch, batched_output)
+        separate_outputs = [
+            model(collate_provenance_tasks([task])) for task in tasks
+        ]
+
+    assert batch.graph_batch.task_node_offsets == [
+        0,
+        len(request.graph.nodes),
+        len(request.graph.nodes) + len(second_request.graph.nodes),
+    ]
+    assert batch.candidate_offsets == [
+        0,
+        len(request.candidates),
+        len(request.candidates) + len(second_request.candidates),
+    ]
+    assert batch.transition_offsets[-1] == sum(
+        len(task.logical_transitions) for task in tasks
+    )
+    for task_index in range(batch.task_count):
+        node_start = batch.graph_batch.task_node_offsets[task_index]
+        node_end = batch.graph_batch.task_node_offsets[task_index + 1]
+        candidate_start = batch.candidate_offsets[task_index]
+        candidate_end = batch.candidate_offsets[task_index + 1]
+        transition_start = batch.transition_offsets[task_index]
+        transition_end = batch.transition_offsets[task_index + 1]
+        assert bool(
+            (
+                (batch.candidate_node_indices[candidate_start:candidate_end] >= node_start)
+                & (batch.candidate_node_indices[candidate_start:candidate_end] < node_end)
+            ).all()
+        )
+        assert torch.equal(
+            batch.candidate_query_indices[candidate_start:candidate_end],
+            torch.full(
+                (candidate_end - candidate_start,),
+                int(batch.graph_batch.query_node_indices[task_index]),
+                dtype=torch.long,
+            ),
+        )
+        if transition_end > transition_start:
+            transition_nodes = batch.transition_node_indices[
+                :, transition_start:transition_end
+            ]
+            assert bool(((transition_nodes >= node_start) & (transition_nodes < node_end)).all())
+    for task_index, (split, separate) in enumerate(
+        zip(split_outputs, separate_outputs, strict=True)
+    ):
+        assert torch.allclose(split.node_states, separate.node_states, atol=1e-6)
+        assert torch.allclose(
+            split.candidate_logits, separate.candidate_logits, atol=1e-6
+        )
+        assert torch.allclose(split.edge_logits, separate.edge_logits, atol=1e-6)
+        batched_result = rank_provenance_task_output(
+            candidate_ids=batch.candidate_ids_by_task[task_index],
+            transitions=batch.logical_transitions_by_task[task_index],
+            output=split,
+            config=config,
+            top_k=6,
+        )
+        separate_result = rank_provenance_task_output(
+            candidate_ids=tasks[task_index].candidate_ids,
+            transitions=tasks[task_index].logical_transitions,
+            output=separate,
+            config=config,
+            top_k=6,
+        )
+        assert [item.node_id for item in batched_result.ranked_nodes] == [
+            item.node_id for item in separate_result.ranked_nodes
+        ]
+        assert torch.allclose(
+            torch.tensor([item.score for item in batched_result.ranked_nodes]),
+            torch.tensor([item.score for item in separate_result.ranked_nodes]),
+            atol=1e-6,
+        )
+        assert {
+            (edge["source"], edge["target"])
+            for edge in batched_result.trace.retrieved_edges
+        } == {
+            (edge["source"], edge["target"])
+            for edge in separate_result.trace.retrieved_edges
+        }
+        batched_trace = batched_result.trace.native_trace
+        separate_trace = separate_result.trace.native_trace
+        assert isinstance(batched_trace, ExecutionProvenanceTrace)
+        assert isinstance(separate_trace, ExecutionProvenanceTrace)
+        assert [
+            (item.source_id, item.target_id, item.decision)
+            for item in batched_trace.structured_transitions
+        ] == [
+            (item.source_id, item.target_id, item.decision)
+            for item in separate_trace.structured_transitions
+        ]
+        assert batched_trace.abstained_source_ids == separate_trace.abstained_source_ids
+
+    training_tasks = [
+        materialize_provenance_training_task(
+            item,
+            item_label,
+            _train_pairs(item, item_label),
+            encoder=TinyEncoder(),
+            config=config,
+        )
+        for item, item_label in (
+            (request, label),
+            (second_request, second_label),
+        )
+    ]
+    training_batch = collate_provenance_training_tasks(training_tasks)
+    with torch.no_grad():
+        output = model(training_batch.tensor)
+    batch_loss = compute_provenance_batch_loss(
+        training_batch,
+        output,
+        config,
+        ProvenanceRgcnTrainingConfig(),
+    )
+    single_losses = [
+        compute_provenance_loss(
+            collate_provenance_tasks([task.tensor]),
+            separate_output,
+            item_label,
+            _train_pairs(item, item_label),
+            config,
+            ProvenanceRgcnTrainingConfig(),
+        )
+        for task, separate_output, item, item_label in zip(
+            training_tasks,
+            separate_outputs,
+            (request, second_request),
+            (label, second_label),
+            strict=True,
+        )
+    ]
+    assert batch_loss.total == pytest.approx(
+        torch.stack([loss.total for loss in single_losses]).mean()
+    )
+    assert batch_loss.comparison_count == sum(
+        loss.comparison_count for loss in single_losses
+    )
 
 
 def test_provenance_model_ablations_remove_named_graph_signals() -> None:
@@ -557,6 +736,21 @@ def test_checkpoint_family_round_trip_and_rejection(
     assert loaded.model_config.ablation_name == "full_rgcn"
     assert loaded.model_config.message_transform_type == "typed"
     assert loaded.model_config.edge_weight_policy == "artifact"
+    assert loaded.payload["schema_version"] == 4
+    assert (
+        loaded.payload["candidate_loss_protocol"]
+        == "provenance-candidate-loss-v2"
+    )
+    assert loaded.payload["batch_semantics"] == "disconnected_union_task_graphs"
+    assert "batch_size" not in loaded.payload["training_config"]
+
+    legacy_batch_payload = deepcopy(payload)
+    legacy_batch_payload["schema_version"] = 3
+    legacy_batch_payload["training_config"] = {"batch_size": 128}
+    legacy_batch_checkpoint = tmp_path / "legacy-batch-v3.pt"
+    torch.save(legacy_batch_payload, legacy_batch_checkpoint)
+    with pytest.raises(ValueError, match="does not use disconnected-union"):
+        load_provenance_rgcn_checkpoint(legacy_batch_checkpoint)
 
     legacy_payload = deepcopy(payload)
     for field_name in (
@@ -567,7 +761,7 @@ def test_checkpoint_family_round_trip_and_rejection(
         legacy_payload["model_config"].pop(field_name)
     legacy_checkpoint = tmp_path / "legacy-full.pt"
     torch.save(legacy_payload, legacy_checkpoint)
-    with pytest.raises(ValueError, match="incomplete for schema v3"):
+    with pytest.raises(ValueError, match="incomplete for schema v4"):
         load_provenance_rgcn_checkpoint(legacy_checkpoint)
     assert "path_loss_weight" not in loaded.payload["training_config"]
     evidence_checkpoint = tmp_path / "evidence.pt"
@@ -632,6 +826,57 @@ def test_minimal_train_and_inference_return_logical_paths() -> None:
     assert result.metric_records[0]["epoch"] == 1
 
 
+def test_provenance_dataloader_reuses_materialized_features_across_epochs() -> None:
+    request, label = _request_and_label()
+    encoder = CountingTinyEncoder()
+
+    result = train_provenance_rgcn(
+        train_requests=[request],
+        train_labels=[label],
+        train_pairs=_train_pairs(request, label),
+        model_config=_model_config(),
+        training_config=ProvenanceRgcnTrainingConfig(epochs=2),
+        encoder=encoder,
+    )
+
+    assert encoder.calls == 2  # one train item plus one ordered dev item
+    assert [record["global_step"] for record in result.metric_records] == [1, 2]
+
+
+def test_provenance_tail_graph_batch_produces_its_own_optimizer_step() -> None:
+    request, label = _request_and_label()
+    requests = [
+        _retask_request(request, f"rgcn-tail-{index}") for index in range(3)
+    ]
+    labels = [replace(label, task_id=item.task_id) for item in requests]
+    pairs = [
+        pair
+        for item, item_label in zip(requests, labels, strict=True)
+        for pair in _train_pairs(item, item_label)
+    ]
+    result = train_provenance_rgcn(
+        train_requests=requests,
+        train_labels=labels,
+        train_pairs=pairs,
+        model_config=_model_config(),
+        training_config=ProvenanceRgcnTrainingConfig(
+            learning_rate=0.01,
+            per_device_graph_batch_size=2,
+            epochs=1,
+        ),
+        encoder=TinyEncoder(),
+    )
+
+    metrics = result.metric_records[0]
+    assert result.global_step == 2
+    assert metrics["train_optimizer_step_count"] == 2
+    assert metrics["actual_tasks_per_optimizer_step"] == [2, 1]
+    assert metrics["train_task_count"] == 3
+    assert cast(int, metrics["materialized_cpu_tensor_bytes"]) > 0
+    assert metrics["train_candidates_per_task_max"] == 6
+    assert cast(float, metrics["train_tasks_per_second"]) > 0.0
+
+
 def test_registry_builds_provenance_rgcn_from_its_checkpoint_family(
     tmp_path: Path,
 ) -> None:
@@ -664,6 +909,10 @@ def test_registry_builds_provenance_rgcn_from_its_checkpoint_family(
     )
     assert built.execution_tasks[0].method_request is request
     assert len(prediction.ranked_nodes) == len(request.candidates)
+
+
+def _retask_request(request, task_id: str):
+    return replace(request, task_id=task_id, graph=replace(request.graph, task_id=task_id))
 
 
 def _request_and_label():

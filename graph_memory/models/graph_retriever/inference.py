@@ -8,7 +8,8 @@ import torch
 
 from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
 from graph_memory.models.graph_retriever.batching import (
-    build_full_ranking_batches,
+    collate_evidence_tasks,
+    materialize_full_ranking_tasks,
     move_training_batch,
 )
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
@@ -54,23 +55,23 @@ class GraphRetrieverInference:
             query_text=request.query_text,
             candidates=request.candidates,
         )
-        batches = build_full_ranking_batches(
+        tasks = materialize_full_ranking_tasks(
             ranking_requests=[text_request],
             graphs=[graph],
             model_config=self.model_config,
             text_embedding_provider=self.text_embedding_provider,
             seed_signal_provider=_PrecomputedGraphRankingSignalProvider(request),
-            batch_size=1,
         )
-        if len(batches) != 1:
-            raise RuntimeError("Expected exactly one full ranking batch.")
+        if len(tasks) != 1:
+            raise RuntimeError("Expected exactly one full ranking task tensor.")
+        cpu_batch = collate_evidence_tasks(tasks)
         with torch.no_grad():
-            batch = move_training_batch(batches[0], self.device)
+            batch = move_training_batch(cpu_batch, self.device)
             logits = self.model(batch).detach().cpu().tolist()
         ranked_nodes = sorted(
             [
                 RankedNode(node_id=node_id, score=float(score))
-                for node_id, score in zip(batches[0].sample_node_ids, logits)
+                for node_id, score in zip(cpu_batch.sample_node_ids, logits)
             ],
             key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
         )

@@ -14,3 +14,5 @@ report/tmp/
 .venv/
 
 .ck/
+
+.pi-subagents/

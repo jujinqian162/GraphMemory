@@ -344,6 +344,7 @@ def materialize_provenance_rgcn_model(
                 model=result.model,
                 optimizer_state_dict=result.optimizer_state_dict,
                 epoch=result.best_epoch,
+                global_step=result.global_step,
                 best_dev_metric=result.best_dev_metric,
                 model_config=result.model_config,
                 training_config=result.training_config,
@@ -377,6 +378,7 @@ def materialize_provenance_rgcn_model(
             metadata={
                 "variant": config.variant,
                 "best_epoch": result.best_epoch,
+                "global_step": result.global_step,
                 "best_dev_metric": result.best_dev_metric,
             },
         )
