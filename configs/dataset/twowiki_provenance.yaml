@@ -16,7 +16,7 @@ splits:
 transform:
   edge_scorer: hybrid
   seed: 13
-  candidate_cap: 32
+  candidate_cap: 64
   dev_fraction: 0.5
   strict: false
   successors_per_output: 2

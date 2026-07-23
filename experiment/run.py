@@ -30,6 +30,8 @@ def main(composed: DictConfig) -> None:
     # Prefect's in-process ephemeral API makes httpx log every request at INFO,
     # which Hydra's INFO root then prints. Silence it; keep prefect progress logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("root").setLevel(logging.WARNING)
+
     config = resolve_experiment_config(
         parse_composed_config(composed),
         repository_root=REPOSITORY_ROOT,
