@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
+from pydantic import ValidationError as PydanticValidationError
+
 from graph_memory.registry.retrieval import RetrievalMethodId
-from graph_memory.graphs.provenance import ProvenanceEdgeType
+from graph_memory.retrieval.contracts import ExecutionProvenanceTrace
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.validation.common import (
     ContractValidationError,
@@ -263,96 +265,19 @@ def _validate_entity_search_trace(
             )
 
 
-def _validate_execution_provenance_trace(trace: dict[str, Any], task_id: str) -> None:
-    _reject_unknown_fields(
-        trace,
-        {"trace_kind", "node_ids", "paths", "edges"},
-        "native trace",
-        task_id,
-    )
-    node_ids = _native_trace_string_list(trace.get("node_ids"), "node_ids", task_id)
-    node_id_set = set(node_ids)
-    edges = _native_trace_records(trace.get("edges"), "edges", task_id)
-    seen_edges: set[tuple[str, str, str]] = set()
-    adjacent_pairs: set[frozenset[str]] = set()
-    for edge in edges:
-        _reject_unknown_fields(
-            edge,
-            {"source", "target", "edge_type", "weight", "binding"},
-            "native trace edge",
-            task_id,
-        )
-        source = _required_string(edge, "source", "native trace edge", task_id)
-        target = _required_string(edge, "target", "native trace edge", task_id)
-        edge_type = _required_string(edge, "edge_type", "native trace edge", task_id)
-        if source not in node_id_set or target not in node_id_set:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} edge endpoint {source}->{target} is unknown."
-            )
-        if source == target:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} edge cannot be a self loop."
-            )
-        try:
-            typed_edge = ProvenanceEdgeType(edge_type)
-        except ValueError as error:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} unsupported edge_type={edge_type}."
-            ) from error
-        edge_key = (source, target, edge_type)
-        if edge_key in seen_edges:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} duplicate edge={edge_key}."
-            )
-        seen_edges.add(edge_key)
-        adjacent_pairs.add(frozenset((source, target)))
-        _required_finite_number(edge, "weight", "native trace edge", task_id, minimum=0.0)
-        binding = edge.get("binding")
-        if typed_edge is ProvenanceEdgeType.FEEDS:
-            _validate_native_trace_binding(binding, task_id)
-        elif binding is not None:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} binding is only valid on feeds edges."
-            )
+def _format_pydantic_error(error: PydanticValidationError) -> str:
+    first = error.errors()[0]
+    location = ".".join(str(part) for part in first["loc"]) or "<root>"
+    return f"{location}: {first['msg']}"
 
-    paths = _native_trace_records(trace.get("paths"), "paths", task_id)
-    seen_paths: set[tuple[str, ...]] = set()
-    score_fields = {
-        "score",
-        "semantic_relevance",
-        "binding_consistency",
-        "provenance_completeness",
-        "explicit_grounding",
-        "path_length_penalty",
-        "invalidation_penalty",
-    }
-    for path in paths:
-        _reject_unknown_fields(
-            path,
-            {"node_ids", *score_fields},
-            "native trace path",
-            task_id,
-        )
-        path_node_ids = _native_trace_string_list(
-            path.get("node_ids"), "path.node_ids", task_id, allow_empty=False
-        )
-        if path_node_ids in seen_paths:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} duplicate path={path_node_ids}."
-            )
-        seen_paths.add(path_node_ids)
-        unknown_nodes = sorted(set(path_node_ids) - node_id_set)
-        if unknown_nodes:
-            raise ContractValidationError(
-                f"Invalid native trace: task_id={task_id} path references unknown nodes={unknown_nodes}."
-            )
-        for source, target in zip(path_node_ids, path_node_ids[1:], strict=False):
-            if frozenset((source, target)) not in adjacent_pairs:
-                raise ContractValidationError(
-                    f"Invalid native trace: task_id={task_id} path step {source}->{target} has no traced edge."
-                )
-        for field_name in score_fields:
-            _required_finite_number(path, field_name, "native trace path", task_id)
+
+def _validate_execution_provenance_trace(trace: dict[str, Any], task_id: str) -> None:
+    try:
+        ExecutionProvenanceTrace.model_validate(trace)
+    except PydanticValidationError as error:
+        raise ContractValidationError(
+            f"Invalid native trace: task_id={task_id} {_format_pydantic_error(error)}."
+        ) from error
 
 
 def _validate_local_intervention_trace(
