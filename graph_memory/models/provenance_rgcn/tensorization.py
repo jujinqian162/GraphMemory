@@ -76,6 +76,7 @@ def tensorize_provenance_task(
             formatted_texts,
             batch_size=config.encoder_batch_size,
             normalize_embeddings=True,
+            show_progress_bar=False,
         ),
         dtype=np.float32,
     )

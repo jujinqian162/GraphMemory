@@ -83,12 +83,14 @@ def build_training_pair_data(
             _provenance_pair_tasks(dataset, tasks, labels),
             ProvenanceNegativeSamplingConfig(**config.sampling.model_dump()),
             dense_config=dense_config,
+            progress_desc="build training pairs",
         )
     else:
         result = build_train_pairs(
             _pair_tasks(dataset, tasks, labels, graphs),
             NegativeSamplingConfig(**config.sampling.model_dump()),
             dense_config=dense_config,
+            progress_desc="build training pairs",
         )
     return cast(list[object], result.pairs), cast(
         dict[str, JsonValue], dict(result.summary)

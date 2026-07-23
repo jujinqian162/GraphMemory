@@ -36,7 +36,11 @@ def build_evidence_graph_data(
     ranking_records = read_json(tasks_path)
     requests = evidence_graph_build_requests_for_dataset(dataset, ranking_records)
     domain_config = DomainGraphBuildConfig(**config.model_dump())
-    graphs = build_graphs(requests, domain_config)
+    graphs = build_graphs(
+        requests,
+        domain_config,
+        progress_desc=f"build evidence graphs ({dataset})",
+    )
     validate_graphs(graphs, requests)
     statistics = graph_statistics(
         graphs,

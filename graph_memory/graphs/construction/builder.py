@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
+from tqdm.auto import tqdm
+
 from graph_memory.contracts.common import EdgeType, JsonValue
 from graph_memory.contracts.graphs import GraphItemNode, GraphNode, EvidenceGraph
 from graph_memory.graphs.config import GraphBuildConfig
@@ -52,9 +54,15 @@ class GraphBuilder:
         }
 
     def build_many(
-        self, requests: list[EvidenceGraphBuildRequest]
+        self,
+        requests: list[EvidenceGraphBuildRequest],
+        *,
+        progress_desc: str | None = None,
     ) -> list[EvidenceGraph]:
-        return [self.build(request) for request in requests]
+        iterator = requests
+        if progress_desc is not None:
+            iterator = tqdm(requests, desc=progress_desc, unit="graph")
+        return [self.build(request) for request in iterator]
 
 
 def default_graph_edge_rules(config: GraphBuildConfig) -> tuple[GraphEdgeRule, ...]:
@@ -67,9 +75,12 @@ def default_graph_edge_rules(config: GraphBuildConfig) -> tuple[GraphEdgeRule, .
 
 
 def build_graphs(
-    requests: list[EvidenceGraphBuildRequest], config: GraphBuildConfig
+    requests: list[EvidenceGraphBuildRequest],
+    config: GraphBuildConfig,
+    *,
+    progress_desc: str | None = None,
 ) -> list[EvidenceGraph]:
-    return GraphBuilder(config).build_many(requests)
+    return GraphBuilder(config).build_many(requests, progress_desc=progress_desc)
 
 
 def _graph_item_node(node: EvidenceGraphBuildNode) -> GraphItemNode:

@@ -5,6 +5,8 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
+from tqdm.auto import tqdm
+
 from graph_memory.contracts.common import TaskId, TrainPairSampleType
 from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
 from graph_memory.retrieval.contracts import SeedRanker
@@ -56,7 +58,12 @@ class TrainPairBuilder:
     config: NegativeSamplingConfig
     samplers: tuple[NegativeSampler, ...]
 
-    def build(self, tasks: Sequence[TrainPairBuildTask]) -> TrainPairBuildResult:
+    def build(
+        self,
+        tasks: Sequence[TrainPairBuildTask],
+        *,
+        progress_desc: str | None = None,
+    ) -> TrainPairBuildResult:
         task_list = list(tasks)
         text_requests = [task.text_request for task in task_list]
         labels_by_task_id = {task.label.task_id: task.label for task in task_list}
@@ -87,7 +94,10 @@ class TrainPairBuilder:
             for sampler in self.samplers
         )
 
-        for task in task_list:
+        task_iterator = task_list
+        if progress_desc is not None:
+            task_iterator = tqdm(task_list, desc=progress_desc, unit="task")
+        for task in task_iterator:
             text_request = task.text_request
             task_id = text_request.task_id
             memory_node_ids = [candidate.item_id for candidate in text_request.candidates]
@@ -156,6 +166,7 @@ def build_train_pairs(
     dense_retriever: SeedRanker | None = None,
     dense_seed_signal_provider: SeedSignalProvider | None = None,
     dense_config: DenseConfig | None = None,
+    progress_desc: str | None = None,
 ) -> TrainPairBuildResult:
     """
     Build validated train pair records from already-projected domain tasks.
@@ -172,7 +183,7 @@ def build_train_pairs(
             dense_config=dense_config,
         ),
     )
-    return builder.build(tasks)
+    return builder.build(tasks, progress_desc=progress_desc)
 
 
 PROVENANCE_NEGATIVE_PRECEDENCE: tuple[TrainPairSampleType, ...] = (
@@ -192,6 +203,7 @@ def build_provenance_train_pairs(
     dense_retriever: SeedRanker | None = None,
     dense_seed_signal_provider: SeedSignalProvider | None = None,
     dense_config: DenseConfig | None = None,
+    progress_desc: str | None = None,
 ) -> TrainPairBuildResult:
     task_list = list(tasks)
     text_requests = [task.text_request for task in task_list]
@@ -225,7 +237,10 @@ def build_provenance_train_pairs(
     source_overlap_by_task: dict[str, dict[str, list[str]]] = {}
     tasks_with_no_positive: list[TaskId] = []
 
-    for task in task_list:
+    task_iterator = task_list
+    if progress_desc is not None:
+        task_iterator = tqdm(task_list, desc=progress_desc, unit="task")
+    for task in task_iterator:
         request = task.text_request
         task_id = request.task_id
         gold_nodes = list(task.label.gold_evidence_item_ids)

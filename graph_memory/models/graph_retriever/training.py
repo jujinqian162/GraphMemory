@@ -94,6 +94,7 @@ def train_graph_retriever(
         model_config=model_config,
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
+        progress_desc="evidence-rgcn train tensors",
     )
     if not train_tasks:
         raise ValueError("Training requires at least one supervised task tensor.")
@@ -104,6 +105,7 @@ def train_graph_retriever(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         labels=dev_labels,
+        progress_desc="evidence-rgcn dev tensors",
     )
     train_loader = build_evidence_dataloader(
         train_tasks,

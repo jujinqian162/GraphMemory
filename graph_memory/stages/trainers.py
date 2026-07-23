@@ -157,6 +157,7 @@ class ProvenanceRgcnMethodTrainer:
                 [self.config.encoder.query_prefix + "dimension probe"],
                 batch_size=1,
                 normalize_embeddings=True,
+                show_progress_bar=False,
             )
         )
         if probe.ndim != 2 or probe.shape[0] != 1:

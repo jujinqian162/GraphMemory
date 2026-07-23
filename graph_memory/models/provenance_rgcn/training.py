@@ -284,7 +284,11 @@ def train_provenance_rgcn(
             encoder=encoder,
             config=model_config,
         )
-        for request in train_requests
+        for request in tqdm(
+            train_requests,
+            desc="provenance-rgcn train tensors",
+            unit="task",
+        )
     ]
     if not train_tasks:
         raise ValueError("Provenance training requires at least one task tensor.")
@@ -292,7 +296,11 @@ def train_provenance_rgcn(
     resolved_dev_labels = dev_labels or train_labels
     dev_tasks = [
         tensorize_provenance_task(request, encoder=encoder, config=model_config)
-        for request in resolved_dev_requests
+        for request in tqdm(
+            resolved_dev_requests,
+            desc="provenance-rgcn dev tensors",
+            unit="task",
+        )
     ]
     generator = torch.Generator()
     generator.manual_seed(training_config.random_seed)

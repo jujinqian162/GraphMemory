@@ -8,6 +8,8 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
+from tqdm.auto import tqdm
+
 from graph_memory.datasets.twowiki import (
     convert_twowiki_example,
     parse_twowiki_example,
@@ -78,6 +80,7 @@ def convert_twowiki_source_records(
     workers: int | None = None,
     dense_ranker_factory: DenseRankerFactory | None = None,
     devices: Sequence[str] | None = None,
+    progress_desc: str | None = None,
 ) -> TwoWikiProvenanceConversionResult:
     if candidate_cap < MINIMUM_CANDIDATES:
         raise ValueError(f"candidate_cap must be at least {MINIMUM_CANDIDATES}.")
@@ -94,6 +97,7 @@ def convert_twowiki_source_records(
             dense_ranker_factory=dense_ranker_factory,
             workers=resolved_workers,
             devices=tuple(devices) if devices else (),
+            progress_desc=progress_desc,
         )
 
     semantic_ranker = ProvenanceSemanticRanker(
@@ -101,7 +105,10 @@ def convert_twowiki_source_records(
     )
     records: list[TwoWikiProvenanceRawRecord] = []
     rejected: Counter[str] = Counter()
-    for index, raw_record in enumerate(raw_records):
+    record_iterator = raw_records
+    if progress_desc is not None:
+        record_iterator = tqdm(raw_records, desc=progress_desc, unit="record")
+    for index, raw_record in enumerate(record_iterator):
         try:
             records.append(
                 convert_twowiki_source_record(
@@ -210,6 +217,7 @@ def _convert_in_parallel(
     dense_ranker_factory: DenseRankerFactory | None,
     workers: int,
     devices: tuple[str, ...],
+    progress_desc: str | None,
 ) -> TwoWikiProvenanceConversionResult:
     if graph_config.strategy != "bm25" and dense_ranker_factory is None:
         raise ValueError(
@@ -235,7 +243,15 @@ def _convert_in_parallel(
         initializer=_init_worker,
         initargs=(worker_config,),
     ) as pool:
-        for chunk_records, chunk_rejected in pool.map(_convert_chunk, chunks):
+        chunk_results = pool.map(_convert_chunk, chunks)
+        if progress_desc is not None:
+            chunk_results = tqdm(
+                chunk_results,
+                total=chunk_count,
+                desc=progress_desc,
+                unit="chunk",
+            )
+        for chunk_records, chunk_rejected in chunk_results:
             records.extend(chunk_records)
             rejected.update(chunk_rejected)
     records.sort(key=lambda record: record["ranking"]["task_id"])

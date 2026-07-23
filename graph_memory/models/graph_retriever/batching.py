@@ -9,6 +9,7 @@ from typing import Literal, cast
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from graph_memory.contracts.common import TaskId, TrainPairSampleType
 from graph_memory.contracts.graphs import EvidenceGraph
@@ -85,6 +86,7 @@ def materialize_training_tasks(
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
+    progress_desc: str | None = None,
 ) -> list[EvidenceTaskTensor]:
     """Materialize one CPU tensor per supervised evidence task."""
 
@@ -107,6 +109,7 @@ def materialize_training_tasks(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         include_all_memory_nodes=False,
+        progress_desc=progress_desc,
     )
 
 
@@ -118,6 +121,7 @@ def materialize_full_ranking_tasks(
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     labels: list[EvidenceLabel] | None = None,
+    progress_desc: str | None = None,
 ) -> list[EvidenceTaskTensor]:
     """Materialize ordered CPU tensors for full evidence ranking."""
 
@@ -140,6 +144,7 @@ def materialize_full_ranking_tasks(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         include_all_memory_nodes=True,
+        progress_desc=progress_desc,
     )
 
 
@@ -264,6 +269,7 @@ def _materialize_tasks(
     text_embedding_provider: TextEmbeddingProvider,
     seed_signal_provider: SeedSignalProvider,
     include_all_memory_nodes: bool,
+    progress_desc: str | None,
 ) -> list[EvidenceTaskTensor]:
     if not tasks:
         return []
@@ -284,9 +290,17 @@ def _materialize_tasks(
         model_config=model_config,
         include_all_memory_nodes=include_all_memory_nodes,
     )
+    task_features = zip(tasks, dense_features_by_task, strict=True)
+    if progress_desc is not None:
+        task_features = tqdm(
+            task_features,
+            total=len(tasks),
+            desc=progress_desc,
+            unit="task",
+        )
     return [
         builder(task=task, dense_features=dense_features)
-        for task, dense_features in zip(tasks, dense_features_by_task, strict=True)
+        for task, dense_features in task_features
     ]
 
 

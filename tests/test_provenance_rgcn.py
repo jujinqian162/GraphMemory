@@ -108,6 +108,15 @@ class CountingTinyEncoder(TinyEncoder):
         return super().encode(*args, **kwargs)
 
 
+class ProgressRecordingTinyEncoder(TinyEncoder):
+    def __init__(self) -> None:
+        self.show_progress_bars: list[bool] = []
+
+    def encode(self, *args, **kwargs):
+        self.show_progress_bars.append(kwargs["show_progress_bar"])
+        return super().encode(*args, **kwargs)
+
+
 class OrderedRanker:
     def __init__(self, *, reverse: bool = False) -> None:
         self.reverse = reverse
@@ -146,6 +155,15 @@ def test_tensorizer_and_model_preserve_full_typed_graph() -> None:
     )
     assert output.candidate_logits.shape == (len(request.candidates),)
     assert output.edge_logits.shape == (len(tensor.logical_transitions),)
+
+
+def test_provenance_tensorization_disables_encoder_batch_progress() -> None:
+    request, _label = _request_and_label()
+    encoder = ProgressRecordingTinyEncoder()
+
+    tensorize_provenance_task(request, encoder=encoder, config=_model_config())
+
+    assert encoder.show_progress_bars == [False]
 
 
 def test_disconnected_union_matches_separate_provenance_forwards() -> None:

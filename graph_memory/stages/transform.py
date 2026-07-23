@@ -205,7 +205,9 @@ def materialize_transform_twowiki(
         dense_ranker_factory = None
         devices = ()
 
-    def _convert(source: FileSourceRef) -> TwoWikiProvenanceConversionResult:
+    def _convert(
+        source: FileSourceRef, *, split: str
+    ) -> TwoWikiProvenanceConversionResult:
         return convert_twowiki_source_records(
             _record_list(Path(source.uri)),
             candidate_cap=config.candidate_cap,
@@ -216,10 +218,11 @@ def materialize_transform_twowiki(
             workers=workers,
             dense_ranker_factory=dense_ranker_factory,
             devices=devices,
+            progress_desc=f"transform twowiki provenance ({split})",
         )
 
-    train_conversion = _convert(train_source)
-    dev_conversion = _convert(dev_source)
+    train_conversion = _convert(train_source, split="train")
+    dev_conversion = _convert(dev_source, split="dev")
     dev_records, test_records = deterministic_dev_test_partition(
         dev_conversion.records,
         seed=config.seed,
