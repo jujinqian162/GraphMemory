@@ -44,11 +44,13 @@ def transform_version_tag(
     *,
     schema_version: int,
     encoder_digest: str | None = None,
+    split_seed: int = 13,
 ) -> str:
     payload = {
         "schema_version": schema_version,
         "transform": config.identity(),
         "encoder_digest": encoder_digest,
+        "split_seed": split_seed,
     }
     encoded = json.dumps(
         payload,
@@ -173,9 +175,13 @@ def materialize_transform_twowiki(
     repository_root: Path,
     encoder_digest: str | None = None,
     device: str = "cpu",
+    split_seed: int = 13,
 ) -> TwoWikiProvenanceTransformResult:
     version_tag = transform_version_tag(
-        config, schema_version=schema_version, encoder_digest=encoder_digest
+        config,
+        schema_version=schema_version,
+        encoder_digest=encoder_digest,
+        split_seed=split_seed,
     )
     version_dir = output_root / version_tag
     existing = _existing_result(
@@ -223,9 +229,12 @@ def materialize_transform_twowiki(
 
     train_conversion = _convert(train_source, split="train")
     dev_conversion = _convert(dev_source, split="dev")
+    # The dev/test boundary uses the fixed split_seed so the provenance test
+    # partition stays identical across training seeds and methods. The
+    # conversion-internal shuffles above keep using config.seed.
     dev_records, test_records = deterministic_dev_test_partition(
         dev_conversion.records,
-        seed=config.seed,
+        seed=split_seed,
         dev_fraction=config.dev_fraction,
     )
 

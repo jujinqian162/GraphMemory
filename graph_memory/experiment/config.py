@@ -675,6 +675,7 @@ class ExperimentConfig(ClosedModel):
     profile: ProfileConfig
     method: MethodConfig
     seed: ScientificInt
+    split_seed: ScientificInt = 13
     device: Device
     top_k: PositiveInt
     cache: CacheConfig
@@ -718,6 +719,7 @@ class ResolvedExperimentConfig(ClosedModel):
     profile: str
     method: MethodConfig
     seed: ScientificInt
+    split_seed: ScientificInt = 13
     device: Device
     top_k: PositiveInt
     cache: CacheConfig
@@ -799,6 +801,7 @@ def resolve_experiment_config(
         profile=config.profile.name,
         method=config.method,
         seed=config.seed,
+        split_seed=config.split_seed,
         device=config.device,
         top_k=config.top_k,
         cache=config.cache,

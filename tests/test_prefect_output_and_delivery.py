@@ -91,8 +91,13 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
     ) as publisher:
         write_json(publisher.workspace / "metrics.json", [metric_row])
         write_jsonl(publisher.workspace / "failure_cases.jsonl", [])
+        write_jsonl(publisher.workspace / "per_task.jsonl", [])
         evaluation_ref = publisher.publish(
-            {"metrics": "metrics.json", "failure_cases": "failure_cases.jsonl"}
+            {
+                "metrics": "metrics.json",
+                "failure_cases": "failure_cases.jsonl",
+                "per_task": "per_task.jsonl",
+            }
         )
     assert isinstance(evaluation_ref, EvaluationArtifactRef)
 
@@ -106,6 +111,7 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         method="bm25",
         artifact=evaluation_ref,
         metric_rows=(metric_row,),
+        per_task_rows=(),
         failure_case_count=0,
     )
     return FinalExperimentResult(

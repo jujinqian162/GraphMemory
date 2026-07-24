@@ -6,7 +6,7 @@ from typing import cast
 from pydantic import JsonValue
 
 from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.metrics import FailureCase, MetricRow
+from graph_memory.contracts.metrics import FailureCase, MetricRow, PerTaskMetricRow
 from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
 from graph_memory.evaluation.suites import evidence_metric_suite
@@ -31,6 +31,7 @@ from graph_memory.validation import validate_metric_rows
 class EvaluateStageResult:
     metric_rows: list[MetricRow]
     failure_cases: list[FailureCase]
+    per_task_rows: list[PerTaskMetricRow]
 
 
 def run_evaluate_stage(
@@ -49,14 +50,18 @@ def run_evaluate_stage(
         graphs=graphs,
     )
     suite = evidence_metric_suite()
-    metric_rows = suite.evaluate(request)
+    metric_rows, per_task_rows = suite.evaluate_with_per_task(request)
     failure_cases = suite.build_failure_cases(
         request,
         top_k=top_k,
         limit=failure_case_limit,
     )
     validate_metric_rows(metric_rows)
-    return EvaluateStageResult(metric_rows=metric_rows, failure_cases=failure_cases)
+    return EvaluateStageResult(
+        metric_rows=metric_rows,
+        failure_cases=failure_cases,
+        per_task_rows=per_task_rows,
+    )
 
 
 def materialize_evaluation(
@@ -115,14 +120,17 @@ def materialize_evaluation(
             WIDE_METRIC_COLUMNS,
         )
         write_jsonl(publisher.workspace / "failure_cases.jsonl", result.failure_cases)
+        write_jsonl(publisher.workspace / "per_task.jsonl", result.per_task_rows)
         artifact = publisher.publish(
             {
                 "metrics": "metrics.csv",
                 "failure_cases": "failure_cases.jsonl",
+                "per_task": "per_task.jsonl",
             },
             shape={
                 "metric_rows": len(result.metric_rows),
                 "failure_cases": len(result.failure_cases),
+                "per_task_rows": len(result.per_task_rows),
             },
         )
     assert isinstance(artifact, EvaluationArtifactRef)
@@ -131,6 +139,9 @@ def materialize_evaluation(
         artifact=artifact,
         metric_rows=tuple(
             cast(dict[str, JsonValue], dict(row)) for row in result.metric_rows
+        ),
+        per_task_rows=tuple(
+            cast(dict[str, JsonValue], dict(row)) for row in result.per_task_rows
         ),
         failure_case_count=len(result.failure_cases),
     )

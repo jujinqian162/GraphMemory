@@ -454,6 +454,7 @@ def _transform_split_sources(
         dev_source=dev_source,
         config=transform,
         encoder_source=encoder_source,
+        split_seed=config.split_seed,
     )
     return {"train": result.train, "dev": result.dev, "test": result.test}
 
@@ -476,12 +477,17 @@ def _prepare_config(
     split: SplitName,
 ) -> PrepareSplitConfig:
     split_config = config.dataset.splits[split]
+    # The test split must stay identical across training seeds and methods, so
+    # it is sampled with a dedicated fixed split_seed decoupled from config.seed.
+    # Train/dev keep using config.seed so trainable methods still receive
+    # seed-dependent training and validation data across seeds.
+    sampling_seed = config.split_seed if split == "test" else config.seed
     return PrepareSplitConfig(
         dataset=config.dataset.name,
         split=split,
         count=split_config.count,
         offset=split_config.offset,
-        seed=config.seed,
+        seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
     )
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from graph_memory.contracts.common import NodeId
 from graph_memory.contracts.graphs import EvidenceGraph
@@ -9,6 +9,7 @@ from graph_memory.contracts.metrics import (
     FailureCase,
     MetricRow,
     MetricTableRow,
+    PerTaskMetricRow,
     TaskMetricRow,
 )
 from graph_memory.evaluation.connectivity import (
@@ -69,6 +70,17 @@ class EvidenceMetricSuite:
     name: str = "evidence"
 
     def evaluate(self, request: EvidenceEvaluationRequest) -> list[MetricRow]:
+        aggregate_rows, _ = self._evaluate_impl(request)
+        return aggregate_rows
+
+    def evaluate_with_per_task(
+        self, request: EvidenceEvaluationRequest
+    ) -> tuple[list[MetricRow], list[PerTaskMetricRow]]:
+        return self._evaluate_impl(request)
+
+    def _evaluate_impl(
+        self, request: EvidenceEvaluationRequest
+    ) -> tuple[list[MetricRow], list[PerTaskMetricRow]]:
         prediction_task_ids = {
             prediction["task_id"] for prediction in request.predictions
         }
@@ -102,6 +114,7 @@ class EvidenceMetricSuite:
         considered_source_count = 0
 
         per_task_rows: list[TaskMetricRow] = []
+        per_task_metric_rows: list[PerTaskMetricRow] = []
         for prediction in request.predictions:
             task_id = prediction["task_id"]
             ranked_node_ids = [
@@ -120,9 +133,7 @@ class EvidenceMetricSuite:
                     for edge in prediction["retrieved_subgraph"]["edges"]
                     if edge["source"] in top_ten and edge["target"] in top_ten
                 }
-                edge_true_positive_count += len(
-                    predicted_edges & gold_dependency_edges
-                )
+                edge_true_positive_count += len(predicted_edges & gold_dependency_edges)
                 predicted_edge_count += len(predicted_edges)
                 gold_edge_count += len(gold_dependency_edges)
                 path_recall_values.append(
@@ -138,47 +149,50 @@ class EvidenceMetricSuite:
                 abstained, considered = _abstention_counts(prediction)
                 abstained_source_count += abstained
                 considered_source_count += considered
-            per_task_rows.append(
-                {
-                    "Recall@2": recall_at(ranked_node_ids, gold_nodes, 2),
-                    "Recall@5": recall_at(ranked_node_ids, gold_nodes, 5),
-                    "Recall@10": recall_at(ranked_node_ids, gold_nodes, 10),
-                    "Evidence F1@5": evidence_f1_at(ranked_node_ids, gold_nodes, 5),
-                    "Evidence F1@10": evidence_f1_at(ranked_node_ids, gold_nodes, 10),
-                    "Full Support@5": full_support_at(ranked_node_ids, gold_nodes, 5),
-                    "Full Support@10": full_support_at(ranked_node_ids, gold_nodes, 10),
-                    "MRR": mrr(ranked_node_ids, gold_nodes),
-                    "Connected Evidence Recall@5": (
-                        connected_evidence_at(ranked_node_ids, gold_nodes, graph, 5)
-                        if graph is not None
-                        else 0.0
-                    ),
-                    "Connected Evidence Recall@10": (
-                        connected_evidence_at(ranked_node_ids, gold_nodes, graph, 10)
-                        if graph is not None
-                        else 0.0
-                    ),
-                    "Query-Evidence Connectivity@10": (
-                        query_evidence_connectivity_at(
-                            ranked_node_ids,
-                            gold_nodes,
-                            graph,
-                            10,
-                        )
-                        if graph is not None
-                        else 0.0
-                    ),
-                    "Retrieval Latency / Query": float(prediction["latency_ms"]),
-                    "Memory Size": (
-                        float(_memory_node_count(graph)) if graph is not None else 0.0
-                    ),
-                    "Avg Retrieved Nodes": float(
-                        len(prediction["retrieved_subgraph"]["nodes"])
-                    ),
-                    "Avg Retrieved Edges": float(
-                        len(prediction["retrieved_subgraph"]["edges"])
-                    ),
-                }
+            task_row: TaskMetricRow = {
+                "Recall@2": recall_at(ranked_node_ids, gold_nodes, 2),
+                "Recall@5": recall_at(ranked_node_ids, gold_nodes, 5),
+                "Recall@10": recall_at(ranked_node_ids, gold_nodes, 10),
+                "Evidence F1@5": evidence_f1_at(ranked_node_ids, gold_nodes, 5),
+                "Evidence F1@10": evidence_f1_at(ranked_node_ids, gold_nodes, 10),
+                "Full Support@5": full_support_at(ranked_node_ids, gold_nodes, 5),
+                "Full Support@10": full_support_at(ranked_node_ids, gold_nodes, 10),
+                "MRR": mrr(ranked_node_ids, gold_nodes),
+                "Connected Evidence Recall@5": (
+                    connected_evidence_at(ranked_node_ids, gold_nodes, graph, 5)
+                    if graph is not None
+                    else 0.0
+                ),
+                "Connected Evidence Recall@10": (
+                    connected_evidence_at(ranked_node_ids, gold_nodes, graph, 10)
+                    if graph is not None
+                    else 0.0
+                ),
+                "Query-Evidence Connectivity@10": (
+                    query_evidence_connectivity_at(
+                        ranked_node_ids,
+                        gold_nodes,
+                        graph,
+                        10,
+                    )
+                    if graph is not None
+                    else 0.0
+                ),
+                "Retrieval Latency / Query": float(prediction["latency_ms"]),
+                "Memory Size": (
+                    float(_memory_node_count(graph)) if graph is not None else 0.0
+                ),
+                "Avg Retrieved Nodes": float(
+                    len(prediction["retrieved_subgraph"]["nodes"])
+                ),
+                "Avg Retrieved Edges": float(
+                    len(prediction["retrieved_subgraph"]["edges"])
+                ),
+            }
+            per_task_rows.append(task_row)
+            per_task_row: dict[str, object] = {"task_id": task_id, **task_row}
+            per_task_metric_rows.append(
+                cast(PerTaskMetricRow, cast(object, per_task_row))
             )
 
         aggregate_row: MetricRow = {
@@ -252,7 +266,7 @@ class EvidenceMetricSuite:
             aggregate_row["Connected Evidence Recall@10"] = "N/A"
             aggregate_row["Query-Evidence Connectivity@10"] = "N/A"
             aggregate_row["Memory Size"] = "N/A"
-        return [aggregate_row]
+        return [aggregate_row], per_task_metric_rows
 
     def validate_metric_rows(self, rows: object) -> None:
         validate_evidence_metric_rows(rows)
@@ -355,9 +369,7 @@ def _abstention_counts(prediction: object) -> tuple[int, int]:
         for item in transitions
         if isinstance(item, dict) and isinstance(item.get("source_id"), str)
     }
-    abstained_sources = {
-        source for source in abstained if isinstance(source, str)
-    }
+    abstained_sources = {source for source in abstained if isinstance(source, str)}
     return len(abstained_sources & considered_sources), len(considered_sources)
 
 

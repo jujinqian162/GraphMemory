@@ -60,6 +60,7 @@ class EvaluationResult(_StageResult):
     method: str = Field(min_length=1)
     artifact: EvaluationArtifactRef
     metric_rows: tuple[dict[str, JsonValue], ...]
+    per_task_rows: tuple[dict[str, JsonValue], ...] = ()
     failure_case_count: int = Field(ge=0)
 
 

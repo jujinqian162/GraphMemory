@@ -106,6 +106,7 @@ def transform_twowiki_task(
     dev_source: FileSourceRef,
     config: TwoWikiProvenanceTransformConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef | None,
+    split_seed: int,
     schema_version: int = TWOWIKI_PROVENANCE_SCHEMA_VERSION,
 ) -> TwoWikiProvenanceTransformResult:
     get_run_logger().info(
@@ -125,6 +126,7 @@ def transform_twowiki_task(
         output_root=TWOWIKI_PROVENANCE_RAW_ROOT,
         repository_root=REPOSITORY_ROOT,
         encoder_digest=encoder_digest,
+        split_seed=split_seed,
     )
 
 

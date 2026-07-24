@@ -60,6 +60,31 @@ TaskMetricRow = TypedDict(
     },
 )
 
+# Per-task metric row keyed by task_id. Same node-ranking metrics as the
+# aggregate row, retained per query so paired-bootstrap statistics can align
+# methods and seeds by task_id without recomputing rankings.
+PerTaskMetricRow = TypedDict(
+    "PerTaskMetricRow",
+    {
+        "task_id": str,
+        "Recall@2": float,
+        "Recall@5": float,
+        "Recall@10": float,
+        "Evidence F1@5": float,
+        "Evidence F1@10": float,
+        "Full Support@5": float,
+        "Full Support@10": float,
+        "MRR": float,
+        "Connected Evidence Recall@5": float,
+        "Connected Evidence Recall@10": float,
+        "Query-Evidence Connectivity@10": float,
+        "Retrieval Latency / Query": float,
+        "Memory Size": float,
+        "Avg Retrieved Nodes": float,
+        "Avg Retrieved Edges": float,
+    },
+)
+
 
 class FailureCase(TypedDict):
     debug_type: str
@@ -78,5 +103,6 @@ __all__ = [
     "MetricSuiteRow",
     "MetricTableRow",
     "MetricValue",
+    "PerTaskMetricRow",
     "TaskMetricRow",
 ]

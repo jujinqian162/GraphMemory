@@ -107,6 +107,10 @@ def project_run_output(
     debug_target = destination / "debug" / "failure_cases.jsonl"
     debug_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(failure_cases, debug_target)
+    per_task = artifact_payload_path(result.evaluation.artifact, "per_task")
+    per_task_target = destination / "metrics" / "per_task.jsonl"
+    per_task_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(per_task, per_task_target)
     write_yaml_atomic(
         destination / "workflow" / "ranking_origin.yaml",
         {

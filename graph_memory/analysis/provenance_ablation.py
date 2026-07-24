@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import random
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+
+from graph_memory.analysis.paired_bootstrap import bootstrap_ci
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,7 @@ def analyze_provenance_ablation_rows(
                     if metric.startswith("Full Support@"):
                         baseline_only += int(baseline_value == 1.0 and ablation_value == 0.0)
                         ablation_only += int(baseline_value == 0.0 and ablation_value == 1.0)
-            mean_delta, lower, upper = _bootstrap_interval(
+            mean_delta, lower, upper = bootstrap_ci(
                 query_deltas,
                 samples=bootstrap_samples,
                 seed=bootstrap_seed,
@@ -165,25 +166,6 @@ def _mean_std(values: Sequence[float]) -> dict[str, float]:
         "mean": statistics.fmean(values) if values else 0.0,
         "std": statistics.stdev(values) if len(values) > 1 else 0.0,
     }
-
-
-def _bootstrap_interval(
-    values: Sequence[float],
-    *,
-    samples: int,
-    seed: int,
-) -> tuple[float, float, float]:
-    if not values:
-        return 0.0, 0.0, 0.0
-    if samples <= 0:
-        raise ValueError("bootstrap_samples must be positive.")
-    rng = random.Random(seed)
-    means = sorted(
-        statistics.fmean(rng.choice(values) for _ in values) for _ in range(samples)
-    )
-    lower_index = max(0, int(0.025 * samples) - 1)
-    upper_index = min(samples - 1, int(0.975 * samples))
-    return statistics.fmean(values), means[lower_index], means[upper_index]
 
 
 __all__ = ["analyze_provenance_ablation_rows"]

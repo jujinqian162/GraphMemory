@@ -348,6 +348,31 @@ def test_generated_bindings_match_source_field_hash_and_target_input() -> None:
         assert binding["input_parameter"] in target_inputs
 
 
+def test_dev_test_partition_is_fixed_by_split_seed() -> None:
+    records = convert_twowiki_source_records(
+        [_source_example(str(index)) for index in range(8)],
+        candidate_cap=6,
+        seed=7,
+    ).records
+    # The dev/test boundary is a pure function of the split seed, independent of
+    # the conversion seed. The workflow passes the fixed split_seed here so the
+    # provenance test partition stays identical across training seeds.
+    dev_a, test_a = deterministic_dev_test_partition(records, seed=13)
+    dev_b, test_b = deterministic_dev_test_partition(records, seed=13)
+    assert [r["ranking"]["task_id"] for r in test_a] == [
+        r["ranking"]["task_id"] for r in test_b
+    ]
+    assert [r["ranking"]["task_id"] for r in dev_a] == [
+        r["ranking"]["task_id"] for r in dev_b
+    ]
+    # A different split seed is allowed to move the boundary, proving the
+    # partition truly derives from the seed argument.
+    _, test_other = deterministic_dev_test_partition(records, seed=41)
+    assert {r["ranking"]["task_id"] for r in test_a} != {
+        r["ranking"]["task_id"] for r in test_other
+    }
+
+
 def test_flat_projection_and_split_partition_preserve_identity() -> None:
     records = convert_twowiki_source_records(
         [_source_example(str(index)) for index in range(6)],
