@@ -46,6 +46,9 @@ def _parse_documents(raw_documents: Sequence[object], *, raw_id: str) -> list[Ho
                 raise ValueError(
                     f"HotpotQA example _id={raw_id} title={raw_title} sentence_id={sentence_id} must be text."
                 )
+            if not raw_sentence:
+                location = f"HotpotQA example _id={raw_id} title={raw_title} sentence_id={sentence_id}"
+                raise ValueError(f"{location} must be a non-empty string.")
             sentences.append(raw_sentence)
         documents.append(HotpotQADocument(title=raw_title, sentences=tuple(sentences)))
     return documents
