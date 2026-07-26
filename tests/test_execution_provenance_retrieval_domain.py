@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 import pytest
@@ -22,12 +23,12 @@ from graph_memory.registry.retrieval import (
     ExecutionProvenanceRetrievalSettings,
     RetrievalMethodId,
 )
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceConfig,
-    ExecutionProvenanceRetriever,
-)
-from graph_memory.retrieval.methods.execution_provenance.search import (
-    search_provenance_paths,
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetriever,
+    EpgmRetrieverConfig,
+    EpgmVariant,
+    effective_edge_weights,
+    search_epgm_paths,
 )
 from graph_memory.retrieval.contracts import (
     GraphRAGTrace,
@@ -433,9 +434,10 @@ def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
     request = ExecutionProvenanceRankingRequest(
         "task-1", "Alpha answer", _candidates(), graph
     )
-    method = ExecutionProvenanceRetriever(
+    method = EpgmRetriever(
         dense_ranker=_dense_ranker(),
-        config=ExecutionProvenanceConfig(
+        config=EpgmRetrieverConfig.for_variant(
+            "dependency_path",
             seed_top_s=4,
             max_hops=2,
             preserve_dense_top_n=0,
@@ -461,9 +463,10 @@ def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
 
 def test_provenance_local_path_promotes_partner_and_uses_confidence_once() -> None:
     request = _local_provenance_request()
-    method = ExecutionProvenanceRetriever(
+    method = EpgmRetriever(
         dense_ranker=_local_dense_ranker(),
-        config=ExecutionProvenanceConfig(
+        config=EpgmRetrieverConfig.for_variant(
+            "dependency_path",
             seed_top_s=1,
             min_path_confidence=0.2,
             preserve_dense_top_n=2,
@@ -495,9 +498,10 @@ def test_provenance_binding_failure_abstains_to_exact_dense_objects() -> None:
     dense = ranker.rank(
         TextRankingRequest(request.task_id, request.query_text, request.candidates)
     )
-    method = ExecutionProvenanceRetriever(
+    method = EpgmRetriever(
         dense_ranker=ranker,
-        config=ExecutionProvenanceConfig(
+        config=EpgmRetrieverConfig.for_variant(
+            "dependency_path",
             seed_top_s=1,
             min_path_confidence=0.0,
             preserve_dense_top_n=2,
@@ -519,18 +523,24 @@ def test_provenance_expansion_does_not_reverse_incoming_dependencies() -> None:
         "task-1", "Alpha answer", _candidates(), _provenance_graph()
     )
 
-    paths = search_provenance_paths(
-        request,
+    paths = search_epgm_paths(
+        request.graph,
         ("out-2",),
-        config=ExecutionProvenanceConfig(beam_width=2, max_hops=2),
+        {"out-2": 1.0},
+        candidate_ids=frozenset(
+            candidate.item_id for candidate in request.candidates
+        ),
+        config=EpgmRetrieverConfig.for_variant(
+            "dependency_path", beam_width=2, max_hops=2
+        ),
     )
 
-    assert all("out-1" not in path.path.node_ids for path in paths)
+    assert all("out-1" not in path.node_ids for path in paths)
 
 
 def test_provenance_config_rejects_empty_beam() -> None:
     with pytest.raises(ValueError, match="beam_width"):
-        ExecutionProvenanceConfig(beam_width=0)
+        EpgmRetrieverConfig(beam_width=0)
 
 
 def test_registry_builds_provenance_method_from_native_payload() -> None:
@@ -552,3 +562,302 @@ def test_registry_builds_provenance_method_from_native_payload() -> None:
 
     assert built.provenance.method is RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER
     assert built.execution_tasks[0].method_request is request
+
+
+def test_registry_default_epgm_config_is_the_typed_beam_preset() -> None:
+    settings = ExecutionProvenanceRetrievalSettings(
+        top_k=3,
+        encoder=DenseEncoderSettings("keyword", "", "", 8),
+    )
+
+    assert settings.config == EpgmRetrieverConfig.for_variant("typed_beam")
+    assert settings.config.gating == "none"
+    assert settings.config.fusion == "additive"
+
+
+def test_epgm_variant_presets_differ_only_by_declared_axes() -> None:
+    typed_beam = EpgmRetrieverConfig.for_variant("typed_beam")
+    dependency_path = EpgmRetrieverConfig.for_variant("dependency_path")
+
+    assert (typed_beam.traversal, typed_beam.edge_scope) == (
+        "bidirectional",
+        "typed",
+    )
+    assert (dependency_path.traversal, dependency_path.edge_scope) == (
+        "directed",
+        "dependency",
+    )
+    assert dependency_path.gating == "schema"
+    assert dependency_path.fusion == "stable_insert"
+    with pytest.raises(ValueError, match="unknown EPGM variant"):
+        EpgmRetrieverConfig.for_variant(cast(EpgmVariant, cast(object, "does_not_exist")))
+
+
+def _revision_request() -> ExecutionProvenanceRankingRequest:
+    """An audit graph with no feeds/returns backbone at all.
+
+    A verification contradicts an earlier claim. This is the structure the
+    dependency-path preset cannot use: its walk is restricted to dependency
+    edges and its gate demands one feeds plus one returns edge, so the
+    overturned claim is unreachable.
+    """
+
+    nodes = (
+        ExecutionProvenanceNode(
+            "verify", ProvenanceNodeType.VERIFICATION, "verification alpha check"
+        ),
+        ExecutionProvenanceNode(
+            "claim-old",
+            ProvenanceNodeType.CLAIM,
+            "obsolete unrelated wording",
+            {"lifecycle_state": "invalidated"},
+        ),
+        ExecutionProvenanceNode("noise", ProvenanceNodeType.CLAIM, "noise one"),
+    )
+    edges = (
+        ExecutionProvenanceEdge(
+            "verify", "claim-old", ProvenanceEdgeType.CONTRADICTS
+        ),
+    )
+    return ExecutionProvenanceRankingRequest(
+        "revision-task",
+        "alpha",
+        (
+            TextCandidate("verify", "verification alpha check", {}),
+            TextCandidate("claim-old", "obsolete unrelated wording", {}),
+            TextCandidate("noise", "noise one", {}),
+        ),
+        ExecutionProvenanceGraph("revision-task", nodes, edges),
+    )
+
+
+def test_typed_beam_reaches_invalidated_claim_that_dependency_path_cannot() -> None:
+    request = _revision_request()
+
+    def graph_scores(variant: EpgmVariant) -> dict[str, float]:
+        method = EpgmRetriever(
+            dense_ranker=_dense_ranker(),
+            config=EpgmRetrieverConfig.for_variant(variant),
+        )
+        return {
+            node.node_id: node.graph_score for node in method.rank(request).ranked_nodes
+        }
+
+    typed_beam = graph_scores("typed_beam")
+    dependency_path = graph_scores("dependency_path")
+
+    # the overturned claim is only reachable when audit edges are traversable
+    assert typed_beam["claim-old"] > 0.0
+    assert dependency_path["claim-old"] == 0.0
+    assert all(score == 0.0 for score in dependency_path.values())
+
+
+def test_dependency_path_gate_rejects_audit_only_paths_with_a_reason() -> None:
+    request = _revision_request()
+    method = EpgmRetriever(
+        dense_ranker=_dense_ranker(),
+        config=EpgmRetrieverConfig.for_variant(
+            "dependency_path", edge_scope="typed", traversal="bidirectional"
+        ),
+    )
+
+    result = method.rank_task(request, top_k=3)
+    trace = result.trace.native_trace
+
+    assert isinstance(trace, StatelessExecutionProvenanceTrace)
+    assert trace.variant == "dependency_path"
+    assert trace.paths
+    assert not any(path.accepted for path in trace.paths)
+    assert {path.rejection_reason for path in trace.paths} == {"incomplete_path"}
+    assert result.trace.retrieved_edges == []
+
+
+def test_stable_insert_preserves_dense_score_multiset_but_additive_rescores() -> None:
+    request = _local_provenance_request()
+    ranker = _local_dense_ranker()
+    dense = ranker.rank(
+        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+    )
+    dense_scores = sorted((node.score for node in dense), reverse=True)
+
+    stable = EpgmRetriever(
+        dense_ranker=ranker,
+        config=EpgmRetrieverConfig.for_variant("dependency_path", seed_top_s=1),
+    ).rank_task(request, top_k=4)
+    additive = EpgmRetriever(
+        dense_ranker=ranker,
+        config=EpgmRetrieverConfig.for_variant("typed_beam"),
+    ).rank_task(request, top_k=4)
+
+    # stable insertion only permutes node ids; scores are the dense slots
+    assert sorted(
+        (node.score for node in stable.ranked_nodes), reverse=True
+    ) == pytest.approx(dense_scores)
+    # additive fusion emits fused scores, so it is not multiset-preserving
+    assert sorted(
+        (node.score for node in additive.ranked_nodes), reverse=True
+    ) != pytest.approx(dense_scores)
+    for result in (stable, additive):
+        assert len(result.ranked_nodes) == len(request.candidates)
+        assert [node.score for node in result.ranked_nodes] == sorted(
+            (node.score for node in result.ranked_nodes), reverse=True
+        )
+
+
+def test_additive_fusion_never_demotes_a_dense_hit() -> None:
+    request = _local_provenance_request()
+    ranker = _local_dense_ranker()
+    dense = ranker.rank(
+        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+    )
+    dense_rank = {node.node_id: index for index, node in enumerate(dense, start=1)}
+
+    result = EpgmRetriever(
+        dense_ranker=ranker, config=EpgmRetrieverConfig.for_variant("typed_beam")
+    ).rank_task(request, top_k=4)
+
+    top_dense = dense[0].node_id
+    final_rank = {
+        node.node_id: index for index, node in enumerate(result.ranked_nodes, start=1)
+    }
+    # graph propagation is additive on top of dense relevance, so the strongest
+    # dense hit cannot be pushed below a node it already outranked
+    assert final_rank[top_dense] == dense_rank[top_dense] == 1
+
+
+def _weighted_feeds_graph(
+    weights: tuple[float, float, float],
+) -> ExecutionProvenanceGraph:
+    """A feeds/returns backbone whose recorded feeds weights are configurable.
+
+    This is the shape a scorer-calibrated synthetic provenance graph has: the
+    `feeds` weights carry a real measurement while the structural `returns`
+    edges are a constant 1.0.
+    """
+
+    binding = FieldBinding(
+        output_field="evidence",
+        input_parameter="context",
+        binding_value_hash="a" * 8,
+        binding_kind="semantic_reference",
+    )
+    nodes = tuple(
+        ExecutionProvenanceNode(node_id, node_type, f"text for {node_id}", {})
+        for node_id, node_type in (
+            ("out_a", ProvenanceNodeType.TOOL_OUTPUT),
+            ("out_b", ProvenanceNodeType.TOOL_OUTPUT),
+            ("out_c", ProvenanceNodeType.TOOL_OUTPUT),
+            ("call_a", ProvenanceNodeType.TOOL_CALL),
+            ("call_b", ProvenanceNodeType.TOOL_CALL),
+            ("call_c", ProvenanceNodeType.TOOL_CALL),
+        )
+    )
+    feeds = tuple(
+        ExecutionProvenanceEdge(
+            source=source,
+            target=target,
+            edge_type=ProvenanceEdgeType.FEEDS,
+            binding=binding,
+            weight=weight,
+            metadata={},
+        )
+        for (source, target), weight in zip(
+            (("out_a", "call_a"), ("out_b", "call_b"), ("out_c", "call_c")),
+            weights,
+            strict=True,
+        )
+    )
+    returns = tuple(
+        ExecutionProvenanceEdge(
+            source=source,
+            target=target,
+            edge_type=ProvenanceEdgeType.RETURNS,
+            binding=None,
+            weight=1.0,
+            metadata={},
+        )
+        for source, target in (("call_a", "out_b"), ("call_b", "out_c"))
+    )
+    return ExecutionProvenanceGraph(
+        task_id="weighted", nodes=nodes, edges=feeds + returns
+    )
+
+
+def test_effective_weights_are_identity_when_recorded_weights_are_constant() -> None:
+    """A recorded agent trace stores weight=1.0 everywhere as a placeholder.
+
+    w_eff must then be an exact identity factor, so weight sensitivity needs no
+    dataset-specific switch: the same scoring formula degenerates to pure type
+    priors on its own.
+    """
+
+    graph = _weighted_feeds_graph((1.0, 1.0, 1.0))
+    config = EpgmRetrieverConfig.for_variant("typed_beam")
+
+    assert effective_edge_weights(graph, config) == {}
+
+
+def test_effective_weights_normalise_only_informative_edge_types() -> None:
+    graph = _weighted_feeds_graph((0.5, 0.75, 1.0))
+    config = EpgmRetrieverConfig.for_variant("typed_beam")
+
+    effective = effective_edge_weights(graph, config)
+
+    # `feeds` varies, so it is normalised into [min_effective_weight, 1].
+    feeds = {
+        source: value
+        for (source, _target, edge_type), value in effective.items()
+        if edge_type == ProvenanceEdgeType.FEEDS.value
+    }
+    assert feeds["out_a"] == pytest.approx(config.min_effective_weight)
+    assert feeds["out_c"] == pytest.approx(1.0)
+    assert feeds["out_a"] < feeds["out_b"] < feeds["out_c"]
+    # `returns` is constant, so it stays absent and is treated as w_eff = 1.
+    assert not any(
+        edge_type == ProvenanceEdgeType.RETURNS.value
+        for _source, _target, edge_type in effective
+    )
+
+
+def test_recorded_weights_reorder_paths_only_when_they_carry_information() -> None:
+    """The same search must be weight-sensitive or weight-blind by the data.
+
+    On a graph whose feeds weights vary, a weaker recorded weight has to lower
+    the path score; on the constant-weight version of the same topology the
+    scores must be identical, because there is nothing to learn from them.
+    """
+
+    config = EpgmRetrieverConfig.for_variant("typed_beam")
+    seeds = ("out_a",)
+    relevance = {"out_a": 1.0}
+    candidates = frozenset({"call_a", "out_b", "call_b", "out_c", "call_c"})
+
+    def score_of(weights: tuple[float, float, float], target: str) -> float:
+        paths = search_epgm_paths(
+            _weighted_feeds_graph(weights),
+            seeds,
+            relevance,
+            candidate_ids=candidates,
+            config=config,
+        )
+        return next(path.score for path in paths if path.target_id == target)
+
+    # constant weights: w_eff cancels, so both topologies score identically
+    constant_low = score_of((1.0, 1.0, 1.0), "call_a")
+    constant_high = score_of((1.0, 1.0, 1.0), "call_a")
+    assert constant_low == constant_high
+
+    # varied weights: the weakest recorded feeds edge must score strictly lower
+    weak = score_of((0.5, 1.0, 1.0), "call_a")
+    strong = score_of((1.0, 0.5, 1.0), "call_a")
+    assert weak < strong
+    assert weak < constant_low
+
+
+def test_weight_aware_can_be_disabled_without_touching_other_axes() -> None:
+    graph = _weighted_feeds_graph((0.5, 0.75, 1.0))
+    blind = EpgmRetrieverConfig.for_variant("typed_beam", weight_aware=False)
+
+    assert effective_edge_weights(graph, blind) == {}
+    assert blind.traversal == "bidirectional"
+    assert blind.edge_scope == "typed"

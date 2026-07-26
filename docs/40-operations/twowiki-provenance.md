@@ -92,6 +92,29 @@ uv run python experiment/run.py `
   method=execution_provenance_retriever
 ```
 
+## Non-trained EPGM presets
+
+`execution_provenance_retriever` is one implementation with two frozen presets
+selected by `method.variant`: `typed_beam` (default, reported) and
+`dependency_path` (schema-gated restriction, ablation only). Run them as peer
+jobs when the ablation row is needed:
+
+```powershell
+uv run python experiment/run.py `
+  name=twowiki_provenance_epgm_typed_beam dataset=twowiki_provenance profile=quick device=cuda:0 `
+  method=execution_provenance_retriever method.variant=typed_beam
+
+uv run python experiment/run.py `
+  name=twowiki_provenance_epgm_dependency_path dataset=twowiki_provenance profile=quick device=cuda:1 `
+  method=execution_provenance_retriever method.variant=dependency_path
+```
+
+The preset participates in the Prefect cache key and is tagged as
+`graph_memory.variant`, so the two rows are independently cached and
+attributable. See
+[`docs/40-operations/stateless-graph-retrieval.md`](stateless-graph-retrieval.md)
+for the per-axis definition of each preset.
+
 ## Interpretation
 
 Report Recall/Evidence F1/Full Support for ToolOutput candidates and path metrics for contracted output dependencies. Edge Precision guards against recall-through-overproduction; abstention reports how often considered sources emit no accepted dependency. Always disclose that topology is label-derived and synthetic. Method ordering is an experimental result, not a converter invariant; topology-free and explicitly requested shuffled-feed diagnostics are required before claiming graph reasoning gains.

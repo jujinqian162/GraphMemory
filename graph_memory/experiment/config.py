@@ -18,6 +18,7 @@ from pydantic import (
 
 from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
 from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.retrieval.methods.epgm import EpgmVariant
 
 
 def _scientific_int(value: object) -> int:
@@ -301,16 +302,16 @@ class GraphRAGMethodConfig(ClosedModel):
 
 
 class ExecutionProvenanceMethodConfig(ClosedModel):
+    """Non-trained EPGM retriever.
+
+    ``variant`` selects a frozen preset of the single implementation:
+    ``typed_beam`` is the reported default, ``dependency_path`` is the
+    schema-gated restriction kept as an ablation.
+    """
+
     method: Literal["execution_provenance_retriever"]
     encoder: DenseEncoderConfig
-    seed_top_s: PositiveInt
-    beam_width: PositiveInt
-    max_hops: PositiveInt
-    max_paths_per_seed: Literal[1]
-    max_path_expansions: PositiveInt
-    min_path_confidence: NonNegativeFloat
-    preserve_dense_top_n: NonNegativeInt
-    hop_penalty: NonNegativeFloat
+    variant: EpgmVariant = "typed_beam"
 
 
 class PairSamplingConfig(ClosedModel):

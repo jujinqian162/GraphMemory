@@ -14,24 +14,6 @@
 \setlength{\pdfpagewidth}{8.5in} % DO NOT CHANGE THIS
 \setlength{\pdfpageheight}{11in} % DO NOT CHANGE THIS
 %
-% These are recommended to typeset algorithms but not required. See the subsubsection on algorithms. Remove them if you don't have algorithms in your paper.
-\usepackage{algorithm}
-\usepackage{algorithmic}
-
-%
-% These are are recommended to typeset listings but not required. See the subsubsection on listing. Remove this block if you don't have listings in your paper.
-\usepackage{newfloat}
-\usepackage{listings}
-\DeclareCaptionStyle{ruled}{labelfont=normalfont,labelsep=colon,strut=off} % DO NOT CHANGE THIS
-\lstset{%
-	basicstyle={\footnotesize\ttfamily},% footnotesize acceptable for monospace
-	numbers=left,numberstyle=\footnotesize,xleftmargin=2em,% show line numbers, remove this entire line if you don't want the numbers.
-	aboveskip=0pt,belowskip=0pt,%
-	showstringspaces=false,tabsize=2,breaklines=true}
-\floatstyle{ruled}
-\newfloat{listing}{tb}{lst}{}
-\floatname{listing}{Listing}
-%
 % Keep the \pdfinfo as shown here. There's no need
 % for you to add the /Title and /Author tags.
 \pdfinfo{
@@ -92,74 +74,9 @@
 % articles, conjunctions, and prepositions are lower case unless they
 % directly follow a colon or long dash
 \title{Execution-Provenance Graph Memory \\ for Evidence Tracing in Multi-Agent Systems}
-\author{
-    %Authors
-    % All authors must be in the same font size and format.
-    Written by AAAI Press Staff\textsuperscript{\rm 1}\thanks{With help from the AAAI Publications Committee.}\\
-    AAAI Style Contributions by Pater Patel Schneider,
-    Sunil Issar,\\
-    J. Scott Penberthy,
-    George Ferguson,
-    Hans Guesgen,
-    Francisco Cruz\equalcontrib,
-    Marc Pujol-Gonzalez\equalcontrib
-}
-\affiliations{
-    %Afiliations
-    \textsuperscript{\rm 1}Association for the Advancement of Artificial Intelligence\\
-    % If you have multiple authors and multiple affiliations
-    % use superscripts in text and roman font to identify them.
-    % For example,
+\author{Anonymous Authors}
+\affiliations{Anonymous Affiliation}
 
-    % Sunil Issar\textsuperscript{\rm 2},
-    % J. Scott Penberthy\textsuperscript{\rm 3},
-    % George Ferguson\textsuperscript{\rm 4},
-    % Hans Guesgen\textsuperscript{\rm 5}
-    % Note that the comma should be placed after the superscript
-
-    1101 Pennsylvania Ave, NW Suite 300\\
-    Washington, DC 20004 USA\\
-    % email address must be in roman text type, not monospace or sans serif
-    proceedings-questions@aaai.org
-%
-% See more examples next
-}
-
-%Example, Single Author, ->> remove \iffalse,\fi and place them surrounding AAAI title to use it
-\iffalse
-% \title{Execution-Provenance Graph Memory for Evidence Tracing in Multi-Agent Systems}
-\author {
-    Author Name
-}
-\affiliations{
-    Affiliation\\
-    Affiliation Line 2\\
-    name@example.com
-}
-\fi
-
-\iffalse
-%Example, Multiple Authors, ->> remove \iffalse,\fi and place them surrounding AAAI title to use it
-\title{My Publication Title --- Multiple Authors}
-\author {
-    % Authors
-    First Author Name\textsuperscript{\rm 1},
-    Second Author Name\textsuperscript{\rm 2},
-    Third Author Name\textsuperscript{\rm 1}
-}
-\affiliations {
-    % Affiliations
-    \textsuperscript{\rm 1}Affiliation 1\\
-    \textsuperscript{\rm 2}Affiliation 2\\
-    firstAuthor@affiliation1.com, secondAuthor@affilation2.com, thirdAuthor@affiliation1.com
-}
-\fi
-
-
-% REMOVE THIS: bibentry
-% This is only needed to show inline citations in the guidelines document. You should not need it and can safely delete it.
-\usepackage{bibentry}
-% END REMOVE bibentry
 \usepackage{amsmath}
 \usepackage{amssymb}
 
@@ -168,7 +85,7 @@
 \maketitle
 
 \begin{abstract}
-Flat agent memory often recovers individually relevant records yet misses complete dependency chains under a fixed top-$k$ budget. We propose Execution-Provenance Graph Memory (EPGM), a typed graph that organizes tasks, agents, tool calls, tool outputs, and related artifacts with native execution edges such as \texttt{contains}, \texttt{invokes}, \texttt{returns}, and field-bound \texttt{feeds}. EPGM supports non-trained structured scorers and a learned EPGM R-GCN that ranks candidates and predicts logical dependencies over frozen E5-base-v2 features. Because scale, experimental control, and realism trade off, we evaluate the same structured-retrieval hypothesis at three complementary levels: large-scale multi-hop evidence graphs (HotpotQA, 2WikiMultiHopQA, MuSiQue), a controlled synthetic 2Wiki execution-provenance benchmark with component ablations, and qualitative analysis of a real multi-agent trace. Relation-aware encoding improves complete support and path or edge recovery; graph message passing is the strongest structural driver on the controlled benchmark; and qualitative real-trace cases illustrate how the same schema exposes cross-agent and revision-aware dependencies that flat retrieval buries.
+Flat agent memory can retrieve individually relevant records while missing the complete dependency chain required by an evidence-heavy task. We propose Execution-Provenance Graph Memory (EPGM), which organizes tasks, agents, tool calls, tool outputs, and related artifacts in a typed graph with native execution edges such as \texttt{contains}, \texttt{invokes}, \texttt{returns}, and field-bound \texttt{feeds}. EPGM provides deterministic structured retrieval and a learned EPGM R-GCN that jointly ranks candidate outputs and predicts logical dependencies over frozen E5-base-v2 features. We evaluate the structured-retrieval hypothesis at three complementary levels: large-scale multi-hop evidence graphs, a controlled label-derived execution-provenance benchmark, and qualitative cases from one real multi-agent trace. On HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans, the reported seed-13 runs show that adding relation-aware propagation to a task-adapted dense retriever improves Full Support@5 by 4.33--13.01 percentage points. In the current seed-13 snapshot of the controlled provenance benchmark, EPGM R-GCN improves Full Support@5 over Dense-FT by 13.72 points and reaches 87.66\% Edge F1@10; removing graph propagation lowers these metrics by 12.00 and 23.32 points, respectively. The final report will replace these interim comparisons with three-seed means, standard deviations, and paired 95\% confidence intervals. Real-trace cases further show how typed traversal can co-locate support and revision evidence that flat and entity-graph retrieval separate. These results support EPGM's main benefit: completing compact evidence sets and exposing their dependencies, rather than merely improving the first relevant hit.
 \end{abstract}
 
 \section{Introduction}
@@ -205,10 +122,10 @@ retrieval and memory methods partially mitigate fragmentation by
 organizing documents, entities, or notes into relational
 structures~\cite{edge2024graphrag,gutierrez2024hipporag,
 guo2024lightrag,xu2025amem,rezazadeh2025collaborative}. Their relations,
-however, are primarily semantic, entity-level, or access-oriented. They
-do not explicitly model execution-level data flow: which agent invoked a
-tool, which call returned an output, which output field fed a later
-call, or which candidate outputs form a required dependency chain.
+however, are primarily semantic, entity-level, or access-oriented and
+generally do not natively encode execution-level data flow: which agent
+invoked a tool, which call returned an output, which output field fed a
+later call, or which candidate outputs form a required dependency chain.
 Multi-agent systems can fail precisely through such coordination and
 localization errors~\cite{cemri2025why}.
 
@@ -251,16 +168,16 @@ tool outputs, and whose native edges include \texttt{contains},
 \texttt{invokes}, \texttt{returns}, and field-bound \texttt{feeds}. The
 same schema also admits optional nodes such as observations, evidence
 items, claims, verifications, decisions, and answers for richer traces.
-Based on this representation, EPGM supports two complementary retrievers:
-non-trained dependency-path and typed-beam scorers, and a learned
-relation-aware encoder (EPGM R-GCN) that applies multi-layer R-GCN
+Based on this representation, EPGM supports a deterministic structured
+retriever with dependency-path and typed-beam presets, together with a
+learned relation-aware encoder (EPGM R-GCN) that applies multi-layer R-GCN
 message passing over frozen dense node features, ranks
 \texttt{ToolOutput} candidates from a unique \texttt{Task} query anchor,
 and jointly predicts logical output-to-output dependencies.
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=0.96\textwidth]{figs/epgm_overview.png}
+    \includegraphics[width=0.96\textwidth]{figs/epgm1.png}
     \caption{Overview of Execution-Provenance Graph Memory.
     EPGM converts agent execution events into a typed provenance graph
     and retrieves compact evidence sets and dependency paths. Evaluation
@@ -287,19 +204,19 @@ which structural components drive the gain. \emph{RQ3} asks, via qualitative cas
 whether the same schema exposes support and revision structure that flat
 retrieval buries. Across these settings,
 relation-aware structure most helps when relevance is distributed across
-dependent artifacts: large-scale benchmarks establish complete-support
-gains, the controlled benchmark isolates dependency learning and graph
-message passing, and the real-trace study provides applicability evidence
-for cross-agent and revision-aware paths. End-to-end unsupported-claim
+dependent artifacts: large-scale benchmarks provide complete-support
+point estimates, the controlled benchmark isolates dependency learning and
+graph message passing, and the real-trace study provides qualitative
+evidence for support and revision-aware paths. End-to-end unsupported-claim
 reduction and revision-impact accuracy remain future work.
 
 Our contributions are summarized as follows:
 \begin{itemize}
     \item We introduce EPGM, a typed execution-provenance memory that
     represents tasks, agents, tool calls, tool outputs, and their
-    production and data-flow dependencies, with a non-trained path
-    scorer and a learned EPGM R-GCN that jointly ranks outputs and
-    predicts logical dependencies.
+    production and data-flow dependencies, with one deterministic
+    structured retriever offering two frozen presets and a learned EPGM
+    R-GCN that jointly ranks outputs and predicts logical dependencies.
 
     \item We develop a controlled synthetic execution-provenance
     benchmark that isolates required dependencies among matched
@@ -382,7 +299,8 @@ under the top-$k$ budget:
 \mathbf{1}\!\left[
 G_q \subseteq \mathrm{TopK}(S_q)
 \;\wedge\;
-E_q \text{ is recoverable in } S_q
+\forall(u,v)\in E_q,\;v\text{ is reachable from }u
+\text{ in }S_q[\mathrm{TopK}]
 \right].
 \end{aligned}
 \end{equation}
@@ -489,7 +407,7 @@ rather than a substitute for naturally occurring multi-agent logs.
 
 For conventional multi-hop evidence-path experiments, we use the
 dataset-specific evidence graph over candidate sentences or facts, with
-overlap and bridge relations that support path recovery; HotpotQA
+sequential, query-overlap, entity-overlap, and bridge relations; HotpotQA
 provides connectivity structure rather than directed gold dependency
 paths. EPGM therefore has one shared retrieval goal---complete support
 under a budget---and complementary graph realizations detailed next.
@@ -504,7 +422,8 @@ mistaken for native multi-agent measurements.
 
 \paragraph{Evidence-graph instantiation (RQ1).}
 Multi-hop QA experiments operate over candidate sentences or facts with
-overlap and bridge edges. Candidates are evidence items; the target is
+sequential, query-overlap, entity-overlap, and bridge edges. Candidates are
+evidence items; the target is
 the complete supporting set (and path connectivity when gold edges
 exist). Dense R-GCN and Dense-FT R-GCN instantiate relation-aware
 propagation on this reduced-form graph. The setting does \emph{not}
@@ -524,52 +443,65 @@ interface with a fuller node inventory---including observations, claims,
 verifications, decisions, and answers---and audit edges such as
 \texttt{supports}, \texttt{contradicts}, and \texttt{invalidates}. No
 real-trace example is used to train or select EPGM R-GCN; RQ3 is a
-qualitative case study of non-trained structured retrieval on a real
+qualitative case study of training-free structured retrieval on a real
 session, not a scored ranking benchmark.
 
-\subsection{Online Graph Construction}
+\subsection{Graph Construction from Execution Events}
 
-EPGM is constructed incrementally from execution events. At step $t$,
-the system observes an event $s_t$ and updates
+EPGM is a typed graph over execution artifacts rather than a flat log.
+Conceptually, each event $s_t$ in a trace $\tau_q$ contributes a local
+update of the form
 \[
-\mathcal{G}_t = \textsc{UpdateGraph}(\mathcal{G}_{t-1}, s_t).
+\mathcal{G}_t = \textsc{UpdateGraph}(\mathcal{G}_{t-1}, s_t),
 \]
-The construction process performs three operations.
+so the same schema can be maintained as events arrive. Our experiments
+do \emph{not} evaluate streaming online maintenance, latency under
+incremental writes, or partial-graph retrieval mid-trajectory. For every
+task we materialize a complete static graph offline from the full
+synthetic trajectory or the recorded multi-agent session, then run
+retrieval on $\mathcal{G}_T$. Evidence-graph experiments for RQ1 likewise
+build one static candidate graph per example using sequential,
+query-overlap, entity-overlap, and bridge rules. The materialization process performs three operations.
 
-First, it creates or updates typed nodes. A tool call becomes a
-\texttt{ToolCall} node linked to its \texttt{Agent} and \texttt{Task}; a
-tool output becomes a \texttt{ToolOutput} linked to the producing call;
-optional claim or decision events are admitted by the same interface when
-present in a trace.
+First, it creates typed nodes from the recorded artifacts. A tool call
+becomes a \texttt{ToolCall} node linked to its \texttt{Agent} and
+\texttt{Task}; a tool output becomes a \texttt{ToolOutput} linked to the
+producing call; optional claim or decision records are admitted by the
+same interface when present in a trace.
 
 Second, it adds deterministic execution edges. A task
 \texttt{contains} its agents, calls, and outputs; an agent
 \texttt{invokes} a call; a call \texttt{returns} an output. When an
 upstream output field is bound to a downstream call parameter, the graph
 adds a \texttt{feeds} edge with that binding. In the synthetic converter,
-successor selection is performed by a pinned hybrid BM25/dense scorer
-over non-self candidates, after which the required dependency and a
-matched distractor branch are materialized as ordinary \texttt{feeds}
-edges; no gold-only feature is allowed to enter the ranking input used to
-propose successors.
+successor selection is performed offline by a pinned hybrid BM25/dense
+scorer over non-self candidates, after which the required dependency and
+a matched distractor branch are materialized as ordinary \texttt{feeds}
+edges. No gold-only feature enters the hybrid score used to propose
+successors; however, the gold dependency is inserted after proposal and is
+therefore present in the inference graph by construction. This benchmark
+evaluates ranking and recovery over a label-conditioned graph, not
+dependency discovery from unlabeled execution logs.
 
 Third, it retains optional semantic or audit edges such as
 \texttt{supports}, \texttt{contradicts}, or \texttt{invalidates} when a
-richer trace provides them. These edges enlarge the schema for future
-revision analysis, but the controlled benchmark and the reported
-retrievers concentrate on call hierarchy and \texttt{feeds} data flow.
+richer trace provides them. These edges enlarge the schema for revision
+analysis, but the controlled benchmark and the reported retrievers
+concentrate on call hierarchy and \texttt{feeds} data flow. All reported
+retrieval metrics are computed on these offline-materialized static
+graphs.
 
 
 \subsection{Evidence Tracing over Graph Memory}
 \label{sec:evidence-tracing}
 
 Given a query, EPGM retrieves a compact support set and, when
-dependencies are defined, a dependency subgraph. We use two retrievers
-that share the same graph interface.
+dependencies are defined, a dependency subgraph. A deterministic retriever
+and a learned encoder share the same graph interface.
 
-\paragraph{Non-trained structured retrieval.}
-We use two deterministic scorers that share the EPGM schema but specialize
-to different graph densities. Neither learns parameters.
+\paragraph{Training-free structured retrieval.}
+One deterministic implementation exposes two frozen presets for different
+graph regimes; neither preset learns parameters.
 
 \emph{Dependency-path EPGM} (synthetic tool-output setting) starts from
 the top $S{=}5$ dense seeds and expands only along directed dependency
@@ -606,11 +538,14 @@ r(s^{\star})
 \big(\pi(\psi(e_h))\,\rho_h\,\delta^{h}\big),
 \end{equation}
 where $r(s^{\star})$ is min--max-normalized dense relevance of the best
-seed. Final scores use additive fusion that never demotes a dense hit:
+seed. Final scores use additive fusion without subtracting from a node's
+normalized dense component:
 \begin{equation}
 s(v)=r(v)+\lambda_{\mathrm{g}}s_{\mathrm{path}}(v),
 \qquad \lambda_{\mathrm{g}}{=}0.25.
 \end{equation}
+A node's absolute fused score cannot decrease, although its rank can fall
+when other nodes receive larger graph contributions.
 Invalidated nodes remain reachable so revision-audit queries can surface
 overturned claims. These hyperparameters are frozen defaults and are not
 tuned on the real-trace queries.
@@ -631,26 +566,30 @@ h_v'
 W_0 h_v
 +
 \operatorname{Dropout}\big(
-\sum_{u,r}
+\sum_{r\in\mathcal{R}}
+\sum_{u\in\mathcal{N}_r(v)}
 w_{uv} c_{v,r}^{-1} W_r h_u
 \big)
 \big)
-\Big).
+\Big),
 \end{equation}
+where $\mathcal{N}_r(v)$ is the incoming neighborhood of $v$ under
+message relation $r$, and $c_{v,r}=|\mathcal{N}_r(v)|$ normalizes that
+relation's incoming messages.
 Candidate and dependency MLPs score \texttt{ToolOutput} nodes and induced
 logical transitions; training minimizes
 $\mathcal{L}=1.0\mathcal{L}_{\mathrm{cand}}+0.5\mathcal{L}_{\mathrm{edge}}$
 with mixed easy/hard negatives. Inference decodes thresholded successors
 among top-5 sources in a top-16 pool and emits a public logical edge only
-when both endpoints remain in the final top $k$. Further optimizer and
-sampler details are deferred to the appendix; tables use the shared
-protocol in the experimental setup.
+when both endpoints remain in the final top $k$. Further optimizer and sampler details are provided in the supplementary
+material; tables use the shared protocol in the experimental setup.
 
 \paragraph{Conventional evidence-path encoding.}
-On HotpotQA, 2WikiMultiHopQA, and MuSiQue, relation-aware propagation runs
-on the dataset evidence graph over overlap and bridge edges. Dense-FT
-R-GCN is the full model; ablations isolate bridge edges, graph
-propagation, and edge types.
+On HotpotQA, 2WikiMultiHopQA, and MuSiQue-Ans, relation-aware propagation
+runs on dataset evidence graphs with sequential, query-overlap,
+entity-overlap, and bridge edges. Dense-FT R-GCN is the full model for
+this evidence-graph setting; RQ1 compares complete support and path recovery
+across the resulting retrievers.
 
 
 \section{Experiments}
@@ -665,8 +604,8 @@ on large-scale multi-hop benchmarks under a fixed top-$k$ budget.
 \emph{RQ2} asks whether EPGM recovers complete output dependencies in
 controlled execution-provenance trajectories, and which structural
 components---graph message passing, relation types, calibrated edge
-weights, hard-negative supervision, or inference-time structured
-reranking---drive the gain. \emph{RQ3} asks, via qualitative cases on a real multi-agent trace,
+weights, hard-negative supervision, or inference-time target
+promotion---are associated with the gain. \emph{RQ3} asks, via qualitative cases on a real multi-agent trace,
 whether the same schema exposes support and revision structure that flat
 retrieval buries. Table~\ref{tab:eval-overview} summarizes
 how the three settings trade off scale, control, and realism; they are
@@ -681,13 +620,13 @@ experimental control, and fidelity to real multi-agent execution.}
 \label{tab:eval-overview}
 \begin{tabular}{lp{3.2cm}ccp{4.2cm}}
 \hline
-Setting & Graph realization & Scale & Realism & Primary role \\
+Setting & Graph realization & Scale & Native execution & Primary role \\
 \hline
-Multi-hop QA & Evidence nodes + bridge/overlap edges & High & Low &
+Multi-hop QA & Evidence nodes + four rule-based edge types & High & No &
 Scalable complete-support evaluation \\
-Synthetic provenance & Task/Agent/Call/Output + \texttt{feeds} & High & Medium &
+Synthetic provenance & Task/Agent/Call/Output + \texttt{feeds} & High & Simulated &
 Controlled dependency learning and ablation \\
-Real multi-agent trace & Full EPGM schema + audit edges & Low & High &
+Real multi-agent trace & Full EPGM schema + audit edges & Low & Yes &
 Qualitative case analysis \\
 \hline
 \end{tabular}
@@ -695,9 +634,10 @@ Qualitative case analysis \\
 
 \paragraph{Datasets and splits.}
 The evidence-path experiments use HotpotQA, 2WikiMultiHopQA, and
-MuSiQue. For each dataset, we retain its training set, use the first
-500 labeled development examples for model selection, and reserve the
-remaining development examples for final testing. We additionally
+MuSiQue-Ans v1.0. For each dataset, we retain its training set,
+deterministically shuffle the labeled development set with split seed 13,
+use the first 500 shuffled examples for model selection, and reserve the
+remaining shuffled examples as a held-out evaluation split. We additionally
 construct a controlled execution-provenance benchmark from
 2WikiMultiHopQA. It maps each recoverable ordered pair of supporting facts
 to typed tool calls, tool outputs, and one output dependency. The converter keeps at most 32 candidate outputs per task and uses a pinned
@@ -711,18 +651,23 @@ same rank bucket is required when the gold edge is not the head; no
 gold-only field enters the ranking input. Source-local confidence is
 softmax-normalized with temperature 0.1 and mapped to $0.5+0.5p$, so the
 two \texttt{feeds} weights sum to 1.5. This
-label-conditioned benchmark isolates retrieval over a hidden required path
-with matched distractors, but it is not intended to substitute for naturally
-occurring multi-agent traces. Table~\ref{tab:data} gives the split sizes.
-Evidence-path models select checkpoints on the first 500 labeled
-development examples of each multi-hop dataset. The synthetic
+label-conditioned benchmark places the required path in the inference graph
+alongside matched distractors and tests whether retrieval ranks and decodes
+it. It is not intended to measure path discovery from unlabeled logs or to
+substitute for naturally occurring multi-agent traces. Table~\ref{tab:data} gives the split sizes.
+Evidence-path models select checkpoints on the 500-example selection
+split. Dense-FT selects its encoder by development MAP@100; the R-GCN then
+selects its checkpoint by
+$0.50\,\mathrm{FS@5}+0.30\,\mathrm{Recall@5}+0.20\,\mathrm{MRR}$. The synthetic
 execution-provenance R-GCN uses the complete 2,850-item generated
 development split for joint-score selection and the same 2,851-item
 held-out test split for final reporting. For RQ3 we use SupplyChainTrace (one real multi-agent supply-chain
-security session; internal id task2) with about 150 retrievable nodes.
-We analyze representative queries qualitatively rather than as a scored
-benchmark---the sample is too small for stable automatic ranking metrics.
-No real-trace example is used for training or selection.
+security session; internal id task2) with 150 retrievable nodes. We manually
+annotate 20 exploratory queries but do not treat this single-session set as
+a statistical benchmark. Instead, we inspect one support case and one
+revision case to illustrate the two mechanisms; their selection is
+illustrative rather than a significance test. No real-trace example is used
+for training or parameter selection.
 
 \begin{table*}[t]
 \centering
@@ -731,11 +676,11 @@ No real-trace example is used for training or selection.
 \label{tab:data}
 \begin{tabular}{lrrrrl}
 \hline
-Dataset & Train & Selection & Test & Top-$k$ & Primary target \\
+Dataset & Train & Selection & Evaluation & Top-$k$ & Primary target \\
 \hline
 HotpotQA & 90,025 & 500 & 6,869 & 10 & Evidence set and connectivity \\
 2WikiMultiHopQA & 167,454 & 500 & 12,076 & 10 & Evidence set and dependency path \\
-MuSiQue & 19,938 & 500 & 1,917 & 10 & Evidence set and multi-hop path \\
+MuSiQue-Ans v1.0 & 19,938 & 500 & 1,917 & 10 & Evidence set and multi-hop path \\
 Synthetic 2Wiki Provenance & 74,012 & 2,850 & 2,851 & 10 & Outputs and execution dependencies \\
 SupplyChainTrace (1 session) & -- & -- & qualitative & -- & Case analysis only \\
 \hline
@@ -745,25 +690,31 @@ SupplyChainTrace (1 session) & -- & -- & qualitative & -- & Case analysis only \
 \paragraph{Compared methods.}
 For evidence-path retrieval, \textbf{BM25} and \textbf{Dense} are
 lexical and pretrained dense baselines. \textbf{BM25-Graph} and
-\textbf{Dense-Graph} rerank their initial results with fixed
-evidence-graph heuristics. \textbf{Dense R-GCN} uses frozen dense
+\textbf{Dense-Graph} are legacy fixed heuristic rerankers retained for
+comparison; they are distinct from the current FastGraphRAG-style baseline
+used in RQ2. \textbf{Dense R-GCN} uses frozen dense
 representations as node features in a relational graph convolutional
 network. \textbf{Dense-FT} fine-tunes the dense retriever on the task,
 whereas \textbf{Dense-FT R-GCN} initializes the R-GCN with the
 fine-tuned representations and is our full model for this setting.
 
-For simulated trajectories, \textbf{BM25}, \textbf{Dense}, and
+For controlled synthetic trajectories, \textbf{BM25}, \textbf{Dense}, and
 \textbf{Dense-FT} provide sparse, pretrained dense, and task-adapted
 dense baselines. \textbf{FastGraphRAG-style} is a compact, non-LLM
-entity-graph baseline: it deterministically extracts and links
-entities, combines lexical and dense seeds with Personalized PageRank,
-and projects entity scores back to evidence. It follows the non-LLM
-entity-search idea of FastGraphRAG and is not a reproduction of a full
-GraphRAG pipeline with LLM-based community summarization or generation.
-\textbf{EPGM} denotes the non-trained structured retrievers in
-Section~\ref{sec:evidence-tracing}: dependency-path EPGM on synthetic
-tool-output graphs and typed-beam EPGM on real traces, without
-task-specific parameter training. \textbf{EPGM R-GCN} is its learned
+entity-bridge baseline: it deterministically extracts title/body entity
+mentions, starts from dense seeds, resolves one candidate per title group,
+and stably inserts accepted bridge targets. An accepted source-to-target
+entity bridge is emitted as a directed \texttt{bridge\_to} edge only when
+both endpoints remain in the top $k$; confidence and partner conflicts are
+resolved before emission. It follows the non-LLM entity-search idea of
+FastGraphRAG and is not a reproduction of a full GraphRAG pipeline with
+LLM-based community summarization or generation.
+\textbf{EPGM} denotes one training-free structured retrieval implementation
+configured with two frozen presets from
+Section~\ref{sec:evidence-tracing}: typed beam is the current default and is
+used for the real-trace cases; the more restrictive directed dependency
+path is retained as a training-free diagnostic in the synthetic table.
+Neither preset uses task-specific parameter training. \textbf{EPGM R-GCN} is its learned
 relation-aware counterpart. It applies three layers of relation-specific
 message passing to frozen E5-base-v2 node representations, ranks
 \texttt{ToolOutput} candidates, and jointly predicts logical
@@ -772,10 +723,16 @@ EPGM R-GCN is trained for up to 15 epochs and selects a checkpoint on the
 complete 2,850-item development split with
 $0.50\,\mathrm{FS@5}+0.25\,\mathrm{MRR}+0.25\,\mathrm{EdgeF1@10}$;
 ties are resolved by FS@5, Edge F1@10, MRR, and then the earlier epoch.
-Both methods use random seed 13 in the reported single-seed runs. All
-EPGM R-GCN main and ablation rows below come from this same protocol;
-the full main-table row is identical to the full ablation row.
-The real-trace study is qualitative and uses non-trained retrievers only;
+The currently populated EPGM R-GCN and Dense-FT rows use random seed 13.
+All EPGM R-GCN main and ablation rows below come from this same protocol;
+the full main-table row is identical to the full ablation row. Seeds 17
+and 29 are still running for the EPGM R-GCN matrix. The final report will
+replace seed-13-only claims with arithmetic mean $\pm$ sample standard
+deviation over seeds $\{13,17,29\}$ and query-paired 95\% confidence
+intervals for full-minus-ablation differences. Table~\ref{tab:provenance-three-seed}
+reserves the final reporting layout; until it is populated, the current
+RQ2 numbers are interim point estimates rather than final uncertainty-aware
+results. The real-trace study is qualitative and uses training-free retrievers only;
 EPGM R-GCN is not applied there.
 
 \paragraph{Metrics.}
@@ -783,20 +740,25 @@ Recall@$k$ measures the fraction of gold evidence retrieved in the
 top $k$, while Full Support@$k$ is one only when all gold evidence is
 present, so it directly measures whether the complete support set is
 recovered. MRR measures the rank of the first gold item. Connected
-Evidence Recall measures whether retrieved evidence remains connected
-in the induced graph. Path Recall@10 is a per-query binary measure that requires every directed
-gold dependency to be reachable in the returned subgraph after all gold
-endpoints enter the top 10. Edge Recall@10 measures direct recovery of gold
-dependency edges. Edge Precision@10 and Edge F1@10 are micro-aggregated over
-all predicted and gold dependencies whose predicted endpoints are in the
-top 10. Abstention rate is the fraction of considered top-5 source outputs
+Evidence Recall is one only when all gold nodes enter the top $k$ and those
+gold nodes are connected within the top-$k$ induced graph. Path Recall@10
+is a per-query binary measure requiring both (i) all gold dependency
+endpoints in the top 10 and (ii) every directed gold dependency reachable
+in the returned subgraph. It is averaged over queries with a nonempty gold
+dependency set. Edge Recall@10 measures direct recovery of gold
+dependency edges. Edge metrics are micro-aggregated against all gold dependencies. Edge
+Precision@10 divides true-positive edges by emitted edges whose endpoints
+are both in the top 10; Edge Recall@10 divides by all gold edges, so a gold
+edge with a missing top-10 endpoint remains a false negative. Edge F1@10
+combines these two quantities. Abstention rate is the fraction of considered top-5 source outputs
 that produce no accepted dependency after pool, threshold, and conflict
 filtering. Average retrieved edges counts public logical output-to-output
 edges, not the two native \texttt{feeds}/\texttt{returns} edges used to
 reconstruct each trace. HotpotQA does not provide directed gold dependency
 paths, so we report connectivity rather than path and edge metrics for that
-dataset. A dash in the path columns indicates that a method does not return
-a provenance subgraph, so the metric is undefined rather than zero.
+dataset. A dash in the path columns indicates that a method does not return a
+retrieved evidence subgraph with visible candidate-to-candidate edges, so
+the metric is undefined rather than zero.
 To further distinguish ``retrieving part of the evidence on average''
 from ``recovering the complete support chain,'' we also use the
 completeness gap
@@ -808,20 +770,21 @@ an additional headline metric.
 
 \subsection{Large-Scale Evidence Retrieval (RQ1)}
 
-\paragraph{Graph encoding consistently improves complete support
-recovery across all three datasets.}
-Table~\ref{tab:hotpot} reports HotpotQA results. Dense-FT R-GCN is best
-on every reported metric. Relative to Dense-FT, relational graph
-encoding raises Full Support@5 from 68.55\% to 80.08\% and Full
-Support@10 from 86.68\% to 93.29\%. Thus, even after task-specific
-dense fine-tuning, explicit evidence relations help place the complete
-support set within a limited retrieval budget.
+\paragraph{Graph encoding yields higher complete-support point estimates
+on all three datasets.}
+Table~\ref{tab:hotpot} reports HotpotQA results. In the reported seed-13
+run, Dense-FT R-GCN has the highest point estimate on every metric.
+Relative to Dense-FT, relational graph encoding raises Full Support@5
+from 68.96\% to 79.98\% and Full Support@10 from 86.75\% to 92.79\%.
+Thus, even after task-specific dense fine-tuning, explicit evidence
+relations are associated with more complete support sets under a limited
+retrieval budget.
 
 \begin{table*}[t]
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\caption{HotpotQA evidence retrieval results (\%).}
+\caption{HotpotQA evidence retrieval point estimates (\%, seed 13).}
 \label{tab:hotpot}
 \begin{tabular}{lrrrrrrr}
 \hline
@@ -830,30 +793,29 @@ Method & R@5 & R@10 & FS@5 & FS@10 & MRR & Conn.@5 & Conn.@10 \\
 BM25 & 67.88 & 81.27 & 37.50 & 60.04 & 82.70 & 26.32 & 45.65 \\
 Dense & 76.98 & 88.86 & 53.20 & 75.38 & 85.30 & 37.73 & 59.44 \\
 BM25-Graph & 71.94 & 86.10 & 44.90 & 70.11 & 82.22 & 35.20 & 57.21 \\
-Dense-Graph & 77.78 & 89.47 & 55.03 & 77.06 & 85.22 & 40.70 & 62.21 \\
-Dense R-GCN & 88.67 & 95.97 & 76.12 & 91.21 & 91.44 & 57.69 & 73.58 \\
-Dense-FT & 85.22 & 94.32 & 68.55 & 86.68 & 88.47 & 49.18 & 69.24 \\
-\textbf{Dense-FT R-GCN} & \textbf{90.95} & \textbf{97.01} &
-\textbf{80.08} & \textbf{93.29} & \textbf{92.99} &
-\textbf{59.80} & \textbf{75.50} \\
+Dense-Graph & 77.77 & 89.46 & 54.97 & 77.06 & 85.24 & 40.65 & 62.21 \\
+Dense R-GCN & 88.71 & 96.00 & 75.99 & 90.90 & 91.56 & 57.11 & 73.43 \\
+Dense-FT & 85.48 & 94.36 & 68.96 & 86.75 & 89.32 & 49.69 & 69.14 \\
+\textbf{Dense-FT R-GCN} & \textbf{90.88} & \textbf{96.87} &
+\textbf{79.98} & \textbf{92.79} & \textbf{93.05} &
+\textbf{59.82} & \textbf{75.24} \\
 \hline
 \end{tabular}
 \end{table*}
 
-The advantage is larger on 2WikiMultiHopQA
-(Table~\ref{tab:2wiki}). Dense-FT R-GCN reaches 94.44\% Full
-Support@5, 10.72 percentage points above Dense-FT, and obtains
-93.70\% Path Recall@10 and 88.75\% Edge Recall@10. Compared with
-Dense-Graph, the path and edge gains are 35.58 and 31.53 points,
-respectively. Dense R-GCN also substantially outperforms the
-untrained Dense-Graph reranker, indicating that the gain is not solely
-caused by dense-encoder fine-tuning.
+The observed Full Support@5 difference is larger on 2WikiMultiHopQA
+(Table~\ref{tab:2wiki}). Dense-FT R-GCN reaches 94.44\%, 13.01 points
+above Dense-FT, and obtains 93.99\% Path Recall@10 and 88.92\% Edge
+Recall@10. Compared with Dense-Graph, the path and edge point estimates
+are higher by 35.86 and 31.70 points. Dense R-GCN also yields higher
+point estimates than the legacy Dense-Graph reranker, suggesting that the
+observed gain is not attributable solely to dense-encoder fine-tuning.
 
 \begin{table*}[t]
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\caption{2WikiMultiHopQA evidence-path retrieval results (\%).}
+\caption{2WikiMultiHopQA evidence-path retrieval point estimates (\%, seed 13).}
 \label{tab:2wiki}
 \begin{tabular}{lrrrrrrr}
 \hline
@@ -861,29 +823,29 @@ Method & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 \\
 \hline
 BM25 & 52.33 & 67.74 & 18.46 & 36.24 & 65.93 & -- & -- \\
 Dense & 67.76 & 79.53 & 36.28 & 55.86 & 86.33 & -- & -- \\
-BM25-Graph & 55.00 & 73.46 & 22.71 & 47.21 & 62.43 & 38.39 & 38.19 \\
+BM25-Graph & 54.98 & 73.45 & 22.71 & 47.22 & 62.37 & 38.41 & 38.20 \\
 Dense-Graph & 68.07 & 81.53 & 37.61 & 60.46 & 87.06 & 58.13 & 57.22 \\
-Dense R-GCN & 94.50 & 97.92 & 89.58 & 96.04 & 96.09 & 90.75 & 86.68 \\
-Dense-FT & 92.60 & 98.20 & 83.71 & 96.48 & 93.62 & -- & -- \\
-\textbf{Dense-FT R-GCN} & \textbf{97.07} & \textbf{99.10} &
-\textbf{94.44} & \textbf{98.28} & \textbf{97.78} &
-\textbf{93.70} & \textbf{88.75} \\
+Dense R-GCN & 93.51 & 97.42 & 87.64 & 95.06 & 95.25 & 89.43 & 85.61 \\
+Dense-FT & 91.90 & 98.14 & 81.43 & 96.15 & 94.44 & -- & -- \\
+\textbf{Dense-FT R-GCN} & \textbf{97.06} & \textbf{99.06} &
+\textbf{94.44} & \textbf{98.24} & \textbf{97.46} &
+\textbf{93.99} & \textbf{88.92} \\
 \hline
 \end{tabular}
 \end{table*}
 
-MuSiQue exhibits the same pattern (Table~\ref{tab:musique}).
-Dense-FT R-GCN improves Full Support@5 from 58.42\% to 63.43\% and
-reaches 81.32\% Path Recall@10, 13.93 points above Dense-Graph.
-Dense-FT has a 0.12-point MRR advantage, showing that the main benefit
-of graph encoding is recovering complete evidence sets and paths,
-rather than merely moving the first relevant item upward.
+MuSiQue-Ans exhibits the same pattern (Table~\ref{tab:musique}). In the
+reported run, Dense-FT R-GCN improves Full Support@5 from 58.42\% to
+62.75\% and reaches 80.75\% Path Recall@10, 13.35 points above
+Dense-Graph. It also has the highest MRR point estimate (92.21\%), so the
+observed benefit spans both first-hit ranking and complete evidence/path
+recovery on this dataset.
 
 \begin{table*}[t]
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\caption{MuSiQue evidence-path retrieval results (\%).}
+\caption{MuSiQue-Ans v1.0 evidence-path retrieval point estimates (\%, seed 13).}
 \label{tab:musique}
 \begin{tabular}{lrrrrrrr}
 \hline
@@ -893,11 +855,11 @@ BM25 & 55.20 & 70.18 & 18.83 & 37.92 & 75.44 & -- & -- \\
 Dense & 68.66 & 85.07 & 37.09 & 64.21 & 85.78 & -- & -- \\
 BM25-Graph & 60.48 & 77.09 & 29.32 & 52.95 & 75.93 & 51.02 & 53.41 \\
 Dense-Graph & 71.18 & 87.20 & 44.34 & 69.54 & 84.29 & 67.40 & 68.80 \\
-Dense R-GCN & 79.17 & 93.81 & 56.29 & 83.93 & 86.73 & 79.97 & 78.95 \\
-Dense-FT & 80.79 & 93.75 & 58.42 & 83.36 & \textbf{91.48} & -- & -- \\
-\textbf{Dense-FT R-GCN} & \textbf{84.33} & \textbf{94.85} &
-\textbf{63.43} & \textbf{86.28} & 91.36 &
-\textbf{81.32} & \textbf{79.45} \\
+Dense R-GCN & 80.23 & 93.63 & 56.91 & 83.46 & 88.23 & 79.34 & 78.18 \\
+Dense-FT & 80.79 & 93.75 & 58.42 & 83.36 & 91.48 & -- & -- \\
+\textbf{Dense-FT R-GCN} & \textbf{83.89} & \textbf{94.60} &
+\textbf{62.75} & \textbf{85.45} & \textbf{92.21} &
+\textbf{80.75} & \textbf{78.96} \\
 \hline
 \end{tabular}
 \end{table*}
@@ -905,82 +867,33 @@ Dense-FT & 80.79 & 93.75 & 58.42 & 83.36 & \textbf{91.48} & -- & -- \\
 Across all three datasets, graph encoding primarily improves complete
 support and path recovery. In particular, Dense-FT and Dense-FT
 R-GCN differ by less than one point on 2Wiki Recall@10, but by more
-than ten points on Full Support@5. The model is therefore not simply
-retrieving more isolated relevant sentences; it more reliably brings
-the members of the same reasoning chain into the top-$k$ context.
-Heuristic graph reranking sometimes helps, but is less stable across
-datasets than learned relation-aware propagation.
+than thirteen points on Full Support@5. This pattern indicates that the
+model does more than raise average recall of isolated relevant sentences:
+it more often brings all members of a reasoning chain into the top-$k$
+context. Heuristic graph reranking sometimes helps, but its improvements
+are less uniform across datasets and metrics than those of the learned
+relation-aware models in these runs.
 
-To further localize the contribution of each structural component in
-relation-aware propagation under RQ1, we ablate the conventional
-evidence-graph R-GCN on the same 2WikiMultiHopQA test set.
-
-\paragraph{Bridge edges are the main driver of path recovery in the
-conventional evidence graph.}
-We ablate both R-GCN variants on the same 12,076-example 2Wiki test
-set. This ablation uses an independent training run, so each variant
-in Table~\ref{tab:ablation} is compared only with the full R-GCN that
-uses the same semantic encoder within the table, and is not differenced
-directly against the main results in Table~\ref{tab:2wiki}.
-
-\begin{table*}[t]
-\centering
-\small
-\setlength{\tabcolsep}{5pt}
-\caption{Core R-GCN structure ablations on 2WikiMultiHopQA (\%).}
-\label{tab:ablation}
-\begin{tabular}{llrrrr}
-\hline
-Encoder & Graph variant & R@5 & FS@5 & Conn.@10 & Path@10 \\
-\hline
-Dense & Full R-GCN & \textbf{94.13} & \textbf{88.79} & \textbf{70.41} & \textbf{90.39} \\
-Dense & w/o bridge & 93.02 & 86.95 & 69.96 & 71.82 \\
-Dense & w/o entity overlap & 93.89 & 88.49 & 69.48 & 86.62 \\
-Dense & w/o graph & 88.66 & 78.71 & 68.69 & 82.81 \\
-Dense & w/o edge type & 92.44 & 86.20 & 69.39 & 88.34 \\
-\hline
-Dense-FT & Full R-GCN & \textbf{97.29} & \textbf{94.77} & 73.18 & \textbf{94.33} \\
-Dense-FT & w/o bridge & 96.84 & 94.00 & 73.32 & 74.79 \\
-Dense-FT & w/o entity overlap & 96.77 & 93.89 & 72.35 & 89.45 \\
-Dense-FT & w/o graph & 95.24 & 90.88 & \textbf{73.71} & 92.59 \\
-Dense-FT & w/o edge type & 96.08 & 92.82 & 72.37 & 92.66 \\
-\hline
-\end{tabular}
-\end{table*}
-
-Removing bridge edges reduces Path Recall@10 by 18.57 points for
-Dense R-GCN and 19.55 points for Dense-FT R-GCN, while Recall@5 drops
-by only 1.12 and 0.45 points. Bridge edges therefore contribute
-specifically to connecting distributed support into recoverable
-multi-hop paths, rather than merely increasing the count of isolated
-relevant evidence. Removing entity-overlap edges also reduces Path
-Recall@10 by 3.77 and 4.88 points.
-
-Removing graph propagation entirely has the largest effect on complete
-support for the frozen encoder: Full Support@5 falls from 88.79\% to
-78.71\%. With Dense-FT initialization, the decrease shrinks to 3.89
-points, suggesting that task-adapted semantics compensate for, but do
-not fully replace, relational structure. Removing edge types reduces
-Full Support@5 by 2.58 and 1.95 points for the two encoders. Edge
-weights, hard negatives, and query-overlap edges do not reproduce
-their effects consistently across the two encoders, so we treat them
-as tuning choices that still require multi-seed validation rather than
-as independently established contributions.
+Because the evidence-graph construction rules differ across datasets, we
+use RQ1 to evaluate the overall structured-retrieval hypothesis and reserve
+component attribution for the controlled execution-provenance ablations in
+RQ2.
 
 \subsection{Controlled Execution-Provenance Retrieval (RQ2)}
 
 \paragraph{Execution structure primarily improves dependency-set
 completion.}
 Table~\ref{tab:provenance} compares sparse retrieval, dense retrieval,
-lightweight entity-graph propagation, non-trained provenance search,
-and learned provenance encoding. Without task-specific training, EPGM
-raises Full Support@5 and Full Support@10 over Dense by 11.12 and 6.31
-points and Recall@5 by 4.40 points, while MRR is essentially flat (down
-0.64 points). Relative to FastGraphRAG-style, EPGM improves Full
-Support@5 from 34.34\% to 36.44\% and Full Support@10 from 58.12\% to
-59.94\%; the two tie on Recall@2 (both 46.21\%), and their MRR differs
-by less than one point (80.99\% versus 80.36\%). This pattern indicates
-that typed provenance search mainly helps complete a dependency set
+lightweight entity-graph propagation, training-free provenance search,
+and learned provenance encoding. Without task-specific training, the
+EPGM dependency-path preset raises Full Support@5 and Full Support@10
+over Dense by 11.12 and 6.31 points and Recall@5 by 4.40 points, while
+MRR is essentially flat (down 0.64 points). Relative to
+FastGraphRAG-style, this preset improves Full Support@5 from 34.34\% to
+36.44\% and Full Support@10 from 58.12\% to 59.94\%; the two tie on
+Recall@2 (both 46.21\%), and their MRR differs by less than one point
+(80.99\% versus 80.36\%). This pattern indicates that directed
+provenance search mainly helps complete a dependency set
 rather than uniformly improving the rank of the first relevant output.
 
 \begin{table*}[t]
@@ -994,7 +907,7 @@ Method & R@2 & R@5 & R@10 & F1@5 & F1@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@1
 BM25 & 28.32 & 44.05 & 58.59 & 25.17 & 19.53 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
 Dense & 46.21 & 61.89 & 76.76 & 35.37 & 25.59 & 25.32 & 53.63 & 81.00 & -- & -- & 37.51 \\
 FastGraphRAG-style (non-LLM) & 46.21 & 66.35 & 79.01 & 37.91 & 26.34 & 34.34 & 58.12 & 80.99 & 11.33 & 11.15 & 105.53 \\
-EPGM (non-trained) & 46.21 & 66.29 & 79.76 & 37.88 & 26.59 & 36.44 & 59.94 & 80.36 &
+EPGM dependency path (training-free diagnostic) & 46.21 & 66.29 & 79.76 & 37.88 & 26.59 & 36.44 & 59.94 & 80.36 &
 20.83 & 20.17 & 39.04 \\
 \hline
 Dense-FT & \textbf{71.03} & 91.32 & 97.91 & 52.18 & 32.64 & 83.02 & 95.83 & 93.09 & -- & -- & 19.53 \\
@@ -1004,14 +917,17 @@ Dense-FT & \textbf{71.03} & 91.32 & 97.91 & 52.18 & 32.64 & 83.02 & 95.83 & 93.0
 \hline
 \end{tabular}%
 }
-\caption{Synthetic 2Wiki execution-provenance retrieval results. Quality
-metrics are percentages; latency is milliseconds per query.}
+\caption{Interim seed-13 synthetic 2Wiki execution-provenance retrieval
+results. Quality metrics are percentages; latency is milliseconds per
+query. The trainable rows will be updated after the three-seed matrix is
+complete.}
 \label{tab:provenance}
 \end{table*}
 
-Task adaptation is itself a strong baseline: Dense-FT reaches 91.32\%
-Recall@5 and 83.02\% Full Support@5. EPGM R-GCN nevertheless improves
-these values to 98.09\% and 96.74\%, gains of 6.77 and 13.72 points;
+In the current seed-13 snapshot, task adaptation is itself a strong
+baseline: Dense-FT reaches 91.32\% Recall@5 and 83.02\% Full Support@5.
+EPGM R-GCN improves these values to 98.09\% and 96.74\%, gains of 6.77
+and 13.72 points;
 it also raises Full Support@10 by 3.47 points and MRR by 2.00 points.
 Unlike the flat Dense-FT retriever, the learned provenance model emits a
 dependency subgraph and recovers 90.85\% of gold paths and 90.85\% of
@@ -1041,9 +957,9 @@ how many complete dependency chains each method actually resolves.
 \centering
 \small
 \setlength{\tabcolsep}{5pt}
-\caption{Complete-support and retrieval-budget diagnostics on synthetic
-execution trajectories. Complete-count columns use 2,851 as their
-denominator; the completeness gap is measured in percentage points.}
+\caption{Interim seed-13 complete-support and retrieval-budget diagnostics
+on synthetic execution trajectories. Complete-count columns use 2,851 as
+their denominator; the completeness gap is measured in percentage points.}
 \label{tab:provenance-budget}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrr}
@@ -1053,7 +969,7 @@ Method & Complete FS@5 & Complete FS@10 & Added at $k:5\rightarrow10$ & Incomple
 BM25 & 209 & 675 & 466 & 2,176 & 36.72 \\
 Dense & 722 & 1,529 & 807 & 1,322 & 36.57 \\
 FastGraphRAG-style (non-LLM) & 979 & 1,657 & 678 & 1,194 & 32.01 \\
-EPGM (non-trained) & 1,039 & 1,709 & 670 & 1,142 & 29.85 \\
+EPGM dependency path (training-free diagnostic) & 1,039 & 1,709 & 670 & 1,142 & 29.85 \\
 \hline
 Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 \textbf{EPGM R-GCN} & \textbf{2,758} & \textbf{2,831} & 73 &
@@ -1063,17 +979,19 @@ Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 }
 \end{table*}
 
-Among methods without task-specific training, EPGM completely recovers
-1,039 trajectories at top-5, 317 more than Dense and 60 more than
-FastGraphRAG-style; its completeness gap also decreases from 36.57 and
-32.01 points to 29.85 points. Execution-dependency search is therefore
-better at bringing both relevant outputs into a limited context, although
-1,142 trajectories remain incomplete at top-10 and the non-trained rule
+Among methods without task-specific training, the EPGM dependency-path
+preset completely recovers 1,039 trajectories at top-5, 317 more than
+Dense and 60 more than FastGraphRAG-style; its completeness gap also
+decreases from 36.57 and 32.01 points to 29.85 points. In this controlled
+benchmark, execution-dependency search is therefore better at bringing
+both relevant outputs into a limited context, although
+1,142 trajectories remain incomplete at top-10 and the training-free preset
 does not solve the task. Dense completes 807 additional trajectories when
 the budget grows from 5 to 10, the largest increase among all methods, but
-starts from the lowest small-budget count; EPGM and FastGraphRAG-style add
-similar numbers (670 and 678), indicating that both rely more on completing
-dependencies at small $k$ than on expanding the retrieval budget.
+starts from the lowest small-budget count; the EPGM dependency-path preset
+and FastGraphRAG-style add similar numbers (670 and 678), indicating that
+both rely more on completing dependencies at small $k$ than on expanding
+the retrieval budget.
 
 Among trained methods, EPGM R-GCN completely recovers 391 more trajectories
 than Dense-FT at top-5 and 99 more at top-10, reducing the residual top-10
@@ -1082,16 +1000,21 @@ $\Delta_{\mathrm{comp}}@5$ shrinks from 8.30 to 1.35 points, while
 $\Delta_{\mathrm{comp}}@10$ shrinks from 2.09 to 0.28 points. The main
 value of relational propagation is therefore not only higher average gold
 output recall, but converting partial hits that recover one output into
-complete dependency sets that can directly support downstream reasoning.
+complete dependency sets that provide a more complete input for downstream
+reasoning.
 
 We next ablate the same EPGM R-GCN protocol to localize which structural
 components drive these gains.
 
 \paragraph{Model and ablation protocol.}
 We use the EPGM R-GCN from Section~\ref{sec:evidence-tracing} on the shared
-74,012/2,850/2,851 splits (seed 13, joint checkpoint rule, sparse decoder).
+74,012/2,850/2,851 splits (seeds 13, 17, and 29; joint checkpoint rule;
+sparse decoder). The detailed rows currently populated below are the
+completed seed-13 snapshot; seeds 17 and 29 will be aggregated only after
+all full/ablation pairs pass the same artifact-identity checks.
 The full model uses 714,245 pairs; w/o hard negatives uses 444,072. We
-compare the full model to four training ablations.
+compare the full model to four training ablations and reserve one paired
+inference-time ablation.
 
 \emph{w/o graph} sets the number of graph-convolution layers to zero while
 retaining the input projection, node-type embedding, candidate and edge
@@ -1105,16 +1028,28 @@ preserved; non-\texttt{feeds} weights are unchanged. \emph{w/o hard
 negatives} rebuilds 444,072 pairs after setting successor, predecessor,
 dense, BM25, and graph-neighbor hard-negative requests to zero, retaining
 only positives and two easy random requests per positive while leaving the
-full edge loss active.
+full edge loss active. \emph{w/o edge rerank} must reuse the exact full-model
+pairs and checkpoint for the same seed, disable only target promotion, and
+retain thresholded edge diagnostics. It will enter the final table only when
+that checkpoint identity is verified; the earlier unpaired seed-13 artifact
+is not used for causal attribution.
 
-All rows use seed 13. Each training ablation selects its own development
-checkpoint under the joint objective. The full ablation row matches
-Table~\ref{tab:provenance}. An unpaired promotion-off artifact is omitted
-from the main tables.
+Within each seed, every training ablation selects its own development
+checkpoint under the joint objective. The current full seed-13 row matches
+Table~\ref{tab:provenance}. For the final analysis, each variant's metrics
+will be summarized as mean $\pm$ sample standard deviation across the three
+seeds. For every ablation and metric, predictions will be paired with the
+full model by seed and task ID; full-minus-ablation per-query deltas will be
+pooled across matched seed-query pairs and summarized with a 95\% percentile
+bootstrap interval (2,000 resamples; bootstrap seed 13). Positive deltas
+therefore favor the full model. Full-Support@5/@10 discordant counts
+(full-only versus ablation-only successes) will be reported alongside the
+intervals in the supplementary material.
 
-\paragraph{Key metrics show consistent gains from graph propagation
+\paragraph{Interim seed-13 metrics show broad gains from graph propagation
 across objectives.}
-Table~\ref{tab:provenance-ablation} covers five complementary objectives:
+Table~\ref{tab:provenance-ablation} reports six metrics spanning early
+ranking, complete support, dependency recall, and dependency quality:
 Recall@2 measures early ranking under a very small budget, Full Support@5
 tests whether both relevant outputs enter the context together, Path@10
 and Edge@10 measure dependency-structure recall, and Edge Precision@10 and
@@ -1153,14 +1088,15 @@ w/o hard negatives & 52.53 & 98.07 & 99.61 & 96.70 & 99.33 &
 \hline
 \end{tabular}%
 }
-\caption{EPGM R-GCN component ablations on the synthetic 2Wiki
-execution-provenance benchmark (\%). EdgeP@10 and EdgeF1@10 are Edge
-Precision@10 and Edge F1@10. Rows share the main-table full-model protocol.}
+\caption{Interim seed-13 EPGM R-GCN component ablations on the synthetic
+2Wiki execution-provenance benchmark (\%). EdgeP@10 and EdgeF1@10 are
+Edge Precision@10 and Edge F1@10. Rows share the main-table full-model
+protocol; final claims will use Table~\ref{tab:provenance-three-seed}.}
 \label{tab:provenance-ablation}
 \end{table*}
 
-Removing graph message passing causes the largest and most consistent
-quality degradation. Relative to the full model, \emph{w/o graph} drops
+In the seed-13 snapshot, removing graph message passing causes the largest
+observed quality degradation. Relative to the full model, \emph{w/o graph} drops
 Full Support@5, MRR, and Path Recall@10 by 12.00, 12.09, and 10.84 points,
 and Edge Precision@10 and Edge F1@10 by 30.86 and 23.32 points. In sample
 counts, \emph{w/o graph} completely recovers 342 fewer trajectories at
@@ -1170,26 +1106,28 @@ sparse decoding the gain from graph propagation concentrates in complete
 support and dependency-edge quality rather than the first hit under a very
 small budget. Because this variant retains the same frozen text
 representations, node-type embeddings, candidate MLP, and dependency-edge
-MLP, the gap locates the main gain in the neighborhood information exchange
-on the graph rather than in the text encoder or output heads. In other
-words, three-layer propagation lets an upstream evidence output influence
-downstream outputs through \texttt{feeds}/\texttt{returns} connections and
-carries query-anchor information through the call hierarchy; this is why
-both gold outputs can be jointly moved into a small budget.
+MLP, the controlled difference attributes the largest observed gain to
+neighborhood information exchange rather than to the text encoder or output
+heads. Three-layer propagation allows upstream evidence and the query anchor
+to influence downstream outputs through the call hierarchy and
+\texttt{feeds}/\texttt{returns} connections, which is consistent with the
+improved joint recovery of both gold outputs under a small budget.
 
 Replacing relation-specific transforms with a shared transform lowers the
 quality of predicted dependency edges: Edge Precision@10 and Edge F1@10
 fall by 9.84 and 6.26 points, MRR by 3.23 points, and Full Support@5 by
 1.62 points (46 fewer complete top-5 trajectories, and incomplete top-10
 trajectories rise from 20 to 31). Notably, this variant's Recall@2 is
-10.98 points \emph{above} the full model, showing that untyped propagation
-inflates the early ranking of some candidates at the cost of
-dependency-edge precision. This variant retains exactly the same
+10.98 points \emph{above} the full model, while its dependency-edge
+precision is lower. Untyped propagation therefore favors the very early
+candidate ranking on this split but does not preserve the full model's
+edge-selection quality. This variant retains exactly the same
 adjacency, propagation depth, and edge weights; the only difference is
-whether $W_r$ distinguishes relations, so it locates the independent effect
-of typed propagation in dependency-edge quality: the directions and
-semantics carried by call-hierarchy edges and field-level data-flow edges
-are not fully replaced by one untyped transformation, particularly when
+whether $W_r$ distinguishes relations. The observed single-seed difference
+is consistent with a contribution from typed propagation to dependency-edge
+quality: the directions and semantics carried by call-hierarchy edges and
+field-level data-flow edges are not fully replaced by one untyped
+transformation, particularly when
 separating structurally adjacent but functionally different \texttt{Agent},
 \texttt{ToolCall}, and \texttt{ToolOutput} messages.
 
@@ -1230,10 +1168,10 @@ file.
 \centering
 \small
 \setlength{\tabcolsep}{5pt}
-\caption{Model selection, complete coverage, and output-density
-diagnostics for the EPGM R-GCN ablations. Dev FS@5 is a percentage; the
-other complete and incomplete columns use 2,851 as their denominator.
-}
+\caption{Interim seed-13 model selection, complete coverage, and
+output-density diagnostics for the EPGM R-GCN ablations. Dev FS@5 is a
+percentage; the other complete and incomplete columns use 2,851 as their
+denominator.}
 \label{tab:provenance-ablation-diagnostics}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrr}
@@ -1251,8 +1189,8 @@ w/o hard negatives & 14 & 96.39 & 2,757 & 2,832 & 19 & 1.09 \\
 \end{table*}
 
 Development and test results provide evidence in the same direction. The
-best Dev FS@5 of \emph{w/o graph} is 11.72 points below the full model, and
-that of \emph{w/o edge type} is 2.46 points lower; on the test set these
+selected-checkpoint Dev FS@5 of \emph{w/o graph} is 11.72 points below that
+of the full model, and that of \emph{w/o edge type} is 2.46 points lower; on the test set these
 variants leave 168 and 31 top-10 trajectories incomplete, respectively,
 compared with only 20 for the full model. The full and four training
 ablations select checkpoints by the development
@@ -1270,11 +1208,46 @@ whether longer training would close some gaps requires additional
 experiments; the results compare components under a common training
 budget but do not establish that every variant has fully converged.
 
+\subsubsection{Reserved Three-Seed Robustness Report}
+
+Table~\ref{tab:provenance-three-seed} is intentionally left unpopulated
+while seeds 17 and 29 are running. It fixes the final reporting contract
+before the remaining results are available. The table will be populated
+from the output of \texttt{scripts/analyze\_provenance\_ablation.py}; a confidence interval
+that crosses zero will be described as inconclusive rather than as evidence
+that the full model is better.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\hline
+Variant & FS@5 $\mu{\pm}\sigma$ & MRR $\mu{\pm}\sigma$ & Path@10 $\mu{\pm}\sigma$ & EdgeP@10 $\mu{\pm}\sigma$ & EdgeF1@10 $\mu{\pm}\sigma$ & $\Delta$FS@5 [95\% CI] & $\Delta$EdgeF1 [95\% CI] \\
+\hline
+Full EPGM R-GCN & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & -- & -- \\
+w/o graph & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
+w/o edge type & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
+w/o edge weight & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
+w/o hard negatives & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
+w/o edge rerank & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
+\hline
+\end{tabular}%
+}
+\caption{Reserved final three-seed robustness report. Metric cells are mean
+$\pm$ sample standard deviation over seeds 13, 17, and 29. Delta columns
+are mean full-minus-ablation percentage-point differences with query-paired
+95\% percentile-bootstrap intervals over matched seed-query pairs. Positive
+deltas favor the full model.}
+\label{tab:provenance-three-seed}
+\end{table*}
+
 \paragraph{Residual errors point to second-hop coverage rather than
 indiscriminate subgraph expansion.}
-All 20 residual failures of the full model are stored. In 16 cases, the
-model already recovers one of the two gold outputs and misses only the
-other; only four cases miss both. The remaining errors are therefore mostly
+Manual inspection of all 20 residual top-10 failures shows that in 16
+cases the model recovers one of the two gold outputs and misses the other;
+only four cases miss both. The remaining errors are therefore mostly
 ``near-complete but missing one hop,'' and future improvements should
 prioritize seed coverage and joint ranking for the second dependency
 output rather than merely expanding the returned subgraph. Because a
@@ -1282,32 +1255,33 @@ dependency edge is decoded only after both endpoints enter the top-10
 set, these 16 single-endpoint misses also explain why small changes in
 candidate recall are simultaneously reflected in Path@10 and Edge@10.
 
-Output density further rules out the alternative explanation that
-predicting more edges is sufficient to raise edge recall. \emph{w/o graph}
+Output density further argues against, within these ablations, the
+alternative explanation that predicting more edges is sufficient to raise
+edge recall. \emph{w/o graph}
 returns 1.48 edges on average, the most of any variant, yet is the lowest
 on both Edge Recall@10 and Edge Precision@10 (79.94\% and 53.84\%); \emph{w/o
 edge weight} and \emph{w/o hard negatives} return 1.10 and 1.09 edges on
 average, also more than the full model's 1.07, yet achieve lower Edge
-Recall@10. The full model therefore obtains the highest edge precision and Edge F1
-with the fewest average edges among training ablations while keeping the
-best Edge Precision@10 and Edge F1@10. The training ablations still
-show that typed transforms and calibrated weights improve dependency
-selection rather than merely making the decoder connect more candidates.
+Recall@10. The full model therefore obtains the highest Edge Precision@10 and Edge
+F1@10 while emitting the fewest average edges among the training ablations.
+This pattern indicates that typed transforms and calibrated weights improve
+dependency selection rather than merely making the decoder connect more
+candidates.
 The decoder keeps at most one
 successor per source, which matches the two-hop chain structure of this
 synthetic benchmark; natural trajectories in which one output is consumed
 by multiple calls will additionally require evaluation of branching
 decoders and edge precision.
 
-Taken together, the clean training ablations, development selection, and
-failure decomposition support the following hierarchy. Graph message
-passing is the primary source of complete-support, dependency-recall, and
-edge-precision gains; relation-specific transforms provide a second stable
-gain in dependency-edge quality; and source-calibrated edge weights provide
-a moderate, metric-dependent gain in edge precision, path recovery, and
-MRR. Hard-negative supervision has only a weak and directionally mixed
-single-seed effect despite increasing the pair set from 444,072 to 714,245.
-All ablation numbers are single-seed.
+Taken together, the completed seed-13 run suggests the following provisional
+hierarchy. Graph message passing has the largest observed association with
+complete support, dependency recall, and edge precision; relation-specific
+transforms show a second observed gain in dependency-edge quality; and
+source-calibrated edge weights show a smaller, metric-dependent association.
+Hard-negative supervision has a weak and directionally mixed seed-13 effect
+despite increasing the pair set from 444,072 to 714,245. This hierarchy will
+be retained, weakened, or revised according to the three-seed means and
+paired intervals in Table~\ref{tab:provenance-three-seed}.
 
 \paragraph{Controlled mechanism example.}
 To illustrate how structured provenance converts a partial hit into a
@@ -1348,8 +1322,8 @@ supply-chain security session over seven pinned PyPI dependencies
 \texttt{PyYAML==3.13}, \texttt{Jinja2==2.10}, \texttt{Django==2.2.0},
 \texttt{cryptography==2.3}, \texttt{Werkzeug==0.14.1}).
 The session comprises a root coordinator, seven per-package subagents,
-and an independent verifier. The recorded provenance graph contains on
-the order of 150 retrievable nodes (task, agents, tool outputs,
+an independent verifier, and two verification workers. The recorded
+provenance graph contains 150 retrievable nodes (task, agents, tool outputs,
 observations, claims, verifications, decisions, and the final answer)
 and includes genuine revision structure: early claims (Django
 minimum-safe upgrade 4.2.26; a PyYAML-first ranking) are overturned via
@@ -1369,15 +1343,15 @@ audit.}
 Consider a query that asks what Django's minimum-safe version was first
 judged to be, why that judgment changed, and what the final decision is.
 The overturned claim \texttt{claim\_537BCA895F} (initially asserting
-4.2.26) is only mid-ranked under pure dense similarity. Typed-beam EPGM
-raises it by walking
+4.2.26) is ranked eighth by pure dense retrieval. Typed-beam EPGM raises
+it to rank five by walking
 \texttt{verify\_28A134BF07}$\xrightarrow{\texttt{contradicts}}$
 \texttt{claim\_537BCA895F}, returns the contradiction path, and exposes
-\texttt{lifecycle\_state=invalidated}. Flat lexical or dense lists may
-still mention related package text, but they do not co-locate the
-invalidated claim with the verification that overturned it, nor do they
-mark audit state. FastGraphRAG-style entity bridges likewise do not
-encode revision semantics. The point is mechanistic: provenance structure
+\texttt{lifecycle\_state=invalidated}. Dense retrieval already places the verification and invalidated claim in
+the top 10, but returns them as independent records; typed-beam EPGM makes
+the \texttt{contradicts} relation explicit and returns the revision path.
+FastGraphRAG-style entity bridges likewise do not encode revision
+semantics. The point is mechanistic: provenance structure
 answers an audit question in the form the user asked, not that a 20-query
 average score is decisive.
 
@@ -1385,15 +1359,14 @@ average score is decisive.
 by surface form.}
 Query Q10 asks why version-range checks must use PEP~440 / SpecifierSet
 semantics rather than naive string comparison. Three gold support nodes
-are required. Dense ranking places two of them far down the list because
-their wording barely overlaps the query
-(\texttt{obs\_42BF2FFDED} and \texttt{claim\_0144C746E7}).
-FastGraphRAG-style returns only one of the three in its top tier.
-Typed-beam EPGM anchors on a densely high-ranked claim about the PyYAML
-minimum-safe upgrade and walks
-$\texttt{obs}\xrightarrow{\texttt{supports}}\texttt{claim}$ edges to
-lift both buried nodes into the working context, recovering the full
-support triple on this query. The same pattern appears on a related
+are required. Dense retrieval ranks the three support nodes at 3, 10, and outside the
+top 10 because two have little surface overlap with the query
+(\texttt{claim\_0144C746E7} and \texttt{obs\_42BF2FFDED}).
+FastGraphRAG-style returns only one of the three in its top 10.
+Typed-beam EPGM anchors on a densely high-ranked PyYAML claim and walks
+$\texttt{obs}\xrightarrow{\texttt{supports}}\texttt{claim}$ edges,
+placing the three nodes at ranks 7, 9, and 3 and thereby recovering the
+complete support triple. The same pattern appears on a related
 cryptography upgrade query, where entity-graph search again under-covers
 the multi-node support set while typed traversal follows recorded
 dependencies. Structure reconnects evidence that text similarity
@@ -1402,8 +1375,9 @@ isolates; this is a case reading, not a multi-session significance test.
 \paragraph{What this study does and does not show.}
 SupplyChainTrace shows that the full EPGM schema can be populated from a
 real multi-agent run with tool calls, parallel handoffs, and evidence
-revision, and that typed-beam retrieval can use those edges in ways flat
-and entity-graph baselines do not. It does not provide a scored
+revision. In the two inspected cases, typed-beam retrieval uses support
+and contradiction edges to return an explicit path or complete a support
+set that the compared rankings leave implicit or incomplete. It does not provide a scored
 real-world benchmark, does not evaluate EPGM R-GCN transfer, and does
 not replace RQ1--RQ2 automatic results. Expanding to more sessions and
 end-to-end tasks remains future work.
@@ -1412,12 +1386,12 @@ end-to-end tasks remains future work.
 
 Across the three protocols, relational structure helps most when
 relevance is split across dependent artifacts rather than concentrated in
-a single surface-similar record. RQ1 shows that bridge-aware graph
-encoding raises complete support on large multi-hop sets; RQ2 shows that
-message passing---not merely a stronger text encoder---completes
-controlled \texttt{feeds}/\texttt{returns} chains and improves edge
-precision; RQ3's cases show the same schema supporting audit and support-path
-retrieval on a real session where flat retrievers bury relevant nodes. The settings
+a single surface-similar record. RQ1 yields higher complete-support point
+estimates for relation-aware encoding on large multi-hop sets; RQ2 shows
+the largest single-seed ablation drop when message passing is removed; and
+RQ3's cases show the same schema supporting audit and support-path retrieval
+on a real session where flat rankings leave relations implicit or evidence
+outside the cutoff. The settings
 are not interchangeable: multi-hop QA lacks native tool executions,
 synthetic trajectories lack natural noise and true revision events, and
 the real trace is too small for training or multi-seed claims. Read
@@ -1427,14 +1401,14 @@ SOTA result.
 
 \subsection{Efficiency and Cost Analysis}
 
-\paragraph{Structured retrieval trades modest latency for large gains in
+\paragraph{Structured retrieval increases observed latency while improving
 complete-support recovery.}
 The ms/query column of Table~\ref{tab:provenance} characterizes the
-retrieval cost of each method. The non-trained EPGM scorer averages
-39.04 ms per query, 63.0\% lower than the 105.53 ms of FastGraphRAG-style
-and close to the 37.51 ms of Dense. Typed provenance search therefore
-performs bounded path search without incurring entity-graph PageRank-level
-overhead. Learned relation-aware propagation raises the EPGM R-GCN mean
+retrieval cost of each method. The reported training-free dependency-path preset averages 39.04 ms per
+query, compared with 37.51 ms for Dense and 105.53 ms for the evaluated
+FastGraphRAG-style implementation in this harness. Thus, bounded
+execution-path search adds little observed latency beyond its dense base in
+this run. Learned relation-aware propagation raises the EPGM R-GCN mean
 latency to 68.69 ms per query on the delivered full run (median
 67.61 ms over the 2,851 test queries), trading additional computation for
 large gains in complete support and dependency recovery over Dense-FT. BM25
@@ -1451,8 +1425,12 @@ generation, graph construction, and model training.
 The experiments already provide partial evidence for structured
 execution-provenance memory from three perspectives: controlled retrieval,
 complete evidence recovery, and dependency reconstruction. Their scope is
-still concentrated on the retrieval stage, so they provide only partial
-support for the full multi-agent memory lifecycle. First, the synthetic
+still concentrated on offline retrieval over fully materialized static
+graphs, so they provide only partial support for the full multi-agent
+memory lifecycle. In particular, we do not measure streaming online graph
+updates, mid-trajectory retrieval, or incremental index maintenance;
+\textsc{UpdateGraph} is a schema-level description of event-local
+construction, not an evaluated systems component. First, the synthetic
 provenance benchmark is deterministically derived from labeled
 question-answering evidence chains rather than collected from
 heterogeneous, naturally occurring agent logs. The conversion also uses
@@ -1466,17 +1444,16 @@ endpoints at matched degree, topology-only baselines, or relation holdouts
 are not yet reported. SupplyChainTrace is analyzed qualitatively for schema applicability and
 case-level retrieval behavior, not as a scored multi-session benchmark.
 
-Second, all reported ablation results---and the main EPGM R-GCN and
-Dense-FT rows---come from one fixed split and one training seed; multi-seed
-variance and confidence intervals are not yet reported. Only the delivered full row includes per-query metrics, so the
-current directories do not support the intended query-paired bootstrap for
-any variant contrast. The few-tenths-of-a-point reversals after source-mean
-edge weighting or hard-negative removal require repeated experiments to
-determine their direction. In contrast, removing graph propagation causes
-cross-metric losses of 10.84--30.86 points in complete support, MRR,
-path/edge recall, and edge precision that appear simultaneously in the
-development set, test set, and failure counts, making this the more robust
-current conclusion. Third, the current experiments
+Second, at this draft stage the populated ablation tables---and the main
+EPGM R-GCN and Dense-FT comparison---are seed-13 snapshots. Seeds 17 and 29,
+per-variant mean/standard-deviation summaries, and paired confidence
+intervals are not yet complete. Table~\ref{tab:provenance-three-seed}
+therefore remains explicitly pending. The few-tenths-of-a-point reversals
+after source-mean edge weighting or hard-negative removal must not be given
+a stable direction until that table is populated. Removing graph
+propagation currently shows the largest cross-metric seed-13 drop, but its
+final magnitude and uncertainty will be reported from the same three-seed
+protocol rather than inferred from the current point estimate alone. Third, the current experiments
 evaluate retrieval, complete support, and path recovery, so they can
 partially support the claim that structured memory provides more complete
 grounding for downstream reasoning; system-level effects such as ``reducing
@@ -1498,12 +1475,13 @@ baseline; to further localize each piece of structural information, future
 work should separately remove node types, field-binding features, and the
 edge-prediction loss, shuffle the data-flow relations, and evaluate
 invalidation penalties on trajectories containing actual evidence-revision
-events. Overall, the current results constitute direct evidence for the
-effectiveness of execution-provenance retrieval, relational message
-passing, and dependency recovery, and provide partial experimental support
-for a complete multi-agent memory system; broader system-level conclusions
-can be strengthened through multi-seed repetition, natural trajectories,
-and end-to-end tasks.
+events. Overall, the current results provide quantitative evidence for
+compact support recovery and dependency decoding on the evaluated evidence
+graphs and controlled provenance benchmark, plus qualitative applicability
+evidence on
+one naturalistic trace. They provide only partial support for a complete
+multi-agent memory system; broader system-level conclusions require
+multi-seed repetition, more natural trajectories, and end-to-end tasks.
 
 
 \section{Conclusion}
@@ -1512,23 +1490,25 @@ We proposed Execution-Provenance Graph Memory for evidence-path and
 execution-dependency retrieval in evidence-heavy agent systems. EPGM
 represents tasks, agents, tool calls, tool outputs, and related artifacts
 as a typed provenance graph whose native edges expose call hierarchy and
-field-bound data flow. A non-trained path scorer and a learned EPGM R-GCN
-recover compact support sets and logical dependencies instead of isolated
+field-bound data flow. A training-free structured retriever and a learned
+EPGM R-GCN recover compact support sets and logical dependencies instead of isolated
 records. Across large-scale evidence benchmarks, controlled
-execution-provenance trajectories, and a real multi-agent
-trace study, the results support the same underlying conclusion:
-relational structure is most useful when relevance is distributed across
-dependent artifacts. Large-scale benchmarks establish complete-support
-gains, the controlled setting isolates dependency learning and graph
-message passing, and qualitative real-trace cases illustrate how typed traversal can
-expose cross-agent and revision-aware paths on a naturalistic session. These findings argue for treating multi-agent memory as
-executable provenance rather than only as semantic recall. They do not
+execution-provenance trajectories, and a real multi-agent trace study, the
+results support the same underlying conclusion: relational structure is
+most useful when relevance is distributed across dependent artifacts.
+The reported seed-13 large-scale runs show 4.33--13.01-point Full
+Support@5 gains over task-adapted dense retrieval; the current seed-13
+controlled snapshot shows a 13.72-point gain, while the reserved three-seed
+analysis will quantify its variance and paired uncertainty. Removing graph
+propagation currently produces the largest observed seed-13 ablation drop;
+and real-trace cases show typed traversal exposing support and revision
+paths that flat rankings separate. These findings motivate treating
+multi-agent memory as execution provenance rather than semantic recall
+alone. They do not
 yet prove gains on arbitrary real-world multi-agent deployments;
-multi-seed stability, broader natural logs, and end-to-end revision or
-generation metrics remain future work.
-
-
-\section{Acknowledgments}
+the pending three-seed stability analysis, broader natural logs, and
+end-to-end revision or generation metrics remain necessary before final
+claims.
 
 
 \bibliography{reference} 

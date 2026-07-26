@@ -22,13 +22,11 @@ from graph_memory.registry.retrieval import (
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
 )
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceConfig,
-)
-from graph_memory.retrieval.methods.execution_provenance.search import (
+from graph_memory.retrieval.methods.epgm import (
     DEPENDENCY_EDGE_TYPES,
+    EpgmRetrieverConfig,
     invalidated_node_ids,
-    search_provenance_paths,
+    search_epgm_paths,
 )
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.graphrag.index import build_graphrag_request
@@ -213,22 +211,29 @@ def test_provenance_rejects_untyped_support_transition() -> None:
 
 def test_provenance_rejects_incomplete_and_multi_semantic_paths() -> None:
     request = _alternative_path_request()
-    config = ExecutionProvenanceConfig(
+    config = EpgmRetrieverConfig.for_variant(
+        "dependency_path",
         max_hops=3,
         max_path_expansions=32,
         hop_penalty=0.01,
     )
-    evaluations = search_provenance_paths(request, ("seed",), config=config)
-    target_paths = [
-        evaluation for evaluation in evaluations if evaluation.partner_id == "target"
-    ]
+    paths = search_epgm_paths(
+        request.graph,
+        ("seed",),
+        {"seed": 1.0},
+        candidate_ids=frozenset(
+            candidate.item_id for candidate in request.candidates
+        ),
+        config=config,
+    )
+    target_paths = [path for path in paths if path.target_id == "target"]
 
-    assert {evaluation.path.node_ids for evaluation in target_paths} == {
+    assert {path.node_ids for path in target_paths} == {
         ("seed", "target"),
         ("seed", "call-a", "out-a", "target"),
     }
-    assert all(not evaluation.score.valid for evaluation in target_paths)
-    assert {evaluation.score.rejection_reason for evaluation in target_paths} == {
+    assert all(not path.gate.valid for path in target_paths)
+    assert {path.gate.rejection_reason for path in target_paths} == {
         "incomplete_path"
     }
 
@@ -268,7 +273,7 @@ def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() ->
         graph,
     )
 
-    assert invalidated_node_ids(request) == frozenset(
+    assert invalidated_node_ids(request.graph) == frozenset(
         {"edge-invalidated", "metadata-invalidated"}
     )
     assert ProvenanceEdgeType.INVALIDATES not in DEPENDENCY_EDGE_TYPES

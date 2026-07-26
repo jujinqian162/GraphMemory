@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.compat import StrEnum
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceConfig,
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetrieverConfig,
 )
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.requests import (
@@ -103,7 +103,7 @@ class DenseFinetunedRetrievalSettings:
 class ExecutionProvenanceRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
-    config: ExecutionProvenanceConfig = ExecutionProvenanceConfig()
+    config: EpgmRetrieverConfig = EpgmRetrieverConfig()
     device: str | None = None
     method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER] = (
         RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER

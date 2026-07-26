@@ -59,8 +59,8 @@ from graph_memory.registry.retrieval import (
     RetrievalTaskFamily,
 )
 from graph_memory.retrieval.execution.service import run_retrieval
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceConfig,
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetrieverConfig,
 )
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.requests import (
@@ -288,16 +288,7 @@ def _retrieval_settings(
         return ExecutionProvenanceRetrievalSettings(
             top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
-            config=ExecutionProvenanceConfig(
-                seed_top_s=method.seed_top_s,
-                beam_width=method.beam_width,
-                max_hops=method.max_hops,
-                max_paths_per_seed=method.max_paths_per_seed,
-                max_path_expansions=method.max_path_expansions,
-                min_path_confidence=method.min_path_confidence,
-                preserve_dense_top_n=method.preserve_dense_top_n,
-                hop_penalty=method.hop_penalty,
-            ),
+            config=EpgmRetrieverConfig.for_variant(method.variant),
             device=device,
         )
     if isinstance(method, TrainableRankingConfig):

@@ -33,8 +33,8 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceRetriever,
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetriever,
 )
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
@@ -316,7 +316,7 @@ def _build_execution_provenance(
         for request in build_payload.provenance_requests
     ]
     return _built(
-        ExecutionProvenanceRetriever(
+        EpgmRetriever(
             dense_ranker=dense_ranker,
             config=settings.config,
         ),

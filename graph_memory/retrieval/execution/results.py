@@ -153,6 +153,7 @@ def _native_trace_record(trace: NativeRetrievalTrace) -> dict[str, object]:
         "exact_dense_fallback": trace.exact_dense_fallback,
         "emitted_edges": [_candidate_edge_record(edge) for edge in trace.emitted_edges],
         "scorer_identity": trace.scorer_identity,
+        "variant": trace.variant,
     }
 
 

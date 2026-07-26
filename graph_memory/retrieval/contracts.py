@@ -113,6 +113,7 @@ class StatelessExecutionProvenanceTrace:
     exact_dense_fallback: bool
     emitted_edges: tuple[CandidateEdgeTrace, ...]
     scorer_identity: str
+    variant: str = "typed_beam"
     trace_kind: Literal["execution_provenance_local"] = "execution_provenance_local"
 
 

@@ -11,8 +11,8 @@ Reused as-is:
 * ``DenseTaskRetriever``           (flat dense baseline, shared frozen encoder)
 * ``GraphRAGMethod``               (entity-bridge baseline; fed adapter-derived
                                     title/entity metadata)
-* ``EpgmRetriever``                (no-train "ours": dense seed + typed
-                                    bidirectional graph propagation)
+* ``EpgmRetriever``                (no-train "ours": one implementation, run
+                                    per ``--epgm-variant`` preset)
 
 Data contract (per the EPGM raw convention):
     data/epgm_provenance/raw/<task>.json          # shared session memory
@@ -30,21 +30,39 @@ Usage
     uv run python scripts/run_epgm_provenance.py \
         --raw-dir data/epgm_provenance/raw \
         --methods bm25,dense,graphrag,epgm_retriever \
+        --epgm-variant typed_beam \
         --top-k 10 \
         --device cpu \
         --output-dir runs/epgm_provenance/task2
+
+    # equivalent module form
+    uv run python -m scripts.run_epgm_provenance ...
 """
 
 from __future__ import annotations
 
+# ruff: noqa: E402 -- path bootstrap must run before package imports
+
 import argparse
 import json
+import os
 import re
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+# ``python scripts/run_epgm_provenance.py`` puts ``scripts/`` on sys.path[0],
+# which hides the repository root and makes ``import graph_memory`` fail.
+# Mirror experiment/run.py: drop the script directory and inject the repo root.
+_SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+_REPOSITORY_ROOT = _SCRIPT_DIRECTORY.parent
+sys.path = [
+    entry for entry in sys.path if Path(entry).resolve() != _SCRIPT_DIRECTORY
+]
+sys.path.insert(0, str(_REPOSITORY_ROOT))
 
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
@@ -54,7 +72,12 @@ from graph_memory.graphs.provenance import (
     ProvenanceEdgeType,
     ProvenanceNodeType,
 )
-from graph_memory.retrieval.methods.epgm import EpgmRetriever, EpgmRetrieverConfig
+from graph_memory.retrieval.methods.epgm import (
+    EPGM_VARIANTS,
+    EpgmRetriever,
+    EpgmRetrieverConfig,
+    EpgmVariant,
+)
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.graphrag import (
@@ -68,7 +91,7 @@ from graph_memory.retrieval.requests import (
     TextRankingRequest,
 )
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = _REPOSITORY_ROOT
 DEFAULT_RAW_DIR = REPOSITORY_ROOT / "data" / "epgm_provenance" / "raw"
 DEFAULT_ENCODER = "models/intfloat-e5-base-v2"
 ALL_METHODS = ("bm25", "dense", "graphrag", "epgm_retriever")
@@ -393,6 +416,7 @@ def build_methods(
     *,
     encoder_model: str,
     device: str | None,
+    epgm_variant: EpgmVariant = "typed_beam",
 ) -> Methods:
     needs_dense = any(m in selected for m in ("dense", "graphrag", "epgm_retriever"))
     dense_ranker = None
@@ -410,7 +434,10 @@ def build_methods(
             else None
         ),
         epgm=(
-            EpgmRetriever(dense_ranker=dense_ranker, config=EpgmRetrieverConfig())
+            EpgmRetriever(
+                dense_ranker=dense_ranker,
+                config=EpgmRetrieverConfig.for_variant(epgm_variant),
+            )
             if "epgm_retriever" in selected and dense_ranker is not None
             else None
         ),
@@ -555,7 +582,16 @@ def run_query(
         "memory_task_id": view.task_id,
         "qid": qid,
         "method": method_name,
-        "display_name": "ours" if method_name == "epgm_retriever" else method_name,
+        "variant": (
+            methods.epgm.config.variant
+            if method_name == "epgm_retriever" and methods.epgm is not None
+            else None
+        ),
+        "display_name": (
+            f"EPGM (non-trained, {methods.epgm.config.variant})"
+            if method_name == "epgm_retriever" and methods.epgm is not None
+            else method_name
+        ),
         "level": query.get("level"),
         "answer_type": query.get("answer_type"),
         "query": query_text,
@@ -598,6 +634,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--encoder-model", default=DEFAULT_ENCODER)
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
+        "--epgm-variant",
+        default="typed_beam",
+        choices=EPGM_VARIANTS,
+        help="Frozen preset of the single non-trained EPGM implementation.",
+    )
+    parser.add_argument(
+        "--torch-threads",
+        type=int,
+        default=4,
+        help=(
+            "Cap intra-op torch threads. This benchmark is tiny (150 candidates), "
+            "so the default thread-per-core pool only adds per-thread allocator "
+            "arenas: on a 16-core/16 GB host that inflated peak RSS from ~1.6 GB "
+            "to enough to trigger a global OOM kill. Parallelism only; retrieval "
+            "results are unaffected. Pass 0 to keep the torch default."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=REPOSITORY_ROOT / "runs" / "epgm_provenance",
@@ -605,8 +659,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _cap_torch_threads(threads: int) -> None:
+    """Bound the intra-op thread pool before any tensor work allocates arenas."""
+
+    if threads <= 0:
+        return
+    for variable in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(variable, str(threads))
+    try:
+        import torch
+    except ImportError:
+        return
+    torch.set_num_threads(threads)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    _cap_torch_threads(args.torch_threads)
     selected = [m.strip() for m in args.methods.split(",") if m.strip()]
     unknown = [m for m in selected if m not in ALL_METHODS]
     if unknown:
@@ -619,7 +688,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit(f"task_id={args.task!r} not found under {args.raw_dir}")
 
     methods = build_methods(
-        selected, encoder_model=args.encoder_model, device=args.device
+        selected,
+        encoder_model=args.encoder_model,
+        device=args.device,
+        epgm_variant=cast(EpgmVariant, args.epgm_variant),
     )
 
     for task in tasks:
@@ -631,7 +703,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{len(view.candidates)} candidates | methods={selected}"
         )
         for method_name in selected:
-            out_path = out_dir / f"{method_name}.jsonl"
+            suffix = (
+                f"_{args.epgm_variant}" if method_name == "epgm_retriever" else ""
+            )
+            out_path = out_dir / f"{method_name}{suffix}.jsonl"
             with out_path.open("w", encoding="utf-8") as handle:
                 for query in task.queries:
                     row = run_query(
