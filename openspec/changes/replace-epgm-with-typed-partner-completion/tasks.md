@@ -115,9 +115,82 @@ attribute the gain to relation specificity plus partner completion and stop
 claiming query conditioning as a contribution. Do not report the full-vs-constant
 ablation as supportive on this evidence.
 
-## 9. Pending User GPU Execution (RQ2)
+## 9. RQ2 Executed - FAILED (2026-07-27)
 
-Gates from `design.md`, unchanged and not yet run:
+Gates from `design.md` were run on the user's GPU host. **Gate 1 failed.**
+This section supersedes the "pending" status below.
+
+### Result
+
+| method | R@2 | R@5 | R@10 | FS@5 | MRR |
+|---|---|---|---|---|---|
+| dense | 0.4612 | 0.6156 | 0.7601 | 0.2473 | 0.8091 |
+| graphrag | 0.4612 | **0.6561** | **0.7797** | **0.3294** | 0.8090 |
+| ours (as committed, v5) | 0.4612 | 0.6156 | 0.7601 | 0.2473 | 0.8091 |
+| ours (+ hop/hub fixes, v7) | 0.4612 | 0.6138 | 0.7653 | 0.2596 | 0.8045 |
+
+Gate 1 required R@5 > 0.6561 and FS@5 > 0.3294. Missed on both, and MRR fell
+below the 0.8090 floor. Gates 2-4 were not attempted; see the reason below.
+
+### Two further defects found while executing (fixes NOT committed, reverted)
+
+The committed version was a strict no-op on RQ2: 0 promotions on 2849/2851
+tasks, metrics byte-identical to Dense. Two causes, both mine:
+
+* **Hop counting charged connectors.** RQ2 records zero direct
+  candidate-candidate edges; every candidate pair is `output -> call -> output`.
+  Charging that as 2 edges capped confidence at
+  `0.683 * 0.683 * 0.6 = 0.2796` while `dense_rel <= 1.0`, so the 0.4 threshold
+  was **unsatisfiable by arithmetic**, not merely mistuned. The same defect is
+  present but invisible on RQ3, where every accepted promotion is a single arc -
+  that is what the "max_hops 1/2/3 gives identical RQ3 results" observation in
+  section 8 actually meant, and it was misread at the time as harmless.
+* **`HUB_NODE_TYPES` was deleted in the rewrite.** Without it, walks route
+  `output -> call -> agent -> call -> output`, making every candidate pair a
+  bounded-hop neighbour through the shared agent node. On RQ2 that noise path is
+  the shortest one for most pairs and dominated selection.
+
+With both fixed (v7), the mechanism does fire: 2725/2851 tasks promote, R@10
++0.0053, FS@5 +0.0123. But per-task the direction is a coin flip: R@5 improves
+on 190 tasks and worsens on 200; MRR improves on 30 and worsens on 201.
+
+### Why this is not a tuning problem - do not retry by sweeping the threshold
+
+RQ2 exposes only 3 traversable edge types, giving
+`specificity = {feeds: 0.683, invokes: 1.0, returns: 1.0}`, and candidate-to-candidate
+paths are almost entirely `feeds`. **The typed signal is therefore near-constant
+on RQ2**, so ranking is decided by `dense_rel(partner)` alone and the method
+reduces to "promote the Dense-strongest graph neighbour". Graph adjacency in this
+dataset carries no evidential information: RQ2 graphs are near-complete-bipartite
+through call hubs by construction. Sweeping `min_partner_confidence` only trades
+"acts rarely" against "acts randomly"; the direction of the action carries no
+signal either way.
+
+GraphRAG wins here because entity bridging is a *content* criterion between
+candidates. Beating it on RQ2 requires a comparable inter-candidate semantic
+criterion, not a better graph-traversal score.
+
+### Consequences for the paper
+
+* The RQ3 gain (section 8) stands, but it is now clear it rests on RQ3 having
+  direct typed candidate-candidate edges. That is a property of real agent
+  traces, not of label-derived RQ2 graphs. Scope any claim accordingly.
+* Combined with the unclean RQ3 ablation in section 8, **query conditioning has
+  no supporting evidence on either dataset**. Drop it as a claimed contribution
+  unless new evidence appears.
+* The "one configuration serves both RQ2 and RQ3" claim is not supported.
+
+### Status
+
+Server working tree reverted to commit `5a07b99`; the v7 hop/hub fixes were
+**not** committed. If this direction is revisited, those two fixes are
+prerequisites (they are correctness fixes regardless of outcome) but are not
+sufficient. Run artifacts kept at `runs/pexe-twp-sd13-v{5,6,7}` on the GPU host.
+
+## 10. Superseded: Original Pending RQ2 Gates
+
+Recorded for provenance. Gate 1 was run and failed (section 9); 2-4 were not
+attempted.
 
 1. RQ2 quality: `Recall@5` > 0.6561 and `Full Support@5` > 0.3294 (GraphRAG),
    with `MRR` >= 0.8090 and `Recall@2` unchanged at 0.4612.
