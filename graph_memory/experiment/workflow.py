@@ -367,8 +367,10 @@ def run_experiment(
             encoder_source=ranking_encoder,
             device=config.device,
             implementation_version=(
-                "ranking-v5-epgm-tpc-"
-                + EpgmRetrieverConfig().cache_fingerprint()
+                "ranking-v4-epgm-"
+                + EpgmRetrieverConfig.for_variant(
+                    rank_config.variant
+                ).cache_fingerprint()
                 if isinstance(rank_config, ExecutionProvenanceMethodConfig)
                 else "ranking-v2-device-aware"
             ),

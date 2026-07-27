@@ -288,7 +288,7 @@ def _retrieval_settings(
         return ExecutionProvenanceRetrievalSettings(
             top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
-            config=EpgmRetrieverConfig(),
+            config=EpgmRetrieverConfig.for_variant(method.variant),
             device=device,
         )
     if isinstance(method, TrainableRankingConfig):

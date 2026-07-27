@@ -11,8 +11,8 @@ Reused as-is:
 * ``DenseTaskRetriever``           (flat dense baseline, shared frozen encoder)
 * ``GraphRAGMethod``               (entity-bridge baseline; fed adapter-derived
                                     title/entity metadata)
-* ``EpgmRetriever``                (no-train "ours": typed partner completion,
-                                    one algorithm, one configuration)
+* ``EpgmRetriever``                (no-train "ours": one implementation, run
+                                    per ``--epgm-variant`` preset)
 
 Data contract (per the EPGM raw convention):
     data/epgm_provenance/raw/<task>.json          # shared session memory
@@ -30,6 +30,7 @@ Usage
     uv run python scripts/run_epgm_provenance.py \
         --raw-dir data/epgm_provenance/raw \
         --methods bm25,dense,graphrag,epgm_retriever \
+        --epgm-variant dependency_path \
         --top-k 10 \
         --device cpu \
         --output-dir runs/epgm_provenance/task2
@@ -51,7 +52,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ``python scripts/run_epgm_provenance.py`` puts ``scripts/`` on sys.path[0],
 # which hides the repository root and makes ``import graph_memory`` fail.
@@ -71,10 +72,12 @@ from graph_memory.graphs.provenance import (
     ProvenanceEdgeType,
     ProvenanceNodeType,
 )
-from graph_memory.retrieval.contracts import TypedPartnerCompletionTrace
+from graph_memory.retrieval.contracts import QueryConditionedExecutionProvenanceTrace
 from graph_memory.retrieval.methods.epgm import (
+    EPGM_VARIANTS,
     EpgmRetriever,
     EpgmRetrieverConfig,
+    EpgmVariant,
 )
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
@@ -414,6 +417,7 @@ def build_methods(
     *,
     encoder_model: str,
     device: str | None,
+    epgm_variant: EpgmVariant = "dependency_path",
 ) -> Methods:
     needs_dense = any(m in selected for m in ("dense", "graphrag", "epgm_retriever"))
     dense_ranker = None
@@ -433,7 +437,7 @@ def build_methods(
         epgm=(
             EpgmRetriever(
                 dense_ranker=dense_ranker,
-                config=EpgmRetrieverConfig(),
+                config=EpgmRetrieverConfig.for_variant(epgm_variant),
             )
             if "epgm_retriever" in selected and dense_ranker is not None
             else None
@@ -535,65 +539,95 @@ def run_query(
             candidates=view.candidates,
             graph=graph_for_query(view, qid),
         )
-        method_result = methods.epgm.rank_task(prov_request, top_k=top_k)
-        trace = method_result.trace.native_trace
-        if not isinstance(trace, TypedPartnerCompletionTrace):
-            raise TypeError("epgm returned the wrong native trace")
-        dense_by_id = {item.node_id: item for item in trace.dense_ranks}
-        confidence_by_id = {
-            proposal.partner_id: proposal.confidence
-            for proposal in trace.proposals
-            if proposal.accepted
-        }
-        seed_ids = list(trace.anchor_candidate_ids)
-        for i, node in enumerate(method_result.ranked_nodes[:top_k], start=1):
-            dense = dense_by_id[node.node_id]
-            ranked_evidence.append(
-                _evidence_row(
-                    i,
-                    node.node_id,
-                    view,
-                    score=node.score,
-                    extra={
-                        "dense_rank": dense.dense_rank,
-                        "dense_score": round(dense.dense_score, 6),
-                        "graph_score": round(
-                            confidence_by_id.get(node.node_id, 0.0), 6
-                        ),
-                    },
+        if methods.epgm.variant == "ppr_steiner":
+            method_result = methods.epgm.rank_task(prov_request, top_k=top_k)
+            trace = method_result.trace.native_trace
+            if not isinstance(trace, QueryConditionedExecutionProvenanceTrace):
+                raise TypeError("ppr_steiner returned the wrong native trace")
+            dense_by_id = {item.node_id: item for item in trace.dense_ranks}
+            ppr_by_id = {item.node_id: item.score for item in trace.ppr_nodes}
+            seed_ids = list(trace.selected_candidate_ids)
+            for i, node in enumerate(method_result.ranked_nodes[:top_k], start=1):
+                dense = dense_by_id[node.node_id]
+                ranked_evidence.append(
+                    _evidence_row(
+                        i,
+                        node.node_id,
+                        view,
+                        score=node.score,
+                        extra={
+                            "dense_rank": dense.dense_rank,
+                            "dense_score": round(dense.dense_score, 6),
+                            "graph_score": round(ppr_by_id.get(node.node_id, 0.0), 6),
+                        },
+                    )
                 )
-            )
-        # The shared result contract collapses candidate dependencies to
-        # `feeds`; the standalone RQ3 report needs the native semantic
-        # relation for audit-edge analysis.
-        retrieved_edges = [
-            {
-                "source": edge.source,
-                "target": edge.target,
-                "edge_type": edge.edge_type,
-                "confidence": edge.confidence,
-            }
-            for edge in trace.emitted_edges
-        ]
-        paths = [
-            {
-                "seed_id": proposal.anchor_id,
-                "target_id": proposal.partner_id,
-                "node_ids": list(proposal.path_node_ids),
-                "score": round(proposal.confidence, 6),
-                "steps": [
+            # The shared result contract collapses candidate dependencies to
+            # `feeds`; the standalone RQ3 report needs the native semantic
+            # relation for audit-edge analysis.
+            retrieved_edges = [
+                {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "edge_type": edge.edge_type,
+                    "confidence": edge.confidence,
+                }
+                for edge in trace.emitted_edges
+            ]
+            paths = [
+                {
+                    "seed_id": step.anchor_id,
+                    "target_id": step.target_id,
+                    "node_ids": list(step.path_node_ids),
+                    "score": round(step.marginal_gain, 6),
+                    "steps": [],
+                }
+                for step in trace.selection_steps
+            ]
+        else:
+            result = methods.epgm.rank(prov_request)
+            seed_ids = list(result.seed_ids)
+            top_nodes = result.ranked_nodes[:top_k]
+            top_ids = {node.node_id for node in top_nodes}
+            for i, node in enumerate(top_nodes, start=1):
+                extra = {
+                    "dense_rank": node.dense_rank,
+                    "dense_score": round(node.dense_score, 6),
+                    "graph_score": round(node.graph_score, 6),
+                }
+                ranked_evidence.append(
+                    _evidence_row(i, node.node_id, view, score=node.score, extra=extra)
+                )
+            for node in top_nodes:
+                if node.best_path is None:
+                    continue
+                paths.append(
                     {
-                        "source": proposal.path_node_ids[index],
-                        "target": proposal.path_node_ids[index + 1],
-                        "edge_type": edge_type,
-                        "direction": proposal.path_directions[index],
+                        "seed_id": node.best_path.seed_id,
+                        "target_id": node.best_path.target_id,
+                        "node_ids": list(node.best_path.node_ids),
+                        "score": round(node.best_path.score, 6),
+                        "steps": [
+                            {
+                                "source": step.source,
+                                "target": step.target,
+                                "edge_type": step.edge_type,
+                                "direction": step.direction,
+                            }
+                            for step in node.best_path.steps
+                        ],
                     }
-                    for index, edge_type in enumerate(proposal.path_edge_types)
-                ],
-            }
-            for proposal in trace.proposals
-            if proposal.accepted
-        ]
+                )
+                for step in node.best_path.steps:
+                    if step.source in top_ids and step.target in top_ids:
+                        retrieved_edges.append(
+                            {
+                                "source": step.source,
+                                "target": step.target,
+                                "edge_type": step.edge_type,
+                                "direction": step.direction,
+                            }
+                        )
     else:
         raise ValueError(f"unknown method {method_name!r}")
 
@@ -604,12 +638,12 @@ def run_query(
         "qid": qid,
         "method": method_name,
         "variant": (
-            "typed_partner_completion"
+            methods.epgm.config.variant
             if method_name == "epgm_retriever" and methods.epgm is not None
             else None
         ),
         "display_name": (
-            "EPGM (non-trained, typed partner completion)"
+            f"EPGM (non-trained, {methods.epgm.config.variant})"
             if method_name == "epgm_retriever" and methods.epgm is not None
             else method_name
         ),
@@ -659,6 +693,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--encoder-model", default=DEFAULT_ENCODER)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--epgm-variant",
+        default="dependency_path",
+        choices=EPGM_VARIANTS,
+        help="Frozen preset of the single non-trained EPGM implementation.",
+    )
     parser.add_argument(
         "--torch-threads",
         type=int,
@@ -711,6 +751,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected,
         encoder_model=args.encoder_model,
         device=args.device,
+        epgm_variant=cast(EpgmVariant, args.epgm_variant),
     )
 
     for task in tasks:
@@ -722,7 +763,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{len(view.candidates)} candidates | methods={selected}"
         )
         for method_name in selected:
-            out_path = out_dir / f"{method_name}.jsonl"
+            suffix = (
+                f"_{args.epgm_variant}" if method_name == "epgm_retriever" else ""
+            )
+            out_path = out_dir / f"{method_name}{suffix}.jsonl"
             with out_path.open("w", encoding="utf-8") as handle:
                 for query in task.queries:
                     row = run_query(

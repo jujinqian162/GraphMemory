@@ -18,6 +18,7 @@ from pydantic import (
 
 from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
 from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.retrieval.methods.epgm import EpgmVariant
 
 
 def _scientific_int(value: object) -> int:
@@ -301,16 +302,16 @@ class GraphRAGMethodConfig(ClosedModel):
 
 
 class ExecutionProvenanceMethodConfig(ClosedModel):
-    """Non-trained EPGM retriever: typed partner completion.
+    """Non-trained EPGM retriever.
 
-    There is no variant axis. One configuration serves synthetic dependency
-    graphs and real agent traces alike; behavior parameters live in
-    ``EpgmRetrieverConfig`` and enter the ranking cache identity through its
-    fingerprint.
+    ``variant`` selects a frozen strategy of the single implementation:
+    ``dependency_path`` is the reported default; ``ppr_steiner`` and
+    ``typed_beam`` are reproducibility diagnostics.
     """
 
     method: Literal["execution_provenance_retriever"]
     encoder: DenseEncoderConfig
+    variant: EpgmVariant = "dependency_path"
 
 
 class PairSamplingConfig(ClosedModel):
