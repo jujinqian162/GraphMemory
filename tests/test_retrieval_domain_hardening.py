@@ -219,7 +219,7 @@ def test_provenance_rejects_untyped_support_transition() -> None:
         )
 
 
-def test_provenance_rejects_incomplete_and_multi_semantic_paths() -> None:
+def test_provenance_accepts_single_role_path_and_rejects_multi_semantic_paths() -> None:
     request = _alternative_path_request()
     config = EpgmRetrieverConfig.for_variant(
         "dependency_path",
@@ -236,16 +236,23 @@ def test_provenance_rejects_incomplete_and_multi_semantic_paths() -> None:
         ),
         config=config,
     )
-    target_paths = [path for path in paths if path.target_id == "target"]
+    target_paths = {path.node_ids: path for path in paths if path.target_id == "target"}
 
-    assert {path.node_ids for path in target_paths} == {
+    assert set(target_paths) == {
         ("seed", "target"),
         ("seed", "call-a", "out-a", "target"),
     }
-    assert all(not path.gate.valid for path in target_paths)
-    assert {path.gate.rejection_reason for path in target_paths} == {
-        "incomplete_path"
-    }
+    # Gating is defined over schema-level roles, so a single direct dependency
+    # hand-off is a complete path even though it carries no ``feeds`` edge.
+    # This is the shape that recorded multi-agent traces produce exclusively.
+    direct = target_paths[("seed", "target")]
+    assert direct.gate.valid
+    assert direct.gate.rejection_reason is None
+    # Chaining two data-flow hand-offs is still two dependencies, not one, and
+    # remains rejected regardless of which relations express them.
+    chained = target_paths[("seed", "call-a", "out-a", "target")]
+    assert not chained.gate.valid
+    assert chained.gate.rejection_reason == "incomplete_path"
 
 
 def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() -> None:

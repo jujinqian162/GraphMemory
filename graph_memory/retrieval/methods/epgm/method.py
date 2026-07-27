@@ -120,7 +120,9 @@ class EpgmRetriever:
             candidate_ids=frozenset(dense_rank),
             config=self.config,
         )
-        best_by_target = _best_path_by_target(paths)
+        best_by_target = _best_path_by_target(
+            paths, min_path_confidence=self.config.min_path_confidence
+        )
         outcomes = _select_paths(paths, dense_rank=dense_rank, config=self.config)
 
         if self.config.fusion == "stable_insert":
@@ -418,7 +420,9 @@ class EpgmRetriever:
             candidate_ids=frozenset(dense_score),
             config=self.config,
         )
-        best_by_target = _best_path_by_target(paths)
+        best_by_target = _best_path_by_target(
+            paths, min_path_confidence=self.config.min_path_confidence
+        )
         fused = _additive_ranking(
             dense_ranked,
             seed_relevance=seed_relevance,
@@ -456,9 +460,28 @@ def _normalized_relevance(dense_ranked: list[RankedNode]) -> dict[str, float]:
     return {node.node_id: (node.score - lo) / span for node in dense_ranked}
 
 
-def _best_path_by_target(paths: tuple[EpgmPath, ...]) -> dict[str, EpgmPath]:
+def _best_path_by_target(
+    paths: tuple[EpgmPath, ...],
+    *,
+    min_path_confidence: float = 0.0,
+) -> dict[str, EpgmPath]:
+    """Strongest *gate-accepted* path per target above the confidence floor.
+
+    Rejected paths are returned by the search so each rejection stays auditable,
+    so they must be filtered here. Without this check the schema gate had no
+    effect on the additive ranking: paths carrying two data-flow hand-offs were
+    reported as ``incomplete_path`` and still contributed their score, which
+    reordered candidates on evidence the gate had already refused. The same
+    applied to ``min_path_confidence``, which only the stable-insert cascade
+    enforced.
+    """
+
     best: dict[str, EpgmPath] = {}
     for path in paths:
+        if not path.gate.valid:
+            continue
+        if path.score <= 0.0 or path.score < min_path_confidence:
+            continue
         current = best.get(path.target_id)
         if current is None or path.score > current.score:
             best[path.target_id] = path

@@ -485,19 +485,22 @@ def test_provenance_local_path_promotes_partner_and_uses_confidence_once() -> No
     result = method.rank_task(request, top_k=4)
 
     assert [node.node_id for node in result.ranked_nodes] == ["a", "x", "b", "y"]
+    # Path confidence is the recorded weight scaled by the relation's frozen
+    # type prior (feeds = 0.6), so a graph whose weights are all identical
+    # placeholders still yields relation-discriminative path scores.
     assert result.trace.retrieved_edges == [
         {
             "source": "a",
             "target": "b",
             "edge_type": "feeds",
-            "weight": pytest.approx(0.8),
+            "weight": pytest.approx(0.8 * 0.6),
             "directed": True,
         }
     ]
     trace = result.trace.native_trace
     assert isinstance(trace, StatelessExecutionProvenanceTrace)
     accepted = next(path for path in trace.paths if path.accepted)
-    assert accepted.path_confidence == pytest.approx(0.8)
+    assert accepted.path_confidence == pytest.approx(0.8 * 0.6)
     assert not trace.exact_dense_fallback
 
 

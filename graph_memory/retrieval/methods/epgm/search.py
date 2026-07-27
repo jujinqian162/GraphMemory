@@ -3,7 +3,14 @@
 The traversal, edge scope, path scoring, and gating axes come from
 ``EpgmRetrieverConfig``; the search itself is one implementation. The
 ``dependency_path`` preset is the same code with a directed walk, the
-dependency edge subset, ``feeds``-geometric scoring, and hard schema gating.
+dependency edge subset, data-flow-geometric scoring, and hard schema gating.
+
+Scoring and gating are defined over schema-level semantic roles
+(:data:`DATA_FLOW_EDGE_TYPES`, :data:`PRODUCTION_EDGE_TYPES`) rather than over
+one literal relation, so a single frozen configuration applies to graphs whose
+vocabularies differ. Label-derived execution graphs express evidence hand-off
+as field-bound ``feeds``; recorded multi-agent traces express it as
+``depends_on``/``supports``/``grounds`` and contain no ``feeds`` edge.
 
 Recorded edge weights enter through :func:`effective_edge_weights`, which
 normalises them per edge type and returns nothing for any edge type whose
@@ -23,17 +30,25 @@ from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
     ExecutionProvenanceGraph,
     ExecutionProvenanceNode,
-    ProvenanceEdgeType,
     binding_matches_endpoints,
 )
 from graph_memory.retrieval.methods.epgm.config import (
+    DATA_FLOW_EDGE_TYPES,
     DEPENDENCY_EDGE_TYPES,
     EpgmRetrieverConfig,
     HUB_NODE_TYPES,
     INVALID_LIFECYCLE_STATES,
     NON_TRAVERSABLE_EDGE_TYPES,
+    PRODUCTION_EDGE_TYPES,
     REVISION_EDGE_TYPES,
     WEIGHT_INFORMATIVE_VARIANCE,
+)
+
+_DATA_FLOW_EDGE_TYPE_VALUES: frozenset[str] = frozenset(
+    edge_type.value for edge_type in DATA_FLOW_EDGE_TYPES
+)
+_PRODUCTION_EDGE_TYPE_VALUES: frozenset[str] = frozenset(
+    edge_type.value for edge_type in PRODUCTION_EDGE_TYPES
 )
 
 
@@ -218,15 +233,39 @@ def _feeds_geometric_score(
     steps: Sequence[EpgmPathStep],
     config: EpgmRetrieverConfig,
 ) -> float:
-    weights = [
-        step.weight
+    """Geometric mean of the path's data-flow strengths.
+
+    Scoring keys on the schema-level data-flow role, not on the literal
+    ``feeds`` type. A recorded multi-agent trace expresses evidence hand-off as
+    ``depends_on``/``supports``/``grounds`` and contains no ``feeds`` edge at
+    all, so keying on ``feeds`` returned 0.0 for every path there and the
+    retriever degenerated to its dense input without any signal that it had
+    stopped working.
+
+    Each data-flow step contributes its recorded confidence times the frozen
+    type prior of its relation. The prior is what keeps the score
+    discriminative when recorded weights are uninformative: a trace that stores
+    a constant placeholder weight of 1.0 on every edge would otherwise give
+    every path the identical score 1.0, turning the graph term into a flat
+    bonus that reshuffles the dense order on ties instead of ranking by
+    evidence strength. With priors, a ``grounds`` or ``supports`` hand-off
+    outranks a generic ``depends_on`` one, which is the schema's own statement
+    about which relations carry evidential weight.
+
+    A geometric mean keeps longer paths comparable to shorter ones instead of
+    decaying with each additional factor.
+    """
+
+    strengths = [
+        step.weight * config.edge_prior(step.edge_type)
         for step in steps
-        if step.edge_type == ProvenanceEdgeType.FEEDS.value
+        if step.edge_type in _DATA_FLOW_EDGE_TYPE_VALUES
     ]
-    if not weights:
+    if not strengths:
         return 0.0
     confidence = math.exp(
-        sum(math.log(max(weight, 1e-300)) for weight in weights) / len(weights)
+        sum(math.log(max(strength, 1e-300)) for strength in strengths)
+        / len(strengths)
     )
     return confidence * math.exp(-config.hop_penalty * max(0, len(steps) - 2))
 
@@ -239,19 +278,38 @@ def _gate(
     node_by_id: Mapping[str, ExecutionProvenanceNode],
     invalidated: frozenset[str],
 ) -> EpgmGateReport:
-    feeds = [
-        step for step in steps if step.edge_type == ProvenanceEdgeType.FEEDS.value
+    """Accept a path that carries exactly one schema-level data-flow step.
+
+    Completeness is defined over semantic roles: a path must express exactly one
+    data-flow hand-off, optionally routed through production connectors
+    (``returns``/``invokes``). The earlier form required literally one ``feeds``
+    and one ``returns``, which no recorded-trace path can satisfy because such
+    traces emit no ``feeds``; every path was rejected as ``incomplete_path``.
+
+    Field-binding verification stays strict where a binding exists and is
+    vacuously satisfied where the schema records none, so graphs that carry
+    field-level provenance are still checked against their endpoints while
+    graphs that do not are not penalised for the absent annotation.
+    """
+
+    data_flow = [
+        step for step in steps if step.edge_type in _DATA_FLOW_EDGE_TYPE_VALUES
     ]
-    returns = [
-        step for step in steps if step.edge_type == ProvenanceEdgeType.RETURNS.value
+    connectors = [
+        step for step in steps if step.edge_type in _PRODUCTION_EDGE_TYPE_VALUES
     ]
-    binding_valid = len(feeds) == 1 and all(
+    bound = [
+        step
+        for step in data_flow
+        if edge_by_key[(step.source, step.target, step.edge_type)].binding is not None
+    ]
+    binding_valid = all(
         binding_matches_endpoints(
             edge_by_key[(step.source, step.target, step.edge_type)], node_by_id
         )
-        for step in feeds
+        for step in bound
     )
-    completeness_valid = len(feeds) == 1 and len(returns) == 1
+    completeness_valid = len(data_flow) == 1 and len(connectors) == len(steps) - 1
     lifecycle_valid = not any(node_id in invalidated for node_id in node_ids)
     rejection_reason = None
     if not completeness_valid:

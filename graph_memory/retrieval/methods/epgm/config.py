@@ -80,6 +80,28 @@ DEPENDENCY_EDGE_TYPES: frozenset[ProvenanceEdgeType] = frozenset(
         ProvenanceEdgeType.DEPENDS_ON,
     }
 )
+# Schema-level semantic roles inside the dependency scope. Path scoring and
+# gating are defined over these roles rather than over one literal edge type,
+# because different provenance sources express the same role with different
+# relations: label-derived execution graphs record evidence hand-off as
+# field-bound `feeds`, while recorded multi-agent traces record it as
+# `depends_on`/`supports`/`grounds` and emit no `feeds` at all. Keying on
+# `feeds` alone made every path on such a trace unscorable and ungatable, so
+# the retriever silently degenerated to its dense input. Roles keep one frozen
+# algorithm while letting each graph's own vocabulary satisfy it.
+DATA_FLOW_EDGE_TYPES: frozenset[ProvenanceEdgeType] = frozenset(
+    {
+        ProvenanceEdgeType.FEEDS,
+        ProvenanceEdgeType.DEPENDS_ON,
+        ProvenanceEdgeType.SUPPORTS,
+        ProvenanceEdgeType.GROUNDS,
+    }
+)
+# Artifact-production steps. These carry no evidential choice of their own and
+# act as connectors between data-flow steps.
+PRODUCTION_EDGE_TYPES: frozenset[ProvenanceEdgeType] = frozenset(
+    {ProvenanceEdgeType.RETURNS, ProvenanceEdgeType.INVOKES}
+)
 REVISION_EDGE_TYPES: frozenset[ProvenanceEdgeType] = frozenset(
     {ProvenanceEdgeType.INVALIDATES, ProvenanceEdgeType.SUPERSEDES}
 )
@@ -260,6 +282,7 @@ _DEPENDENCY_PATH_PRESET = EpgmRetrieverConfig(
 
 
 __all__ = [
+    "DATA_FLOW_EDGE_TYPES",
     "DEFAULT_EDGE_PRIORS",
     "DEFAULT_RELATION_DESCRIPTIONS",
     "DEPENDENCY_EDGE_TYPES",
@@ -269,6 +292,7 @@ __all__ = [
     "EpgmGating",
     "EpgmPathScore",
     "EpgmRetrieverConfig",
+    "PRODUCTION_EDGE_TYPES",
     "EpgmTraversal",
     "EpgmVariant",
     "HUB_NODE_TYPES",

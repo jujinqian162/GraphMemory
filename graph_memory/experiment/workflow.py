@@ -367,7 +367,7 @@ def run_experiment(
             encoder_source=ranking_encoder,
             device=config.device,
             implementation_version=(
-                "ranking-v4-epgm-"
+                "ranking-v5-epgm-schema-roles-"
                 + EpgmRetrieverConfig.for_variant(
                     rank_config.variant
                 ).cache_fingerprint()
