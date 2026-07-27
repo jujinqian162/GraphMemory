@@ -9,9 +9,8 @@ from graph_memory.retrieval.contracts import (
     GraphRAGTrace,
     NativeRetrievalTrace,
     ProvenanceEdgeTrace,
-    QueryConditionedExecutionProvenanceTrace,
     RankedNode,
-    StatelessExecutionProvenanceTrace,
+    TypedPartnerCompletionTrace,
 )
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.text.tokens import content_tokens
@@ -128,113 +127,43 @@ def _native_trace_record(trace: NativeRetrievalTrace) -> dict[str, object]:
         }
     if isinstance(trace, ExecutionProvenanceTrace):
         return trace.model_dump(mode="json", exclude_none=True)
-    if isinstance(trace, QueryConditionedExecutionProvenanceTrace):
-        return {
-            "trace_kind": trace.trace_kind,
-            "native_graph_node_ids": list(trace.native_graph_node_ids),
-            "dense_ranks": [_dense_rank_record(item) for item in trace.dense_ranks],
-            "relation_description_version": trace.relation_description_version,
-            "relations": [
-                {
-                    "edge_type": item.edge_type,
-                    "similarity": item.similarity,
-                    "affinity": item.affinity,
-                }
-                for item in trace.relations
-            ],
-            "transitions": [
-                {
-                    "source": item.source,
-                    "target": item.target,
-                    "edge_type": item.edge_type,
-                    "direction": item.direction,
-                    "recorded_weight": item.recorded_weight,
-                    "relation_affinity": item.relation_affinity,
-                    "probability": item.probability,
-                    "cost": item.cost,
-                }
-                for item in trace.transitions
-            ],
-            "ppr_nodes": [
-                {"node_id": item.node_id, "teleport": item.teleport, "score": item.score}
-                for item in trace.ppr_nodes
-            ],
-            "ppr_iterations": trace.ppr_iterations,
-            "ppr_residual": trace.ppr_residual,
-            "ppr_converged": trace.ppr_converged,
-            "candidate_prizes": [
-                {
-                    "node_id": item.node_id,
-                    "dense_component": item.dense_component,
-                    "ppr_component": item.ppr_component,
-                    "prize": item.prize,
-                }
-                for item in trace.candidate_prizes
-            ],
-            "selected_candidate_ids": list(trace.selected_candidate_ids),
-            "connector_node_ids": list(trace.connector_node_ids),
-            "selection_steps": [
-                {
-                    "anchor_id": item.anchor_id,
-                    "target_id": item.target_id,
-                    "path_node_ids": list(item.path_node_ids),
-                    "transitions": [
-                        {
-                            "source": transition.source,
-                            "target": transition.target,
-                            "edge_type": transition.edge_type,
-                            "direction": transition.direction,
-                        }
-                        for transition in item.transitions
-                    ],
-                    "added_candidate_ids": list(item.added_candidate_ids),
-                    "displaced_candidate_ids": list(item.displaced_candidate_ids),
-                    "prize_gain": item.prize_gain,
-                    "edge_cost": item.edge_cost,
-                    "displacement_cost": item.displacement_cost,
-                    "marginal_gain": item.marginal_gain,
-                }
-                for item in trace.selection_steps
-            ],
-            "selected_native_edges": [
-                _provenance_edge_record(edge) for edge in trace.selected_native_edges
-            ],
-            "objective": trace.objective,
-            "top_k": trace.top_k,
-            "exact_dense_fallback": trace.exact_dense_fallback,
-            "emitted_edges": [
-                _candidate_edge_record(edge) for edge in trace.emitted_edges
-            ],
-            "scorer_identity": trace.scorer_identity,
-            "variant": trace.variant,
-        }
-    assert isinstance(trace, StatelessExecutionProvenanceTrace)
+    assert isinstance(trace, TypedPartnerCompletionTrace)
     return {
         "trace_kind": trace.trace_kind,
         "dense_ranks": [_dense_rank_record(item) for item in trace.dense_ranks],
-        "seed_candidate_ids": list(trace.seed_candidate_ids),
-        "paths": [
+        "anchor_candidate_ids": list(trace.anchor_candidate_ids),
+        "relation_description_version": trace.relation_description_version,
+        "relations": [
             {
-                "anchor_id": path.anchor_id,
-                "partner_id": path.partner_id,
-                "node_ids": list(path.node_ids),
-                "path_confidence": path.path_confidence,
-                "binding_valid": path.binding_valid,
-                "completeness_valid": path.completeness_valid,
-                "lifecycle_valid": path.lifecycle_valid,
-                "accepted": path.accepted,
-                "rejection_reason": path.rejection_reason,
-                "original_partner_rank": path.original_partner_rank,
-                "final_partner_rank": path.final_partner_rank,
+                "edge_type": item.edge_type,
+                "similarity": item.similarity,
+                "affinity": item.affinity,
             }
-            for path in trace.paths
+            for item in trace.relations
         ],
-        "edges": [_provenance_edge_record(edge) for edge in trace.edges],
+        "proposals": [
+            {
+                "anchor_id": item.anchor_id,
+                "partner_id": item.partner_id,
+                "path_node_ids": list(item.path_node_ids),
+                "path_edge_types": list(item.path_edge_types),
+                "path_directions": list(item.path_directions),
+                "confidence": item.confidence,
+                "accepted": item.accepted,
+                "rejection_reason": item.rejection_reason,
+                "original_partner_rank": item.original_partner_rank,
+                "final_partner_rank": item.final_partner_rank,
+            }
+            for item in trace.proposals
+        ],
         "protected_prefix": list(trace.protected_prefix),
+        "connector_node_ids": list(trace.connector_node_ids),
+        "promoted_native_edges": [
+            _provenance_edge_record(edge) for edge in trace.promoted_native_edges
+        ],
         "exact_dense_fallback": trace.exact_dense_fallback,
         "emitted_edges": [_candidate_edge_record(edge) for edge in trace.emitted_edges],
         "scorer_identity": trace.scorer_identity,
-        "variant": trace.variant,
     }
 
 

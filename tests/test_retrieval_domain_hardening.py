@@ -26,12 +26,7 @@ from graph_memory.registry.retrieval import (
     GraphRAGRetrievalSettings,
 )
 from graph_memory.retrieval.execution.results import assemble_ranked_result
-from graph_memory.retrieval.methods.epgm import (
-    DEPENDENCY_EDGE_TYPES,
-    EpgmRetrieverConfig,
-    invalidated_node_ids,
-    search_epgm_paths,
-)
+from graph_memory.retrieval.methods.epgm import EpgmRetrieverConfig
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.graphrag.index import build_graphrag_request
 from graph_memory.retrieval.requests import (
@@ -219,77 +214,6 @@ def test_provenance_rejects_untyped_support_transition() -> None:
         )
 
 
-def test_provenance_rejects_incomplete_and_multi_semantic_paths() -> None:
-    request = _alternative_path_request()
-    config = EpgmRetrieverConfig.for_variant(
-        "dependency_path",
-        max_hops=3,
-        max_path_expansions=32,
-        hop_penalty=0.01,
-    )
-    paths = search_epgm_paths(
-        request.graph,
-        ("seed",),
-        {"seed": 1.0},
-        candidate_ids=frozenset(
-            candidate.item_id for candidate in request.candidates
-        ),
-        config=config,
-    )
-    target_paths = [path for path in paths if path.target_id == "target"]
-
-    assert {path.node_ids for path in target_paths} == {
-        ("seed", "target"),
-        ("seed", "call-a", "out-a", "target"),
-    }
-    assert all(not path.gate.valid for path in target_paths)
-    assert {path.gate.rejection_reason for path in target_paths} == {
-        "incomplete_path"
-    }
-
-
-def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() -> None:
-    graph = ExecutionProvenanceGraph(
-        "revision-task",
-        (
-            ExecutionProvenanceNode(
-                "verification", ProvenanceNodeType.VERIFICATION, "new check"
-            ),
-            ExecutionProvenanceNode(
-                "edge-invalidated", ProvenanceNodeType.CLAIM, "old claim"
-            ),
-            ExecutionProvenanceNode(
-                "metadata-invalidated",
-                ProvenanceNodeType.CLAIM,
-                "obsolete claim",
-                {"lifecycle_state": "superseded"},
-            ),
-        ),
-        (
-            ExecutionProvenanceEdge(
-                "verification",
-                "edge-invalidated",
-                ProvenanceEdgeType.INVALIDATES,
-            ),
-        ),
-    )
-    request = ExecutionProvenanceRankingRequest(
-        "revision-task",
-        "current claim",
-        (
-            TextCandidate("edge-invalidated", "old claim", {}),
-            TextCandidate("metadata-invalidated", "obsolete claim", {}),
-        ),
-        graph,
-    )
-
-    assert invalidated_node_ids(request.graph) == frozenset(
-        {"edge-invalidated", "metadata-invalidated"}
-    )
-    assert ProvenanceEdgeType.INVALIDATES not in DEPENDENCY_EDGE_TYPES
-    assert ProvenanceEdgeType.PRECEDES not in DEPENDENCY_EDGE_TYPES
-
-
 def test_ranked_result_validation_rejects_malformed_native_trace() -> None:
     request = TextRankingRequest(
         "trace-task", "query", (TextCandidate("c1", "candidate", {}),)
@@ -320,18 +244,103 @@ def test_ranked_result_validation_rejects_malformed_native_trace() -> None:
         validate_ranked_results([prediction], [request])
 
 
-def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
-    request = _alternative_path_request()
+class PromotionEncoder:
+    """Ranks the anchor first and the structural partner last.
+
+    The partner must therefore be recovered by typed partner completion rather
+    than by Dense alone, which is what makes a promoting trace available for
+    round-trip and rejection tests.
+    """
+
+    _scores = {
+        "seed result": 1.0,
+        "noise one": 0.9,
+        "noise two": 0.8,
+        "final result": 0.5,
+    }
+
+    def encode(
+        self,
+        texts: Sequence[str],
+        batch_size: int = 64,
+        normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
+    ) -> object:
+        _ = batch_size, normalize_embeddings, show_progress_bar
+        rows = [
+            np.asarray(
+                [self._scores.get(text.split("::", 1)[-1], 1.0), 0.0],
+                dtype=np.float32,
+            )
+            for text in texts
+        ]
+        return np.asarray(rows, dtype=np.float32)
+
+
+def _promotion_request(
+    *, repeated_relation_path: bool = False
+) -> ExecutionProvenanceRankingRequest:
+    """A graph whose lowest-ranked candidate is a typed neighbour of the top one.
+
+    With ``repeated_relation_path`` the anchor reaches its partner over two hops
+    of the *same* relation type through a non-candidate connector.
+    """
+
+    nodes = [
+        ExecutionProvenanceNode("seed", ProvenanceNodeType.TOOL_OUTPUT, "seed result"),
+        ExecutionProvenanceNode("n1", ProvenanceNodeType.TOOL_OUTPUT, "noise one"),
+        ExecutionProvenanceNode("n2", ProvenanceNodeType.TOOL_OUTPUT, "noise two"),
+        ExecutionProvenanceNode(
+            "target", ProvenanceNodeType.TOOL_OUTPUT, "final result"
+        ),
+    ]
+    if repeated_relation_path:
+        nodes.append(
+            ExecutionProvenanceNode("mid", ProvenanceNodeType.TOOL_CALL, "mid hop")
+        )
+        edges = (
+            ExecutionProvenanceEdge("seed", "mid", ProvenanceEdgeType.DEPENDS_ON),
+            ExecutionProvenanceEdge("mid", "target", ProvenanceEdgeType.DEPENDS_ON),
+        )
+    else:
+        nodes.append(
+            ExecutionProvenanceNode("call-x", ProvenanceNodeType.TOOL_CALL, "aux call")
+        )
+        edges = (
+            ExecutionProvenanceEdge("seed", "target", ProvenanceEdgeType.DEPENDS_ON),
+            ExecutionProvenanceEdge("call-x", "n2", ProvenanceEdgeType.RETURNS),
+        )
+    graph = ExecutionProvenanceGraph("promo-task", tuple(nodes), edges)
+    return ExecutionProvenanceRankingRequest(
+        "promo-task",
+        "find result",
+        (
+            TextCandidate("seed", "seed result", {}),
+            TextCandidate("n1", "noise one", {}),
+            TextCandidate("n2", "noise two", {}),
+            TextCandidate("target", "final result", {}),
+        ),
+        graph,
+    )
+
+
+def _promotion_prediction(
+    *, repeated_relation_path: bool = False
+) -> tuple[RankedResult, TextRankingRequest]:
+    request = _promotion_request(repeated_relation_path=repeated_relation_path)
     built = Registry.retrieval.build(
         ExecutionProvenanceRetrievalSettings(
-            top_k=3,
-            encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+            top_k=4,
+            encoder=DenseEncoderSettings("promotion", "Q::", "P::", 7),
+            config=EpgmRetrieverConfig(
+                preserve_dense_top_n=0, min_partner_confidence=0.1
+            ),
         ),
         ExecutionProvenanceBuildPayload(
-            provenance_requests=[request], dense_encoder=RecordingEncoder()
+            provenance_requests=[request], dense_encoder=PromotionEncoder()
         ),
     )
-    result = built.method.rank_task(request, top_k=3)
+    result = built.method.rank_task(request, top_k=4)
     text_request = TextRankingRequest(
         request.task_id, request.query_text, request.candidates
     )
@@ -339,7 +348,7 @@ def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
         text_request=text_request,
         method=built.method.name,
         ranked_nodes=result.ranked_nodes,
-        top_k=3,
+        top_k=4,
         latency_ms=1.0,
         retrieved_edges=result.trace.retrieved_edges,
         native_trace=result.trace.native_trace,
@@ -347,36 +356,90 @@ def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
     return prediction, text_request
 
 
-def test_ppr_steiner_trace_round_trips_through_ranked_result_validation() -> None:
-    prediction, request = _ppr_steiner_prediction()
+def _native_trace_of(prediction: RankedResult) -> dict[str, Any]:
+    plain = cast(dict[str, Any], cast(object, prediction))
+    metadata = cast(dict[str, Any], plain["metadata"])
+    return cast(dict[str, Any], metadata["native_trace"])
+
+
+def test_typed_partner_completion_trace_round_trips_through_validation() -> None:
+    prediction, request = _promotion_prediction()
 
     validate_ranked_results([prediction], [request])
 
-    plain = cast(dict[str, Any], cast(object, prediction))
-    metadata = cast(dict[str, Any], plain["metadata"])
-    trace = cast(dict[str, Any], metadata["native_trace"])
-    assert trace["trace_kind"] == "execution_provenance_subgraph"
-    assert trace["variant"] == "ppr_steiner"
+    trace = _native_trace_of(prediction)
+    assert trace["trace_kind"] == "typed_partner_completion"
+    assert not trace["exact_dense_fallback"]
+    accepted = [item for item in trace["proposals"] if item["accepted"]]
+    assert [(item["anchor_id"], item["partner_id"]) for item in accepted] == [
+        ("seed", "target")
+    ]
+    assert trace["promoted_native_edges"]
 
 
-def test_ppr_steiner_trace_rejects_non_normalized_transition_row() -> None:
-    prediction, request = _ppr_steiner_prediction()
+def test_typed_partner_completion_trace_rejects_non_normalized_affinities() -> None:
+    prediction, request = _promotion_prediction()
     malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
-    metadata = cast(dict[str, Any], malformed["metadata"])
-    trace = cast(dict[str, Any], metadata["native_trace"])
-    transitions = cast(list[dict[str, Any]], trace["transitions"])
-    source = transitions[0]["source"]
-    for transition in transitions:
-        if transition["source"] == source:
-            transition["probability"] *= 0.5
+    trace = _native_trace_of(cast(RankedResult, cast(object, malformed)))
+    relations = cast(list[dict[str, Any]], trace["relations"])
+    assert relations
+    relations[0]["affinity"] *= 0.5
 
-    with pytest.raises(ContractValidationError, match="does not sum to one"):
+    with pytest.raises(ContractValidationError, match="do not sum to one"):
         validate_ranked_results(
             [cast(RankedResult, cast(object, malformed))], [request]
         )
 
 
-def test_ppr_steiner_reuses_dense_query_vector_and_caches_relation_vectors() -> None:
+def test_typed_partner_completion_trace_rejects_promoted_edge_reorientation() -> None:
+    prediction, request = _promotion_prediction()
+    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
+    trace = _native_trace_of(cast(RankedResult, cast(object, malformed)))
+    edges = cast(list[dict[str, Any]], trace["promoted_native_edges"])
+    assert edges
+    edges[0]["source"], edges[0]["target"] = edges[0]["target"], edges[0]["source"]
+
+    with pytest.raises(
+        ContractValidationError, match="do not match accepted proposal paths"
+    ):
+        validate_ranked_results(
+            [cast(RankedResult, cast(object, malformed))], [request]
+        )
+
+
+def test_typed_partner_completion_trace_rejects_candidate_as_connector() -> None:
+    prediction, request = _promotion_prediction()
+    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
+    trace = _native_trace_of(cast(RankedResult, cast(object, malformed)))
+    connectors = cast(list[str], trace["connector_node_ids"])
+    connectors.append("n1")
+
+    with pytest.raises(
+        ContractValidationError, match="connector must not be a request candidate"
+    ):
+        validate_ranked_results(
+            [cast(RankedResult, cast(object, malformed))], [request]
+        )
+
+
+def test_repeated_relation_path_survives_trace_validation() -> None:
+    """path_edge_types/path_directions are ordered sequences, not sets.
+
+    A two-hop path may legitimately traverse one relation type twice, so the
+    validator must not apply its set-uniqueness rule to these fields.
+    """
+
+    prediction, request = _promotion_prediction(repeated_relation_path=True)
+    trace = _native_trace_of(prediction)
+    accepted = [item for item in trace["proposals"] if item["accepted"]]
+    assert [item["path_edge_types"] for item in accepted] == [
+        ["depends_on", "depends_on"]
+    ]
+
+    validate_ranked_results([prediction], [request])
+
+
+def test_epgm_reuses_dense_query_vector_and_caches_relation_vectors() -> None:
     encoder = RecordingEncoder()
     request = _alternative_path_request()
     built = Registry.retrieval.build(
@@ -398,18 +461,3 @@ def test_ppr_steiner_reuses_dense_query_vector_and_caches_relation_vectors() -> 
     ]
     assert len(query_batches) == 2
     assert len(relation_batches) == 1
-
-
-def test_ppr_steiner_trace_rejects_selected_native_edge_reorientation() -> None:
-    prediction, request = _ppr_steiner_prediction()
-    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
-    metadata = cast(dict[str, Any], malformed["metadata"])
-    trace = cast(dict[str, Any], metadata["native_trace"])
-    edges = cast(list[dict[str, Any]], trace["selected_native_edges"])
-    assert edges
-    edges[0]["source"], edges[0]["target"] = edges[0]["target"], edges[0]["source"]
-
-    with pytest.raises(ContractValidationError, match="orientation is inconsistent"):
-        validate_ranked_results(
-            [cast(RankedResult, cast(object, malformed))], [request]
-        )

@@ -115,19 +115,21 @@ def test_variant_is_rejected_on_non_rgcn_method() -> None:
         parse_composed_config(_compose("method=bm25", "+method.variant=wo_graph"))
 
 
-def test_nontrained_epgm_defaults_to_query_conditioned_subgraph_retrieval() -> None:
+def test_nontrained_epgm_has_no_variant_axis() -> None:
+    """One algorithm, one config: typed partner completion has no variants."""
+
     default = parse_composed_config(_compose("method=execution_provenance_retriever"))
-    legacy = parse_composed_config(
-        _compose(
-            "method=execution_provenance_retriever",
-            "method.variant=typed_beam",
-        )
-    )
 
     assert isinstance(default.method, ExecutionProvenanceMethodConfig)
-    assert isinstance(legacy.method, ExecutionProvenanceMethodConfig)
-    assert default.method.variant == "ppr_steiner"
-    assert legacy.method.variant == "typed_beam"
+    assert not hasattr(default.method, "variant")
+
+    with pytest.raises((ValidationError, ConfigCompositionException)):
+        parse_composed_config(
+            _compose(
+                "method=execution_provenance_retriever",
+                "+method.variant=typed_beam",
+            )
+        )
 
 
 def test_provenance_only_method_is_rejected_on_evidence_dataset() -> None:

@@ -89,35 +89,6 @@ class ProvenanceEdgeTrace(_NativeTraceModel):
 
 
 @dataclass(frozen=True)
-class StatelessProvenancePathTrace:
-    anchor_id: str
-    partner_id: str
-    node_ids: tuple[str, ...]
-    path_confidence: float
-    binding_valid: bool
-    completeness_valid: bool
-    lifecycle_valid: bool
-    accepted: bool
-    rejection_reason: str | None
-    original_partner_rank: int
-    final_partner_rank: int
-
-
-@dataclass(frozen=True)
-class StatelessExecutionProvenanceTrace:
-    dense_ranks: tuple[DenseRankTrace, ...]
-    seed_candidate_ids: tuple[str, ...]
-    paths: tuple[StatelessProvenancePathTrace, ...]
-    edges: tuple[ProvenanceEdgeTrace, ...]
-    protected_prefix: tuple[str, ...]
-    exact_dense_fallback: bool
-    emitted_edges: tuple[CandidateEdgeTrace, ...]
-    scorer_identity: str
-    variant: str = "typed_beam"
-    trace_kind: Literal["execution_provenance_local"] = "execution_provenance_local"
-
-
-@dataclass(frozen=True)
 class ProvenanceRelationAffinityTrace:
     edge_type: str
     similarity: float
@@ -125,79 +96,39 @@ class ProvenanceRelationAffinityTrace:
 
 
 @dataclass(frozen=True)
-class ProvenanceTransitionTrace:
-    source: str
-    target: str
-    edge_type: str
-    direction: Literal["forward", "reverse"]
-    recorded_weight: float
-    relation_affinity: float
-    probability: float
-    cost: float
+class PartnerProposalTrace:
+    """One enumerated partner proposal, accepted or not.
 
+    Rejected proposals are retained with a reason so that a run which changed
+    nothing can be audited directly instead of being inferred from metrics.
+    """
 
-@dataclass(frozen=True)
-class ProvenancePprNodeTrace:
-    node_id: str
-    teleport: float
-    score: float
-
-
-@dataclass(frozen=True)
-class ProvenanceCandidatePrizeTrace:
-    node_id: str
-    dense_component: float
-    ppr_component: float
-    prize: float
-
-
-@dataclass(frozen=True)
-class ProvenanceSelectedArcTrace:
-    source: str
-    target: str
-    edge_type: str
-    direction: Literal["forward", "reverse"]
-
-
-@dataclass(frozen=True)
-class ProvenanceSelectionStepTrace:
     anchor_id: str
-    target_id: str
+    partner_id: str
     path_node_ids: tuple[str, ...]
-    transitions: tuple[ProvenanceSelectedArcTrace, ...]
-    added_candidate_ids: tuple[str, ...]
-    displaced_candidate_ids: tuple[str, ...]
-    prize_gain: float
-    edge_cost: float
-    displacement_cost: float
-    marginal_gain: float
+    path_edge_types: tuple[str, ...]
+    path_directions: tuple[Literal["forward", "reverse"], ...]
+    confidence: float
+    accepted: bool
+    rejection_reason: str | None
+    original_partner_rank: int
+    final_partner_rank: int
 
 
 @dataclass(frozen=True)
-class QueryConditionedExecutionProvenanceTrace:
-    native_graph_node_ids: tuple[str, ...]
+class TypedPartnerCompletionTrace:
     dense_ranks: tuple[DenseRankTrace, ...]
+    anchor_candidate_ids: tuple[str, ...]
     relation_description_version: str
     relations: tuple[ProvenanceRelationAffinityTrace, ...]
-    transitions: tuple[ProvenanceTransitionTrace, ...]
-    ppr_nodes: tuple[ProvenancePprNodeTrace, ...]
-    ppr_iterations: int
-    ppr_residual: float
-    ppr_converged: bool
-    candidate_prizes: tuple[ProvenanceCandidatePrizeTrace, ...]
-    selected_candidate_ids: tuple[str, ...]
+    proposals: tuple[PartnerProposalTrace, ...]
+    protected_prefix: tuple[str, ...]
     connector_node_ids: tuple[str, ...]
-    selection_steps: tuple[ProvenanceSelectionStepTrace, ...]
-    selected_native_edges: tuple[ProvenanceEdgeTrace, ...]
-    objective: float
-    top_k: int
+    promoted_native_edges: tuple[ProvenanceEdgeTrace, ...]
     exact_dense_fallback: bool
     emitted_edges: tuple[CandidateEdgeTrace, ...]
     scorer_identity: str
-    variant: str = "ppr_steiner"
-    trace_kind: Literal["execution_provenance_subgraph"] = (
-        "execution_provenance_subgraph"
-    )
+    trace_kind: Literal["typed_partner_completion"] = "typed_partner_completion"
 
 
 class ProvenancePathTrace(_NativeTraceModel):
@@ -302,8 +233,7 @@ class ExecutionProvenanceTrace(_NativeTraceModel):
 NativeRetrievalTrace: TypeAlias = (
     GraphRAGTrace
     | ExecutionProvenanceTrace
-    | StatelessExecutionProvenanceTrace
-    | QueryConditionedExecutionProvenanceTrace
+    | TypedPartnerCompletionTrace
 )
 
 

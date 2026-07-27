@@ -1,12 +1,15 @@
-# Non-trained EPGM retriever. One implementation:
-#   ppr_steiner      - reported default: query-conditioned typed diffusion and
-#                      budgeted connected-subgraph extraction
-#   typed_beam       - historical typed-path diagnostic
-#   dependency_path  - historical schema-gated diagnostic
+# Non-trained EPGM retriever: typed partner completion.
+#
+# From each leading Dense anchor, walk query-relevant typed provenance edges a
+# bounded number of hops and promote the anchor's evidence partner to just after
+# it. One configuration serves both synthetic dependency graphs and real agent
+# traces; there is no variant axis and no dataset-specific switch.
+#
+# Behavior parameters live in EpgmRetrieverConfig and enter the ranking cache
+# identity through its fingerprint.
 method: execution_provenance_retriever
 encoder:
   model_name: models/intfloat-e5-base-v2
   query_prefix: "query: "
   passage_prefix: "passage: "
   batch_size: 64
-variant: ppr_steiner
