@@ -1,0 +1,1161 @@
+{
+  "baseline_variant": "full_rgcn",
+  "paired_analysis": {
+    "wo_edge_rerank": {
+      "discordant_full_support": {
+        "Full Support@10": {
+          "ablation_only": 0,
+          "full_only": 0
+        },
+        "Full Support@5": {
+          "ablation_only": 8,
+          "full_only": 45
+        }
+      },
+      "metrics": {
+        "Avg Retrieved Edges": {
+          "mean_full_minus_ablation": 0.00023383608090728398,
+          "paired_ci_95": [
+            0.0,
+            0.00058459020226821
+          ],
+          "paired_query_count": 8553
+        },
+        "Edge F1@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Precision@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Evidence F1@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 8553
+        },
+        "Evidence F1@5": {
+          "mean_full_minus_ablation": 0.0012359907133670726,
+          "paired_ci_95": [
+            0.0007683185515525047,
+            0.0017036628751816408
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@5": {
+          "mean_full_minus_ablation": 0.004325967496784754,
+          "paired_ci_95": [
+            0.002689114930433766,
+            0.005962820063135742
+          ],
+          "paired_query_count": 8553
+        },
+        "MRR": {
+          "mean_full_minus_ablation": 0.00036536887641763137,
+          "paired_ci_95": [
+            5.3726623351316494e-05,
+            0.0006683814645933202
+          ],
+          "paired_query_count": 8553
+        },
+        "Path Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@2": {
+          "mean_full_minus_ablation": -0.26166257453525077,
+          "paired_ci_95": [
+            -0.2675669355781597,
+            -0.256050508593476
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@5": {
+          "mean_full_minus_ablation": 0.002162983748392377,
+          "paired_ci_95": [
+            0.001344557465216883,
+            0.002981410031567871
+          ],
+          "paired_query_count": 8553
+        }
+      },
+      "seeds": [
+        13,
+        17,
+        29
+      ]
+    },
+    "wo_edge_type": {
+      "discordant_full_support": {
+        "Full Support@10": {
+          "ablation_only": 25,
+          "full_only": 58
+        },
+        "Full Support@5": {
+          "ablation_only": 96,
+          "full_only": 263
+        }
+      },
+      "metrics": {
+        "Avg Retrieved Edges": {
+          "mean_full_minus_ablation": -0.08885771074476792,
+          "paired_ci_95": [
+            -0.09961417046650298,
+            -0.07845200514439378
+          ],
+          "paired_query_count": 8553
+        },
+        "Edge F1@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Precision@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Evidence F1@10": {
+          "mean_full_minus_ablation": 0.000740480922873066,
+          "paired_ci_95": [
+            0.000370240461436533,
+            0.0011302077243852062
+          ],
+          "paired_query_count": 8553
+        },
+        "Evidence F1@5": {
+          "mean_full_minus_ablation": 0.006413789647742647,
+          "paired_ci_95": [
+            0.004977368007883617,
+            0.007850211287601678
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@10": {
+          "mean_full_minus_ablation": 0.003858295334970186,
+          "paired_ci_95": [
+            0.0018706886472582718,
+            0.005962820063135742
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@5": {
+          "mean_full_minus_ablation": 0.019525312755758212,
+          "paired_ci_95": [
+            0.015433181339880744,
+            0.023734362212089324
+          ],
+          "paired_query_count": 8553
+        },
+        "MRR": {
+          "mean_full_minus_ablation": 0.025304107560793192,
+          "paired_ci_95": [
+            0.021666609147781905,
+            0.028982486646923947
+          ],
+          "paired_query_count": 8553
+        },
+        "Path Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Recall@10": {
+          "mean_full_minus_ablation": 0.002221442768619198,
+          "paired_ci_95": [
+            0.001110721384309599,
+            0.003390623173155618
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@2": {
+          "mean_full_minus_ablation": -0.01052262364082778,
+          "paired_ci_95": [
+            -0.01712849292645855,
+            -0.0037413772945165437
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@5": {
+          "mean_full_minus_ablation": 0.011224131883549631,
+          "paired_ci_95": [
+            0.008710394013796328,
+            0.013737869753302935
+          ],
+          "paired_query_count": 8553
+        }
+      },
+      "seeds": [
+        13,
+        17,
+        29
+      ]
+    },
+    "wo_edge_weight": {
+      "discordant_full_support": {
+        "Full Support@10": {
+          "ablation_only": 24,
+          "full_only": 21
+        },
+        "Full Support@5": {
+          "ablation_only": 103,
+          "full_only": 154
+        }
+      },
+      "metrics": {
+        "Avg Retrieved Edges": {
+          "mean_full_minus_ablation": -0.020811411200748274,
+          "paired_ci_95": [
+            -0.028878755992049573,
+            -0.012159476207178768
+          ],
+          "paired_query_count": 8553
+        },
+        "Edge F1@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Precision@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Evidence F1@10": {
+          "mean_full_minus_ablation": -3.8972680151214e-05,
+          "paired_ci_95": [
+            -0.000311781441209712,
+            0.000253322420982891
+          ],
+          "paired_query_count": 8553
+        },
+        "Evidence F1@5": {
+          "mean_full_minus_ablation": 0.001837283492842946,
+          "paired_ci_95": [
+            0.0006012927794758732,
+            0.003106679360625345
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@10": {
+          "mean_full_minus_ablation": -0.00035075412136092597,
+          "paired_ci_95": [
+            -0.0018706886472582718,
+            0.00116918040453642
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@5": {
+          "mean_full_minus_ablation": 0.005962820063135742,
+          "paired_ci_95": [
+            0.00233836080907284,
+            0.009587279317198643
+          ],
+          "paired_query_count": 8553
+        },
+        "MRR": {
+          "mean_full_minus_ablation": 0.0015584340656038924,
+          "paired_ci_95": [
+            -0.0018643903312853323,
+            0.0048973350067393435
+          ],
+          "paired_query_count": 8553
+        },
+        "Path Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Recall@10": {
+          "mean_full_minus_ablation": -0.00011691804045364199,
+          "paired_ci_95": [
+            -0.0009353443236291359,
+            0.000759967262948673
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@2": {
+          "mean_full_minus_ablation": 0.0562375774582018,
+          "paired_ci_95": [
+            0.050216298374839236,
+            0.062258856541564364
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@5": {
+          "mean_full_minus_ablation": 0.003215246112475155,
+          "paired_ci_95": [
+            0.001052262364082778,
+            0.005436688881094353
+          ],
+          "paired_query_count": 8553
+        }
+      },
+      "seeds": [
+        13,
+        17,
+        29
+      ]
+    },
+    "wo_graph": {
+      "discordant_full_support": {
+        "Full Support@10": {
+          "ablation_only": 16,
+          "full_only": 429
+        },
+        "Full Support@5": {
+          "ablation_only": 68,
+          "full_only": 1143
+        }
+      },
+      "metrics": {
+        "Avg Retrieved Edges": {
+          "mean_full_minus_ablation": -0.2981410031567871,
+          "paired_ci_95": [
+            -0.3148602829416579,
+            -0.281187887291009
+          ],
+          "paired_query_count": 8553
+        },
+        "Edge F1@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Precision@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Edge Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Evidence F1@10": {
+          "mean_full_minus_ablation": 0.008476557932889046,
+          "paired_ci_95": [
+            0.007658131649713552,
+            0.009353443236291361
+          ],
+          "paired_query_count": 8553
+        },
+        "Evidence F1@5": {
+          "mean_full_minus_ablation": 0.04165622755591188,
+          "paired_ci_95": [
+            0.03891700489385513,
+            0.044261829600307334
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@10": {
+          "mean_full_minus_ablation": 0.04828715070735414,
+          "paired_ci_95": [
+            0.043610429089208466,
+            0.053080790365953465
+          ],
+          "paired_query_count": 8553
+        },
+        "Full Support@5": {
+          "mean_full_minus_ablation": 0.12568689348766515,
+          "paired_ci_95": [
+            0.1177364667368175,
+            0.13316964807669823
+          ],
+          "paired_query_count": 8553
+        },
+        "MRR": {
+          "mean_full_minus_ablation": 0.11795328850586471,
+          "paired_ci_95": [
+            0.1117784952229007,
+            0.12412194635975765
+          ],
+          "paired_query_count": 8553
+        },
+        "Path Recall@10": {
+          "mean_full_minus_ablation": 0.0,
+          "paired_ci_95": [
+            0.0,
+            0.0
+          ],
+          "paired_query_count": 0
+        },
+        "Recall@10": {
+          "mean_full_minus_ablation": 0.025429673798667136,
+          "paired_ci_95": [
+            0.022974394949140654,
+            0.02806032970887408
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@2": {
+          "mean_full_minus_ablation": 0.07728282473985736,
+          "paired_ci_95": [
+            0.06927393896878288,
+            0.08535016953115866
+          ],
+          "paired_query_count": 8553
+        },
+        "Recall@5": {
+          "mean_full_minus_ablation": 0.07289839822284579,
+          "paired_ci_95": [
+            0.06810475856424646,
+            0.07745820180053782
+          ],
+          "paired_query_count": 8553
+        }
+      },
+      "seeds": [
+        13,
+        17,
+        29
+      ]
+    }
+  },
+  "seed_rows": [
+    {
+      "Avg Retrieved Edges": 1.084531743247983,
+      "Edge F1@10": 0.8722867238768299,
+      "Edge Precision@10": 0.8382923673997412,
+      "Edge Recall@10": 0.9091546825675202,
+      "Evidence F1@10": 0.3318718578276628,
+      "Evidence F1@5": 0.5608057323244977,
+      "Full Support@10": 0.9926341634514205,
+      "Full Support@5": 0.9684321290775166,
+      "MRR": 0.9521974809943944,
+      "Path Recall@10": 0.9091546825675202,
+      "Recall@10": 0.9956155734829885,
+      "Recall@2": 0.6350403367239565,
+      "Recall@5": 0.9814100315678709,
+      "identities": {
+        "avg_retrieved_edges_test": 1.084531743247983,
+        "best_epoch": 14,
+        "complete_fs10": 2830,
+        "complete_fs5": 2761,
+        "dev_average_emitted_edges": 1.0747368421052632,
+        "dev_full_support_at_5": 0.9656140350877193,
+        "run": "prgcn-twp-sd13-v2"
+      },
+      "seed": 13,
+      "variant": "full_rgcn"
+    },
+    {
+      "Avg Retrieved Edges": 1.07576289021396,
+      "Edge F1@10": 0.8803649881716797,
+      "Edge Precision@10": 0.8493641995435279,
+      "Edge Recall@10": 0.9137144861452122,
+      "Evidence F1@10": 0.3320472348883433,
+      "Evidence F1@5": 0.5612065941774816,
+      "Full Support@10": 0.9936864258155034,
+      "Full Support@5": 0.9726411785338478,
+      "MRR": 0.9501630589099898,
+      "Path Recall@10": 0.9137144861452122,
+      "Recall@10": 0.9961417046650298,
+      "Recall@2": 0.6266222378112943,
+      "Recall@5": 0.9821115398105927,
+      "identities": {
+        "avg_retrieved_edges_test": 1.07576289021396,
+        "best_epoch": 15,
+        "complete_fs10": 2833,
+        "complete_fs5": 2773,
+        "dev_average_emitted_edges": 1.0617543859649123,
+        "dev_full_support_at_5": 0.964561403508772,
+        "run": "prgcn-twp-sd17-v2"
+      },
+      "seed": 17,
+      "variant": "full_rgcn"
+    },
+    {
+      "Avg Retrieved Edges": 1.0940021045247281,
+      "Edge F1@10": 0.8757118927973199,
+      "Edge Precision@10": 0.838089131131773,
+      "Edge Recall@10": 0.9168712732374605,
+      "Evidence F1@10": 0.33222261194902375,
+      "Evidence F1@5": 0.5618078869569576,
+      "Full Support@10": 0.9940371799368642,
+      "Full Support@5": 0.9712381620484041,
+      "MRR": 0.9514488093846214,
+      "Path Recall@10": 0.9168712732374605,
+      "Recall@10": 0.9966678358470712,
+      "Recall@2": 0.6413539109084532,
+      "Recall@5": 0.9831638021746756,
+      "identities": {
+        "avg_retrieved_edges_test": 1.0940021045247281,
+        "best_epoch": 14,
+        "complete_fs10": 2834,
+        "complete_fs5": 2769,
+        "dev_average_emitted_edges": 1.0940350877192981,
+        "dev_full_support_at_5": 0.968421052631579,
+        "run": "prgcn-twp-sd29-v2"
+      },
+      "seed": 29,
+      "variant": "full_rgcn"
+    },
+    {
+      "Avg Retrieved Edges": 1.0841809891266223,
+      "Edge F1@10": 0.872433524065971,
+      "Edge Precision@10": 0.8385635716596571,
+      "Edge Recall@10": 0.9091546825675202,
+      "Evidence F1@10": 0.3318718578276628,
+      "Evidence F1@5": 0.5598035776920379,
+      "Full Support@10": 0.9926341634514205,
+      "Full Support@5": 0.9652753419852683,
+      "MRR": 0.951952370673872,
+      "Path Recall@10": 0.9091546825675202,
+      "Recall@10": 0.9956155734829885,
+      "Recall@2": 0.8937215012276394,
+      "Recall@5": 0.9796562609610663,
+      "identities": {
+        "avg_retrieved_edges_test": 1.0841809891266223,
+        "best_epoch": 14,
+        "complete_fs10": 2830,
+        "complete_fs5": 2752,
+        "dev_average_emitted_edges": 1.0747368421052632,
+        "dev_full_support_at_5": 0.9656140350877193,
+        "run": "prgcn-twp-wo_edge_rerank-sd13-v2"
+      },
+      "seed": 13,
+      "variant": "wo_edge_rerank"
+    },
+    {
+      "Avg Retrieved Edges": 1.07576289021396,
+      "Edge F1@10": 0.8803649881716797,
+      "Edge Precision@10": 0.8493641995435279,
+      "Edge Recall@10": 0.9137144861452122,
+      "Evidence F1@10": 0.3320472348883433,
+      "Evidence F1@5": 0.560104224081776,
+      "Full Support@10": 0.9936864258155034,
+      "Full Support@5": 0.9684321290775166,
+      "MRR": 0.9497154298408244,
+      "Path Recall@10": 0.9137144861452122,
+      "Recall@10": 0.9961417046650298,
+      "Recall@2": 0.8979305506839705,
+      "Recall@5": 0.9801823921431077,
+      "identities": {
+        "avg_retrieved_edges_test": 1.07576289021396,
+        "best_epoch": 15,
+        "complete_fs10": 2833,
+        "complete_fs5": 2761,
+        "dev_average_emitted_edges": 1.0617543859649123,
+        "dev_full_support_at_5": 0.964561403508772,
+        "run": "prgcn-twp-wo_edge_rerank-sd17-v2"
+      },
+      "seed": 17,
+      "variant": "wo_edge_rerank"
+    },
+    {
+      "Avg Retrieved Edges": 1.0936513504033671,
+      "Edge F1@10": 0.8758586027810353,
+      "Edge Precision@10": 0.8383579217447081,
+      "Edge Recall@10": 0.9168712732374605,
+      "Evidence F1@10": 0.33222261194902375,
+      "Evidence F1@5": 0.5602044395450219,
+      "Full Support@10": 0.9940371799368642,
+      "Full Support@5": 0.9656260961066293,
+      "MRR": 0.9510454421450564,
+      "Path Recall@10": 0.9168712732374605,
+      "Recall@10": 0.9966678358470712,
+      "Recall@2": 0.8963521571378463,
+      "Recall@5": 0.9803577692037881,
+      "identities": {
+        "avg_retrieved_edges_test": 1.0936513504033671,
+        "best_epoch": 14,
+        "complete_fs10": 2834,
+        "complete_fs5": 2753,
+        "dev_average_emitted_edges": 1.0940350877192981,
+        "dev_full_support_at_5": 0.968421052631579,
+        "run": "prgcn-twp-wo_edge_rerank-sd29-v2"
+      },
+      "seed": 29,
+      "variant": "wo_edge_rerank"
+    },
+    {
+      "Avg Retrieved Edges": 1.2199228340933006,
+      "Edge F1@10": 0.8045504819086744,
+      "Edge Precision@10": 0.7320299022426682,
+      "Edge Recall@10": 0.8930199929849175,
+      "Evidence F1@10": 0.3314041856658483,
+      "Evidence F1@5": 0.5559953900886907,
+      "Full Support@10": 0.9901788846018941,
+      "Full Support@5": 0.9537004559803578,
+      "MRR": 0.9275453220413193,
+      "Path Recall@10": 0.8951245177130831,
+      "Recall@10": 0.9942125569975447,
+      "Recall@2": 0.7002806032970887,
+      "Recall@5": 0.9729919326552087,
+      "identities": {
+        "avg_retrieved_edges_test": 1.2199228340933006,
+        "best_epoch": 14,
+        "complete_fs10": 2823,
+        "complete_fs5": 2719,
+        "dev_average_emitted_edges": 1.2021052631578948,
+        "dev_full_support_at_5": 0.9487719298245614,
+        "run": "prgcn-twp-wo_edge_type-sd13-v2"
+      },
+      "seed": 13,
+      "variant": "wo_edge_type"
+    },
+    {
+      "Avg Retrieved Edges": 1.0911960715538407,
+      "Edge F1@10": 0.8262328077826233,
+      "Edge Precision@10": 0.7917068466730954,
+      "Edge Recall@10": 0.8639074009119607,
+      "Evidence F1@10": 0.33081959546358003,
+      "Evidence F1@5": 0.5504835396101619,
+      "Full Support@10": 0.9870220975096458,
+      "Full Support@5": 0.9389687828831988,
+      "MRR": 0.9209028818010186,
+      "Path Recall@10": 0.8642581550333216,
+      "Recall@10": 0.9924587863907401,
+      "Recall@2": 0.6122413188354963,
+      "Recall@5": 0.9633461943177832,
+      "identities": {
+        "avg_retrieved_edges_test": 1.0911960715538407,
+        "best_epoch": 14,
+        "complete_fs10": 2814,
+        "complete_fs5": 2677,
+        "dev_average_emitted_edges": 1.087719298245614,
+        "dev_full_support_at_5": 0.9417543859649122,
+        "run": "prgcn-twp-wo_edge_type-sd17-v2"
+      },
+      "seed": 17,
+      "variant": "wo_edge_type"
+    },
+    {
+      "Avg Retrieved Edges": 1.2097509645738338,
+      "Edge F1@10": 0.8200000000000001,
+      "Edge Precision@10": 0.7489127283270514,
+      "Edge Recall@10": 0.9059978954752719,
+      "Evidence F1@10": 0.3316964807669824,
+      "Evidence F1@5": 0.5580999148168563,
+      "Full Support@10": 0.9915819010873378,
+      "Full Support@5": 0.9610662925289372,
+      "MRR": 0.9294488227642879,
+      "Path Recall@10": 0.9059978954752719,
+      "Recall@10": 0.9950894423009471,
+      "Recall@2": 0.6220624342336022,
+      "Recall@5": 0.9766748509294985,
+      "identities": {
+        "avg_retrieved_edges_test": 1.2097509645738338,
+        "best_epoch": 14,
+        "complete_fs10": 2827,
+        "complete_fs5": 2740,
+        "dev_average_emitted_edges": 1.199298245614035,
+        "dev_full_support_at_5": 0.9487719298245614,
+        "run": "prgcn-twp-wo_edge_type-sd29-v2"
+      },
+      "seed": 29,
+      "variant": "wo_edge_type"
+    },
+    {
+      "Avg Retrieved Edges": 1.0894423009470362,
+      "Edge F1@10": 0.8457277152929328,
+      "Edge Precision@10": 0.8110109465550547,
+      "Edge Recall@10": 0.8835496317081726,
+      "Evidence F1@10": 0.3318718578276628,
+      "Evidence F1@5": 0.5591020694493161,
+      "Full Support@10": 0.9919326552086987,
+      "Full Support@5": 0.9631708172571027,
+      "MRR": 0.9445536438696733,
+      "Path Recall@10": 0.8839003858295335,
+      "Recall@10": 0.9956155734829885,
+      "Recall@2": 0.5913714486145212,
+      "Recall@5": 0.9784286215363031,
+      "identities": {
+        "avg_retrieved_edges_test": 1.0894423009470362,
+        "best_epoch": 13,
+        "complete_fs10": 2828,
+        "complete_fs5": 2746,
+        "dev_average_emitted_edges": 1.0810526315789473,
+        "dev_full_support_at_5": 0.9624561403508772,
+        "run": "prgcn-twp-wo_edge_weight-sd13-v2"
+      },
+      "seed": 13,
+      "variant": "wo_edge_weight"
+    },
+    {
+      "Avg Retrieved Edges": 1.1062784987723606,
+      "Edge F1@10": 0.8522897585345545,
+      "Edge Precision@10": 0.8113506658211794,
+      "Edge Recall@10": 0.8975797965626096,
+      "Evidence F1@10": 0.33228107096925064,
+      "Evidence F1@5": 0.5592022849125621,
+      "Full Support@10": 0.9947386881795861,
+      "Full Support@5": 0.9631708172571027,
+      "MRR": 0.9543939609048342,
+      "Path Recall@10": 0.8975797965626096,
+      "Recall@10": 0.9968432129077517,
+      "Recall@2": 0.5701508242721852,
+      "Recall@5": 0.9786039985969835,
+      "identities": {
+        "avg_retrieved_edges_test": 1.1062784987723606,
+        "best_epoch": 15,
+        "complete_fs10": 2836,
+        "complete_fs5": 2746,
+        "dev_average_emitted_edges": 1.1010526315789473,
+        "dev_full_support_at_5": 0.9673684210526315,
+        "run": "prgcn-twp-wo_edge_weight-sd17-v2"
+      },
+      "seed": 17,
+      "variant": "wo_edge_weight"
+    },
+    {
+      "Avg Retrieved Edges": 1.1210101718695196,
+      "Edge F1@10": 0.851992723664627,
+      "Edge Precision@10": 0.8060075093867334,
+      "Edge Recall@10": 0.9035426166257453,
+      "Evidence F1@10": 0.33210569390857014,
+      "Evidence F1@5": 0.56000400861853,
+      "Full Support@10": 0.9947386881795861,
+      "Full Support@5": 0.9680813749561558,
+      "MRR": 0.9501864423176862,
+      "Path Recall@10": 0.9045948789898282,
+      "Recall@10": 0.9963170817257103,
+      "Recall@2": 0.5727814801823922,
+      "Recall@5": 0.9800070150824273,
+      "identities": {
+        "avg_retrieved_edges_test": 1.1210101718695196,
+        "best_epoch": 15,
+        "complete_fs10": 2836,
+        "complete_fs5": 2760,
+        "dev_average_emitted_edges": 1.1171929824561404,
+        "dev_full_support_at_5": 0.964561403508772,
+        "run": "prgcn-twp-wo_edge_weight-sd29-v2"
+      },
+      "seed": 29,
+      "variant": "wo_edge_weight"
+    },
+    {
+      "Avg Retrieved Edges": 1.417748158540863,
+      "Edge F1@10": 0.6493544175250253,
+      "Edge Precision@10": 0.553686293913904,
+      "Edge Recall@10": 0.7849877236057524,
+      "Evidence F1@10": 0.32292762773295924,
+      "Evidence F1@5": 0.5179135140552188,
+      "Full Support@10": 0.9417748158540863,
+      "Full Support@5": 0.8407576289021396,
+      "MRR": 0.8239486929727197,
+      "Path Recall@10": 0.7853384777271133,
+      "Recall@10": 0.9687828831988776,
+      "Recall@2": 0.5576990529638723,
+      "Recall@5": 0.9063486495966327,
+      "identities": {
+        "avg_retrieved_edges_test": 1.417748158540863,
+        "best_epoch": 13,
+        "complete_fs10": 2685,
+        "complete_fs5": 2397,
+        "dev_average_emitted_edges": 1.4280701754385965,
+        "dev_full_support_at_5": 0.8378947368421052,
+        "run": "prgcn-twp-wo_graph-sd13-v2"
+      },
+      "seed": 13,
+      "variant": "wo_graph"
+    },
+    {
+      "Avg Retrieved Edges": 1.3468958260259558,
+      "Edge F1@10": 0.6659692123748318,
+      "Edge Precision@10": 0.5802083333333333,
+      "Edge Recall@10": 0.7814801823921431,
+      "Evidence F1@10": 0.3245060212790834,
+      "Evidence F1@5": 0.5231247181440096,
+      "Full Support@10": 0.9501929147667485,
+      "Full Support@5": 0.8519817607856892,
+      "MRR": 0.8421944543003175,
+      "Path Recall@10": 0.7814801823921431,
+      "Recall@10": 0.97351806383725,
+      "Recall@2": 0.566292528937215,
+      "Recall@5": 0.9154682567520168,
+      "identities": {
+        "avg_retrieved_edges_test": 1.3468958260259558,
+        "best_epoch": 15,
+        "complete_fs10": 2709,
+        "complete_fs5": 2429,
+        "dev_average_emitted_edges": 1.3582456140350878,
+        "dev_full_support_at_5": 0.8431578947368421,
+        "run": "prgcn-twp-wo_graph-sd17-v2"
+      },
+      "seed": 17,
+      "variant": "wo_graph"
+    },
+    {
+      "Avg Retrieved Edges": 1.384075762890214,
+      "Edge F1@10": 0.6611740473738413,
+      "Edge Precision@10": 0.5694374049670552,
+      "Edge Recall@10": 0.7881445106980007,
+      "Evidence F1@10": 0.3232783818543202,
+      "Evidence F1@5": 0.5178132985919728,
+      "Full Support@10": 0.9435285864608909,
+      "Full Support@5": 0.8425113995089443,
+      "MRR": 0.8338063364983743,
+      "Path Recall@10": 0.7891967730620835,
+      "Recall@10": 0.9698351455629604,
+      "Recall@2": 0.5471764293230446,
+      "Recall@5": 0.9061732725359523,
+      "identities": {
+        "avg_retrieved_edges_test": 1.384075762890214,
+        "best_epoch": 15,
+        "complete_fs10": 2690,
+        "complete_fs5": 2402,
+        "dev_average_emitted_edges": 1.3971929824561404,
+        "dev_full_support_at_5": 0.8435087719298245,
+        "run": "prgcn-twp-wo_graph-sd29-v2"
+      },
+      "seed": 29,
+      "variant": "wo_graph"
+    }
+  ],
+  "summary": {
+    "full_rgcn": {
+      "Avg Retrieved Edges": {
+        "mean": 1.0847655793288904,
+        "std": 0.009121855302134696
+      },
+      "Edge F1@10": {
+        "mean": 0.8761212016152765,
+        "std": 0.004054656432511161
+      },
+      "Edge Precision@10": {
+        "mean": 0.8419152326916807,
+        "std": 0.006451794836717413
+      },
+      "Edge Recall@10": {
+        "mean": 0.9132468139833977,
+        "std": 0.0038794949194521245
+      },
+      "Evidence F1@10": {
+        "mean": 0.33204723488834326,
+        "std": 0.000175377060680465
+      },
+      "Evidence F1@5": {
+        "mean": 0.5612734044863124,
+        "std": 0.0005044067702407893
+      },
+      "Full Support@10": {
+        "mean": 0.9934525897345962,
+        "std": 0.0007301529286096744
+      },
+      "Full Support@5": {
+        "mean": 0.9707704898865895,
+        "std": 0.0021431430819389185
+      },
+      "MRR": {
+        "mean": 0.9512697830963353,
+        "std": 0.0010289587519922627
+      },
+      "Path Recall@10": {
+        "mean": 0.9132468139833977,
+        "std": 0.0038794949194521245
+      },
+      "Recall@10": {
+        "mean": 0.9961417046650297,
+        "std": 0.0005261311820413672
+      },
+      "Recall@2": {
+        "mean": 0.6343388284812347,
+        "std": 0.007390847950089583
+      },
+      "Recall@5": {
+        "mean": 0.9822284578510464,
+        "std": 0.0008827118479213243
+      }
+    },
+    "wo_edge_rerank": {
+      "Avg Retrieved Edges": {
+        "mean": 1.084531743247983,
+        "std": 0.008949386757048768
+      },
+      "Edge F1@10": {
+        "mean": 0.876219038339562,
+        "std": 0.003977997744962219
+      },
+      "Edge Precision@10": {
+        "mean": 0.8420952309826312,
+        "std": 0.006295951153428684
+      },
+      "Edge Recall@10": {
+        "mean": 0.9132468139833977,
+        "std": 0.0038794949194521245
+      },
+      "Evidence F1@10": {
+        "mean": 0.33204723488834326,
+        "std": 0.000175377060680465
+      },
+      "Evidence F1@5": {
+        "mean": 0.5600374137729452,
+        "std": 0.00020861512245992604
+      },
+      "Full Support@10": {
+        "mean": 0.9934525897345962,
+        "std": 0.0007301529286096744
+      },
+      "Full Support@5": {
+        "mean": 0.9664445223898047,
+        "std": 0.0017302289941480797
+      },
+      "MRR": {
+        "mean": 0.9509044142199176,
+        "std": 0.0011251189845481399
+      },
+      "Path Recall@10": {
+        "mean": 0.9132468139833977,
+        "std": 0.0038794949194521245
+      },
+      "Recall@10": {
+        "mean": 0.9961417046650297,
+        "std": 0.0005261311820413672
+      },
+      "Recall@2": {
+        "mean": 0.8960014030164855,
+        "std": 0.0021263338570645853
+      },
+      "Recall@5": {
+        "mean": 0.9800654741026541,
+        "std": 0.0003650764643048283
+      }
+    },
+    "wo_edge_type": {
+      "Avg Retrieved Edges": {
+        "mean": 1.1736232900736583,
+        "std": 0.0715650158741378
+      },
+      "Edge F1@10": {
+        "mean": 0.8169277632304327,
+        "std": 0.01116287565559343
+      },
+      "Edge Precision@10": {
+        "mean": 0.757549825747605,
+        "std": 0.030761729681979464
+      },
+      "Edge Recall@10": {
+        "mean": 0.8876417631240501,
+        "std": 0.021554499541239096
+      },
+      "Evidence F1@10": {
+        "mean": 0.3313067539654702,
+        "std": 0.00044648814207062413
+      },
+      "Evidence F1@5": {
+        "mean": 0.5548596148385697,
+        "std": 0.0039331643604580925
+      },
+      "Full Support@10": {
+        "mean": 0.9895942943996259,
+        "std": 0.002335436028929983
+      },
+      "Full Support@5": {
+        "mean": 0.9512451771308313,
+        "std": 0.011251501180179188
+      },
+      "MRR": {
+        "mean": 0.9259656755355419,
+        "std": 0.004486617773928568
+      },
+      "Path Recall@10": {
+        "mean": 0.8884601894072256,
+        "std": 0.021653208465872577
+      },
+      "Recall@10": {
+        "mean": 0.9939202618964106,
+        "std": 0.0013394644262118057
+      },
+      "Recall@2": {
+        "mean": 0.6448614521220625,
+        "std": 0.04824495118285484
+      },
+      "Recall@5": {
+        "mean": 0.9710043259674968,
+        "std": 0.006883037630801735
+      }
+    },
+    "wo_edge_weight": {
+      "Avg Retrieved Edges": {
+        "mean": 1.1055769905296389,
+        "std": 0.015795622938193914
+      },
+      "Edge F1@10": {
+        "mean": 0.850003399164038,
+        "std": 0.0037058280927089243
+      },
+      "Edge Precision@10": {
+        "mean": 0.8094563739209892,
+        "std": 0.002991630362641683
+      },
+      "Edge Recall@10": {
+        "mean": 0.8948906816321758,
+        "std": 0.010264178769408877
+      },
+      "Evidence F1@10": {
+        "mean": 0.33208620756849455,
+        "std": 0.00020530133194696844
+      },
+      "Evidence F1@5": {
+        "mean": 0.5594361209934694,
+        "std": 0.0004943511411852074
+      },
+      "Full Support@10": {
+        "mean": 0.9938033438559569,
+        "std": 0.0016200638910968286
+      },
+      "Full Support@5": {
+        "mean": 0.9648076698234537,
+        "std": 0.0028351118094194503
+      },
+      "MRR": {
+        "mean": 0.9497113490307312,
+        "std": 0.004937331775524258
+      },
+      "Path Recall@10": {
+        "mean": 0.8953583537939904,
+        "std": 0.0105245720944397
+      },
+      "Recall@10": {
+        "mean": 0.9962586227054834,
+        "std": 0.0006159039958407947
+      },
+      "Recall@2": {
+        "mean": 0.5781012510230329,
+        "std": 0.011567354741570501
+      },
+      "Recall@5": {
+        "mean": 0.9790132117385713,
+        "std": 0.0008651144970740717
+      }
+    },
+    "wo_graph": {
+      "Avg Retrieved Edges": {
+        "mean": 1.3829065824856777,
+        "std": 0.03544063335797632
+      },
+      "Edge F1@10": {
+        "mean": 0.6588325590912328,
+        "std": 0.008551302679035715
+      },
+      "Edge Precision@10": {
+        "mean": 0.5677773440714309,
+        "std": 0.013338721654428754
+      },
+      "Edge Recall@10": {
+        "mean": 0.7848708055652988,
+        "std": 0.003333702193238232
+      },
+      "Evidence F1@10": {
+        "mean": 0.3235706769554543,
+        "std": 0.0008287996538499777
+      },
+      "Evidence F1@5": {
+        "mean": 0.5196171769304004,
+        "std": 0.003038033049300791
+      },
+      "Full Support@10": {
+        "mean": 0.9451654390272419,
+        "std": 0.004441346875534332
+      },
+      "Full Support@5": {
+        "mean": 0.8450835963989244,
+        "std": 0.0060379989868702645
+      },
+      "MRR": {
+        "mean": 0.8333164945904704,
+        "std": 0.009132738385991908
+      },
+      "Path Recall@10": {
+        "mean": 0.7853384777271133,
+        "std": 0.0038582953349701743
+      },
+      "Recall@10": {
+        "mean": 0.9707120308663626,
+        "std": 0.0024863989615499116
+      },
+      "Recall@2": {
+        "mean": 0.5570560037413773,
+        "std": 0.009574259780350432
+      },
+      "Recall@5": {
+        "mean": 0.9093300596282007,
+        "std": 0.005316557836276441
+      }
+    }
+  }
+}

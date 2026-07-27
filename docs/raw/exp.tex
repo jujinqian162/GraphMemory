@@ -10,7 +10,7 @@ on large-scale multi-hop benchmarks under a fixed top-$k$ budget.
 \emph{RQ2} asks whether EPGM recovers complete output dependencies in
 controlled execution-provenance trajectories, and which structural
 components---graph message passing, relation types, calibrated edge
-weights, hard-negative supervision, or inference-time target
+weights, or inference-time target
 promotion---are associated with the gain. \emph{RQ3} asks, via qualitative cases on a real multi-agent trace,
 whether the same schema exposes support and revision structure that flat
 retrieval buries. Table~\ref{tab:eval-overview} summarizes
@@ -115,12 +115,15 @@ both endpoints remain in the top $k$; confidence and partner conflicts are
 resolved before emission. It follows the non-LLM entity-search idea of
 FastGraphRAG and is not a reproduction of a full GraphRAG pipeline with
 LLM-based community summarization or generation.
-\textbf{EPGM} denotes one training-free query-conditioned typed-diffusion
-and connected-subgraph retriever. Historical typed-beam and directed
-dependency-path strategies remain reproducibility diagnostics only. Neither
+\textbf{EPGM} denotes one training-free structured retriever, reported with
+its directed dependency-path strategy: it walks dependency edges from dense
+seeds under schema gating, scores paths over schema-level semantic roles, and
+promotes each accepted evidence partner to just after its anchor, so graph
+structure reorders candidates without changing any dense score. The typed-beam
+and query-conditioned diffusion strategies remain reproducibility
+diagnostics only. Neither
 the reported default nor the diagnostics use task-specific parameter
-training; the new default's RQ2/RQ3 quality rows remain pending formal
-execution. \textbf{EPGM R-GCN} is its learned
+training. \textbf{EPGM R-GCN} is its learned
 relation-aware counterpart. It applies three layers of relation-specific
 message passing to frozen E5-base-v2 node representations, ranks
 \texttt{ToolOutput} candidates, and jointly predicts logical
@@ -129,17 +132,14 @@ EPGM R-GCN is trained for up to 15 epochs and selects a checkpoint on the
 complete 2,850-item development split with
 $0.50\,\mathrm{FS@5}+0.25\,\mathrm{MRR}+0.25\,\mathrm{EdgeF1@10}$;
 ties are resolved by FS@5, Edge F1@10, MRR, and then the earlier epoch.
-The currently populated EPGM R-GCN and Dense-FT rows use random seed 13.
-All EPGM R-GCN main and ablation rows below come from this same protocol;
-the full main-table row is identical to the full ablation row. Seeds 17
-and 29 are still running for the EPGM R-GCN matrix. The final report will
-replace seed-13-only claims with arithmetic mean $\pm$ sample standard
-deviation over seeds $\{13,17,29\}$ and query-paired 95\% confidence
-intervals for full-minus-ablation differences. Table~\ref{tab:provenance-three-seed}
-reserves the final reporting layout; until it is populated, the current
-RQ2 numbers are interim point estimates rather than final uncertainty-aware
-results. The real-trace study is qualitative and uses training-free retrievers only;
-EPGM R-GCN is not applied there.
+Dense-FT remains a seed-13 snapshot, while the EPGM R-GCN full model and
+the completed ablations (\emph{w/o graph}, \emph{w/o edge type},
+\emph{w/o edge weight}, and \emph{w/o edge rerank}) are summarized over
+seeds $\{13,17,29\}$ in Table~\ref{tab:provenance-three-seed}. Interim
+seed-13 main/ablation tables remain for single-seed readability; the full
+main-table row is identical to the full ablation row on seed 13. The real-trace
+study is qualitative and uses training-free retrievers only; EPGM R-GCN is
+not applied there.
 
 \paragraph{Metrics.}
 Recall@$k$ measures the fraction of gold evidence retrieved in the
@@ -293,14 +293,26 @@ Table~\ref{tab:provenance} compares sparse retrieval, dense retrieval,
 lightweight entity-graph propagation, training-free provenance search,
 and learned provenance encoding. Without task-specific training, the
 EPGM dependency-path preset raises Full Support@5 and Full Support@10
-over Dense by 11.12 and 6.31 points and Recall@5 by 4.40 points, while
-MRR is essentially flat (down 0.64 points). Relative to
-FastGraphRAG-style, this preset improves Full Support@5 from 34.34\% to
-36.44\% and Full Support@10 from 58.12\% to 59.94\%; the two tie on
-Recall@2 (both 46.21\%), and their MRR differs by less than one point
-(80.99\% versus 80.36\%). This pattern indicates that directed
-provenance search mainly helps complete a dependency set
-rather than uniformly improving the rank of the first relevant output.
+over Dense by 29.39 and 21.29 points and Recall@5 by 13.24 points, while
+MRR declines slightly (down 0.70 points). Relative to
+FastGraphRAG-style, this preset improves Full Support@5 from 32.90\% to
+54.09\% and Full Support@10 from 56.12\% to 73.48\%; the three methods
+tie on Recall@2 (all 46.12\%), and MRR differs by less than one point
+(80.90\% versus 80.21\%). The gains are consistent rather than
+averaging artifacts: per query, dependency-path search improves
+Recall@5 on 994 queries and degrades it on 237, and improves Full
+Support@5 on 984 against 146.
+
+Two properties of this comparison are worth stating plainly. First, the
+method permutes the entire candidate list rather than reordering the dense
+top-10, which is why it also lifts Recall@10 (by
+10.56 points over Dense) instead of only redistributing rank mass inside
+a fixed set. Second, the improvement is concentrated in set-completion
+metrics and does not extend to first-hit quality: Recall@2 is unchanged
+and MRR moves in the opposite direction, degrading on 236 queries against
+39 improved. The mechanism recovers dependency partners that lie outside
+the dense top-5, at the cost of occasionally displacing an output that
+dense retrieval had already placed first.
 
 \begin{table*}[t]
 \centering
@@ -311,10 +323,10 @@ rather than uniformly improving the rank of the first relevant output.
 Method & R@2 & R@5 & R@10 & F1@5 & F1@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & ms/query \\
 \hline
 BM25 & 28.32 & 44.05 & 58.59 & 25.17 & 19.53 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
-Dense & 46.21 & 61.89 & 76.76 & 35.37 & 25.59 & 25.32 & 53.63 & 81.00 & -- & -- & 37.51 \\
-FastGraphRAG-style (non-LLM) & 46.21 & 66.35 & 79.01 & 37.91 & 26.34 & 34.34 & 58.12 & 80.99 & 11.33 & 11.15 & 105.53 \\
-EPGM dependency path (training-free diagnostic) & 46.21 & 66.29 & 79.76 & 37.88 & 26.59 & 36.44 & 59.94 & 80.36 &
-20.83 & 20.17 & 39.04 \\
+Dense & 46.12 & 61.54 & 76.04 & 35.17 & 25.35 & 24.69 & 52.19 & 80.91 & 0.00 & 0.00 & 37.51 \\
+FastGraphRAG-style (non-LLM) & 46.12 & 65.59 & 78.01 & 37.48 & 26.00 & 32.90 & 56.12 & 80.90 & 10.24 & 10.10 & 105.53 \\
+EPGM dependency path (training-free) & 46.12 & 74.78 & 86.60 & 42.73 & 28.87 & 54.09 & 73.48 & 80.21 &
+44.93 & 44.12 & 39.04 \\
 \hline
 Dense-FT & \textbf{71.03} & 91.32 & 97.91 & 52.18 & 32.64 & 83.02 & 95.83 & 93.09 & -- & -- & 19.53 \\
 \textbf{EPGM R-GCN} & 57.86 & \textbf{98.09} & \textbf{99.58} &
@@ -373,9 +385,9 @@ their denominator; the completeness gap is measured in percentage points.}
 Method & Complete FS@5 & Complete FS@10 & Added at $k:5\rightarrow10$ & Incomplete FS@10 & $\Delta_{\mathrm{comp}}@5$ \\
 \hline
 BM25 & 209 & 675 & 466 & 2,176 & 36.72 \\
-Dense & 722 & 1,529 & 807 & 1,322 & 36.57 \\
-FastGraphRAG-style (non-LLM) & 979 & 1,657 & 678 & 1,194 & 32.01 \\
-EPGM dependency path (training-free diagnostic) & 1,039 & 1,709 & 670 & 1,142 & 29.85 \\
+Dense & 704 & 1,488 & 784 & 1,363 & 27.50 \\
+FastGraphRAG-style (non-LLM) & 938 & 1,600 & 662 & 1,251 & 23.22 \\
+EPGM dependency path (training-free) & 1,542 & 2,095 & 553 & 756 & 19.40 \\
 \hline
 Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 \textbf{EPGM R-GCN} & \textbf{2,758} & \textbf{2,831} & 73 &
@@ -386,18 +398,19 @@ Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 \end{table*}
 
 Among methods without task-specific training, the EPGM dependency-path
-preset completely recovers 1,039 trajectories at top-5, 317 more than
-Dense and 60 more than FastGraphRAG-style; its completeness gap also
-decreases from 36.57 and 32.01 points to 29.85 points. In this controlled
+preset completely recovers 1,542 trajectories at top-5, 838 more than
+Dense and 604 more than FastGraphRAG-style; its completeness gap also
+decreases from 27.50 and 23.22 points to 19.40 points. In this controlled
 benchmark, execution-dependency search is therefore better at bringing
 both relevant outputs into a limited context, although
-1,142 trajectories remain incomplete at top-10 and the training-free preset
-does not solve the task. Dense completes 807 additional trajectories when
+756 trajectories remain incomplete at top-10 and the training-free preset
+does not solve the task. Dense completes 784 additional trajectories when
 the budget grows from 5 to 10, the largest increase among all methods, but
 starts from the lowest small-budget count; the EPGM dependency-path preset
-and FastGraphRAG-style add similar numbers (670 and 678), indicating that
-both rely more on completing dependencies at small $k$ than on expanding
-the retrieval budget.
+adds the fewest (553) precisely because it has already completed most of
+what a larger budget would recover, indicating that it relies on
+completing dependencies at small $k$ rather than on expanding the
+retrieval budget.
 
 Among trained methods, EPGM R-GCN completely recovers 391 more trajectories
 than Dense-FT at top-5 and 99 more at top-10, reducing the residual top-10
@@ -418,8 +431,8 @@ We use the EPGM R-GCN from Section~\ref{sec:evidence-tracing} on the shared
 sparse decoder). The detailed rows currently populated below are the
 completed seed-13 snapshot; seeds 17 and 29 will be aggregated only after
 all full/ablation pairs pass the same artifact-identity checks.
-The full model uses 714,245 pairs; w/o hard negatives uses 444,072. We
-compare the full model to four training ablations and reserve one paired
+The full model uses 714,245 pairs. We
+compare the full model to three training ablations and reserve one paired
 inference-time ablation.
 
 \emph{w/o graph} sets the number of graph-convolution layers to zero while
@@ -430,11 +443,7 @@ one linear message transform across all relation IDs. \emph{w/o edge
 weight} changes only \texttt{feeds} messages: each source's two artifact
 weights are replaced by their mean (0.75/0.75 under this construction), so
 endpoints, relation IDs, directions, and total source message mass are
-preserved; non-\texttt{feeds} weights are unchanged. \emph{w/o hard
-negatives} rebuilds 444,072 pairs after setting successor, predecessor,
-dense, BM25, and graph-neighbor hard-negative requests to zero, retaining
-only positives and two easy random requests per positive while leaving the
-full edge loss active. \emph{w/o edge rerank} must reuse the exact full-model
+preserved; non-\texttt{feeds} weights are unchanged. \emph{w/o edge rerank} must reuse the exact full-model
 pairs and checkpoint for the same seed, disable only target promotion, and
 retain thresholded edge diagnostics. It will enter the final table only when
 that checkpoint identity is verified; the earlier unpaired seed-13 artifact
@@ -489,8 +498,6 @@ w/o edge type & 68.84 & 97.04 & 99.37 & 95.12 & 98.91 & 91.86 & 89.23 & 89.20 &
 74.86 & 81.40 \\
 w/o edge weight & 60.01 & 97.84 & \textbf{99.70} & 96.53 & \textbf{99.51} &
 94.55 & 88.50 & 88.46 & 80.34 & 84.21 \\
-w/o hard negatives & 52.53 & 98.07 & 99.61 & 96.70 & 99.33 &
-\textbf{95.74} & 90.67 & 90.67 & 83.39 & 86.88 \\
 \hline
 \end{tabular}%
 }
@@ -549,12 +556,7 @@ support is approximately neutral on this split. This
 matches the implementation: weights directly scale propagated messages and
 can alter fine-grained candidate order and dependency-edge logits, but
 Full Support does not change as long as both gold outputs remain inside the
-same top-$k$ set. Removing hard negatives leaves metrics essentially flat:
-MRR rises by 0.65 points, Edge Precision@10 and Edge F1@10 fall by only
-1.31 and 0.78 points, and Full Support@5 is nearly unchanged. Hard
-negatives are therefore better characterized as an auxiliary training
-strategy in this setting, showing only a weak and directionally
-inconsistent independent contribution under a single seed.
+same top-$k$ set.
 
 \paragraph{Development selection, residual failures, and output density
 provide consistent structural evidence.}
@@ -588,7 +590,6 @@ Full EPGM R-GCN & 14 & \textbf{96.88} & \textbf{2,758} & 2,831 & 20 & 1.07 \\
 w/o graph & 15 & 85.16 & 2,416 & 2,683 & 168 & 1.48 \\
 w/o edge type & 14 & 94.42 & 2,712 & 2,820 & 31 & 1.19 \\
 w/o edge weight & 13 & 96.32 & 2,752 & \textbf{2,837} & \textbf{14} & 1.10 \\
-w/o hard negatives & 14 & 96.39 & 2,757 & 2,832 & 19 & 1.09 \\
 \hline
 \end{tabular}%
 }
@@ -598,13 +599,13 @@ Development and test results provide evidence in the same direction. The
 selected-checkpoint Dev FS@5 of \emph{w/o graph} is 11.72 points below that
 of the full model, and that of \emph{w/o edge type} is 2.46 points lower; on the test set these
 variants leave 168 and 31 top-10 trajectories incomplete, respectively,
-compared with only 20 for the full model. The full and four training
+compared with only 20 for the full model. The full and three training
 ablations select checkpoints by the development
 joint score, with selected epochs of 14 (full), 15 (\emph{w/o graph}), 14
-(\emph{w/o edge type}), 13 (\emph{w/o edge weight}), and 14 (\emph{w/o
-hard negatives}); their corresponding Dev FS@5 values preserve the same
-ordering on the test set. Source-mean edge weighting and hard-negative removal trail
-the full model on Dev FS@5 by only 0.56 and 0.49 points, while their small
+(\emph{w/o edge type}), and 13 (\emph{w/o edge weight}); their corresponding
+Dev FS@5 values preserve the same
+ordering on the test set. Source-mean edge weighting trails
+the full model on Dev FS@5 by only 0.56 points, while its small
 test-set reversals in local metrics (such as \emph{w/o edge weight} on
 FS@10) do not appear on development. This mismatch further
 suggests that differences of only a few tenths of a point more likely
@@ -614,38 +615,40 @@ whether longer training would close some gaps requires additional
 experiments; the results compare components under a common training
 budget but do not establish that every variant has fully converged.
 
-\subsubsection{Reserved Three-Seed Robustness Report}
+\subsubsection{Three-Seed Robustness Report}
 
-Table~\ref{tab:provenance-three-seed} is intentionally left unpopulated
-while seeds 17 and 29 are running. It fixes the final reporting contract
-before the remaining results are available. The table will be populated
-from the output of \texttt{scripts/analyze\_provenance\_ablation.py}; a confidence interval
-that crosses zero will be described as inconclusive rather than as evidence
-that the full model is better.
+Table~\ref{tab:provenance-three-seed} reports the completed three-seed matrix
+for the full model and three training ablations plus one paired
+inference-time ablation, computed with
+\texttt{scripts/analyze\_provenance\_ablation.py} (2,000 bootstrap resamples;
+bootstrap seed 13). A confidence interval that crosses zero is treated as
+inconclusive rather than as evidence that the full model is better.
 
 \begin{table*}[t]
 \centering
 \small
-\setlength{\tabcolsep}{3pt}
+\setlength{\tabcolsep}{2.6pt}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrrr}
 \hline
-Variant & FS@5 $\mu{\pm}\sigma$ & MRR $\mu{\pm}\sigma$ & Path@10 $\mu{\pm}\sigma$ & EdgeP@10 $\mu{\pm}\sigma$ & EdgeF1@10 $\mu{\pm}\sigma$ & $\Delta$FS@5 [95\% CI] & $\Delta$EdgeF1 [95\% CI] \\
+Variant & FS@5 $\mu{\pm}\sigma$ & MRR $\mu{\pm}\sigma$ & Path@10 $\mu{\pm}\sigma$ & EdgeP@10 $\mu{\pm}\sigma$ & EdgeF1@10 $\mu{\pm}\sigma$ & $\Delta$FS@5 [95\% CI] & $\Delta$EdgeF1 \\
 \hline
-Full EPGM R-GCN & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & -- & -- \\
-w/o graph & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
-w/o edge type & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
-w/o edge weight & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
-w/o hard negatives & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
-w/o edge rerank & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} & \emph{pending} \\
+Full EPGM R-GCN & $97.08\pm0.21$ & $95.13\pm0.10$ & $91.32\pm0.39$ & $84.19\pm0.65$ & $87.61\pm0.41$ & -- & -- \\
+w/o graph & $84.51\pm0.60$ & $83.33\pm0.91$ & $78.53\pm0.39$ & $56.78\pm1.33$ & $65.88\pm0.86$ & $12.57$ $[11.77, 13.32]$ & $21.73$ $[21.44, 22.29]$ \\
+w/o edge type & $95.12\pm1.13$ & $92.60\pm0.45$ & $88.85\pm2.17$ & $75.75\pm3.08$ & $81.69\pm1.12$ & $1.95$ $[1.54, 2.37]$ & $5.92$ $[5.41, 6.77]$ \\
+w/o edge weight & $96.48\pm0.28$ & $94.97\pm0.49$ & $89.54\pm1.05$ & $80.95\pm0.30$ & $85.00\pm0.37$ & $0.60$ $[0.23, 0.96]$ & $2.61$ $[2.37, 2.81]$ \\
+w/o edge rerank & $96.64\pm0.17$ & $95.09\pm0.11$ & $91.32\pm0.39$ & $84.21\pm0.63$ & $87.62\pm0.40$ & $0.43$ $[0.27, 0.60]$ & $-0.01$ $[-0.01, 0.00]$ \\
 \hline
 \end{tabular}%
 }
-\caption{Reserved final three-seed robustness report. Metric cells are mean
-$\pm$ sample standard deviation over seeds 13, 17, and 29. Delta columns
-are mean full-minus-ablation percentage-point differences with query-paired
-95\% percentile-bootstrap intervals over matched seed-query pairs. Positive
-deltas favor the full model.}
+\caption{Three-seed robustness report over seeds 13, 17, and 29 (\%). Metric
+cells are mean $\pm$ sample standard deviation. $\Delta$FS@5 is the mean
+full-minus-ablation percentage-point difference with a query-paired 95\%
+percentile-bootstrap interval over matched seed-query pairs ($n{=}8553$).
+$\Delta$EdgeF1 is the mean seed-level micro-average Edge F1@10 difference
+with the min--max range across the three seeds, because Edge F1@10 is
+micro-aggregated rather than stored per query. Positive deltas favor the
+full model.}
 \label{tab:provenance-three-seed}
 \end{table*}
 
@@ -666,8 +669,8 @@ alternative explanation that predicting more edges is sufficient to raise
 edge recall. \emph{w/o graph}
 returns 1.48 edges on average, the most of any variant, yet is the lowest
 on both Edge Recall@10 and Edge Precision@10 (79.94\% and 53.84\%); \emph{w/o
-edge weight} and \emph{w/o hard negatives} return 1.10 and 1.09 edges on
-average, also more than the full model's 1.07, yet achieve lower Edge
+edge weight} returns 1.10 edges on
+average, also more than the full model's 1.07, yet achieves lower Edge
 Recall@10. The full model therefore obtains the highest Edge Precision@10 and Edge
 F1@10 while emitting the fewest average edges among the training ablations.
 This pattern indicates that typed transforms and calibrated weights improve
@@ -679,15 +682,17 @@ synthetic benchmark; natural trajectories in which one output is consumed
 by multiple calls will additionally require evaluation of branching
 decoders and edge precision.
 
-Taken together, the completed seed-13 run suggests the following provisional
-hierarchy. Graph message passing has the largest observed association with
-complete support, dependency recall, and edge precision; relation-specific
-transforms show a second observed gain in dependency-edge quality; and
-source-calibrated edge weights show a smaller, metric-dependent association.
-Hard-negative supervision has a weak and directionally mixed seed-13 effect
-despite increasing the pair set from 444,072 to 714,245. This hierarchy will
-be retained, weakened, or revised according to the three-seed means and
-paired intervals in Table~\ref{tab:provenance-three-seed}.
+Taken together, the three-seed matrix in Table~\ref{tab:provenance-three-seed}
+supports the following hierarchy. Graph message passing remains the dominant
+component: \emph{w/o graph} drops mean Full Support@5 by 12.57 points with
+query-paired 95\% CI $[11.77, 13.32]$ and lowers Edge F1@10 by 21.73 points
+across seeds. Relation-specific transforms are second: \emph{w/o edge type}
+drops Full Support@5 by 1.95 $[1.54, 2.37]$ and Edge F1@10 by 5.92 points.
+Source-calibrated edge weights contribute a smaller but consistently positive
+Full Support@5 delta of 0.60 $[0.23, 0.96]$ and a 2.61-point Edge F1@10 gap.
+Disabling target promotion (\emph{w/o edge rerank}) leaves Path@10 and Edge
+F1@10 essentially unchanged while yielding only a 0.43-point Full Support@5
+gain for the full model.
 
 \paragraph{Controlled mechanism example.}
 To illustrate how structured provenance converts a partial hit into a
@@ -737,54 +742,70 @@ minimum-safe upgrade 4.2.26; a PyYAML-first ranking) are overturned via
 invalidated claims remain for audit.
 
 We compare BM25, dense retrieval, FastGraphRAG-style entity search, and
-typed-beam EPGM on the same candidate pool, without task-specific
-training or trace-specific tuning. Because a single session cannot
-support stable leaderboard claims, we do \emph{not} treat aggregate
-Recall or Full-Support tables as primary evidence for RQ3. The analysis
-below walks representative queries and contrasts what each method
-returns.
+the EPGM dependency-path preset on the same candidate pool, without
+task-specific training or trace-specific tuning. Because a single session
+cannot support stable leaderboard claims, we do \emph{not} treat aggregate
+Recall or Full-Support tables as primary evidence for RQ3. On this trace the
+preset emits typed provenance edges on 16 of 20 queries (56 edges, 38
+\texttt{depends\_on} and 18 \texttt{supports}) against 5 of 20 single edges
+for FastGraphRAG-style entity bridges and none for Dense, and it matches Dense
+on Full Support@5 (4/20) and Full Support@10 (7/20). Its ranking metrics are
+lower than Dense: Recall@5 47.83 against 50.50 and MRR 57.92 against 65.83.
+That gap should not be over-read, but neither should it be hidden. Of the 56
+promoted partners only 13 are gold, so promotion is 23.2\% precise here, and
+the recorded \texttt{depends\_on} graph is dense enough that a bounded walk
+reaches many non-evidential neighbours. At the same time only 3 of 20 queries
+change their top-5 gold membership at all (one better, two worse), so the
+aggregate difference rests on two queries and is not separable from noise at
+this sample size. We therefore report no ranking benefit on this trace and
+rest the RQ3 claim on what the typed edges expose, which the analysis below
+illustrates.
 
 \paragraph{Revision query: typed edges surface overturned claims for
 audit.}
 Consider a query that asks what Django's minimum-safe version was first
 judged to be, why that judgment changed, and what the final decision is.
-The overturned claim \texttt{claim\_537BCA895F} (initially asserting
-4.2.26) is ranked eighth by pure dense retrieval. Typed-beam EPGM raises
-it to rank five by walking
+Dense retrieval already places the verification and the invalidated claim
+\texttt{claim\_537BCA895F} (initially asserting 4.2.26) inside the top 10,
+but returns them as independent records: nothing in the output states that
+one overturns the other. The dependency-path preset returns the typed edge
 \texttt{verify\_28A134BF07}$\xrightarrow{\texttt{contradicts}}$
-\texttt{claim\_537BCA895F}, returns the contradiction path, and exposes
-\texttt{lifecycle\_state=invalidated}. Dense retrieval already places the verification and invalidated claim in
-the top 10, but returns them as independent records; typed-beam EPGM makes
-the \texttt{contradicts} relation explicit and returns the revision path.
-FastGraphRAG-style entity bridges likewise do not encode revision
-semantics. The point is mechanistic: provenance structure
-answers an audit question in the form the user asked, not that a 20-query
-average score is decisive.
+\texttt{claim\_537BCA895F} and exposes
+\texttt{lifecycle\_state=invalidated}, so the revision relation is
+recoverable from the retrieval output itself rather than reconstructed by
+the reader. FastGraphRAG-style entity bridges connect the two nodes by
+shared surface entities but do not encode revision semantics. The point is
+mechanistic and about interpretability: provenance structure answers an
+audit question in the form the user asked, not that a 20-query average
+score is decisive.
 
-\paragraph{Support-chain query: graph traversal recovers evidence buried
-by surface form.}
+\paragraph{Support-chain query: typed edges expose the support set as a
+structure.}
 Query Q10 asks why version-range checks must use PEP~440 / SpecifierSet
 semantics rather than naive string comparison. Three gold support nodes
-are required. Dense retrieval ranks the three support nodes at 3, 10, and outside the
-top 10 because two have little surface overlap with the query
-(\texttt{claim\_0144C746E7} and \texttt{obs\_42BF2FFDED}).
-FastGraphRAG-style returns only one of the three in its top 10.
-Typed-beam EPGM anchors on a densely high-ranked PyYAML claim and walks
-$\texttt{obs}\xrightarrow{\texttt{supports}}\texttt{claim}$ edges,
-placing the three nodes at ranks 7, 9, and 3 and thereby recovering the
-complete support triple. The same pattern appears on a related
-cryptography upgrade query, where entity-graph search again under-covers
-the multi-node support set while typed traversal follows recorded
-dependencies. Structure reconnects evidence that text similarity
-isolates; this is a case reading, not a multi-session significance test.
+are required, two of which (\texttt{claim\_0144C746E7} and
+\texttt{obs\_42BF2FFDED}) have little surface overlap with the query.
+FastGraphRAG-style returns only one of the three in its top 10. The
+dependency-path preset emits the
+$\texttt{obs}\xrightarrow{\texttt{supports}}\texttt{claim}$ edges that tie
+support nodes to the claim they underwrite, so a consumer can tell which
+retrieved records form one support set and which are unrelated hits. The same
+pattern appears on a related cryptography upgrade query. On this trace, then,
+typed traversal contributes an explicit evidence structure over the retrieved
+set; the corresponding ranking gains appear only in the controlled RQ2
+setting, where the candidate pool is large, dependency partners routinely sit
+below the top-5 cutoff, and recorded \texttt{feeds} confidences give the path
+score real dynamic range.
 
 \paragraph{What this study does and does not show.}
 SupplyChainTrace shows that the full EPGM schema can be populated from a
 real multi-agent run with tool calls, parallel handoffs, and evidence
-revision. In the two inspected cases, typed-beam retrieval uses support
-and contradiction edges to return an explicit path or complete a support
-set that the compared rankings leave implicit or incomplete. It does not provide a scored
-real-world benchmark, does not evaluate EPGM R-GCN transfer, and does
+revision, and that typed retrieval can surface support and contradiction
+edges that the compared rankings leave implicit. It does not show a ranking
+improvement on this trace: the preset scores below Dense on Recall@5 and MRR,
+and its promoted partners are only 23.2\% precise, so its contribution here is
+the interpretable edge set rather than a better ordering. It does not provide
+a scored real-world benchmark, does not evaluate EPGM R-GCN transfer, and does
 not replace RQ1--RQ2 automatic results. Expanding to more sessions and
 end-to-end tasks remains future work.
 
@@ -796,8 +817,9 @@ a single surface-similar record. RQ1 yields higher complete-support point
 estimates for relation-aware encoding on large multi-hop sets; RQ2 shows
 the largest single-seed ablation drop when message passing is removed; and
 RQ3's cases show the same schema supporting audit and support-path retrieval
-on a real session where flat rankings leave relations implicit or evidence
-outside the cutoff. The settings
+on a real session where flat rankings leave relations implicit, even though
+there the structure surfaces as typed edges rather than as a reordering.
+The settings
 are not interchangeable: multi-hop QA lacks native tool executions,
 synthetic trajectories lack natural noise and true revision events, and
 the real trace is too small for training or multi-seed claims. Read
@@ -850,16 +872,42 @@ endpoints at matched degree, topology-only baselines, or relation holdouts
 are not yet reported. SupplyChainTrace is analyzed qualitatively for schema applicability and
 case-level retrieval behavior, not as a scored multi-session benchmark.
 
-Second, at this draft stage the populated ablation tables---and the main
-EPGM R-GCN and Dense-FT comparison---are seed-13 snapshots. Seeds 17 and 29,
-per-variant mean/standard-deviation summaries, and paired confidence
-intervals are not yet complete. Table~\ref{tab:provenance-three-seed}
-therefore remains explicitly pending. The few-tenths-of-a-point reversals
-after source-mean edge weighting or hard-negative removal must not be given
-a stable direction until that table is populated. Removing graph
-propagation currently shows the largest cross-metric seed-13 drop, but its
-final magnitude and uncertainty will be reported from the same three-seed
-protocol rather than inferred from the current point estimate alone. Third, the current experiments
+Second, Dense-FT on the provenance benchmark remains a seed-13 snapshot; the
+full
+model and the other ablations are now summarized with three-seed
+mean$\pm$std and paired Full Support@5 intervals in
+Table~\ref{tab:provenance-three-seed}. Small single-seed reversals after
+source-mean edge weighting should be read against those intervals rather
+than as stable advantages. Removing graph propagation is the largest and
+most stable cross-metric drop under the completed three-seed protocol.
+The training-free dependency-path preset carries two tradeoffs that its
+aggregate gains should not obscure. Its set-completion improvements do not
+transfer to first-hit quality: Recall@2 is identical to Dense and MRR is
+0.70 points lower, degrading on 236 of 2,851 queries against 39 improved,
+because promoting a dependency partner into a small budget can displace an
+output that dense retrieval had already ranked first. Its edge output also
+trades precision for coverage, reaching 44.93\% Path Recall@10 against
+10.24\% for entity-graph propagation but 12.34\% Edge Precision@10 against
+34.33\%, since it emits 3.58 edges per query against 0.29. Applications
+that consume the edge set directly would need a sparser decoder or a
+confidence cutoff.
+
+Furthermore, the same frozen configuration behaves very differently across
+the two provenance settings, for a reason the schema makes explicit. Scoring
+and gating are defined over semantic roles, but the two graphs populate those
+roles with disjoint vocabularies and very different weight distributions. The
+controlled benchmark records evidence hand-off only as \texttt{feeds} and
+supplies calibrated confidences (over a thousand distinct values), so path
+scores have real dynamic range and reorder results substantially. The recorded
+trace uses \texttt{depends\_on}/\texttt{supports} and stores a constant
+placeholder weight of 1.0 on every edge, so path scores collapse onto the
+frozen relation priors and carry only three distinct levels. Role abstraction
+is what makes one configuration \emph{applicable} to both; it does not make
+the available signal equally informative. We report both rather than tuning
+per dataset, but this means the retrieval gain is demonstrated on
+label-derived topology with calibrated weights and the interpretability
+benefit on the real trace, not both on both.
+Third, the current experiments
 evaluate retrieval, complete support, and path recovery, so they can
 partially support the claim that structured memory provides more complete
 grounding for downstream reasoning; system-level effects such as ``reducing
