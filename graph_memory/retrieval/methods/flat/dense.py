@@ -56,7 +56,21 @@ class DenseTaskRetriever:
         )
 
     def rank(self, request: TextRankingRequest) -> list[RankedNode]:
-        return self.rank_many([request])[0]
+        return self.rank_with_query_vector(request)[0]
+
+    def rank_with_query_vector(
+        self, request: TextRankingRequest
+    ) -> tuple[list[RankedNode], np.ndarray]:
+        """Rank once and expose the normalized query vector to graph methods."""
+
+        encoding_request = DenseTaskEncodingRequest(
+            ranking_request=request,
+            node_ids=("q", *(candidate.item_id for candidate in request.candidates)),
+        )
+        result = self.encoding_service.encode_task(encoding_request)
+        return self._rank_from_embeddings(request, result.embeddings), result.embeddings[
+            0
+        ].copy()
 
     def rank_many(self, requests: list[TextRankingRequest]) -> list[list[RankedNode]]:
         encoding_requests = [

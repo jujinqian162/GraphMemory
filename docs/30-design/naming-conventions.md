@@ -11,6 +11,6 @@ Names describe semantic ownership, not only shape.
 
 Public method IDs are exactly `bm25`, `dense`, `dense_ft`, `graphrag`, `dense_rgcn_graph_retriever`, `dense_ft_rgcn_graph_retriever`, `execution_provenance_retriever`, and `execution_provenance_rgcn_retriever`.
 
-Use `Epgm*` for the non-trained execution-provenance retriever's own config, search, and path types. It stays behind the `execution_provenance_retriever` method ID: strategy differences are `variant` presets on one implementation, never a second method ID.
+Use `Epgm*` for the non-trained execution-provenance retriever's config and method-owned algorithm types. The reported default is the query-conditioned PPR/connected-subgraph architecture; historical path strategies remain diagnostic `variant` values behind the same `execution_provenance_retriever` method ID, never separate public methods.
 
 Workflow artifacts use `evidence_graphs` when referring to the prebuilt evidence graph stage or files. Generic `graphs` remains acceptable only as the Python package namespace containing graph domains.

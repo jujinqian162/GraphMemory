@@ -115,12 +115,12 @@ both endpoints remain in the top $k$; confidence and partner conflicts are
 resolved before emission. It follows the non-LLM entity-search idea of
 FastGraphRAG and is not a reproduction of a full GraphRAG pipeline with
 LLM-based community summarization or generation.
-\textbf{EPGM} denotes one training-free structured retrieval implementation
-configured with two frozen presets from
-Section~\ref{sec:evidence-tracing}: typed beam is the current default and is
-used for the real-trace cases; the more restrictive directed dependency
-path is retained as a training-free diagnostic in the synthetic table.
-Neither preset uses task-specific parameter training. \textbf{EPGM R-GCN} is its learned
+\textbf{EPGM} denotes one training-free query-conditioned typed-diffusion
+and connected-subgraph retriever. Historical typed-beam and directed
+dependency-path strategies remain reproducibility diagnostics only. Neither
+the reported default nor the diagnostics use task-specific parameter
+training; the new default's RQ2/RQ3 quality rows remain pending formal
+execution. \textbf{EPGM R-GCN} is its learned
 relation-aware counterpart. It applies three layers of relation-specific
 message passing to frozen E5-base-v2 node representations, ranks
 \texttt{ToolOutput} candidates, and jointly predicts logical

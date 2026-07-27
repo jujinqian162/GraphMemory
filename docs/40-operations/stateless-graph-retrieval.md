@@ -10,56 +10,67 @@ GraphRAG ranks all candidates with Dense first. It then derives typed title/body
 
 ## Execution provenance (EPGM, non-trained)
 
-There is exactly one non-trained EPGM implementation. `variant` selects a
-frozen preset; there is no second method id and no second code path.
+There is one public non-trained EPGM implementation and one reported default:
+`ppr_steiner`. Historical path strategies remain explicit diagnostics under the
+same registry id.
 
-| variant | Traversal | Edge scope | Path score | Gating | Fusion | Role |
-| --- | --- | --- | --- | --- | --- | --- |
-| `typed_beam` (default) | bidirectional | all typed edges except `contains` | type prior x reverse factor x hop decay | none | additive | reported method |
-| `dependency_path` | directed | `returns`/`feeds`/`grounds`/`supports`/`depends_on` | geometric mean of `feeds` weights x hop penalty | schema | stable insert | ablation of the default |
+| variant | Candidate generation | Graph objective | Recorded weights | Role |
+| --- | --- | --- | --- | --- |
+| `ppr_steiner` (default) | query-conditioned typed PPR over the full native graph | budgeted connected evidence subgraph | raw source-local transition factor | reported method; quality experiments pending |
+| `typed_beam` | Dense top-seed bounded paths | independent additive target rerank | disabled by default | historical diagnostic |
+| `dependency_path` | directed dependency paths | schema gate + stable insert | `feeds` geometric confidence | historical diagnostic |
 
-Both presets consume the existing `ExecutionProvenanceRankingRequest` graph and
-reuse recorded semantic edge weights; neither rebuilds dataset graphs.
+### Default algorithm
 
-Under `typed_beam`, dense relevance is a floor that graph propagation can lift
-but never demote, and audit edges (`supports`, `contradicts`, `invalidates`,
-`verifies`) are traversable.
+1. The frozen Dense encoder ranks request candidates.
+2. The same encoder compares the query with versioned, schema-owned natural-language descriptions of every public provenance relation.
+3. Stored edges become forward and penalized reverse arcs. Arc strength combines relation affinity, a fixed type prior, native direction, degree control, and the raw recorded weight.
+4. Arc strengths are normalized separately for each source node. RQ2's calibrated `feeds` weights therefore remain sibling-branch probabilities; RQ3's constant `1.0` values are an identity factor. There is no global min-max weight transform and no dataset-name branch.
+5. Personalized PageRank diffuses a strictly positive min-max-scaled Dense teleport distribution over candidates and connector nodes; this preserves narrow cosine-score differences instead of flattening them with a unit-temperature softmax.
+6. A deterministic budgeted Steiner-style greedy selector uses Dense/PPR prize minus a fixed candidate-inclusion cost and chooses a positive-marginal connected subgraph with at most `top_k` request candidates. Arc cost is `-log(transition_probability)` plus a fixed connector-hop cost, while arcs already in the selected tree have zero residual cost. Tool calls, agents, tasks, and other non-candidates may connect evidence without consuming the evidence budget.
+7. An out-of-budget graph candidate must additionally pay the prize of the weakest replaceable Dense top-`k` incumbent. Accepted membership changes retain Dense-relative order and occupy the original descending Dense score slots, preventing graph-central evidence from destroying stronger early semantic hits.
+8. Selected candidate paths are collapsed to oriented logical `feeds` edges for shared evaluation. The native trace preserves actual relation types, direction, transition probabilities, PPR mass, connectors, prizes, new-edge and displacement costs, marginal gains, and objective.
 
-Under `dependency_path`, binding, path completeness (exactly one `feeds` plus
-one `returns`), and lifecycle are hard validity gates, and insertion preserves
-the dense score multiset exactly. Because the gate requires a
-`feeds`/`returns` backbone, audit-only structure is always rejected as
-`incomplete_path`, so on traces without that backbone the preset degenerates to
-Dense. That degeneration is the reason `typed_beam` is the default.
+If no positive-marginal multi-candidate connection is selected, the full ranking and scores are exactly Dense. Structural session paths may affect ranking while remaining native-trace-only; only contracted evidentiary relations are emitted as shared logical dependencies.
 
-Invalidated and superseded nodes stay reachable in both presets; lifecycle is
-reported in the trace, never silently pruned.
+### Running
 
-Select a preset with either method YAML:
+```powershell
+# Reported default
+uv run python experiment/run.py `
+  name=twowiki_provenance_epgm_ppr_steiner dataset=twowiki_provenance `
+  profile=provenance_full device=cuda:0 method=execution_provenance_retriever
 
+# Historical diagnostics only
+uv run python experiment/run.py `
+  name=twowiki_provenance_epgm_typed_beam dataset=twowiki_provenance `
+  profile=provenance_full device=cuda:0 method=execution_provenance_retriever `
+  method.variant=typed_beam
+
+uv run python experiment/run.py `
+  name=twowiki_provenance_epgm_dependency_path dataset=twowiki_provenance `
+  profile=provenance_full device=cuda:0 method=execution_provenance_retriever `
+  method.variant=dependency_path
 ```
-method=execution_provenance_retriever                    # typed_beam
-method=execution_provenance_retriever_dependency_path    # ablation
-method=execution_provenance_retriever method.variant=dependency_path
-```
 
-The active preset is recorded as `native_trace.variant` and as the run's
-`graph_memory.variant` tag, and it participates in the Prefect cache key, so
-the two presets never share cached rankings.
+The variant and a digest of every frozen behavior parameter participate in the
+Prefect ranking implementation identity. Runs also record
+`graph_memory.variant`, so caches and MLflow rows cannot silently cross
+architectures.
+
+The standalone real-trace runner uses the same default:
+
+```bash
+uv run python scripts/run_epgm_provenance.py \
+  --epgm-variant ppr_steiner \
+  --device cuda:0 \
+  --output-dir runs/epgm_rq3
+```
 
 ## Compatibility boundary
 
-- Existing twowiki_provenance schema, converter, fixtures, prepared artifacts, and caches remain unchanged.
+- Existing twowiki_provenance schema, converter, fixtures, and prepared artifacts remain unchanged.
 - Trainable R-GCN methods and checkpoints remain unchanged.
 - Shared evaluation metrics and artifact roles remain unchanged.
-- New native traces are method-local: typed_local_bridge and execution_provenance_local.
-
-Use the normal experiment command with the existing method YAML. No data preparation command specific to this change is required.
-
-The standalone real-trace runner takes the same preset flag:
-
-```
-uv run python scripts/run_epgm_provenance.py --epgm-variant typed_beam
-```
-
-It writes one JSONL per method, suffixed with the preset for EPGM rows.
+- Connector-only native nodes never enter the ranked candidate list or shared `retrieved_subgraph.nodes`.
+- Quality claims for `ppr_steiner` remain pending server RQ2/RQ3 execution; unit tests establish invariants, not benchmark superiority.

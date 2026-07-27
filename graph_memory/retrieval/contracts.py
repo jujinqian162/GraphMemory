@@ -117,6 +117,89 @@ class StatelessExecutionProvenanceTrace:
     trace_kind: Literal["execution_provenance_local"] = "execution_provenance_local"
 
 
+@dataclass(frozen=True)
+class ProvenanceRelationAffinityTrace:
+    edge_type: str
+    similarity: float
+    affinity: float
+
+
+@dataclass(frozen=True)
+class ProvenanceTransitionTrace:
+    source: str
+    target: str
+    edge_type: str
+    direction: Literal["forward", "reverse"]
+    recorded_weight: float
+    relation_affinity: float
+    probability: float
+    cost: float
+
+
+@dataclass(frozen=True)
+class ProvenancePprNodeTrace:
+    node_id: str
+    teleport: float
+    score: float
+
+
+@dataclass(frozen=True)
+class ProvenanceCandidatePrizeTrace:
+    node_id: str
+    dense_component: float
+    ppr_component: float
+    prize: float
+
+
+@dataclass(frozen=True)
+class ProvenanceSelectedArcTrace:
+    source: str
+    target: str
+    edge_type: str
+    direction: Literal["forward", "reverse"]
+
+
+@dataclass(frozen=True)
+class ProvenanceSelectionStepTrace:
+    anchor_id: str
+    target_id: str
+    path_node_ids: tuple[str, ...]
+    transitions: tuple[ProvenanceSelectedArcTrace, ...]
+    added_candidate_ids: tuple[str, ...]
+    displaced_candidate_ids: tuple[str, ...]
+    prize_gain: float
+    edge_cost: float
+    displacement_cost: float
+    marginal_gain: float
+
+
+@dataclass(frozen=True)
+class QueryConditionedExecutionProvenanceTrace:
+    native_graph_node_ids: tuple[str, ...]
+    dense_ranks: tuple[DenseRankTrace, ...]
+    relation_description_version: str
+    relations: tuple[ProvenanceRelationAffinityTrace, ...]
+    transitions: tuple[ProvenanceTransitionTrace, ...]
+    ppr_nodes: tuple[ProvenancePprNodeTrace, ...]
+    ppr_iterations: int
+    ppr_residual: float
+    ppr_converged: bool
+    candidate_prizes: tuple[ProvenanceCandidatePrizeTrace, ...]
+    selected_candidate_ids: tuple[str, ...]
+    connector_node_ids: tuple[str, ...]
+    selection_steps: tuple[ProvenanceSelectionStepTrace, ...]
+    selected_native_edges: tuple[ProvenanceEdgeTrace, ...]
+    objective: float
+    top_k: int
+    exact_dense_fallback: bool
+    emitted_edges: tuple[CandidateEdgeTrace, ...]
+    scorer_identity: str
+    variant: str = "ppr_steiner"
+    trace_kind: Literal["execution_provenance_subgraph"] = (
+        "execution_provenance_subgraph"
+    )
+
+
 class ProvenancePathTrace(_NativeTraceModel):
     node_ids: tuple[str, ...] = Field(min_length=1)
     score: FiniteFloat
@@ -217,7 +300,10 @@ class ExecutionProvenanceTrace(_NativeTraceModel):
 
 
 NativeRetrievalTrace: TypeAlias = (
-    GraphRAGTrace | ExecutionProvenanceTrace | StatelessExecutionProvenanceTrace
+    GraphRAGTrace
+    | ExecutionProvenanceTrace
+    | StatelessExecutionProvenanceTrace
+    | QueryConditionedExecutionProvenanceTrace
 )
 
 

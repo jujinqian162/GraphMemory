@@ -92,28 +92,32 @@ uv run python experiment/run.py `
   method=execution_provenance_retriever
 ```
 
-## Non-trained EPGM presets
+## Non-trained EPGM
 
-`execution_provenance_retriever` is one implementation with two frozen presets
-selected by `method.variant`: `typed_beam` (default, reported) and
-`dependency_path` (schema-gated restriction, ablation only). Run them as peer
-jobs when the ablation row is needed:
+`execution_provenance_retriever` now defaults to `ppr_steiner`: query-conditioned typed transitions, Personalized PageRank candidate expansion, and budgeted connected-subgraph selection. RQ2's recorded `feeds` confidence is consumed only through source-local outgoing normalization. The old global multiplicative weighting is disabled because the complete seed-13 read-only ablation reduced Path Recall@10 and gold-edge true positives.
 
 ```powershell
 uv run python experiment/run.py `
-  name=twowiki_provenance_epgm_typed_beam dataset=twowiki_provenance profile=quick device=cuda:0 `
+  name=twowiki_provenance_epgm_ppr_steiner dataset=twowiki_provenance `
+  profile=provenance_full device=cuda:0 `
+  method=execution_provenance_retriever
+```
+
+Historical strategies remain explicit diagnostics:
+
+```powershell
+uv run python experiment/run.py `
+  name=twowiki_provenance_epgm_typed_beam dataset=twowiki_provenance `
+  profile=provenance_full device=cuda:0 `
   method=execution_provenance_retriever method.variant=typed_beam
 
 uv run python experiment/run.py `
-  name=twowiki_provenance_epgm_dependency_path dataset=twowiki_provenance profile=quick device=cuda:1 `
+  name=twowiki_provenance_epgm_dependency_path dataset=twowiki_provenance `
+  profile=provenance_full device=cuda:1 `
   method=execution_provenance_retriever method.variant=dependency_path
 ```
 
-The preset participates in the Prefect cache key and is tagged as
-`graph_memory.variant`, so the two rows are independently cached and
-attributable. See
-[`docs/40-operations/stateless-graph-retrieval.md`](stateless-graph-retrieval.md)
-for the per-axis definition of each preset.
+The variant plus the frozen configuration fingerprint participates in Prefect ranking identity and is tagged as `graph_memory.variant`. The new quality row is pending server execution; do not copy the historical dependency-path number into the `ppr_steiner` row. See [`docs/40-operations/stateless-graph-retrieval.md`](stateless-graph-retrieval.md) for algorithm and trace details.
 
 ## Interpretation
 

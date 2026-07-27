@@ -1,12 +1,23 @@
 from graph_memory.retrieval.methods.epgm.config import (
     DEFAULT_EDGE_PRIORS,
+    DEFAULT_RELATION_DESCRIPTIONS,
     DEPENDENCY_EDGE_TYPES,
     EPGM_VARIANTS,
+    RELATION_DESCRIPTION_VERSION,
     EpgmRetrieverConfig,
     EpgmVariant,
     HUB_NODE_TYPES,
     NON_TRAVERSABLE_EDGE_TYPES,
     WEIGHT_INFORMATIVE_VARIANCE,
+)
+from graph_memory.retrieval.methods.epgm.diffusion import (
+    PprResult,
+    RelationAffinity,
+    TypedTransition,
+    build_typed_transitions,
+    dense_teleport,
+    personalized_pagerank,
+    query_relation_affinities,
 )
 from graph_memory.retrieval.methods.epgm.method import (
     EpgmRankedNode,
@@ -21,11 +32,20 @@ from graph_memory.retrieval.methods.epgm.search import (
     invalidated_node_ids,
     search_epgm_paths,
 )
+from graph_memory.retrieval.methods.epgm.selection import (
+    CandidatePrize,
+    SelectedCandidateEdge,
+    SelectedSubgraph,
+    SelectionStep,
+    select_budgeted_subgraph,
+)
 
 __all__ = [
     "DEFAULT_EDGE_PRIORS",
+    "DEFAULT_RELATION_DESCRIPTIONS",
     "DEPENDENCY_EDGE_TYPES",
     "EPGM_VARIANTS",
+    "CandidatePrize",
     "EpgmGateReport",
     "EpgmPath",
     "EpgmPathStep",
@@ -36,8 +56,20 @@ __all__ = [
     "EpgmVariant",
     "HUB_NODE_TYPES",
     "NON_TRAVERSABLE_EDGE_TYPES",
+    "PprResult",
+    "RELATION_DESCRIPTION_VERSION",
+    "RelationAffinity",
+    "SelectedCandidateEdge",
+    "SelectedSubgraph",
+    "SelectionStep",
+    "TypedTransition",
     "WEIGHT_INFORMATIVE_VARIANCE",
+    "build_typed_transitions",
+    "dense_teleport",
     "effective_edge_weights",
     "invalidated_node_ids",
+    "personalized_pagerank",
+    "query_relation_affinities",
     "search_epgm_paths",
+    "select_budgeted_subgraph",
 ]

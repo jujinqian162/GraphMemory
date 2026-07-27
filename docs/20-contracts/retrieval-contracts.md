@@ -26,7 +26,7 @@ There is no generic graph request. A provenance request cannot be routed to an E
 | `execution_provenance_retriever` | `ExecutionProvenanceRankingRequest` | provenance | request-native | no |
 | `execution_provenance_rgcn_retriever` | `ExecutionProvenanceRankingRequest` | provenance | request-native | yes |
 
-`execution_provenance_retriever` is a single non-trained implementation; its `variant` field picks a frozen preset (`typed_beam` default, `dependency_path` ablation) rather than a different method.
+`execution_provenance_retriever` is one non-trained implementation. Its reported default is `ppr_steiner`; `typed_beam` and `dependency_path` are explicit historical diagnostics rather than different method ids.
 
 Builders accept concrete flat, GraphRAG, Evidence-RGCN, stateless-provenance, or Provenance-RGCN payloads. Registry validation checks payload class, request type, task family, checkpoint family, and required artifact before retrieval begins.
 
@@ -40,8 +40,9 @@ All methods return the full ranked candidate list. `retrieved_subgraph` remains 
 | --- | --- |
 | `typed_local_bridge` | Dense ranks, linked entities, typed mentions/title groups, sentence resolver evidence, local bridge proposals, gates, displacement, fallback identity, and emitted promotion edges |
 | `execution_provenance` | existing selected-path trace used by the trainable provenance R-GCN path |
-| `execution_provenance_local` | Dense ranks, bounded path proposals over existing edge weights, structural gates, displacement, fallback identity, scorer identity, active EPGM `variant`, and emitted promotion edges |
+| `execution_provenance_local` | Historical Dense-seeded bounded-path proposals, structural gates, displacement, fallback identity, scorer identity, diagnostic `variant`, and emitted promotion edges |
+| `execution_provenance_subgraph` | Native graph context, Dense ranks, relation affinities, source-normalized typed transitions, PPR convergence/mass, candidate prizes, selected evidence/connectors/native edges, added/displaced candidate ids and costs, marginal objective, active `variant`, fallback identity, and emitted candidate edges |
 
-Serialization rejects unknown kinds or fields, non-finite weights/scores, duplicate IDs, paths, or edges, unknown endpoints, and path steps without a corresponding traced edge. Stateless traces report only accepted/rejected local interventions; when every proposal abstains, the ranked nodes and scores are byte-for-byte Dense identity.
+Serialization rejects unknown kinds or fields, non-finite weights/scores, duplicate IDs, paths, transitions, or edges, unknown endpoints, non-normalized source transition rows, invalid PPR mass, disconnected selected subgraphs, connector/candidate confusion, evidence-budget overflow, and inconsistent fallback state. Connector ids are validated against the trace-declared native graph context but never enter the candidate-only shared result surface. When connected extraction has no positive-marginal multi-candidate selection step, ranked nodes and scores are byte-for-byte Dense identity. A non-fallback structural selection may legitimately emit no shared logical dependency when its native path contains only session/execution relations.
 
 Collapsed candidate-level edges in `retrieved_subgraph` always use the `feeds` edge type, the only provenance dependency type in `ALLOWED_EDGE_TYPES`; the finer traversed relation is reported per edge in `native_trace.emitted_edges`. A bidirectional walk orients each collapsed edge along the stored graph direction, so a mostly-reverse path is flipped rather than emitted as an inverted dependency.

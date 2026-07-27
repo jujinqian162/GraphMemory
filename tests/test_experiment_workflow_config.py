@@ -10,8 +10,9 @@ from pydantic import ValidationError
 from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
-    RgcnMethodConfig,
+    ExecutionProvenanceMethodConfig,
     ExecutionProvenanceRgcnMethodConfig,
+    RgcnMethodConfig,
     resolve_experiment_config,
     parse_composed_config,
 )
@@ -112,6 +113,21 @@ def test_retired_or_list_valued_selection_is_rejected(override: str) -> None:
 def test_variant_is_rejected_on_non_rgcn_method() -> None:
     with pytest.raises((ValidationError, ConfigCompositionException)):
         parse_composed_config(_compose("method=bm25", "+method.variant=wo_graph"))
+
+
+def test_nontrained_epgm_defaults_to_query_conditioned_subgraph_retrieval() -> None:
+    default = parse_composed_config(_compose("method=execution_provenance_retriever"))
+    legacy = parse_composed_config(
+        _compose(
+            "method=execution_provenance_retriever",
+            "method.variant=typed_beam",
+        )
+    )
+
+    assert isinstance(default.method, ExecutionProvenanceMethodConfig)
+    assert isinstance(legacy.method, ExecutionProvenanceMethodConfig)
+    assert default.method.variant == "ppr_steiner"
+    assert legacy.method.variant == "typed_beam"
 
 
 def test_provenance_only_method_is_rejected_on_evidence_dataset() -> None:

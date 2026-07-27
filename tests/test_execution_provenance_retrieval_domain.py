@@ -27,11 +27,20 @@ from graph_memory.retrieval.methods.epgm import (
     EpgmRetriever,
     EpgmRetrieverConfig,
     EpgmVariant,
+    PprResult,
+    RelationAffinity,
+    TypedTransition,
+    build_typed_transitions,
+    dense_teleport,
     effective_edge_weights,
+    personalized_pagerank,
+    query_relation_affinities,
     search_epgm_paths,
+    select_budgeted_subgraph,
 )
 from graph_memory.retrieval.contracts import (
     GraphRAGTrace,
+    QueryConditionedExecutionProvenanceTrace,
     StatelessExecutionProvenanceTrace,
 )
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
@@ -564,15 +573,15 @@ def test_registry_builds_provenance_method_from_native_payload() -> None:
     assert built.execution_tasks[0].method_request is request
 
 
-def test_registry_default_epgm_config_is_the_typed_beam_preset() -> None:
+def test_registry_default_epgm_config_is_the_ppr_steiner_preset() -> None:
     settings = ExecutionProvenanceRetrievalSettings(
         top_k=3,
         encoder=DenseEncoderSettings("keyword", "", "", 8),
     )
 
-    assert settings.config == EpgmRetrieverConfig.for_variant("typed_beam")
-    assert settings.config.gating == "none"
-    assert settings.config.fusion == "additive"
+    assert settings.config == EpgmRetrieverConfig.for_variant("ppr_steiner")
+    assert settings.config.variant == "ppr_steiner"
+    assert settings.config.weight_aware is False
 
 
 def test_epgm_variant_presets_differ_only_by_declared_axes() -> None:
@@ -589,6 +598,10 @@ def test_epgm_variant_presets_differ_only_by_declared_axes() -> None:
     )
     assert dependency_path.gating == "schema"
     assert dependency_path.fusion == "stable_insert"
+    default = EpgmRetrieverConfig.for_variant("ppr_steiner")
+    changed = EpgmRetrieverConfig.for_variant("ppr_steiner", ppr_alpha=0.8)
+    assert default.cache_fingerprint() != changed.cache_fingerprint()
+    assert default.cache_fingerprint() != typed_beam.cache_fingerprint()
     with pytest.raises(ValueError, match="unknown EPGM variant"):
         EpgmRetrieverConfig.for_variant(cast(EpgmVariant, cast(object, "does_not_exist")))
 
@@ -792,14 +805,14 @@ def test_effective_weights_are_identity_when_recorded_weights_are_constant() -> 
     """
 
     graph = _weighted_feeds_graph((1.0, 1.0, 1.0))
-    config = EpgmRetrieverConfig.for_variant("typed_beam")
+    config = EpgmRetrieverConfig.for_variant("typed_beam", weight_aware=True)
 
     assert effective_edge_weights(graph, config) == {}
 
 
 def test_effective_weights_normalise_only_informative_edge_types() -> None:
     graph = _weighted_feeds_graph((0.5, 0.75, 1.0))
-    config = EpgmRetrieverConfig.for_variant("typed_beam")
+    config = EpgmRetrieverConfig.for_variant("typed_beam", weight_aware=True)
 
     effective = effective_edge_weights(graph, config)
 
@@ -827,7 +840,7 @@ def test_recorded_weights_reorder_paths_only_when_they_carry_information() -> No
     scores must be identical, because there is nothing to learn from them.
     """
 
-    config = EpgmRetrieverConfig.for_variant("typed_beam")
+    config = EpgmRetrieverConfig.for_variant("typed_beam", weight_aware=True)
     seeds = ("out_a",)
     relevance = {"out_a": 1.0}
     candidates = frozenset({"call_a", "out_b", "call_b", "out_c", "call_c"})
@@ -861,3 +874,501 @@ def test_weight_aware_can_be_disabled_without_touching_other_axes() -> None:
     assert effective_edge_weights(graph, blind) == {}
     assert blind.traversal == "bidirectional"
     assert blind.edge_scope == "typed"
+
+
+def _sibling_feeds_graph(weights: tuple[float, float]) -> ExecutionProvenanceGraph:
+    binding = FieldBinding(
+        output_field="evidence",
+        input_parameter="context",
+        binding_value_hash="b" * 8,
+        binding_kind="semantic_reference",
+    )
+    nodes = (
+        ExecutionProvenanceNode(
+            "out",
+            ProvenanceNodeType.TOOL_OUTPUT,
+            "shared source",
+            {"output_field_hashes": {"evidence": "b" * 8}},
+        ),
+        ExecutionProvenanceNode(
+            "call-a",
+            ProvenanceNodeType.TOOL_CALL,
+            "first branch",
+            {"input_parameters": ["context"]},
+        ),
+        ExecutionProvenanceNode(
+            "call-b",
+            ProvenanceNodeType.TOOL_CALL,
+            "second branch",
+            {"input_parameters": ["context"]},
+        ),
+    )
+    edges = tuple(
+        ExecutionProvenanceEdge(
+            "out",
+            target,
+            ProvenanceEdgeType.FEEDS,
+            binding,
+            weight,
+            {},
+        )
+        for target, weight in zip(("call-a", "call-b"), weights, strict=True)
+    )
+    return ExecutionProvenanceGraph("siblings", nodes, edges)
+
+
+def _uniform_relations(graph: ExecutionProvenanceGraph) -> tuple[RelationAffinity, ...]:
+    edge_types = sorted({edge.edge_type.value for edge in graph.edges})
+    mass = 1.0 / len(edge_types)
+    return tuple(RelationAffinity(edge_type, 0.0, mass) for edge_type in edge_types)
+
+
+def test_source_local_transition_preserves_calibrated_feeds_ratio() -> None:
+    graph = _sibling_feeds_graph((0.8, 0.6))
+    transitions = build_typed_transitions(
+        graph, _uniform_relations(graph), EpgmRetrieverConfig()
+    )
+    forward = {
+        item.target: item.probability
+        for item in transitions
+        if item.source == "out" and item.direction == "forward"
+    }
+
+    assert sum(forward.values()) == pytest.approx(1.0)
+    assert forward["call-a"] / forward["call-b"] == pytest.approx(0.8 / 0.6)
+
+
+def test_constant_recorded_weights_are_transition_identity() -> None:
+    graph = _sibling_feeds_graph((1.0, 1.0))
+    transitions = build_typed_transitions(
+        graph, _uniform_relations(graph), EpgmRetrieverConfig()
+    )
+    forward = [
+        item.probability
+        for item in transitions
+        if item.source == "out" and item.direction == "forward"
+    ]
+
+    assert forward == pytest.approx([0.5, 0.5])
+
+
+def test_personalized_pagerank_conserves_mass_and_is_deterministic() -> None:
+    graph = _sibling_feeds_graph((0.8, 0.6))
+    config = EpgmRetrieverConfig(ppr_tolerance=1e-12)
+    teleport = {"out": 1.0}
+    relations = _uniform_relations(graph)
+
+    first = personalized_pagerank(graph, teleport, relations, config)
+    second = personalized_pagerank(graph, teleport, relations, config)
+
+    assert first == second
+    assert sum(first.node_scores.values()) == pytest.approx(1.0)
+    assert first.residual <= config.ppr_tolerance
+    assert first.converged
+
+
+def test_budgeted_selection_keeps_connector_outside_candidate_budget() -> None:
+    request = _local_provenance_request()
+    dense_scores = {
+        candidate.item_id: float(len(request.candidates) - index)
+        for index, candidate in enumerate(request.candidates)
+    }
+    config = EpgmRetrieverConfig(
+        candidate_inclusion_cost=0.0, selection_edge_cost_weight=0.01
+    )
+    teleport = dense_teleport(dense_scores, request.graph)
+    ppr = personalized_pagerank(
+        request.graph,
+        teleport,
+        _uniform_relations(request.graph),
+        config,
+    )
+
+    selected, _prizes = select_budgeted_subgraph(
+        dense_scores, ppr, top_k=4, config=config
+    )
+
+    assert len(selected.candidate_ids) <= 4
+    assert not set(selected.connector_ids) & set(dense_scores)
+    assert selected.exact_dense_fallback is False
+    assert selected.candidate_edges
+
+
+def test_ppr_steiner_default_returns_closed_subgraph_trace() -> None:
+    request = _local_provenance_request()
+    method = EpgmRetriever(_local_dense_ranker(), EpgmRetrieverConfig())
+
+    result = method.rank_task(request, top_k=4)
+    trace = result.trace.native_trace
+
+    assert isinstance(trace, QueryConditionedExecutionProvenanceTrace)
+    assert trace.variant == "ppr_steiner"
+    assert trace.relation_description_version
+    assert trace.ppr_converged
+    assert len(trace.selected_candidate_ids) <= 4
+    assert trace.exact_dense_fallback == (not trace.selection_steps)
+    assert len(result.ranked_nodes) == len(request.candidates)
+
+
+def test_query_relation_affinity_uses_embedding_similarity_not_dataset_rules() -> None:
+    config = EpgmRetrieverConfig(relation_temperature=0.1)
+    edge_types = sorted(config.relation_descriptions)
+    dimension = len(edge_types)
+    relation_vectors = np.eye(dimension, dtype=float)
+    target = ProvenanceEdgeType.INVALIDATES.value
+    query_vector = relation_vectors[edge_types.index(target)]
+
+    affinities = query_relation_affinities(
+        query_vector,
+        relation_vectors,
+        frozenset(
+            {
+                target,
+                ProvenanceEdgeType.FEEDS.value,
+                ProvenanceEdgeType.CONTAINS.value,
+            }
+        ),
+        config,
+    )
+
+    by_type = {item.edge_type: item.affinity for item in affinities}
+    assert by_type[target] > by_type[ProvenanceEdgeType.FEEDS.value]
+    assert sum(by_type.values()) == pytest.approx(1.0)
+
+
+def test_invalid_field_binding_is_excluded_from_typed_transitions() -> None:
+    graph = _sibling_feeds_graph((0.8, 0.6))
+    invalid_edges = tuple(
+        ExecutionProvenanceEdge(
+            edge.source,
+            edge.target,
+            edge.edge_type,
+            FieldBinding(
+                output_field="evidence",
+                input_parameter="context",
+                binding_value_hash="wrong-hash",
+                binding_kind="semantic_reference",
+            ),
+            edge.weight,
+            edge.metadata,
+        )
+        for edge in graph.edges
+    )
+    invalid = ExecutionProvenanceGraph(graph.task_id, graph.nodes, invalid_edges)
+
+    transitions = build_typed_transitions(
+        invalid, _uniform_relations(invalid), EpgmRetrieverConfig()
+    )
+
+    assert transitions == ()
+
+
+def test_ppr_steiner_uses_byte_for_byte_dense_fallback_without_dependencies() -> None:
+    nodes = (
+        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "alpha", {}),
+        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "beta", {}),
+    )
+    request = ExecutionProvenanceRankingRequest(
+        "edgeless",
+        "alpha",
+        (TextCandidate("a", "alpha", {}), TextCandidate("b", "beta", {})),
+        ExecutionProvenanceGraph("edgeless", nodes, ()),
+    )
+    ranker = _dense_ranker()
+    dense = ranker.rank(
+        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+    )
+
+    result = EpgmRetriever(ranker, EpgmRetrieverConfig()).rank_task(request, top_k=2)
+    trace = result.trace.native_trace
+
+    assert isinstance(trace, QueryConditionedExecutionProvenanceTrace)
+    assert trace.exact_dense_fallback
+    assert result.ranked_nodes == dense
+    assert result.trace.retrieved_edges == []
+    assert trace.selected_candidate_ids == ()
+    assert trace.emitted_edges == ()
+
+
+def test_connected_selection_emits_stored_orientation_after_reverse_walk() -> None:
+    nodes = (
+        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "alpha", {}),
+        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "beta", {}),
+    )
+    graph = ExecutionProvenanceGraph(
+        "reverse",
+        nodes,
+        (
+            ExecutionProvenanceEdge(
+                "b", "a", ProvenanceEdgeType.DEPENDS_ON, None, 1.0, {}
+            ),
+        ),
+    )
+    request = ExecutionProvenanceRankingRequest(
+        "reverse",
+        "alpha",
+        (TextCandidate("a", "alpha", {}), TextCandidate("b", "beta", {})),
+        graph,
+    )
+
+    result = EpgmRetriever(_dense_ranker(), EpgmRetrieverConfig()).rank_task(
+        request, top_k=2
+    )
+
+    assert [(edge["source"], edge["target"]) for edge in result.trace.retrieved_edges] == [
+        ("b", "a")
+    ]
+
+
+def test_rq3_shaped_revision_graph_is_selected_without_feeds_weights() -> None:
+    request = _revision_request()
+
+    result = EpgmRetriever(_dense_ranker(), EpgmRetrieverConfig()).rank_task(
+        request, top_k=3
+    )
+    trace = result.trace.native_trace
+
+    assert isinstance(trace, QueryConditionedExecutionProvenanceTrace)
+    assert not trace.exact_dense_fallback
+    assert "claim-old" in trace.selected_candidate_ids
+    assert any(edge.edge_type == "contradicts" for edge in trace.emitted_edges)
+
+
+def test_greedy_selector_first_step_matches_tiny_exhaustive_best_gain() -> None:
+    transitions = (
+        TypedTransition("a", "b", "depends_on", "forward", 1.0, 1.0, 0.8, -np.log(0.8)),
+        TypedTransition("a", "c", "depends_on", "forward", 1.0, 1.0, 0.2, -np.log(0.2)),
+    )
+    ppr = PprResult(
+        node_scores={"a": 0.5, "b": 0.25, "c": 0.25},
+        teleport={"a": 0.5, "b": 0.25, "c": 0.25},
+        relation_affinities=(RelationAffinity("depends_on", 1.0, 1.0),),
+        transitions=transitions,
+        iterations=1,
+        residual=0.0,
+        converged=True,
+    )
+    dense_scores = {"a": 1.0, "b": 0.5, "c": 0.5}
+
+    selected, _ = select_budgeted_subgraph(
+        dense_scores,
+        ppr,
+        top_k=3,
+        config=EpgmRetrieverConfig(
+            candidate_inclusion_cost=0.0, selection_edge_cost_weight=0.1
+        ),
+    )
+
+    assert selected.steps[0].target_id == "b"
+    assert selected.steps[0].marginal_gain > selected.steps[1].marginal_gain
+
+
+def test_greedy_selector_reuses_selected_tree_edges_at_zero_residual_cost() -> None:
+    """A shared connector must expose its cheap residual branch.
+
+    The fresh A-Y-C path is cheaper than the *full* A-X-C path, but after
+    A-X-B has entered the tree only X-C is new. Charging A-X again causes the
+    selector to reject C even though its residual marginal is positive.
+    """
+
+    def transition(source: str, target: str, cost: float) -> TypedTransition:
+        return TypedTransition(
+            source,
+            target,
+            "depends_on",
+            "forward",
+            1.0,
+            1.0,
+            0.5,
+            cost,
+        )
+
+    ppr = PprResult(
+        node_scores={"a": 1.0, "b": 0.6, "c": 0.3, "x": 0.0, "y": 0.0},
+        teleport={"a": 1.0, "b": 0.0, "c": 0.0, "x": 0.0, "y": 0.0},
+        relation_affinities=(),
+        transitions=(
+            transition("a", "x", 5.0),
+            transition("x", "b", 0.1),
+            transition("x", "c", 0.1),
+            transition("a", "y", 2.2),
+            transition("y", "c", 2.2),
+        ),
+        iterations=1,
+        residual=0.0,
+        converged=True,
+    )
+    selected, _ = select_budgeted_subgraph(
+        {"a": 1.0, "b": 0.6, "c": 0.3},
+        ppr,
+        top_k=3,
+        config=EpgmRetrieverConfig(
+            dense_prize_weight=0.0,
+            ppr_prize_weight=1.0,
+            candidate_inclusion_cost=0.0,
+            selection_edge_cost_weight=0.08,
+        ),
+    )
+
+    assert selected.candidate_ids == ("a", "b", "c")
+    assert selected.steps[1].path_node_ids == ("a", "x", "c")
+    assert selected.steps[1].edge_cost == pytest.approx(0.1)
+    assert selected.steps[1].marginal_gain == pytest.approx(0.292)
+
+
+def test_connected_candidate_pays_for_the_dense_incumbent_it_displaces() -> None:
+    transition = TypedTransition(
+        "a", "c", "depends_on", "forward", 1.0, 1.0, 1.0, 0.05
+    )
+    ppr = PprResult(
+        node_scores={"a": 1.0, "b": 0.0, "c": 1.0},
+        teleport={"a": 1.0, "b": 0.0, "c": 0.0},
+        relation_affinities=(),
+        transitions=(transition,),
+        iterations=1,
+        residual=0.0,
+        converged=True,
+    )
+
+    selected, _ = select_budgeted_subgraph(
+        {"a": 1.0, "b": 0.9, "c": 0.1},
+        ppr,
+        top_k=2,
+        config=EpgmRetrieverConfig(),
+    )
+
+    # C has positive graph prize, but not enough to replace the stronger Dense
+    # incumbent B after edge and displacement opportunity costs are included.
+    assert selected.exact_dense_fallback
+
+
+def test_dense_incumbent_prize_cannot_subsidize_weaker_replacement() -> None:
+    def transition(source: str, target: str) -> TypedTransition:
+        return TypedTransition(
+            source, target, "depends_on", "forward", 1.0, 1.0, 1.0, 0.1
+        )
+
+    ppr = PprResult(
+        node_scores={"a": 1.0, "b": 0.6, "c": 0.1, "d": 0.2},
+        teleport={"a": 1.0, "b": 0.0, "c": 0.0, "d": 0.0},
+        relation_affinities=(),
+        transitions=(transition("a", "b"), transition("b", "c")),
+        iterations=1,
+        residual=0.0,
+        converged=True,
+    )
+    selected, _ = select_budgeted_subgraph(
+        {"a": 1.0, "b": 0.9, "d": 0.8, "c": 0.1},
+        ppr,
+        top_k=3,
+        config=EpgmRetrieverConfig(
+            dense_prize_weight=0.0,
+            ppr_prize_weight=1.0,
+            candidate_inclusion_cost=0.0,
+        ),
+    )
+
+    assert "b" in selected.candidate_ids
+    assert "c" not in selected.candidate_ids
+
+
+def test_dense_teleport_preserves_query_score_dynamic_range() -> None:
+    request = _local_provenance_request()
+    teleport = dense_teleport(
+        {"a": 0.9, "b": 0.8, "x": 0.7, "y": 0.6}, request.graph
+    )
+
+    assert sum(teleport.values()) == pytest.approx(1.0)
+    assert all(value > 0.0 for value in teleport.values())
+    assert teleport["a"] > 100.0 * teleport["y"]
+
+
+def test_typed_transition_penalizes_high_degree_hub_targets() -> None:
+    nodes = tuple(
+        ExecutionProvenanceNode(node_id, ProvenanceNodeType.CLAIM, node_id, {})
+        for node_id in ("source", "hub", "leaf", "x1", "x2", "x3")
+    )
+    edges = (
+        ExecutionProvenanceEdge("source", "hub", ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge("source", "leaf", ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge("hub", "x1", ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge("hub", "x2", ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge("hub", "x3", ProvenanceEdgeType.SUPPORTS),
+    )
+    graph = ExecutionProvenanceGraph("hub", nodes, edges)
+
+    transitions = build_typed_transitions(
+        graph, _uniform_relations(graph), EpgmRetrieverConfig()
+    )
+    row = {
+        item.target: item.probability
+        for item in transitions
+        if item.source == "source" and item.direction == "forward"
+    }
+
+    assert row["leaf"] > row["hub"]
+
+
+def test_provenance_graph_rejects_parallel_edges_with_the_same_typed_key() -> None:
+    nodes = (
+        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "a", {}),
+        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "b", {}),
+    )
+    duplicate = ExecutionProvenanceEdge(
+        "a", "b", ProvenanceEdgeType.SUPPORTS, None, 1.0, {}
+    )
+
+    with pytest.raises(ValueError, match="duplicate typed edge"):
+        ExecutionProvenanceGraph("duplicate", nodes, (duplicate, duplicate))
+
+
+def test_zero_weight_edge_has_no_forward_or_reverse_transition() -> None:
+    nodes = (
+        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "a", {}),
+        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "b", {}),
+    )
+    graph = ExecutionProvenanceGraph(
+        "zero",
+        nodes,
+        (
+            ExecutionProvenanceEdge(
+                "a", "b", ProvenanceEdgeType.DEPENDS_ON, None, 0.0, {}
+            ),
+        ),
+    )
+
+    assert build_typed_transitions(
+        graph, _uniform_relations(graph), EpgmRetrieverConfig()
+    ) == ()
+
+
+def test_mixed_direction_connector_does_not_fabricate_candidate_dependency() -> None:
+    ppr = PprResult(
+        node_scores={"a": 0.5, "x": 0.25, "b": 0.25},
+        teleport={"a": 0.6, "x": 0.0, "b": 0.4},
+        relation_affinities=(RelationAffinity("depends_on", 1.0, 1.0),),
+        transitions=(
+            TypedTransition(
+                "a", "x", "depends_on", "reverse", 1.0, 1.0, 1.0, 0.05
+            ),
+            TypedTransition(
+                "x", "b", "depends_on", "forward", 1.0, 1.0, 1.0, 0.05
+            ),
+        ),
+        iterations=1,
+        residual=0.0,
+        converged=True,
+    )
+
+    selected, _ = select_budgeted_subgraph(
+        {"a": 1.0, "b": 0.9},
+        ppr,
+        top_k=2,
+        config=EpgmRetrieverConfig(
+            candidate_inclusion_cost=0.0, selection_edge_cost_weight=0.01
+        ),
+    )
+
+    assert selected.steps
+    assert not selected.exact_dense_fallback
+    assert selected.candidate_edges == ()

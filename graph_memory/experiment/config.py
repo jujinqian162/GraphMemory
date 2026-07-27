@@ -304,14 +304,14 @@ class GraphRAGMethodConfig(ClosedModel):
 class ExecutionProvenanceMethodConfig(ClosedModel):
     """Non-trained EPGM retriever.
 
-    ``variant`` selects a frozen preset of the single implementation:
-    ``typed_beam`` is the reported default, ``dependency_path`` is the
-    schema-gated restriction kept as an ablation.
+    ``variant`` selects a frozen strategy of the single implementation:
+    ``ppr_steiner`` is the reported default; ``typed_beam`` and
+    ``dependency_path`` are reproducibility diagnostics.
     """
 
     method: Literal["execution_provenance_retriever"]
     encoder: DenseEncoderConfig
-    variant: EpgmVariant = "typed_beam"
+    variant: EpgmVariant = "ppr_steiner"
 
 
 class PairSamplingConfig(ClosedModel):

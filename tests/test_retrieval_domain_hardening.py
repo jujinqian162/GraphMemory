@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
+from graph_memory.contracts.ranking import RankedResult
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
     ExecutionProvenanceGraph,
@@ -22,6 +25,7 @@ from graph_memory.registry.retrieval import (
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
 )
+from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.methods.epgm import (
     DEPENDENCY_EDGE_TYPES,
     EpgmRetrieverConfig,
@@ -191,9 +195,15 @@ def test_new_dense_methods_preserve_query_and_passage_prefixes() -> None:
 
     for encoder in (graph_encoder, provenance_encoder):
         assert encoder.calls
-        assert all(call[0].startswith("Q::") for call in encoder.calls)
+        # Ranking batches contain one query followed by passages. EPGM also
+        # caches a passage-only batch of frozen relation descriptions.
         assert all(
-            text.startswith("P::") for call in encoder.calls for text in call[1:]
+            (
+                call[0].startswith("Q::")
+                and all(text.startswith("P::") for text in call[1:])
+            )
+            or all(text.startswith("P::") for text in call)
+            for call in encoder.calls
         )
 
 
@@ -308,3 +318,98 @@ def test_ranked_result_validation_rejects_malformed_native_trace() -> None:
 
     with pytest.raises(ContractValidationError, match="native trace"):
         validate_ranked_results([prediction], [request])
+
+
+def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
+    request = _alternative_path_request()
+    built = Registry.retrieval.build(
+        ExecutionProvenanceRetrievalSettings(
+            top_k=3,
+            encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+        ),
+        ExecutionProvenanceBuildPayload(
+            provenance_requests=[request], dense_encoder=RecordingEncoder()
+        ),
+    )
+    result = built.method.rank_task(request, top_k=3)
+    text_request = TextRankingRequest(
+        request.task_id, request.query_text, request.candidates
+    )
+    prediction = assemble_ranked_result(
+        text_request=text_request,
+        method=built.method.name,
+        ranked_nodes=result.ranked_nodes,
+        top_k=3,
+        latency_ms=1.0,
+        retrieved_edges=result.trace.retrieved_edges,
+        native_trace=result.trace.native_trace,
+    )
+    return prediction, text_request
+
+
+def test_ppr_steiner_trace_round_trips_through_ranked_result_validation() -> None:
+    prediction, request = _ppr_steiner_prediction()
+
+    validate_ranked_results([prediction], [request])
+
+    plain = cast(dict[str, Any], cast(object, prediction))
+    metadata = cast(dict[str, Any], plain["metadata"])
+    trace = cast(dict[str, Any], metadata["native_trace"])
+    assert trace["trace_kind"] == "execution_provenance_subgraph"
+    assert trace["variant"] == "ppr_steiner"
+
+
+def test_ppr_steiner_trace_rejects_non_normalized_transition_row() -> None:
+    prediction, request = _ppr_steiner_prediction()
+    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
+    metadata = cast(dict[str, Any], malformed["metadata"])
+    trace = cast(dict[str, Any], metadata["native_trace"])
+    transitions = cast(list[dict[str, Any]], trace["transitions"])
+    source = transitions[0]["source"]
+    for transition in transitions:
+        if transition["source"] == source:
+            transition["probability"] *= 0.5
+
+    with pytest.raises(ContractValidationError, match="does not sum to one"):
+        validate_ranked_results(
+            [cast(RankedResult, cast(object, malformed))], [request]
+        )
+
+
+def test_ppr_steiner_reuses_dense_query_vector_and_caches_relation_vectors() -> None:
+    encoder = RecordingEncoder()
+    request = _alternative_path_request()
+    built = Registry.retrieval.build(
+        ExecutionProvenanceRetrievalSettings(
+            top_k=2,
+            encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+        ),
+        ExecutionProvenanceBuildPayload(
+            provenance_requests=[request], dense_encoder=encoder
+        ),
+    )
+
+    built.method.rank_task(request, top_k=2)
+    built.method.rank_task(request, top_k=2)
+
+    query_batches = [call for call in encoder.calls if call[0].startswith("Q::")]
+    relation_batches = [
+        call for call in encoder.calls if all(text.startswith("P::") for text in call)
+    ]
+    assert len(query_batches) == 2
+    assert len(relation_batches) == 1
+
+
+def test_ppr_steiner_trace_rejects_selected_native_edge_reorientation() -> None:
+    prediction, request = _ppr_steiner_prediction()
+    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
+    metadata = cast(dict[str, Any], malformed["metadata"])
+    trace = cast(dict[str, Any], metadata["native_trace"])
+    edges = cast(list[dict[str, Any]], trace["selected_native_edges"])
+    assert edges
+    edges[0]["source"], edges[0]["target"] = edges[0]["target"], edges[0]["source"]
+
+    with pytest.raises(ContractValidationError, match="orientation is inconsistent"):
+        validate_ranked_results(
+            [cast(RankedResult, cast(object, malformed))], [request]
+        )

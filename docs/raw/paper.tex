@@ -215,8 +215,9 @@ Our contributions are summarized as follows:
     \item We introduce EPGM, a typed execution-provenance memory that
     represents tasks, agents, tool calls, tool outputs, and their
     production and data-flow dependencies, with one deterministic
-    structured retriever offering two frozen presets and a learned EPGM
-    R-GCN that jointly ranks outputs and predicts logical dependencies.
+    query-conditioned diffusion and connected-subgraph retriever plus a
+    learned EPGM R-GCN that jointly ranks outputs and predicts logical
+    dependencies.
 
     \item We develop a controlled synthetic execution-provenance
     benchmark that isolates required dependencies among matched
@@ -500,55 +501,56 @@ dependencies are defined, a dependency subgraph. A deterministic retriever
 and a learned encoder share the same graph interface.
 
 \paragraph{Training-free structured retrieval.}
-One deterministic implementation exposes two frozen presets for different
-graph regimes; neither preset learns parameters.
+The reported deterministic EPGM method uses one frozen architecture across
+synthetic dependency graphs and recorded multi-agent traces. It does not
+learn parameters or inspect dataset identity. Historical dependency-path
+and typed-beam strategies are retained only as reproducibility diagnostics.
 
-\emph{Dependency-path EPGM} (synthetic tool-output setting) starts from
-the top $S{=}5$ dense seeds and expands only along directed dependency
-edges in
-$\{\texttt{returns},\texttt{feeds},\texttt{grounds},\texttt{supports},
-\texttt{depends\_on}\}$.
-A candidate path is accepted only if it contains exactly one
-\texttt{feeds} edge and one \texttt{returns} edge, the \texttt{feeds}
-binding matches recorded field/parameter endpoints, and no path node is
-invalidated or superseded. Path confidence is the geometric mean of
-\texttt{feeds} weights times $\mathrm{e}^{-\eta(|E_p|-2)}$ with
-$\eta{=}0.04$; paths below confidence $0.2$ are rejected. Accepted
-partners are stably inserted after their anchors while protecting the
-dense top $N{=}2$, preserving the dense score multiset. This scorer tests
-whether explicit \texttt{feeds}/\texttt{returns} structure can complete
-output dependencies beyond flat dense ranking.
+First, the frozen E5 encoder compares query $q$ with a versioned
+schema-owned description of every provenance relation $r$. A
+temperature-scaled softmax gives query-conditioned relation affinity
+$a_q(r)$. Each stored edge becomes a forward arc and a penalized reverse
+arc. Before source normalization, arc strength is
+\begin{equation}
+\tilde T_q(e)=
+\pi(\psi(e))\,a_q(\psi(e))\,c(e)\,\rho(e)\,d(e),
+\end{equation}
+where $\pi$ is a fixed type prior, $c(e)$ is recorded confidence,
+$\rho$ is the reverse-direction factor, and $d$ controls high-degree
+hubs. We normalize $\tilde T_q$ independently over each source's outgoing
+arcs. Thus synthetic \texttt{feeds} confidence remains a source-local
+successor probability; constant real-trace weights are an identity factor.
+Invalid field bindings receive no transition probability.
 
-\emph{Typed-beam EPGM} (real multi-agent traces) handles mixed semantic
-nodes and audit edges. Dense retrieval provides the base ranking; the top
-$S{=}8$ nodes are seeds. From each seed a bidirectional beam search
-(width $32$, depth $\le 4$, $\le 4000$ expansions) never traverses
-\texttt{contains} and never expands \emph{through} task/agent hubs (they
-may be endpoints only). Each step multiplies a fixed type prior
-$\pi(\psi(e))$ (e.g., $0.9$ for \texttt{supports}, $0.85$ for
-\texttt{contradicts}/\texttt{invalidates}, $0.6$ for \texttt{feeds}), a
-reverse-direction factor $0.85$ when walking against the stored
-orientation, and hop decay $\delta^{h}$ with $\delta{=}0.6$. The best path
-score reaching candidate $v$ is
+Min--max scaled Dense relevance with a fixed positive numerical floor
+defines teleport distribution $y$, preserving the narrow dynamic range of
+normalized-encoder cosine scores. Typed Personalized PageRank then diffuses
+over candidates and native connector nodes:
 \begin{equation}
-s_{\mathrm{path}}(v)
-=
-r(s^{\star})
-\prod_{h=0}^{H-1}
-\big(\pi(\psi(e_h))\,\rho_h\,\delta^{h}\big),
+p^{(t+1)}=(1-\alpha)y+\alpha T_q^{\top}p^{(t)},
+\qquad \alpha=0.85,
 \end{equation}
-where $r(s^{\star})$ is min--max-normalized dense relevance of the best
-seed. Final scores use additive fusion without subtracting from a node's
-normalized dense component:
-\begin{equation}
-s(v)=r(v)+\lambda_{\mathrm{g}}s_{\mathrm{path}}(v),
-\qquad \lambda_{\mathrm{g}}{=}0.25.
-\end{equation}
-A node's absolute fused score cannot decrease, although its rank can fall
-when other nodes receive larger graph contributions.
-Invalidated nodes remain reachable so revision-audit queries can surface
-overturned claims. These hyperparameters are frozen defaults and are not
-tuned on the real-trace queries.
+with dangling mass returned through $y$ and bounded deterministic
+convergence.
+
+Finally, EPGM jointly extracts a compact connected subgraph rather than
+selecting each endpoint independently. Candidate prize combines normalized
+Dense and PPR relevance minus a fixed inclusion cost. A deterministic budgeted
+Steiner-style greedy procedure starts from the strongest prize already in the
+Dense top-$k$ incumbent and repeatedly adds the residual minimum-cost connector
+path with positive counterfactual marginal. Already-selected tree arcs have
+zero residual cost; a candidate outside the incumbent pays both new
+$-\log T_q$ connector cost and the prize of the Dense evidence it displaces.
+At most $k$ request candidates are selected; tasks, agents, calls, and other
+native nodes may act as connectors without consuming the evidence budget.
+Accepted membership changes retain Dense-relative order. Stored orientation is
+retained in the native trace and selected candidate paths are collapsed to
+logical dependencies for shared evaluation. Session-only structural paths remain native-trace evidence
+rather than fabricated logical dependencies. If no positive-marginal
+multi-candidate connection is selected, the full ranking and scores are exactly
+Dense. All relation descriptions and
+algorithm parameters are frozen before formal RQ2/RQ3 execution; the new
+quality rows remain pending those runs.
 
 \paragraph{Learned relation-aware encoding (EPGM R-GCN).}
 EPGM R-GCN is trained only on the synthetic execution-provenance
@@ -709,12 +711,12 @@ both endpoints remain in the top $k$; confidence and partner conflicts are
 resolved before emission. It follows the non-LLM entity-search idea of
 FastGraphRAG and is not a reproduction of a full GraphRAG pipeline with
 LLM-based community summarization or generation.
-\textbf{EPGM} denotes one training-free structured retrieval implementation
-configured with two frozen presets from
-Section~\ref{sec:evidence-tracing}: typed beam is the current default and is
-used for the real-trace cases; the more restrictive directed dependency
-path is retained as a training-free diagnostic in the synthetic table.
-Neither preset uses task-specific parameter training. \textbf{EPGM R-GCN} is its learned
+\textbf{EPGM} denotes the single training-free query-conditioned diffusion
+and connected-subgraph retriever from Section~\ref{sec:evidence-tracing}.
+Its historical typed-beam and directed dependency-path strategies remain
+reproducibility diagnostics only; neither the reported default nor the
+diagnostics use task-specific parameter training. The new default's RQ2 and
+RQ3 quality rows remain pending formal execution. \textbf{EPGM R-GCN} is its learned
 relation-aware counterpart. It applies three layers of relation-specific
 message passing to frozen E5-base-v2 node representations, ranks
 \texttt{ToolOutput} candidates, and jointly predicts logical

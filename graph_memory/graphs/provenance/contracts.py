@@ -101,11 +101,19 @@ class ExecutionProvenanceGraph:
         node_by_id = {node.node_id: node for node in self.nodes}
         if len(node_by_id) != len(self.nodes):
             raise ValueError("Execution provenance graph node IDs must be unique.")
+        seen_edges: set[tuple[str, str, ProvenanceEdgeType]] = set()
         for edge in self.edges:
             if edge.source not in node_by_id or edge.target not in node_by_id:
                 raise ValueError(
                     f"Execution provenance edge references missing node: {edge.source}->{edge.target}."
                 )
+            edge_key = (edge.source, edge.target, edge.edge_type)
+            if edge_key in seen_edges:
+                raise ValueError(
+                    "Execution provenance graph contains a duplicate typed edge: "
+                    f"{edge.source}->{edge.target}:{edge.edge_type.value}."
+                )
+            seen_edges.add(edge_key)
             _validate_edge_transition(edge, node_by_id)
 
     def node(self, node_id: str) -> ExecutionProvenanceNode:

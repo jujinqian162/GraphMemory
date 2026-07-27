@@ -30,7 +30,7 @@ Usage
     uv run python scripts/run_epgm_provenance.py \
         --raw-dir data/epgm_provenance/raw \
         --methods bm25,dense,graphrag,epgm_retriever \
-        --epgm-variant typed_beam \
+        --epgm-variant ppr_steiner \
         --top-k 10 \
         --device cpu \
         --output-dir runs/epgm_provenance/task2
@@ -72,6 +72,7 @@ from graph_memory.graphs.provenance import (
     ProvenanceEdgeType,
     ProvenanceNodeType,
 )
+from graph_memory.retrieval.contracts import QueryConditionedExecutionProvenanceTrace
 from graph_memory.retrieval.methods.epgm import (
     EPGM_VARIANTS,
     EpgmRetriever,
@@ -416,7 +417,7 @@ def build_methods(
     *,
     encoder_model: str,
     device: str | None,
-    epgm_variant: EpgmVariant = "typed_beam",
+    epgm_variant: EpgmVariant = "ppr_steiner",
 ) -> Methods:
     needs_dense = any(m in selected for m in ("dense", "graphrag", "epgm_retriever"))
     dense_ranker = None
@@ -496,18 +497,24 @@ def run_query(
     seed_ids: list[str] = []
 
     if method_name == "bm25":
+        if methods.bm25 is None:
+            raise ValueError("bm25 was not initialized")
         ranked = methods.bm25.rank(text_request)
         ranked_evidence = [
             _evidence_row(i, node.node_id, view, score=node.score)
             for i, node in enumerate(ranked[:top_k], start=1)
         ]
     elif method_name == "dense":
+        if methods.dense is None:
+            raise ValueError("dense was not initialized")
         ranked = methods.dense.rank(text_request)
         ranked_evidence = [
             _evidence_row(i, node.node_id, view, score=node.score)
             for i, node in enumerate(ranked[:top_k], start=1)
         ]
     elif method_name == "graphrag":
+        if methods.graphrag is None:
+            raise ValueError("graphrag was not initialized")
         gr_request = build_graphrag_request(text_request, methods.graphrag.config)
         result = methods.graphrag.rank_task(gr_request, top_k=top_k)
         ranked_evidence = [
@@ -524,55 +531,103 @@ def run_query(
             for edge in result.trace.retrieved_edges
         ]
     elif method_name == "epgm_retriever":
+        if methods.epgm is None:
+            raise ValueError("epgm_retriever was not initialized")
         prov_request = ExecutionProvenanceRankingRequest(
             task_id=qid,
             query_text=query_text,
             candidates=view.candidates,
             graph=graph_for_query(view, qid),
         )
-        result = methods.epgm.rank(prov_request)
-        seed_ids = list(result.seed_ids)
-        top_nodes = result.ranked_nodes[:top_k]
-        top_ids = {node.node_id for node in top_nodes}
-        for i, node in enumerate(top_nodes, start=1):
-            extra = {
-                "dense_rank": node.dense_rank,
-                "dense_score": round(node.dense_score, 6),
-                "graph_score": round(node.graph_score, 6),
-            }
-            ranked_evidence.append(
-                _evidence_row(i, node.node_id, view, score=node.score, extra=extra)
-            )
-        for node in top_nodes:
-            if node.best_path is None:
-                continue
-            paths.append(
-                {
-                    "seed_id": node.best_path.seed_id,
-                    "target_id": node.best_path.target_id,
-                    "node_ids": list(node.best_path.node_ids),
-                    "score": round(node.best_path.score, 6),
-                    "steps": [
-                        {
-                            "source": step.source,
-                            "target": step.target,
-                            "edge_type": step.edge_type,
-                            "direction": step.direction,
-                        }
-                        for step in node.best_path.steps
-                    ],
-                }
-            )
-            for step in node.best_path.steps:
-                if step.source in top_ids and step.target in top_ids:
-                    retrieved_edges.append(
-                        {
-                            "source": step.source,
-                            "target": step.target,
-                            "edge_type": step.edge_type,
-                            "direction": step.direction,
-                        }
+        if methods.epgm.variant == "ppr_steiner":
+            method_result = methods.epgm.rank_task(prov_request, top_k=top_k)
+            trace = method_result.trace.native_trace
+            if not isinstance(trace, QueryConditionedExecutionProvenanceTrace):
+                raise TypeError("ppr_steiner returned the wrong native trace")
+            dense_by_id = {item.node_id: item for item in trace.dense_ranks}
+            ppr_by_id = {item.node_id: item.score for item in trace.ppr_nodes}
+            seed_ids = list(trace.selected_candidate_ids)
+            for i, node in enumerate(method_result.ranked_nodes[:top_k], start=1):
+                dense = dense_by_id[node.node_id]
+                ranked_evidence.append(
+                    _evidence_row(
+                        i,
+                        node.node_id,
+                        view,
+                        score=node.score,
+                        extra={
+                            "dense_rank": dense.dense_rank,
+                            "dense_score": round(dense.dense_score, 6),
+                            "graph_score": round(ppr_by_id.get(node.node_id, 0.0), 6),
+                        },
                     )
+                )
+            # The shared result contract collapses candidate dependencies to
+            # `feeds`; the standalone RQ3 report needs the native semantic
+            # relation for audit-edge analysis.
+            retrieved_edges = [
+                {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "edge_type": edge.edge_type,
+                    "confidence": edge.confidence,
+                }
+                for edge in trace.emitted_edges
+            ]
+            paths = [
+                {
+                    "seed_id": step.anchor_id,
+                    "target_id": step.target_id,
+                    "node_ids": list(step.path_node_ids),
+                    "score": round(step.marginal_gain, 6),
+                    "steps": [],
+                }
+                for step in trace.selection_steps
+            ]
+        else:
+            result = methods.epgm.rank(prov_request)
+            seed_ids = list(result.seed_ids)
+            top_nodes = result.ranked_nodes[:top_k]
+            top_ids = {node.node_id for node in top_nodes}
+            for i, node in enumerate(top_nodes, start=1):
+                extra = {
+                    "dense_rank": node.dense_rank,
+                    "dense_score": round(node.dense_score, 6),
+                    "graph_score": round(node.graph_score, 6),
+                }
+                ranked_evidence.append(
+                    _evidence_row(i, node.node_id, view, score=node.score, extra=extra)
+                )
+            for node in top_nodes:
+                if node.best_path is None:
+                    continue
+                paths.append(
+                    {
+                        "seed_id": node.best_path.seed_id,
+                        "target_id": node.best_path.target_id,
+                        "node_ids": list(node.best_path.node_ids),
+                        "score": round(node.best_path.score, 6),
+                        "steps": [
+                            {
+                                "source": step.source,
+                                "target": step.target,
+                                "edge_type": step.edge_type,
+                                "direction": step.direction,
+                            }
+                            for step in node.best_path.steps
+                        ],
+                    }
+                )
+                for step in node.best_path.steps:
+                    if step.source in top_ids and step.target in top_ids:
+                        retrieved_edges.append(
+                            {
+                                "source": step.source,
+                                "target": step.target,
+                                "edge_type": step.edge_type,
+                                "direction": step.direction,
+                            }
+                        )
     else:
         raise ValueError(f"unknown method {method_name!r}")
 
@@ -609,10 +664,15 @@ def run_query(
 
 
 def _dedup_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple] = set()
+    seen: set[tuple[str, str, str | None]] = set()
     result: list[dict[str, Any]] = []
     for edge in edges:
-        key = (edge["source"], edge["target"], edge.get("edge_type"))
+        edge_type = edge.get("edge_type")
+        key = (
+            str(edge["source"]),
+            str(edge["target"]),
+            str(edge_type) if edge_type is not None else None,
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -635,7 +695,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
         "--epgm-variant",
-        default="typed_beam",
+        default="ppr_steiner",
         choices=EPGM_VARIANTS,
         help="Frozen preset of the single non-trained EPGM implementation.",
     )

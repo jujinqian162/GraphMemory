@@ -1,10 +1,12 @@
-# Non-trained EPGM retriever. One implementation, two frozen presets:
-#   typed_beam       - reported default ("EPGM (non-trained)")
-#   dependency_path  - schema-gated restriction, ablation only
+# Non-trained EPGM retriever. One implementation:
+#   ppr_steiner      - reported default: query-conditioned typed diffusion and
+#                      budgeted connected-subgraph extraction
+#   typed_beam       - historical typed-path diagnostic
+#   dependency_path  - historical schema-gated diagnostic
 method: execution_provenance_retriever
 encoder:
   model_name: models/intfloat-e5-base-v2
   query_prefix: "query: "
   passage_prefix: "passage: "
   batch_size: 64
-variant: typed_beam
+variant: ppr_steiner

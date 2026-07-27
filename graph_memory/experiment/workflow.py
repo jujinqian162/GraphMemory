@@ -46,6 +46,7 @@ from graph_memory.experiment.tasks import (
     transform_twowiki_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
+from graph_memory.retrieval.methods.epgm import EpgmRetrieverConfig
 from graph_memory.stages.results import (
     BenchmarkResult,
     ModelResult,
@@ -365,6 +366,14 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
+            implementation_version=(
+                "ranking-v4-epgm-"
+                + EpgmRetrieverConfig.for_variant(
+                    rank_config.variant
+                ).cache_fingerprint()
+                if isinstance(rank_config, ExecutionProvenanceMethodConfig)
+                else "ranking-v2-device-aware"
+            ),
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking.artifact,

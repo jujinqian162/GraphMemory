@@ -1,21 +1,20 @@
 """The single non-trained EPGM provenance retriever.
 
-One class, one registry id (``execution_provenance_retriever``), two frozen
-presets selected by ``EpgmRetrieverConfig.variant``:
-
-* ``typed_beam`` (default) - the reported "EPGM (non-trained)" method.
-* ``dependency_path`` - a restriction of the same search kept only as an
-  ablation of the default.
-
-``rank_task`` is the registry/evaluation entry point. ``rank`` exposes the
-richer per-node result used by the standalone real-trace runner.
+``ppr_steiner`` is the reported default: frozen query/relation semantics define
+source-local typed transitions, Personalized PageRank expands over the native
+graph, and a budgeted connected selector returns auditable evidence. Historical
+``typed_beam`` and ``dependency_path`` variants remain diagnostics under the
+same registry id.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, field
+from typing import Literal, cast
+
+import numpy as np
+from numpy.typing import NDArray
 
 from graph_memory.contracts.graphs import GraphEdge
 from graph_memory.graphs.provenance import (
@@ -26,7 +25,14 @@ from graph_memory.retrieval.contracts import (
     CandidateEdgeTrace,
     DenseRankTrace,
     ProvenanceBindingTrace,
+    ProvenanceCandidatePrizeTrace,
     ProvenanceEdgeTrace,
+    ProvenancePprNodeTrace,
+    ProvenanceRelationAffinityTrace,
+    ProvenanceSelectedArcTrace,
+    ProvenanceSelectionStepTrace,
+    ProvenanceTransitionTrace,
+    QueryConditionedExecutionProvenanceTrace,
     RankedNode,
     RetrievalMethodResult,
     RetrievalTrace,
@@ -34,7 +40,15 @@ from graph_memory.retrieval.contracts import (
     StatelessProvenancePathTrace,
 )
 from graph_memory.retrieval.methods.epgm.config import EpgmRetrieverConfig
+from graph_memory.retrieval.methods.epgm.diffusion import (
+    dense_teleport,
+    encode_relation_vectors,
+    TypedTransition,
+    personalized_pagerank,
+    query_relation_affinities,
+)
 from graph_memory.retrieval.methods.epgm.search import EpgmPath, search_epgm_paths
+from graph_memory.retrieval.methods.epgm.selection import select_budgeted_subgraph
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
@@ -62,12 +76,15 @@ class EpgmRetrievalResult:
 
 @dataclass(frozen=True)
 class EpgmRetriever:
-    """Dense seed + bounded typed path reranking. No learned parameters."""
+    """One non-trained EPGM implementation with explicit diagnostics."""
 
     dense_ranker: DenseTaskRetriever
     config: EpgmRetrieverConfig = EpgmRetrieverConfig()
     name: str = "execution_provenance_retriever"
     display_name: str = "EPGM (non-trained)"
+    _relation_vectors: NDArray[np.float64] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def variant(self) -> str:
@@ -84,6 +101,8 @@ class EpgmRetriever:
                 f"{self.name} requires ExecutionProvenanceRankingRequest, "
                 f"got {type(request).__name__}."
             )
+        if self.config.variant == "ppr_steiner":
+            return self._rank_connected_subgraph(request, top_k=top_k)
         dense_ranked = self.dense_ranker.rank(
             TextRankingRequest(request.task_id, request.query_text, request.candidates)
         )
@@ -122,9 +141,7 @@ class EpgmRetriever:
             promoted = tuple(
                 path for path, (accepted, _reason) in outcomes.items() if accepted
             )
-            exact_dense_fallback = [node.node_id for node in ranked_nodes] == [
-                node.node_id for node in dense_ranked
-            ]
+            exact_dense_fallback = not promoted
 
         final_rank = {
             node.node_id: index for index, node in enumerate(ranked_nodes, start=1)
@@ -187,8 +204,197 @@ class EpgmRetriever:
             ),
         )
 
+    def _rank_connected_subgraph(
+        self,
+        request: ExecutionProvenanceRankingRequest,
+        *,
+        top_k: int,
+    ) -> RetrievalMethodResult:
+        dense_ranked, query_vector = self.dense_ranker.rank_with_query_vector(
+            TextRankingRequest(request.task_id, request.query_text, request.candidates)
+        )
+        dense_scores = {node.node_id: node.score for node in dense_ranked}
+        dense_rank = {
+            node.node_id: index for index, node in enumerate(dense_ranked, start=1)
+        }
+        teleport = dense_teleport(dense_scores, request.graph)
+        relation_vectors = self._relation_vectors
+        if relation_vectors is None:
+            relation_vectors = encode_relation_vectors(
+                self.dense_ranker.encoder,
+                self.config,
+                passage_prefix=self.dense_ranker.config.passage_prefix,
+                batch_size=self.dense_ranker.config.batch_size,
+            )
+            object.__setattr__(self, "_relation_vectors", relation_vectors)
+        present_types = frozenset(edge.edge_type.value for edge in request.graph.edges)
+        relations = query_relation_affinities(
+            query_vector,
+            relation_vectors,
+            present_types,
+            self.config,
+        )
+        ppr = personalized_pagerank(request.graph, teleport, relations, self.config)
+        selected, prizes = select_budgeted_subgraph(
+            dense_scores, ppr, top_k=top_k, config=self.config
+        )
+
+        if selected.exact_dense_fallback:
+            ranked_nodes = dense_ranked
+        else:
+            # The selector chooses top-k membership against the Dense incumbent;
+            # it does not receive permission to reorder the entire prefix by
+            # graph centrality. Reconstruct the accepted membership changes and
+            # retain Dense-relative order within both the top-k and tail. This
+            # lets structure complete a support set without destroying early
+            # semantic hits or MRR.
+            evidence_budget = min(top_k, len(dense_ranked))
+            incumbent_ids = {
+                node.node_id for node in dense_ranked[:evidence_budget]
+            }
+            for step in selected.steps:
+                incumbent_ids.difference_update(step.displaced_candidate_ids)
+                incumbent_ids.update(step.added_candidate_ids)
+            top_ids = [
+                node.node_id for node in dense_ranked if node.node_id in incumbent_ids
+            ]
+            tail_ids = [
+                node.node_id for node in dense_ranked if node.node_id not in incumbent_ids
+            ]
+            final_ids = [*top_ids, *tail_ids]
+            score_slots = [node.score for node in dense_ranked]
+            ranked_nodes = [
+                RankedNode(node_id, score_slots[index])
+                for index, node_id in enumerate(final_ids)
+            ]
+        final_rank = {
+            node.node_id: index for index, node in enumerate(ranked_nodes, start=1)
+        }
+        retrieved_edges = [
+            GraphEdge(
+                source=edge.source,
+                target=edge.target,
+                edge_type="feeds",
+                weight=edge.confidence,
+                directed=True,
+            )
+            for edge in selected.candidate_edges
+        ]
+        selected_native_edges = _selected_native_edge_traces(
+            selected.transitions, request
+        )
+        return RetrievalMethodResult(
+            ranked_nodes=ranked_nodes,
+            trace=RetrievalTrace(
+                retrieved_edges=retrieved_edges,
+                native_trace=QueryConditionedExecutionProvenanceTrace(
+                    native_graph_node_ids=tuple(
+                        sorted(node.node_id for node in request.graph.nodes)
+                    ),
+                    dense_ranks=tuple(
+                        DenseRankTrace(
+                            node_id=node.node_id,
+                            dense_rank=dense_rank[node.node_id],
+                            dense_score=node.score,
+                            final_rank=final_rank[node.node_id],
+                        )
+                        for node in dense_ranked
+                    ),
+                    relation_description_version=(
+                        self.config.relation_description_version
+                    ),
+                    relations=tuple(
+                        ProvenanceRelationAffinityTrace(
+                            item.edge_type, item.similarity, item.affinity
+                        )
+                        for item in ppr.relation_affinities
+                    ),
+                    transitions=tuple(
+                        ProvenanceTransitionTrace(
+                            source=item.source,
+                            target=item.target,
+                            edge_type=item.edge_type,
+                            direction=cast(
+                                Literal["forward", "reverse"], item.direction
+                            ),
+                            recorded_weight=item.recorded_weight,
+                            relation_affinity=item.relation_affinity,
+                            probability=item.probability,
+                            cost=item.cost,
+                        )
+                        for item in ppr.transitions
+                    ),
+                    ppr_nodes=tuple(
+                        ProvenancePprNodeTrace(
+                            node_id=node_id,
+                            teleport=ppr.teleport[node_id],
+                            score=ppr.node_scores[node_id],
+                        )
+                        for node_id in sorted(ppr.node_scores)
+                    ),
+                    ppr_iterations=ppr.iterations,
+                    ppr_residual=ppr.residual,
+                    ppr_converged=ppr.converged,
+                    candidate_prizes=tuple(
+                        ProvenanceCandidatePrizeTrace(
+                            item.node_id,
+                            item.dense_component,
+                            item.ppr_component,
+                            item.prize,
+                        )
+                        for item in prizes
+                    ),
+                    selected_candidate_ids=selected.candidate_ids,
+                    connector_node_ids=selected.connector_ids,
+                    selection_steps=tuple(
+                        ProvenanceSelectionStepTrace(
+                            item.anchor_id,
+                            item.target_id,
+                            item.path_node_ids,
+                            tuple(
+                                ProvenanceSelectedArcTrace(
+                                    transition.source,
+                                    transition.target,
+                                    transition.edge_type,
+                                    cast(
+                                        Literal["forward", "reverse"],
+                                        transition.direction,
+                                    ),
+                                )
+                                for transition in item.transitions
+                            ),
+                            item.added_candidate_ids,
+                            item.displaced_candidate_ids,
+                            item.prize_gain,
+                            item.edge_cost,
+                            item.displacement_cost,
+                            item.marginal_gain,
+                        )
+                        for item in selected.steps
+                    ),
+                    selected_native_edges=selected_native_edges,
+                    objective=selected.objective,
+                    top_k=top_k,
+                    exact_dense_fallback=selected.exact_dense_fallback,
+                    emitted_edges=tuple(
+                        CandidateEdgeTrace(
+                            edge.source,
+                            edge.target,
+                            edge.edge_type,
+                            edge.confidence,
+                        )
+                        for edge in selected.candidate_edges
+                    ),
+                    scorer_identity=_scorer_identity(request),
+                    variant=self.config.variant,
+                ),
+            ),
+        )
+
     def rank(self, request: ExecutionProvenanceRankingRequest) -> EpgmRetrievalResult:
-        """Per-node view with dense/graph score decomposition and best paths."""
+        """Legacy per-node diagnostic view for path-based variants."""
+        if self.config.variant == "ppr_steiner":
+            raise ValueError("ppr_steiner uses rank_task so top_k is explicit")
 
         dense_ranked = self.dense_ranker.rank(
             TextRankingRequest(
@@ -443,6 +649,35 @@ def _logical_edges(paths: tuple[EpgmPath, ...]) -> list[GraphEdge]:
             )
         )
     return edges
+
+
+def _selected_native_edge_traces(
+    transitions: tuple[TypedTransition, ...],
+    request: ExecutionProvenanceRankingRequest,
+) -> tuple[ProvenanceEdgeTrace, ...]:
+    edge_by_key = {
+        (edge.source, edge.target, edge.edge_type.value): edge
+        for edge in request.graph.edges
+    }
+    keys = {
+        (
+            transition.source
+            if transition.direction == "forward"
+            else transition.target,
+            transition.target
+            if transition.direction == "forward"
+            else transition.source,
+            transition.edge_type,
+        )
+        for transition in transitions
+    }
+    missing = keys - edge_by_key.keys()
+    if missing:
+        raise ValueError(
+            "selected transition does not map to stored provenance edges: "
+            f"missing={sorted(missing)}"
+        )
+    return tuple(_edge_trace(edge_by_key[key]) for key in sorted(keys))
 
 
 def _edge_traces(
