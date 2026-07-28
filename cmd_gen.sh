@@ -1,13 +1,53 @@
 #!/usr/bin/env bash
 # Generate evidence-retriever multiseed and execution-provenance R-GCN ablation commands.
-# Usage: ./cmd_gen.sh <prgcn-wo|prgcn-wo-multiseed|evidence-hotpotqa-multiseed|evidence-twowiki-multiseed|evidence-musique-multiseed>
+# Usage: ./cmd_gen.sh [--session NAME] [--prefix SHELL_CODE] <task>
 
 set -euo pipefail
 
 usage() {
   printf '%s\n' \
-    "Usage: ${0##*/} <prgcn-wo|prgcn-wo-multiseed|evidence-hotpotqa-multiseed|evidence-twowiki-multiseed|evidence-musique-multiseed>" \
+    "Usage: ${0##*/} [--session NAME] [--prefix SHELL_CODE] <task>" \
+    "" \
+    "Tasks:" \
+    "  prgcn-wo" \
+    "  prgcn-wo-multiseed" \
+    "  evidence-hotpotqa-multiseed" \
+    "  evidence-twowiki-multiseed" \
+    "  evidence-musique-multiseed" \
+    "" \
+    "Options:" \
+    "  --session NAME       Run panes in the named Zellij session" \
+    "  --sesion NAME        Alias for --session (kept for compatibility)" \
+    "  --prefix SHELL_CODE  Shell code inserted before 'python'" \
+    "                       Examples: 'uv run' or 'source cloud_setup/setup.bash;'" \
+    "  -h, --help           Show this help" \
     >&2
+}
+
+emit_zellij_command() {
+  local pane_name="$1"
+  shift
+
+  local -a zellij_command=(zellij)
+  if [[ -n "$SESSION_NAME" ]]; then
+    zellij_command+=(--session "$SESSION_NAME")
+  fi
+  if [[ -n "$COMMAND_PREFIX" ]]; then
+    local -a python_parts=(python experiment/run.py "$@")
+    local python_command
+    local part
+    printf -v python_command '%q' "${python_parts[0]}"
+    for part in "${python_parts[@]:1}"; do
+      printf -v python_command '%s %q' "$python_command" "$part"
+    done
+    zellij_command+=(run --name "$pane_name" -- bash -c "${COMMAND_PREFIX} ${python_command}")
+  else
+    zellij_command+=(run --name "$pane_name" -- python experiment/run.py "$@")
+  fi
+
+  printf '%q' "${zellij_command[0]}"
+  printf ' %q' "${zellij_command[@]:1}"
+  printf '\n'
 }
 
 emit_command() {
@@ -21,8 +61,14 @@ emit_command() {
     name="${METHOD_SHORT_NAME}-${DATASET_SHORT_NAME}-${variant}-sd${seed}-${VERSION_TAG}"
   fi
 
-  printf '%s\n' \
-    "python experiment/run.py name=${name} dataset=${DATASET} profile=${PROFILE} device=${device} seed=${seed} method=${METHOD} method.variant=${variant}"
+  emit_zellij_command "$name" \
+    "name=${name}" \
+    "dataset=${DATASET}" \
+    "profile=${PROFILE}" \
+    "device=${device}" \
+    "seed=${seed}" \
+    "method=${METHOD}" \
+    "method.variant=${variant}"
 }
 
 emit_evidence_command() {
@@ -34,8 +80,13 @@ emit_evidence_command() {
   local device="cuda:$((command_index % 8))"
   local name="evidence-${dataset_short_name}-${method}-sd${seed}-${VERSION_TAG}"
 
-  printf '%s\n' \
-    "python experiment/run.py name=${name} dataset=${dataset} profile=${EVIDENCE_PROFILE} device=${device} seed=${seed} method=${method}"
+  emit_zellij_command "$name" \
+    "name=${name}" \
+    "dataset=${dataset}" \
+    "profile=${EVIDENCE_PROFILE}" \
+    "device=${device}" \
+    "seed=${seed}" \
+    "method=${method}"
 }
 
 emit_evidence_multiseed_task() {
@@ -83,6 +134,68 @@ emit_wo_multiseed_task() {
 }
 
 main() {
+  SESSION_NAME=""
+  COMMAND_PREFIX=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --session|--sesion)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          printf 'Error: %s requires a value.\n' "$1" >&2
+          usage
+          exit 2
+        fi
+        SESSION_NAME="$2"
+        shift 2
+        ;;
+      --session=*|--sesion=*)
+        SESSION_NAME="${1#*=}"
+        if [[ -z "$SESSION_NAME" ]]; then
+          printf 'Error: --session requires a value.\n' >&2
+          usage
+          exit 2
+        fi
+        shift
+        ;;
+      --prefix)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          printf 'Error: --prefix requires a value.\n' >&2
+          usage
+          exit 2
+        fi
+        COMMAND_PREFIX="$2"
+        shift 2
+        ;;
+      --prefix=*)
+        COMMAND_PREFIX="${1#*=}"
+        if [[ -z "$COMMAND_PREFIX" ]]; then
+          printf 'Error: --prefix requires a value.\n' >&2
+          usage
+          exit 2
+        fi
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        printf 'Error: unknown option: %s\n' "$1" >&2
+        usage
+        exit 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  readonly SESSION_NAME
+  readonly COMMAND_PREFIX
   readonly VERSION_TAG="v2"
   readonly DATASET="twowiki_provenance"
   readonly DATASET_SHORT_NAME="twp"

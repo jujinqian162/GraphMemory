@@ -143,6 +143,7 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
         checkpoint_path,
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        device="cpu",
     )
 
     result = retriever.rank_task(tiny_graph_ranking_request(), top_k=2)
@@ -235,6 +236,7 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
         checkpoint_path,
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        device="cpu",
     )
 
     result = retriever.rank_task(tiny_graph_ranking_request(), top_k=3)

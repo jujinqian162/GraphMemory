@@ -45,6 +45,19 @@ def test_provenance_method_configs_compose_for_provenance_dataset(method: str) -
     assert resolved.dataset.name == "twowiki_provenance"
 
 
+def test_frozen_encoding_config_enables_pytorch_gpu_pool() -> None:
+    config = parse_composed_config(
+        _compose(
+            "method=dense_rgcn_graph_retriever",
+            "encoding.enable_gpupool=true",
+            "encoding.chunk_size=2048",
+        )
+    )
+
+    assert config.encoding.enable_gpupool is True
+    assert config.encoding.chunk_size == 2048
+
+
 def test_rgcn_profiles_define_true_graph_batches() -> None:
     evidence = parse_composed_config(
         _compose("profile=full", "method=dense_rgcn_graph_retriever")

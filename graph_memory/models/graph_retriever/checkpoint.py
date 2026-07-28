@@ -94,7 +94,7 @@ def load_rgcn_checkpoint(
     path: str | Path,
     *,
     expected_method: RetrievalMethodId | None = None,
-    map_location: str | torch.device = "cpu",
+    map_location: str | torch.device,
 ) -> RgcnCheckpoint:
     value = torch.load(Path(path), map_location=map_location, weights_only=False)
     envelope = RgcnCheckpointEnvelope.model_validate(value)

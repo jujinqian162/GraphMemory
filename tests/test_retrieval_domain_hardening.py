@@ -171,6 +171,7 @@ def test_new_dense_methods_preserve_query_and_passage_prefixes() -> None:
         GraphRAGRetrievalSettings(
             top_k=2,
             encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+            device="cpu",
         ),
         GraphRAGBuildPayload(
             text_requests=[_graphrag_text_request()], dense_encoder=graph_encoder
@@ -184,6 +185,7 @@ def test_new_dense_methods_preserve_query_and_passage_prefixes() -> None:
         ExecutionProvenanceRetrievalSettings(
             top_k=2,
             encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+            device="cpu",
         ),
         ExecutionProvenanceBuildPayload(
             provenance_requests=[provenance_request],
@@ -334,6 +336,7 @@ def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
         ExecutionProvenanceRetrievalSettings(
             top_k=3,
             encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+            device="cpu",
         ),
         ExecutionProvenanceBuildPayload(
             provenance_requests=[request], dense_encoder=RecordingEncoder()
@@ -391,6 +394,7 @@ def test_ppr_steiner_reuses_dense_query_vector_and_caches_relation_vectors() -> 
         ExecutionProvenanceRetrievalSettings(
             top_k=2,
             encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
+            device="cpu",
         ),
         ExecutionProvenanceBuildPayload(
             provenance_requests=[request], dense_encoder=encoder

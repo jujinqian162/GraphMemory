@@ -50,7 +50,7 @@ class DenseEncoderSettings:
 class DenseRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
-    device: str | None = None
+    device: str
     method: Literal[RetrievalMethodId.DENSE] = RetrievalMethodId.DENSE
 
 
@@ -58,16 +58,16 @@ class DenseRetrievalSettings:
 class GraphRAGRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
+    device: str
     config: GraphRAGConfig = GraphRAGConfig()
-    device: str | None = None
     method: Literal[RetrievalMethodId.GRAPHRAG] = RetrievalMethodId.GRAPHRAG
 
 
 @dataclass(frozen=True)
 class SeedRetrievalSettings:
     method: Literal[RetrievalMethodId.BM25, RetrievalMethodId.DENSE]
+    device: str | None
     encoder: DenseEncoderSettings | None = None
-    device: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,8 +93,8 @@ class DenseFinetunedRetrievalSettings:
 class ExecutionProvenanceRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
+    device: str
     config: EpgmRetrieverConfig = EpgmRetrieverConfig()
-    device: str | None = None
     method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER] = (
         RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER
     )

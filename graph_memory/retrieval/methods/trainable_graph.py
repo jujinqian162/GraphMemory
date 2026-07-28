@@ -36,7 +36,7 @@ class TrainableGraphRetrievalMethod:
         *,
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
-        device: str | torch.device = "cpu",
+        device: str | torch.device,
         expected_method: RetrievalMethodId = (
             RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
         ),

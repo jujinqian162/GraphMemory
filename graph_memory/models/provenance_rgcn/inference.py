@@ -50,7 +50,7 @@ class ExecutionProvenanceRgcnRetriever:
     model: ExecutionProvenanceRGCN
     encoder: SentenceEncoder
     config: ProvenanceRgcnModelConfig
-    device: str | torch.device = "cpu"
+    device: str | torch.device
     enable_edge_rerank: bool = True
     name: str = "execution_provenance_rgcn_retriever"
 

@@ -17,7 +17,7 @@ debug/failure_cases.jsonl
 
 `runs/` is output-only. Re-run the same command to recover: equal Tasks hit cache; failed Tasks retry; changed inputs invalidate consumers. Corrupt processed assets are hard errors — fix storage, then `cache.refresh=true`.
 
-Run name, Hydra job number, output path, Prefect/MLflow IDs do not enter scientific Task signatures. Equal work under a new name reuses assets and creates a new run directory + MLflow run.
+Run name, Hydra job number, output path, Prefect/MLflow IDs do not enter scientific Task signatures. Runtime placement fields (`device`, `workers`, `encoding.enable_gpupool`, and encoding `chunk_size`) are also excluded. Processed inputs contribute artifact kind + content digest rather than their materialization URI, so byte-identical assets remain reusable after rematerialization. Equal work under a new name reuses assets and creates a new run directory + MLflow run.
 
 Offline transfer:
 

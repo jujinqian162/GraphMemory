@@ -55,7 +55,7 @@ class DenseRankerFactory:
     passage_prefix: str
     batch_size: int
 
-    def build(self, *, device: str | None) -> SeedRanker:
+    def build(self, *, device: str) -> SeedRanker:
         from graph_memory.retrieval.methods.flat.dense import (
             DenseConfig,
             DenseTaskRetriever,
@@ -83,7 +83,7 @@ def convert_twowiki_source_records(
     dense_ranker: SeedRanker | None = None,
     workers: int | None = None,
     dense_ranker_factory: DenseRankerFactory | None = None,
-    devices: Sequence[str] | None = None,
+    device: str | None = None,
     progress_desc: str | None = None,
 ) -> TwoWikiProvenanceConversionResult:
     if candidate_cap < MINIMUM_CANDIDATES:
@@ -100,7 +100,7 @@ def convert_twowiki_source_records(
             graph_config=resolved_graph_config,
             dense_ranker_factory=dense_ranker_factory,
             workers=resolved_workers,
-            devices=tuple(devices) if devices else (),
+            device=device,
             progress_desc=progress_desc,
         )
 
@@ -146,7 +146,7 @@ class _WorkerConfig:
     seed: int
     strict: bool
     dense_ranker_factory: DenseRankerFactory | None
-    devices: tuple[str, ...]
+    device: str | None
 
 
 def _init_worker(config: _WorkerConfig) -> None:
@@ -159,30 +159,17 @@ def _init_worker(config: _WorkerConfig) -> None:
     except ImportError:
         pass
 
-    device: str | None = None
-    if config.devices:
-        slot = _worker_slot() % len(config.devices)
-        device = config.devices[slot]
-
     dense_ranker: SeedRanker | None = None
     if config.dense_ranker_factory is not None:
-        dense_ranker = config.dense_ranker_factory.build(device=device)
+        if config.device is None:
+            raise ValueError("Dense parallel conversion requires an explicit device.")
+        dense_ranker = config.dense_ranker_factory.build(device=config.device)
 
     global _worker_ranker, _worker_state
     _worker_state = config
     _worker_ranker = ProvenanceSemanticRanker(
         config.graph_config, dense_ranker=dense_ranker
     )
-
-
-def _worker_slot() -> int:
-    # ProcessPoolExecutor names workers "SpawnProcess-<n>"/"ForkProcess-<n>";
-    # the trailing integer gives each worker a stable slot for device binding.
-    import multiprocessing
-
-    name = multiprocessing.current_process().name
-    tail = name.rsplit("-", 1)[-1]
-    return int(tail) - 1 if tail.isdigit() else 0
 
 
 def _convert_chunk(
@@ -220,7 +207,7 @@ def _convert_in_parallel(
     graph_config: ProvenanceGraphConstructionConfig,
     dense_ranker_factory: DenseRankerFactory | None,
     workers: int,
-    devices: tuple[str, ...],
+    device: str | None,
     progress_desc: str | None,
 ) -> TwoWikiProvenanceConversionResult:
     if graph_config.strategy != "bm25" and dense_ranker_factory is None:
@@ -234,7 +221,7 @@ def _convert_in_parallel(
         seed=seed,
         strict=strict,
         dense_ranker_factory=dense_ranker_factory,
-        devices=devices,
+        device=device,
     )
     indexed = list(enumerate(raw_records))
     chunk_count = min(workers, len(indexed))

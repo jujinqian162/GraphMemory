@@ -10,9 +10,18 @@ import pytest
 
 import graph_memory.experiment.tasks as experiment_tasks
 import graph_memory.experiment.workflow as experiment_workflow
-from graph_memory.experiment.artifacts import FileSourceRef, identify_external_source
+from graph_memory.experiment.artifacts import (
+    ArtifactKind,
+    ArtifactPayload,
+    DatasetArtifactRef,
+    FileSourceRef,
+    identify_external_source,
+)
+from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
+    DenseEncoderConfig,
     PairBuildConfig,
+    PairSamplingConfig,
     PrepareSplitConfig,
     parse_composed_config,
     resolve_experiment_config,
@@ -116,6 +125,78 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     assert (
         pair_config.sampling.hard_graph_neighbor_per_positive
         == expected_graph_neighbors
+    )
+
+
+def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
+    sampling = PairSamplingConfig(
+        random_seed=13,
+        easy_random_per_positive=1,
+        hard_bm25_per_positive=1,
+        hard_dense_per_positive=1,
+        hard_graph_neighbor_per_positive=0,
+        hard_pool_size=10,
+    )
+    encoder = DenseEncoderConfig(
+        model_name="model@revision",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        batch_size=64,
+    )
+    cpu = PairBuildConfig(sampling=sampling, encoder=encoder, device="cpu")
+    cuda = cpu.model_copy(update={"device": "cuda:7"})
+    policy = ScientificInputs()
+
+    cpu_key = policy.compute_key(None, {"config": cpu}, {})
+    cuda_key = policy.compute_key(None, {"config": cuda}, {})
+    changed_sampling_key = policy.compute_key(
+        None,
+        {
+            "config": cpu.model_copy(
+                update={
+                    "sampling": sampling.model_copy(
+                        update={"hard_bm25_per_positive": 0}
+                    )
+                }
+            )
+        },
+        {},
+    )
+
+    assert cpu_key == cuda_key
+    assert changed_sampling_key != cpu_key
+
+
+def test_scientific_cache_key_uses_artifact_content_not_materialization_uri() -> None:
+    payload = ArtifactPayload(
+        role="tasks",
+        relative_path="tasks.json",
+        kind="file",
+        digest="1" * 64,
+        size_bytes=10,
+        file_count=1,
+    )
+    first = DatasetArtifactRef(
+        uri="/processed/first",
+        kind=ArtifactKind.DATASET,
+        digest="2" * 64,
+        manifest_uri="/processed/first/manifest.json",
+        payloads=(payload,),
+        origin={"run": "first"},
+        size_bytes=10,
+        file_count=1,
+    )
+    second = first.model_copy(
+        update={
+            "uri": "/processed/second",
+            "manifest_uri": "/processed/second/manifest.json",
+            "origin": {"run": "second"},
+        }
+    )
+    policy = ScientificInputs()
+
+    assert policy.compute_key(None, {"prepared": first}, {}) == policy.compute_key(
+        None, {"prepared": second}, {}
     )
 
 

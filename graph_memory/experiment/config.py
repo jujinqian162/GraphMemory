@@ -173,7 +173,6 @@ class TwoWikiProvenanceTransformConfig(ClosedModel):
     # changing parallelism never changes the version tag or invalidates the
     # Prefect cache: transformed data is byte-identical regardless of them.
     workers: PositiveInt | None = None
-    devices: tuple[str, ...] = ()
 
     def identity(self) -> dict[str, JsonValue]:
         return {
@@ -331,7 +330,7 @@ class RgcnModelConfig(ClosedModel):
 
 
 class RgcnTrainerConfig(RgcnTrainingConfig):
-    device: Device = "cuda"
+    device: Device
 
 
 class ModelSelectionConfig(RgcnSelectionSettings):
@@ -432,7 +431,7 @@ class ProvenanceRgcnModelSettings(ClosedModel):
 
 
 class ProvenanceRgcnTrainerSettings(ProvenanceRgcnTrainingConfig):
-    device: Device = "cuda"
+    device: Device
 
 
 class ProvenanceRgcnTrainSettings(ClosedModel):
@@ -496,7 +495,7 @@ class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
 
 
 class DenseFinetuneTrainerConfig(DenseFinetuneTrainerSettings):
-    device: Device = "cuda"
+    device: Device
 
 
 class DenseFinetuneSelectionConfig(DenseFinetuneSelectionSettings):
@@ -625,6 +624,13 @@ class CacheConfig(ClosedModel):
     refresh: StrictBool = False
 
 
+class EncodingConfig(ClosedModel):
+    """Runtime controls for frozen R-GCN encoding; not scientific identity."""
+
+    enable_gpupool: StrictBool
+    chunk_size: PositiveInt
+
+
 class BenchmarkConfig(ClosedModel):
     enabled: StrictBool = False
     warmup: NonNegativeInt = 1
@@ -651,6 +657,7 @@ class ExperimentConfig(ClosedModel):
     device: Device
     top_k: PositiveInt
     cache: CacheConfig
+    encoding: EncodingConfig
     benchmark: BenchmarkConfig
     graph: GraphBuildConfig
     evaluation: EvaluationConfig
@@ -695,6 +702,7 @@ class ResolvedExperimentConfig(ClosedModel):
     device: Device
     top_k: PositiveInt
     cache: CacheConfig
+    encoding: EncodingConfig
     benchmark: BenchmarkConfig
     graph: GraphBuildConfig
     evaluation: EvaluationConfig
@@ -777,6 +785,7 @@ def resolve_experiment_config(
         device=config.device,
         top_k=config.top_k,
         cache=config.cache,
+        encoding=config.encoding,
         benchmark=config.benchmark,
         graph=config.graph,
         evaluation=config.evaluation,
@@ -831,6 +840,7 @@ __all__ = [
     "DenseMethodConfig",
     "DenseRgcnMethodConfig",
     "Device",
+    "EncodingConfig",
     "EvaluationConfig",
     "ExecutionProvenanceMethodConfig",
     "ExecutionProvenanceRgcnMethodConfig",

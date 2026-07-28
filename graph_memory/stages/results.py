@@ -8,6 +8,7 @@ from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     EvaluationArtifactRef,
     EvidenceGraphArtifactRef,
+    FrozenEmbeddingsArtifactRef,
     ModelArtifactRef,
     PredictionsArtifactRef,
     TrainingPairsArtifactRef,
@@ -38,6 +39,15 @@ class TrainingPairsResult(_StageResult):
     stage: Literal["pairs"] = "pairs"
     artifact: TrainingPairsArtifactRef
     summary: dict[str, JsonValue]
+
+
+class FrozenEmbeddingsResult(_StageResult):
+    stage: Literal["encode"] = "encode"
+    family: Literal["evidence", "provenance"]
+    artifact: FrozenEmbeddingsArtifactRef
+    embedding_dim: int = Field(gt=0)
+    row_count: int = Field(gt=0)
+    task_count: int = Field(gt=0)
 
 
 class ModelResult(_StageResult):
@@ -76,6 +86,7 @@ __all__ = [
     "BenchmarkResult",
     "EvaluationResult",
     "EvidenceGraphResult",
+    "FrozenEmbeddingsResult",
     "ModelResult",
     "PreparedSplitResult",
     "RankingResult",

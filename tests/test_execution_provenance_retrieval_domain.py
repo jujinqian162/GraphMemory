@@ -147,7 +147,7 @@ def _candidates() -> tuple[TextCandidate, ...]:
 
 def _dense_ranker() -> DenseTaskRetriever:
     return DenseTaskRetriever(
-        encoder=KeywordEncoder(), query_prefix="", passage_prefix=""
+        encoder=KeywordEncoder(), query_prefix="", passage_prefix="", device="cpu"
     )
 
 
@@ -158,6 +158,7 @@ def _local_dense_ranker(
         encoder=encoder or LocalPromotionEncoder(),
         query_prefix="Q:",
         passage_prefix="P:",
+        device="cpu",
     )
 
 
@@ -570,6 +571,7 @@ def test_registry_builds_provenance_method_from_native_payload() -> None:
     settings = ExecutionProvenanceRetrievalSettings(
         top_k=3,
         encoder=DenseEncoderSettings("keyword", "", "", 8),
+        device="cpu",
     )
 
     built = Registry.retrieval.build(
@@ -588,6 +590,7 @@ def test_registry_default_epgm_config_is_the_ppr_steiner_preset() -> None:
     settings = ExecutionProvenanceRetrievalSettings(
         top_k=3,
         encoder=DenseEncoderSettings("keyword", "", "", 8),
+        device="cpu",
     )
 
     assert settings.config == EpgmRetrieverConfig.for_variant("ppr_steiner")

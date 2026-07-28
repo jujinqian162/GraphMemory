@@ -154,7 +154,7 @@ def load_provenance_rgcn_checkpoint(
     expected_method: RetrievalMethodId | None = (
         RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
     ),
-    map_location: str | torch.device = "cpu",
+    map_location: str | torch.device,
 ) -> ProvenanceRgcnCheckpoint:
     value = torch.load(Path(path), map_location=map_location, weights_only=False)
     envelope = ProvenanceRgcnCheckpointEnvelope.model_validate(value)

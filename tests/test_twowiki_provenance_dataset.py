@@ -432,6 +432,7 @@ def test_transform_is_byte_deterministic_and_raw_only(
         schema_version=3,
         output_root=output_a,
         repository_root=tmp_path,
+        device="cpu",
     )
     result_b = materialize_transform_twowiki(
         train_source=train_ref,
@@ -440,6 +441,7 @@ def test_transform_is_byte_deterministic_and_raw_only(
         schema_version=3,
         output_root=output_b,
         repository_root=tmp_path,
+        device="cpu",
     )
 
     assert result_a.version_tag == result_b.version_tag

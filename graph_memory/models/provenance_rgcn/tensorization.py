@@ -38,8 +38,9 @@ from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest
 def tensorize_provenance_task(
     request: ExecutionProvenanceRankingRequest,
     *,
-    encoder: SentenceEncoder,
+    encoder: SentenceEncoder | None,
     config: ProvenanceRgcnModelConfig,
+    node_embeddings: torch.Tensor | None = None,
 ) -> ProvenanceTaskTensor:
     """Materialize one provenance graph with only task-local indices."""
 
@@ -71,19 +72,29 @@ def tensorize_provenance_task(
         )
         for node in nodes
     ]
-    encoded = np.asarray(
-        encoder.encode(
-            formatted_texts,
-            batch_size=config.encoder_batch_size,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        ),
-        dtype=np.float32,
-    )
-    if encoded.ndim != 2 or encoded.shape != (len(nodes), config.encoder_dim):
+    if node_embeddings is None:
+        if encoder is None:
+            raise ValueError("Provenance tensorization requires an encoder or embeddings.")
+        encoded = torch.from_numpy(
+            np.asarray(
+                encoder.encode(
+                    formatted_texts,
+                    batch_size=config.encoder_batch_size,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                ),
+                dtype=np.float32,
+            )
+        )
+    else:
+        encoded = node_embeddings.detach().cpu().to(dtype=torch.float32)
+    if encoded.ndim != 2 or tuple(encoded.shape) != (
+        len(nodes),
+        config.encoder_dim,
+    ):
         raise ValueError(
             "Provenance encoder shape mismatch: "
-            f"expected={(len(nodes), config.encoder_dim)} observed={encoded.shape}."
+            f"expected={(len(nodes), config.encoder_dim)} observed={tuple(encoded.shape)}."
         )
 
     sources: list[int] = []
@@ -146,7 +157,7 @@ def tensorize_provenance_task(
     )
     return ProvenanceTaskTensor(
         graph_tensor=TaskGraphTensor(
-            node_embeddings=torch.from_numpy(encoded),
+            node_embeddings=encoded,
             node_features=torch.empty((len(nodes), 0), dtype=torch.float32),
             edge_index=edge_index,
             relation_ids=torch.tensor(relation_ids, dtype=torch.long),
@@ -265,14 +276,20 @@ def materialize_provenance_training_task(
     label: EvidenceLabel,
     train_pairs: list[TrainPairRecord],
     *,
-    encoder: SentenceEncoder,
+    encoder: SentenceEncoder | None,
     config: ProvenanceRgcnModelConfig,
+    node_embeddings: torch.Tensor | None = None,
 ) -> ProvenanceTrainingTask:
     """Materialize one provenance task and aligned `1/0/-1` v2 targets."""
 
     if label.task_id != request.task_id:
         raise ValueError("Provenance training request and label task IDs must match.")
-    task = tensorize_provenance_task(request, encoder=encoder, config=config)
+    task = tensorize_provenance_task(
+        request,
+        encoder=encoder,
+        config=config,
+        node_embeddings=node_embeddings,
+    )
     candidate_targets = torch.full((len(task.candidate_ids),), -1, dtype=torch.int8)
     candidate_index = {
         candidate_id: index for index, candidate_id in enumerate(task.candidate_ids)

@@ -19,6 +19,7 @@ from graph_memory.experiment.artifacts import (
     DirectorySourceRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
+    FrozenEmbeddingsArtifactRef,
     ModelArtifactRef,
     ProcessedAssetStore,
     RevisionSourceRef,
@@ -36,6 +37,7 @@ from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.provenance_rgcn import save_provenance_rgcn_checkpoint
+from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
 from graph_memory.stages.results import ModelResult
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
@@ -159,6 +161,7 @@ def materialize_evidence_rgcn_model(
     dev_graphs: EvidenceGraphArtifactRef,
     encoder_source: EncoderSourceRef,
     seed_model: ModelArtifactRef | None,
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
 ) -> ModelResult:
     method = config.method
@@ -190,6 +193,9 @@ def materialize_evidence_rgcn_model(
         if seed_model is not None
         else None
     )
+    embedding_store = FrozenEmbeddingStore(frozen_embeddings)
+    if embedding_store.index.family != "evidence":
+        raise ValueError("Evidence R-GCN requires evidence frozen embeddings.")
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -207,6 +213,7 @@ def materialize_evidence_rgcn_model(
             "dev_graph_digest": dev_graphs.digest,
             "encoder_identity": _encoder_identity(encoder_source),
             "seed_model_digest": None if seed_model is None else seed_model.digest,
+            "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
         },
     ) as publisher:
@@ -215,6 +222,8 @@ def materialize_evidence_rgcn_model(
             encoder=effective_encoder,
             train_config=config.train,
             seed_checkpoint=seed_dir,
+            train_embeddings=embedding_store.partition("train"),
+            dev_embeddings=embedding_store.partition("dev"),
         ).train(
             RgcnTrainPayload(
                 train_requests=tuple(
@@ -291,6 +300,7 @@ def materialize_provenance_rgcn_model(
     train_pairs: TrainingPairsArtifactRef,
     dev_prepared: DatasetArtifactRef,
     encoder_source: EncoderSourceRef,
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
 ) -> ModelResult:
     effective = config.model_copy(
@@ -315,6 +325,9 @@ def materialize_provenance_rgcn_model(
         dict[str, object],
         read_json(artifact_payload_path(train_pairs, "summary")),
     )
+    embedding_store = FrozenEmbeddingStore(frozen_embeddings)
+    if embedding_store.index.family != "provenance":
+        raise ValueError("Provenance R-GCN requires provenance frozen embeddings.")
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -329,10 +342,15 @@ def materialize_provenance_rgcn_model(
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
             "encoder_identity": _encoder_identity(encoder_source),
+            "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        result = ProvenanceRgcnMethodTrainer(effective).train(
+        result = ProvenanceRgcnMethodTrainer(
+            effective,
+            train_embeddings=embedding_store.partition("train"),
+            dev_embeddings=embedding_store.partition("dev"),
+        ).train(
             ProvenanceRgcnTrainPayload(
                 train_requests=tuple(
                     execution_provenance_requests_for_dataset(dataset, train_tasks)

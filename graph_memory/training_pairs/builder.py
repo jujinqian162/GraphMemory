@@ -364,13 +364,15 @@ def _build_default_samplers(
             dense_provider = dense_seed_signal_provider
         else:
             retriever = dense_retriever
-            if retriever is None and dense_config is not None:
+            if retriever is None:
+                if dense_config is None:
+                    raise ValueError(
+                        "Hard dense sampling requires dense_config or an injected retriever."
+                    )
                 retriever = DenseTaskRetriever(
                     config=dense_config,
                     device=dense_config.device,
                 )
-            else:
-                retriever = retriever or DenseTaskRetriever()
             dense_provider = RetrieverSeedSignalProvider(retriever)
         samplers.append(DenseHardNegativeSampler(dense_provider, config.hard_pool_size))
     samplers.append(GraphNeighborNegativeSampler())

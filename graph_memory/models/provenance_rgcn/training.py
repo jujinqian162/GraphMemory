@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from time import perf_counter
@@ -14,6 +15,7 @@ from tqdm.auto import tqdm
 from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.models.frozen_embeddings import FrozenTaskEmbeddings
 from graph_memory.models.graph_batching import TaskTensorDataset
 from graph_memory.models.provenance_rgcn.config import (
     ProvenanceRgcnModelConfig,
@@ -256,10 +258,12 @@ def train_provenance_rgcn(
     train_pairs: list[TrainPairRecord],
     model_config: ProvenanceRgcnModelConfig,
     training_config: ProvenanceRgcnTrainingConfig,
-    encoder: SentenceEncoder,
+    encoder: SentenceEncoder | None,
     dev_requests: list[ExecutionProvenanceRankingRequest] | None = None,
     dev_labels: list[EvidenceLabel] | None = None,
-    device: str | torch.device = "cpu",
+    train_node_embeddings: Mapping[str, FrozenTaskEmbeddings] | None = None,
+    dev_node_embeddings: Mapping[str, FrozenTaskEmbeddings] | None = None,
+    device: str | torch.device,
 ) -> ProvenanceTrainingResult:
     validated_pairs = TrainPairDataset(
         requests=tuple(
@@ -299,6 +303,9 @@ def train_provenance_rgcn(
             pairs_by_task[request.task_id],
             encoder=encoder,
             config=model_config,
+            node_embeddings=_precomputed_task_embeddings(
+                train_node_embeddings, request
+            ),
         )
         for request in tqdm(
             train_requests,
@@ -311,7 +318,14 @@ def train_provenance_rgcn(
     resolved_dev_requests = dev_requests or train_requests
     resolved_dev_labels = dev_labels or train_labels
     dev_tasks = [
-        tensorize_provenance_task(request, encoder=encoder, config=model_config)
+        tensorize_provenance_task(
+            request,
+            encoder=encoder,
+            config=model_config,
+            node_embeddings=_precomputed_task_embeddings(
+                dev_node_embeddings, request
+            ),
+        )
         for request in tqdm(
             resolved_dev_requests,
             desc="provenance-rgcn dev tensors",
@@ -607,6 +621,22 @@ def _dev_metrics(
             else 0.0
         ),
     )
+
+
+def _precomputed_task_embeddings(
+    embeddings: Mapping[str, FrozenTaskEmbeddings] | None,
+    request: ExecutionProvenanceRankingRequest,
+) -> Tensor | None:
+    if embeddings is None:
+        return None
+    try:
+        task = embeddings[request.task_id]
+    except KeyError as error:
+        raise ValueError(
+            f"Frozen embeddings are missing task_id={request.task_id!r}."
+        ) from error
+    task.validate_node_ids([node.node_id for node in request.graph.nodes])
+    return task.values
 
 
 def _count_stats(prefix: str, values: list[int]) -> dict[str, float | int]:

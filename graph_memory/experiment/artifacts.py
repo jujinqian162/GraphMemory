@@ -25,6 +25,7 @@ class ArtifactKind(str, Enum):
     DATASET = "dataset"
     EVIDENCE_GRAPH = "evidence_graph"
     TRAINING_PAIRS = "training_pairs"
+    FROZEN_EMBEDDINGS = "frozen_embeddings"
     MODEL = "model"
     PREDICTIONS = "predictions"
     EVALUATION = "evaluation"
@@ -109,6 +110,12 @@ class TrainingPairsArtifactRef(
     pass
 
 
+class FrozenEmbeddingsArtifactRef(
+    ProcessedArtifactRef[Literal[ArtifactKind.FROZEN_EMBEDDINGS]]
+):
+    pass
+
+
 class ModelArtifactRef(ProcessedArtifactRef[Literal[ArtifactKind.MODEL]]):
     pass
 
@@ -126,6 +133,7 @@ ArtifactRef: TypeAlias = Annotated[
         DatasetArtifactRef,
         EvidenceGraphArtifactRef,
         TrainingPairsArtifactRef,
+        FrozenEmbeddingsArtifactRef,
         ModelArtifactRef,
         PredictionsArtifactRef,
         EvaluationArtifactRef,
@@ -156,6 +164,10 @@ class ProcessedAssetStore:
         return self.root / "training_pairs"
 
     @property
+    def frozen_embeddings_root(self) -> Path:
+        return self.root / "frozen_embeddings"
+
+    @property
     def models_root(self) -> Path:
         return self.root / "models"
 
@@ -180,6 +192,7 @@ class ProcessedAssetStore:
             ArtifactKind.DATASET: self.datasets_root,
             ArtifactKind.EVIDENCE_GRAPH: self.evidence_graphs_root,
             ArtifactKind.TRAINING_PAIRS: self.training_pairs_root,
+            ArtifactKind.FROZEN_EMBEDDINGS: self.frozen_embeddings_root,
             ArtifactKind.MODEL: self.models_root,
             ArtifactKind.PREDICTIONS: self.predictions_root,
             ArtifactKind.EVALUATION: self.evaluations_root,
@@ -455,6 +468,7 @@ __all__ = [
     "EvaluationArtifactRef",
     "EvidenceGraphArtifactRef",
     "FileSourceRef",
+    "FrozenEmbeddingsArtifactRef",
     "ModelArtifactRef",
     "PredictionsArtifactRef",
     "ProcessedArtifactRef",

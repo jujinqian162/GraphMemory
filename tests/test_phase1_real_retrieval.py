@@ -142,6 +142,7 @@ def test_graphrag_builder_rejects_flat_payload() -> None:
     settings = GraphRAGRetrievalSettings(
         top_k=2,
         encoder=DenseEncoderSettings("keyword-encoder", "", "", 8),
+        device="cpu",
     )
 
     with pytest.raises(TypeError, match="GraphRAGBuildPayload"):

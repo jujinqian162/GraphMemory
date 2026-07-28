@@ -422,6 +422,8 @@ def build_methods(
     needs_dense = any(m in selected for m in ("dense", "graphrag", "epgm_retriever"))
     dense_ranker = None
     if needs_dense:
+        if device is None:
+            raise ValueError("Dense methods require an explicit device.")
         dense_ranker = DenseTaskRetriever(
             config=DenseConfig(model_name=encoder_model, device=device),
             device=device,

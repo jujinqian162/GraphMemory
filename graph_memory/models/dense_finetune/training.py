@@ -37,7 +37,7 @@ class DenseFinetuneTrainerSettings(DomainModel):
     warmup_steps: NonNegativeInt = 0
     max_grad_norm: NonNegativeFiniteFloat = 1.0
     random_seed: int = 13
-    device: NonEmptyStr = "cuda"
+    device: NonEmptyStr
     use_amp: bool = False
 
 
@@ -52,9 +52,7 @@ class DenseFinetuneRunConfig(DomainModel):
     passage_prefix: str = "passage: "
     batch_size: PositiveInt = 64
     data: DenseFinetuneDataSettings = Field(default_factory=DenseFinetuneDataSettings)
-    trainer: DenseFinetuneTrainerSettings = Field(
-        default_factory=DenseFinetuneTrainerSettings
-    )
+    trainer: DenseFinetuneTrainerSettings
     selection: DenseFinetuneSelectionSettings = Field(
         default_factory=DenseFinetuneSelectionSettings
     )

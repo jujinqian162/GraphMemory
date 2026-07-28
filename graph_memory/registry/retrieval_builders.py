@@ -114,21 +114,31 @@ def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegist
 def seed_retrieval_settings_for_method(
     *,
     method: RetrievalMethodId,
+    device: str,
     dense_config: DenseConfigLike | None = None,
 ) -> SeedRetrievalSettings:
     if method is RetrievalMethodId.BM25:
-        return SeedRetrievalSettings(method=RetrievalMethodId.BM25)
+        return SeedRetrievalSettings(
+            method=RetrievalMethodId.BM25,
+            device=device,
+        )
     if method is RetrievalMethodId.DENSE:
         return SeedRetrievalSettings(
             method=RetrievalMethodId.DENSE,
             encoder=_dense_encoder_settings(dense_config),
+            device=device,
         )
     raise ValueError(f"Unsupported seed retrieval method: {method.value}")
 
 
 def _dense_encoder_settings(config: DenseConfigLike | None) -> DenseEncoderSettings:
     if config is None:
-        config = DenseConfig()
+        return DenseEncoderSettings(
+            model_name="intfloat/e5-base-v2",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
+        )
     return DenseEncoderSettings(
         model_name=config.model_name,
         query_prefix=config.query_prefix,
@@ -200,12 +210,14 @@ def _build_dense_ft(
         name=settings.method.value,
         retriever=DenseTaskRetriever(
             config=DenseConfig(
+                device=settings.device,
                 model_name=str(settings.checkpoint),
                 query_prefix=metadata.query_prefix,
                 passage_prefix=metadata.passage_prefix,
                 batch_size=metadata.batch_size,
             ),
             encoder=encoder,
+            device=settings.device,
         ),
     )
     return _built(
@@ -341,7 +353,7 @@ def _build_provenance_rgcn(
     checkpoint = load_provenance_rgcn_checkpoint(
         settings.checkpoint,
         expected_method=settings.method,
-        map_location="cpu",
+        map_location=settings.device,
     )
     expected_checkpoint_variant = (
         "full_rgcn" if settings.variant == "wo_edge_rerank" else settings.variant
@@ -409,8 +421,9 @@ def _evidence_rgcn_providers(
     checkpoint = load_rgcn_checkpoint(
         settings.checkpoint,
         expected_method=settings.method,
-        map_location="cpu",
+        map_location=settings.device,
     )
+
     if (
         payload.text_embedding_provider is not None
         and payload.seed_signal_provider is not None
@@ -453,6 +466,7 @@ def _evidence_rgcn_providers(
                 query_prefix=checkpoint.model_config.query_prefix,
                 passage_prefix=checkpoint.model_config.passage_prefix,
                 encoder=cast(SentenceEncoder | None, encoder),
+                device=settings.device,
             )
         )
     return text_embedding_provider, seed_signal_provider, checkpoint
@@ -462,7 +476,7 @@ def _resolve_encoder(
     settings: DenseEncoderSettings,
     encoder: SentenceEncoder | None,
     *,
-    device: str | None = None,
+    device: str,
 ) -> SentenceEncoder:
     if encoder is not None:
         return encoder
@@ -484,7 +498,7 @@ def _build_dense_ranker(
     settings: DenseEncoderSettings,
     encoder: SentenceEncoder | None,
     *,
-    device: str | None = None,
+    device: str,
 ) -> DenseTaskRetriever:
     return DenseTaskRetriever(
         config=DenseConfig(
@@ -495,6 +509,7 @@ def _build_dense_ranker(
             device=device,
         ),
         encoder=encoder or _resolve_encoder(settings, None, device=device),
+        device=device,
     )
 
 
@@ -530,6 +545,8 @@ def _build_seed_retriever(
         return BM25TaskRetriever()
     if settings.encoder is None:
         raise ValueError("Dense seed retrieval requires encoder settings.")
+    if settings.device is None:
+        raise ValueError("Dense seed retrieval requires an explicit device.")
     return DenseTaskRetriever(
         config=DenseConfig(
             model_name=settings.encoder.model_name,

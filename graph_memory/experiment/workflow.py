@@ -35,6 +35,7 @@ from graph_memory.experiment.tasks import (
     benchmark_retrieval_task,
     build_evidence_graphs_task,
     build_training_pairs_task,
+    encode_frozen_rgcn_embeddings_task,
     evaluate_rankings_task,
     generate_rankings_task,
     prefect_storage_settings,
@@ -190,6 +191,19 @@ def run_experiment(
                 ),
                 encoder_source=encoder_source,
             )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=train_graphs.artifact,
+                dev_graphs=dev_graphs.artifact,
+                seed_model=None,
+                dataset=config.dataset.name,
+                encoder=effective.encoder,
+                encoder_source=encoder_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
             model = train_evidence_rgcn_task(
                 train_prepared=train.artifact,
                 train_graphs=train_graphs.artifact,
@@ -200,6 +214,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method.train_stage(),
                 encoder_source=encoder_source,
+                frozen_embeddings=frozen_embeddings.artifact,
             )
             ranking_graphs = test_graphs.artifact
             assets.extend(
@@ -211,6 +226,7 @@ def run_experiment(
                     dev_graphs.artifact,
                     test_graphs.artifact,
                     pairs.artifact,
+                    frozen_embeddings.artifact,
                     model.artifact,
                 )
             )
@@ -281,6 +297,19 @@ def run_experiment(
                 ),
                 encoder_source=rgcn_source,
             )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=train_graphs.artifact,
+                dev_graphs=dev_graphs.artifact,
+                seed_model=seed_model.artifact,
+                dataset=config.dataset.name,
+                encoder=rgcn.encoder,
+                encoder_source=rgcn_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
             model = train_evidence_rgcn_task(
                 train_prepared=train.artifact,
                 train_graphs=train_graphs.artifact,
@@ -291,6 +320,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method.rgcn_train_stage(),
                 encoder_source=rgcn_source,
+                frozen_embeddings=frozen_embeddings.artifact,
             )
             dependency_models = (seed_model,)
             ranking_graphs = test_graphs.artifact
@@ -305,6 +335,7 @@ def run_experiment(
                     seed_pairs.artifact,
                     seed_model.artifact,
                     rgcn_pairs.artifact,
+                    frozen_embeddings.artifact,
                     model.artifact,
                 )
             )
@@ -335,6 +366,19 @@ def run_experiment(
                 ),
                 encoder_source=encoder_source,
             )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=None,
+                dev_graphs=None,
+                seed_model=None,
+                dataset=config.dataset.name,
+                encoder=effective.encoder,
+                encoder_source=encoder_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
             model = train_provenance_rgcn_task(
                 train_prepared=train.artifact,
                 train_pairs=pairs.artifact,
@@ -342,6 +386,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method.train_stage(),
                 encoder_source=encoder_source,
+                frozen_embeddings=frozen_embeddings.artifact,
             )
             assets.extend(
                 (
@@ -349,6 +394,7 @@ def run_experiment(
                     dev.artifact,
                     test.artifact,
                     pairs.artifact,
+                    frozen_embeddings.artifact,
                     model.artifact,
                 )
             )
@@ -463,6 +509,7 @@ def _transform_split_sources(
         dev_source=dev_source,
         config=transform,
         encoder_source=encoder_source,
+        device=config.device,
         split_seed=config.split_seed,
     )
     return {"train": result.train, "dev": result.dev, "test": result.test}

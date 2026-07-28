@@ -15,6 +15,10 @@ from graph_memory.datasets.twowiki_provenance import (
     TwoWikiProvenanceToExecutionProvenanceRankingRequest,
     convert_twowiki_source_records,
 )
+from graph_memory.models.frozen_embeddings import (
+    FrozenTaskEmbeddings,
+    node_ids_digest,
+)
 from graph_memory.models.provenance_rgcn import (
     ExecutionProvenanceRGCN,
     ExecutionProvenanceRgcnRetriever,
@@ -748,7 +752,7 @@ def test_checkpoint_family_round_trip_and_rejection(
         training_config=training,
     )
 
-    loaded = load_provenance_rgcn_checkpoint(checkpoint)
+    loaded = load_provenance_rgcn_checkpoint(checkpoint, map_location="cpu")
 
     assert loaded.model_config == config
     assert loaded.training_config == training
@@ -771,7 +775,9 @@ def test_checkpoint_family_round_trip_and_rejection(
     legacy_batch_checkpoint = tmp_path / "legacy-batch-v3.pt"
     torch.save(legacy_batch_payload, legacy_batch_checkpoint)
     with pytest.raises(ValueError, match="schema_version"):
-        load_provenance_rgcn_checkpoint(legacy_batch_checkpoint)
+        load_provenance_rgcn_checkpoint(
+            legacy_batch_checkpoint, map_location="cpu"
+        )
 
     legacy_payload = deepcopy(payload)
     for field_name in (
@@ -783,7 +789,7 @@ def test_checkpoint_family_round_trip_and_rejection(
     legacy_checkpoint = tmp_path / "legacy-full.pt"
     torch.save(legacy_payload, legacy_checkpoint)
     with pytest.raises(ValueError, match="incomplete for schema v4"):
-        load_provenance_rgcn_checkpoint(legacy_checkpoint)
+        load_provenance_rgcn_checkpoint(legacy_checkpoint, map_location="cpu")
     assert "path_loss_weight" not in loaded.payload["training_config"]
     evidence_checkpoint = tmp_path / "evidence.pt"
     torch.save(
@@ -791,14 +797,16 @@ def test_checkpoint_family_round_trip_and_rejection(
         evidence_checkpoint,
     )
     with pytest.raises(ValueError, match="checkpoint_family"):
-        load_provenance_rgcn_checkpoint(evidence_checkpoint)
+        load_provenance_rgcn_checkpoint(evidence_checkpoint, map_location="cpu")
 
     provenance_v2 = deepcopy(payload)
     provenance_v2["schema_version"] = 2
     provenance_v2_checkpoint = tmp_path / "provenance-v2.pt"
     torch.save(provenance_v2, provenance_v2_checkpoint)
     with pytest.raises(ValueError, match="schema_version"):
-        load_provenance_rgcn_checkpoint(provenance_v2_checkpoint)
+        load_provenance_rgcn_checkpoint(
+            provenance_v2_checkpoint, map_location="cpu"
+        )
 
 
 def test_joint_dev_selection_uses_declared_components_and_earlier_ties() -> None:
@@ -834,8 +842,9 @@ def test_minimal_train_and_inference_return_logical_paths() -> None:
         model_config=config,
         training_config=ProvenanceRgcnTrainingConfig(epochs=1),
         encoder=TinyEncoder(),
+        device="cpu",
     )
-    retriever = ExecutionProvenanceRgcnRetriever(result.model, TinyEncoder(), config)
+    retriever = ExecutionProvenanceRgcnRetriever(result.model, TinyEncoder(), config, "cpu")
 
     prediction = retriever.rank_task(request, top_k=len(request.candidates))
 
@@ -858,10 +867,49 @@ def test_provenance_dataloader_reuses_materialized_features_across_epochs() -> N
         model_config=_model_config(),
         training_config=ProvenanceRgcnTrainingConfig(epochs=2),
         encoder=encoder,
+        device="cpu",
     )
 
     assert encoder.calls == 2  # one train item plus one ordered dev item
     assert [record["global_step"] for record in result.metric_records] == [1, 2]
+
+
+def test_provenance_training_accepts_precomputed_frozen_embeddings() -> None:
+    request, label = _request_and_label()
+    config = _model_config()
+    node_ids = [node.node_id for node in request.graph.nodes]
+    texts = [
+        (
+            config.query_prefix + node.text
+            if node.node_type.value == "task"
+            else config.passage_prefix + node.text
+        )
+        for node in request.graph.nodes
+    ]
+    values = torch.from_numpy(
+        np.asarray(TinyEncoder().encode(texts), dtype=np.float32)
+    )
+    frozen = FrozenTaskEmbeddings(
+        task_id=request.task_id,
+        node_ids_digest=node_ids_digest(node_ids),
+        values=values,
+    )
+
+    result = train_provenance_rgcn(
+        train_requests=[request],
+        train_labels=[label],
+        train_pairs=_train_pairs(request, label),
+        dev_requests=[request],
+        dev_labels=[label],
+        model_config=config,
+        training_config=ProvenanceRgcnTrainingConfig(epochs=1),
+        encoder=None,
+        train_node_embeddings={request.task_id: frozen},
+        dev_node_embeddings={request.task_id: frozen},
+        device="cpu",
+    )
+
+    assert result.metric_records[0]["train_task_count"] == 1
 
 
 def test_provenance_tail_graph_batch_produces_its_own_optimizer_step() -> None:
@@ -888,6 +936,7 @@ def test_provenance_tail_graph_batch_produces_its_own_optimizer_step() -> None:
             epochs=1,
         ),
         encoder=TinyEncoder(),
+        device="cpu",
     )
 
     metrics = result.metric_records[0]

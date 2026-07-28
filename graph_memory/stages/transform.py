@@ -122,19 +122,6 @@ def _dense_ranker_factory(
     )
 
 
-def _resolve_devices(
-    config: TwoWikiProvenanceTransformConfig,
-    *,
-    is_dense: bool,
-    fallback: str,
-) -> tuple[str, ...]:
-    if not is_dense:
-        return ()
-    if config.devices:
-        return config.devices
-    return (fallback,)
-
-
 def _record_list(path: Path) -> list[object]:
     value = read_json(path)
     if not isinstance(value, list):
@@ -174,7 +161,7 @@ def materialize_transform_twowiki(
     output_root: Path,
     repository_root: Path,
     encoder_digest: str | None = None,
-    device: str = "cpu",
+    device: str,
     split_seed: int = 13,
 ) -> TwoWikiProvenanceTransformResult:
     version_tag = transform_version_tag(
@@ -194,22 +181,14 @@ def materialize_transform_twowiki(
     is_dense = config.edge_scorer in {"dense", "hybrid"}
     workers = resolve_worker_count(config.workers)
 
-    # workers<=1 keeps the serial path (one main-process ranker); workers>1
-    # ships a picklable factory so each worker builds its own ranker, since a
-    # torch-backed ranker cannot cross a process boundary. `config.devices` is
-    # the single source of GPU truth for both paths: the serial ranker binds to
-    # the first configured card, parallel workers round-robin across all of them.
+    # Torch-backed rankers cannot cross a process boundary. Both the serial
+    # ranker and every worker use the root experiment device passed here.
     if workers > 1:
         dense_ranker = None
         dense_ranker_factory = _dense_ranker_factory(config) if is_dense else None
-        devices = _resolve_devices(config, is_dense=is_dense, fallback=device)
     else:
-        serial_device = config.devices[0] if config.devices else device
-        dense_ranker = (
-            _dense_ranker(config, device=serial_device) if is_dense else None
-        )
+        dense_ranker = _dense_ranker(config, device=device) if is_dense else None
         dense_ranker_factory = None
-        devices = ()
 
     def _convert(
         source: FileSourceRef, *, split: str
@@ -223,7 +202,7 @@ def materialize_transform_twowiki(
             dense_ranker=dense_ranker,
             workers=workers,
             dense_ranker_factory=dense_ranker_factory,
-            devices=devices,
+            device=device,
             progress_desc=f"transform twowiki provenance ({split})",
         )
 
