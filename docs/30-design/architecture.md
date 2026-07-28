@@ -1,26 +1,62 @@
 # Architecture
 
-The locked domain design is [`execution-provenance-retrieval-domain-plan.md`](../10-plans/execution-provenance-retrieval-domain-plan.md).
-
 ```text
 dataset adapter
   -> concrete retrieval request
-  -> Registry semantic validation
-  -> concrete method builder
-  -> retrieval method
-  -> complete ranking plus optional native trace
+  -> Registry validation
+  -> method builder
+  -> ranking + optional native_trace
 ```
 
-## Ownership
+## Package map
 
-- `graph_memory/datasets/` projects source records into consumer-specific requests.
-- `graph_memory/contracts/graphs.py` owns the traditional `EvidenceGraph` artifact.
-- `graph_memory/graphs/provenance/` owns native execution-provenance values and validation.
-- `graph_memory/retrieval/requests/` owns the closed request union.
-- `graph_memory/retrieval/methods/graphrag/` owns deterministic entity-graph assembly, linking, PPR, projection, and `GraphRAGTrace`; the Registry builder assembles the graph before method execution.
-- `graph_memory/retrieval/methods/execution_provenance/` owns bounded alternative-path search, single-pass path scoring, invalidation, and `ExecutionProvenanceTrace`.
-- `graph_memory/models/graph_retriever/` owns node-wise R-GCN training and inference.
-- `graph_memory/registry/` owns public method IDs, request/family compatibility, retrieval settings, and concrete builders. Workflow scheduling stays explicit in `graph_memory/experiment/workflow.py` rather than being duplicated as Registry metadata.
-- `graph_memory/experiment/` schedules stages from actual artifact dependencies.
+```text
+graph_memory/
+  contracts/          shared types, graphs, ranking, metrics
+  datasets/           HotpotQA, 2Wiki, MuSiQue, twowiki_provenance
+  graphs/             evidence construction; provenance values
+  embeddings/         frozen dense encoders
+  retrieval/          requests, flat / graphrag / epgm methods
+  models/             dense_finetune, graph_retriever (R-GCN)
+  registry/           method IDs, settings, builders
+  stages/             prepare, graphs, pairs, models, retrieve, evaluate
+  experiment/         Hydra job, Prefect Flow, artifacts, tracking
+  evaluation/         metrics and tables
+  training_pairs/     pair sampling
+  validation/         fail-fast validators
+  analysis/           post-run aggregation helpers
+```
 
-Only the R-GCN paths require prebuilt `EvidenceGraph` artifacts. GraphRAG and the provenance retriever cannot cause that stage to be scheduled. No compatibility aliases translate one graph domain into another.
+## Ownership rules
+
+- `datasets/` projects source records into consumer-specific requests; it does not invent cross-domain graphs.
+- `contracts/graphs.py` owns traditional `EvidenceGraph`.
+- `graphs/provenance/` owns `ExecutionProvenanceGraph` values and validation.
+- `retrieval/requests/` owns the closed request union.
+- GraphRAG owns its entity graph end-to-end; Registry may assemble mentions before the method runs.
+- EPGM lives under `retrieval/methods/epgm/`.
+- `models/graph_retriever/` owns node-wise R-GCN train/infer for both evidence and provenance families (separate method IDs and pair protocols).
+- `registry/` owns public IDs, request/family compatibility, and builders. Workflow scheduling stays in `experiment/workflow.py`, not Registry metadata.
+- `experiment/` schedules stages from real artifact dependencies of the selected method/variant.
+- Root `io.py` / `compat.py` are thin ports only.
+
+## Three graphs, no translation
+
+1. **EvidenceGraph** — question/evidence nodes and evidence relations; required only by the two evidence R-GCN methods.
+2. **GraphRAG entity graph** — rebuilt from candidates inside the method; never an `EvidenceGraph` or provenance graph.
+3. **ExecutionProvenanceGraph** — Task / Agent / ToolCall / ToolOutput / Answer nodes with typed execution and dataflow edges (`invokes`, `returns`, `feeds`, `grounds`, optional chronology). Carried on the request.
+
+No compatibility alias converts one graph domain into another. Flat and GraphRAG jobs must not schedule EvidenceGraph construction.
+
+## Runtime boundary
+
+```text
+experiment/run.py  (one method, optional one R-GCN variant)
+  -> graph_memory/experiment/workflow.py  (one Prefect Flow)
+  -> graph_memory/stages/*
+  -> registry builders + domain packages
+  -> runs/<name>/  (output-only reports + asset refs)
+  -> data/processed/  (reusable scientific assets)
+```
+
+One Hydra job = one Flow run = one MLflow run. Compare methods/variants by launching independent jobs that share Prefect cache storage.
