@@ -303,7 +303,11 @@ def _parse_session(path: Path, role: str) -> SessionParse:
                     "tool_name": tool_name,
                     "call_id": call_id,
                     "input_parameters": input_params,
-                    "source_session_id": epgm_ref.get("sessionId"),
+                    "source_session_id": (
+                        epgm_ref.get("sessionId")
+                        if epgm_ref is not None
+                        else None
+                    ),
                 },
             )
             order.append((ref, "tool_output"))

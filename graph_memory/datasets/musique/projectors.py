@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.musique.records import (
     MuSiQueLabelRecord,
     MuSiQueRankingRecord,
@@ -21,45 +21,49 @@ from graph_memory.retrieval.requests import (
 
 
 class MuSiQueToTextRankingRequest:
-    def project(self, record: MuSiQueRankingRecord) -> TextRankingRequest:
+    def project(self, record: MuSiQueRankingRecord | object) -> TextRankingRequest:
+        record = MuSiQueRankingRecord.model_validate(record)
         return TextRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             candidates=tuple(
                 TextCandidate(
-                    item_id=paragraph["paragraph_id"],
-                    text=f"{paragraph['title']}. {paragraph['text']}",
+                    item_id=paragraph.paragraph_id,
+                    text=f"{paragraph.title}. {paragraph.text}",
                     metadata={
-                        "title": paragraph["title"],
-                        "source_ref": paragraph["title"],
-                        "sequence_index": paragraph["paragraph_index"],
-                        "position": paragraph["position"],
+                        "title": paragraph.title,
+                        "source_ref": paragraph.title,
+                        "sequence_index": paragraph.paragraph_index,
+                        "position": paragraph.position,
                     },
                 )
-                for paragraph in record["candidate_paragraphs"]
+                for paragraph in record.candidate_paragraphs
             ),
         )
 
 
 class MuSiQueToEvidenceGraphBuildRequest:
-    def project(self, record: MuSiQueRankingRecord) -> EvidenceGraphBuildRequest:
+    def project(
+        self, record: MuSiQueRankingRecord | object
+    ) -> EvidenceGraphBuildRequest:
+        record = MuSiQueRankingRecord.model_validate(record)
         return EvidenceGraphBuildRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             nodes=tuple(
                 EvidenceGraphBuildNode(
-                    node_id=paragraph["paragraph_id"],
-                    text=paragraph["text"],
+                    node_id=paragraph.paragraph_id,
+                    text=paragraph.text,
                     node_kind="document_paragraph",
-                    source_ref=paragraph["title"],
-                    group_key=f"document:{paragraph['title']}",
-                    sequence_index=paragraph["paragraph_index"],
+                    source_ref=paragraph.title,
+                    group_key=f"document:{paragraph.title}",
+                    sequence_index=paragraph.paragraph_index,
                     metadata={
-                        "title": paragraph["title"],
-                        "position": paragraph["position"],
+                        "title": paragraph.title,
+                        "position": paragraph.position,
                     },
                 )
-                for paragraph in record["candidate_paragraphs"]
+                for paragraph in record.candidate_paragraphs
             ),
             input_visible_edges=(),
         )
@@ -72,13 +76,14 @@ class MuSiQueToEvidenceGraphRankingRequest:
         graph: EvidenceGraph,
         initial_scores: Mapping[str, float],
     ) -> EvidenceGraphRankingRequest:
+        record = MuSiQueRankingRecord.model_validate(record)
         text_request = MuSiQueToTextRankingRequest().project(record)
         return EvidenceGraphRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             candidates=text_request.candidates,
             graph=graph,
-            initial_scores=initial_scores,
+            initial_scores=dict(initial_scores),
         )
 
 
@@ -91,20 +96,20 @@ class MuSiQueToEvidenceEvaluationRequest:
         graphs: Sequence[EvidenceGraph],
     ) -> EvidenceEvaluationRequest:
         return EvidenceEvaluationRequest(
-            predictions=predictions,
+            predictions=tuple(predictions),
             labels=tuple(
                 EvidenceLabel(
-                    task_id=label["task_id"],
-                    gold_answer=label["gold_answer"],
-                    gold_evidence_item_ids=tuple(label["gold_evidence_paragraph_ids"]),
+                    task_id=label.task_id,
+                    gold_answer=label.gold_answer,
+                    gold_evidence_item_ids=tuple(label.gold_evidence_paragraph_ids),
                     gold_dependency_edges=tuple(
                         _dependency_edge(edge)
-                        for edge in label["gold_dependency_edges"]
+                        for edge in label.gold_dependency_edges
                     ),
                 )
                 for label in labels
             ),
-            graphs=graphs,
+            graphs=tuple(graphs),
         )
 
 

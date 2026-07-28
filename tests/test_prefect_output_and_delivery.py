@@ -6,8 +6,7 @@ from pathlib import Path
 
 import yaml
 from hydra import compose, initialize_config_dir
-from pydantic import JsonValue
-
+from graph_memory.evaluation.contracts import MetricRow
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPublisher,
@@ -64,24 +63,32 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         ranking_ref = publisher.publish({"rankings": "rankings.json"})
     assert isinstance(ranking_ref, PredictionsArtifactRef)
 
-    metric_row: dict[str, JsonValue] = {
-        "Method": "bm25",
-        "Recall@5": 1.0,
-        "Recall@10": 1.0,
-        "MRR": 1.0,
-        "nDCG@10": 1.0,
-        "Evidence F1": 1.0,
-        "Full Support EM": 1.0,
-        "Path Recall@5": 1.0,
-        "Path Recall@10": 1.0,
-        "Path MRR": 1.0,
-        "Avg Retrieved Nodes": 1.0,
-        "Avg Retrieved Edges": 0.0,
-        "Retrieval Latency / Query": 3.0,
-        "Index Build Time": "NA",
-        "Graph Construction Time": "NA",
-        "Memory Size": "NA",
-    }
+    metric_row = MetricRow.model_validate(dict(
+        method="bm25",
+        evaluation_schema="evidence_v3",
+        recall_at_2=1.0,
+        recall_at_5=1.0,
+        recall_at_10=1.0,
+        evidence_f1_at_5=1.0,
+        evidence_f1_at_10=1.0,
+        full_support_at_5=1.0,
+        full_support_at_10=1.0,
+        mrr=1.0,
+        connected_evidence_recall_at_5=1.0,
+        connected_evidence_recall_at_10=1.0,
+        query_evidence_connectivity_at_10=1.0,
+        path_recall_at_10="N/A",
+        edge_recall_at_10="N/A",
+        edge_precision_at_10="N/A",
+        edge_f1_at_10="N/A",
+        abstention_rate="N/A",
+        retrieval_latency_per_query=3.0,
+        index_build_time=0.0,
+        graph_construction_time=0.0,
+        memory_size="N/A",
+        avg_retrieved_nodes=1.0,
+        avg_retrieved_edges=0.0,
+    ))
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.EVALUATION,

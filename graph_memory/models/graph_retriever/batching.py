@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from graph_memory.contracts.common import TaskId, TrainPairSampleType
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.embeddings import DenseTaskEncodingRequest
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.models.graph_batching import (
@@ -90,10 +90,12 @@ def materialize_training_tasks(
 ) -> list[EvidenceTaskTensor]:
     """Materialize one CPU tensor per supervised evidence task."""
 
-    graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
+    validated_graphs = [EvidenceGraph.model_validate(graph) for graph in graphs]
+    validated_pairs = [TrainPairRecord.model_validate(pair) for pair in pairs]
+    graphs_by_task_id = {graph.task_id: graph for graph in validated_graphs}
     pairs_by_task_id: dict[TaskId, list[TrainPairRecord]] = defaultdict(list)
-    for pair in pairs:
-        pairs_by_task_id[pair["task_id"]].append(pair)
+    for pair in validated_pairs:
+        pairs_by_task_id[pair.task_id].append(pair)
     inputs = [
         TaskBatchInputs(
             text_request=request,
@@ -125,7 +127,8 @@ def materialize_full_ranking_tasks(
 ) -> list[EvidenceTaskTensor]:
     """Materialize ordered CPU tensors for full evidence ranking."""
 
-    graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
+    validated_graphs = [EvidenceGraph.model_validate(graph) for graph in graphs]
+    graphs_by_task_id = {graph.task_id: graph for graph in validated_graphs}
     labels_by_task_id = (
         {label.task_id: label for label in labels} if labels is not None else {}
     )
@@ -276,7 +279,7 @@ def _materialize_tasks(
     requests = [
         DenseTaskEncodingRequest(
             ranking_request=task.text_request,
-            node_ids=tuple(str(node["id"]) for node in task.graph["nodes"]),
+            node_ids=tuple(node.id for node in task.graph.nodes),
         )
         for task in tasks
     ]
@@ -315,7 +318,7 @@ def _materialize_task(
     feature_builder = NodeFeatureBuilder(model_config.feature_config)
     text_request = task.text_request
     task_id = text_request.task_id
-    node_ids = [str(node["id"]) for node in task.graph["nodes"]]
+    node_ids = [node.id for node in task.graph.nodes]
     local_index_by_node_id = {node_id: index for index, node_id in enumerate(node_ids)}
     if "q" not in local_index_by_node_id:
         raise ValueError(f"Graph task_id={task_id} is missing q node.")
@@ -346,17 +349,18 @@ def _materialize_task(
             is_gold = candidate.item_id in gold_nodes
             sample_type: TrainPairSampleType = "positive" if is_gold else "easy_random"
             row_label: Literal[0, 1] = 1 if is_gold else 0
-            row: TrainPairRecord = {
-                "task_id": task_id,
-                "node_id": candidate.item_id,
-                "label": row_label,
-                "sample_type": sample_type,
-            }
-            rows.append(row)
+            rows.append(
+                TrainPairRecord(
+                    task_id=task_id,
+                    node_id=candidate.item_id,
+                    label=row_label,
+                    sample_type=sample_type,
+                )
+            )
     else:
         rows = task.pairs
 
-    sample_node_indices = [local_index_by_node_id[row["node_id"]] for row in rows]
+    sample_node_indices = [local_index_by_node_id[row.node_id] for row in rows]
     return EvidenceTaskTensor(
         graph_tensor=graph_tensor,
         sample_node_indices=torch.tensor(sample_node_indices, dtype=torch.long),
@@ -368,9 +372,9 @@ def _materialize_task(
                 dtype=torch.float32,
             )
         ),
-        labels=torch.tensor([float(row["label"]) for row in rows], dtype=torch.float32),
-        sample_node_ids=[row["node_id"] for row in rows],
-        sample_types=[row["sample_type"] for row in rows],
+        labels=torch.tensor([float(row.label) for row in rows], dtype=torch.float32),
+        sample_node_ids=[row.node_id for row in rows],
+        sample_types=[row.sample_type for row in rows],
     )
 
 

@@ -2,61 +2,56 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
 from graph_memory.datasets.twowiki_provenance.records import (
-    ProvenanceGraphRecord,
     TwoWikiProvenanceLabelRecord,
     TwoWikiProvenanceRankingRecord,
 )
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.graphs.provenance import (
-    ExecutionProvenanceEdge,
-    ExecutionProvenanceGraph,
-    ExecutionProvenanceNode,
-    FieldBinding,
-    ProvenanceEdgeType,
-    ProvenanceNodeType,
-)
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextCandidate,
     TextRankingRequest,
 )
+from graph_memory.retrieval.results import RankedResult
 
 
 class TwoWikiProvenanceToTextRankingRequest:
-    def project(self, record: TwoWikiProvenanceRankingRecord) -> TextRankingRequest:
+    def project(
+        self, record: TwoWikiProvenanceRankingRecord | object
+    ) -> TextRankingRequest:
+        record = TwoWikiProvenanceRankingRecord.model_validate(record)
         return TextRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             candidates=tuple(
                 TextCandidate(
-                    item_id=candidate["output_id"],
-                    text=f"{candidate['title']}. {candidate['text']}",
+                    item_id=candidate.output_id,
+                    text=f"{candidate.title}. {candidate.text}",
                     metadata={
-                        "title": candidate["title"],
-                        "source_ref": candidate["title"],
-                        "sequence_index": candidate["sentence_index"],
-                        "position": candidate["position"],
-                        "question_type": record["question_type"],
+                        "title": candidate.title,
+                        "source_ref": candidate.title,
+                        "sequence_index": candidate.sentence_index,
+                        "position": candidate.position,
+                        "question_type": record.question_type,
                     },
                 )
-                for candidate in record["candidates"]
+                for candidate in record.candidates
             ),
         )
 
 
 class TwoWikiProvenanceToExecutionProvenanceRankingRequest:
     def project(
-        self, record: TwoWikiProvenanceRankingRecord
+        self, record: TwoWikiProvenanceRankingRecord | object
     ) -> ExecutionProvenanceRankingRequest:
+        record = TwoWikiProvenanceRankingRecord.model_validate(record)
         text_request = TwoWikiProvenanceToTextRankingRequest().project(record)
         return ExecutionProvenanceRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             candidates=text_request.candidates,
-            graph=provenance_graph_from_record(record["graph"]),
+            graph=record.graph,
         )
 
 
@@ -68,67 +63,26 @@ class TwoWikiProvenanceToEvidenceEvaluationRequest:
         labels: Sequence[TwoWikiProvenanceLabelRecord],
         graphs: Sequence[EvidenceGraph],
     ) -> EvidenceEvaluationRequest:
+        validated_labels = tuple(
+            TwoWikiProvenanceLabelRecord.model_validate(label) for label in labels
+        )
         return EvidenceEvaluationRequest(
-            predictions=predictions,
+            predictions=tuple(predictions),
             labels=tuple(
                 EvidenceLabel(
-                    task_id=label["task_id"],
-                    gold_answer=label["gold_answer"],
-                    gold_evidence_item_ids=tuple(label["gold_evidence_output_ids"]),
-                    gold_dependency_edges=tuple(
-                        _dependency_edge(edge)
-                        for edge in label["gold_dependency_edges"]
-                    ),
+                    task_id=label.task_id,
+                    gold_answer=label.gold_answer,
+                    gold_evidence_item_ids=label.gold_evidence_output_ids,
+                    gold_dependency_edges=label.gold_dependency_edges,
                 )
-                for label in labels
+                for label in validated_labels
             ),
-            graphs=graphs,
+            graphs=tuple(graphs),
         )
-
-
-def provenance_graph_from_record(
-    record: ProvenanceGraphRecord,
-) -> ExecutionProvenanceGraph:
-    return ExecutionProvenanceGraph(
-        task_id=record["task_id"],
-        nodes=tuple(
-            ExecutionProvenanceNode(
-                node_id=node["node_id"],
-                node_type=ProvenanceNodeType(node["node_type"]),
-                text=node["text"],
-                metadata=node["metadata"],
-            )
-            for node in record["nodes"]
-        ),
-        edges=tuple(
-            ExecutionProvenanceEdge(
-                source=edge["source"],
-                target=edge["target"],
-                edge_type=ProvenanceEdgeType(edge["edge_type"]),
-                binding=(
-                    FieldBinding(**edge["binding"])
-                    if edge["binding"] is not None
-                    else None
-                ),
-                weight=edge["weight"],
-                metadata=edge["metadata"],
-            )
-            for edge in record["edges"]
-        ),
-    )
-
-
-def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
-    if len(edge) != 2:
-        raise ValueError(
-            f"Gold 2Wiki provenance dependency edge must have two IDs, got {len(edge)}."
-        )
-    return edge[0], edge[1]
 
 
 __all__ = [
     "TwoWikiProvenanceToEvidenceEvaluationRequest",
     "TwoWikiProvenanceToExecutionProvenanceRankingRequest",
     "TwoWikiProvenanceToTextRankingRequest",
-    "provenance_graph_from_record",
 ]

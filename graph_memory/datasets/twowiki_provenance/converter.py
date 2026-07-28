@@ -8,13 +8,13 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
+from pydantic import JsonValue
 from tqdm.auto import tqdm
 
 from graph_memory.datasets.twowiki import (
     convert_twowiki_example,
     parse_twowiki_example,
 )
-from graph_memory.contracts.common import JsonValue
 from graph_memory.datasets.twowiki.records import TwoWikiCandidateSentence
 from graph_memory.datasets.twowiki_provenance.records import (
     TWOWIKI_PROVENANCE_SCHEMA_VERSION,
@@ -22,9 +22,12 @@ from graph_memory.datasets.twowiki_provenance.records import (
     ProvenanceBindingRecord,
     ProvenanceCandidateRecord,
     ProvenanceEdgeRecord,
+    ProvenanceGraphRecord,
     ProvenanceNodeRecord,
     TwoWikiProvenanceConversionResult,
+    TwoWikiProvenanceLabelMetadata,
     TwoWikiProvenanceLabelRecord,
+    TwoWikiProvenanceRankingMetadata,
     TwoWikiProvenanceRankingRecord,
     TwoWikiProvenanceRawRecord,
 )
@@ -32,6 +35,7 @@ from graph_memory.datasets.twowiki_provenance.scoring import (
     ProvenanceGraphConstructionConfig,
     ProvenanceSemanticRanker,
 )
+from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 
@@ -124,7 +128,7 @@ def convert_twowiki_source_records(
             if strict:
                 raise
             rejected[_rejection_reason(error)] += 1
-    records.sort(key=lambda record: record["ranking"]["task_id"])
+    records.sort(key=lambda record: record.ranking.task_id)
     return TwoWikiProvenanceConversionResult(
         records=records,
         rejected_reason_counts=dict(sorted(rejected.items())),
@@ -254,7 +258,7 @@ def _convert_in_parallel(
         for chunk_records, chunk_rejected in chunk_results:
             records.extend(chunk_records)
             rejected.update(chunk_rejected)
-    records.sort(key=lambda record: record["ranking"]["task_id"])
+    records.sort(key=lambda record: record.ranking.task_id)
     return TwoWikiProvenanceConversionResult(
         records=records,
         rejected_reason_counts=dict(sorted(rejected.items())),
@@ -320,10 +324,10 @@ def convert_twowiki_source_record(
     if len(support_keys) != len(set(support_keys)):
         raise ValueError("duplicated_gold_support")
     converted = convert_twowiki_example(example)
-    if converted.label_record["metadata"]["mapping_ambiguity_count"]:
+    if converted.label_record.metadata["mapping_ambiguity_count"]:
         raise ValueError("ambiguous_gold_chain")
-    gold_ids = converted.label_record["gold_evidence_sentence_ids"]
-    gold_edges = converted.label_record["gold_dependency_edges"]
+    gold_ids = converted.label_record.gold_evidence_sentence_ids
+    gold_edges = converted.label_record.gold_dependency_edges
     if len(gold_ids) != 2:
         raise ValueError("unsupported_gold_evidence_count")
     if len(gold_edges) != 1:
@@ -333,8 +337,8 @@ def convert_twowiki_source_record(
         raise ValueError("invalid_ordered_gold_chain")
 
     candidates_by_source_id = {
-        candidate["sentence_id"]: candidate
-        for candidate in converted.ranking_record["candidate_sentences"]
+        candidate.sentence_id: candidate
+        for candidate in converted.ranking_record.candidate_sentences
     }
     if (
         gold_source not in candidates_by_source_id
@@ -342,7 +346,7 @@ def convert_twowiki_source_record(
     ):
         raise ValueError("gold_candidate_missing")
     selected = _select_candidates(
-        converted.ranking_record["candidate_sentences"],
+        converted.ranking_record.candidate_sentences,
         question=example.question,
         gold_ids={gold_source, gold_target},
         candidate_cap=candidate_cap,
@@ -353,7 +357,7 @@ def convert_twowiki_source_record(
 
     task_id = f"2wiki_provenance_{example.raw_id}"
     id_map = {
-        candidate["sentence_id"]: _node_ids(example.raw_id, candidate["sentence_id"])
+        candidate.sentence_id: _node_ids(example.raw_id, candidate.sentence_id)
         for candidate in selected
     }
     gold_output_source = id_map[gold_source][1]
@@ -363,16 +367,16 @@ def convert_twowiki_source_record(
     _rng(seed, example.raw_id, "candidates").shuffle(candidate_order)
     candidate_records: list[ProvenanceCandidateRecord] = []
     for position, candidate in enumerate(candidate_order):
-        call_id, output_id = id_map[candidate["sentence_id"]]
+        call_id, output_id = id_map[candidate.sentence_id]
         candidate_records.append(
-            {
-                "output_id": output_id,
-                "call_id": call_id,
-                "title": candidate["title"],
-                "sentence_index": candidate["sentence_index"],
-                "position": position,
-                "text": candidate["text"],
-            }
+            ProvenanceCandidateRecord(
+                output_id=output_id,
+                call_id=call_id,
+                title=candidate.title,
+                sentence_index=candidate.sentence_index,
+                position=position,
+                text=candidate.text,
+            )
         )
 
     nodes = _graph_nodes(task_id, example.question, candidate_records)
@@ -388,30 +392,34 @@ def convert_twowiki_source_record(
         ranker=resolved_ranker,
         )
     )
-    ranking: TwoWikiProvenanceRankingRecord = {
-        "task_id": task_id,
-        "question": example.question,
-        "question_type": example.question_type,
-        "candidates": candidate_records,
-        "graph": {"task_id": task_id, "nodes": nodes, "edges": edges},
-        "metadata": {
+    ranking = TwoWikiProvenanceRankingRecord(
+        task_id=task_id,
+        question=example.question,
+        question_type=example.question_type,
+        candidates=tuple(candidate_records),
+        graph=ProvenanceGraphRecord(
+            task_id=task_id,
+            nodes=tuple(nodes),
+            edges=tuple(edges),
+        ),
+        metadata=TwoWikiProvenanceRankingMetadata.model_validate({
             "dataset": "twowiki_provenance",
             "source_dataset": "2wiki",
             "source_raw_id": example.raw_id,
             "synthetic_execution_graph": True,
             "schema_version": TWOWIKI_PROVENANCE_SCHEMA_VERSION,
             "graph_construction": resolved_graph_config.identity(),
-        },
-    }
-    label: TwoWikiProvenanceLabelRecord = {
-        "task_id": task_id,
-        "gold_answer": example.answer,
-        "gold_evidence_output_ids": [gold_output_source, gold_output_target],
-        "gold_dependency_edges": [[gold_output_source, gold_output_target]],
-        "metadata": {
+        }),
+    )
+    label = TwoWikiProvenanceLabelRecord(
+        task_id=task_id,
+        gold_answer=example.answer,
+        gold_evidence_output_ids=(gold_output_source, gold_output_target),
+        gold_dependency_edges=((gold_output_source, gold_output_target),),
+        metadata=TwoWikiProvenanceLabelMetadata.model_validate({
             "dataset": "twowiki_provenance",
             "question_type": example.question_type,
-            "source_path_label_source": converted.label_record["metadata"][
+            "source_path_label_source": converted.label_record.metadata[
                 "path_label_source"
             ],
             "gold_edge_semantic_rank": gold_semantic_rank,
@@ -419,14 +427,14 @@ def convert_twowiki_source_record(
             "gold_edge_branch_role": gold_branch_role,
             "gold_edge_is_head": gold_branch_role == "semantic_head",
             "gold_edge_calibrated_weight": gold_weight,
-        },
-    }
+        }),
+    )
     return ConvertedTwoWikiProvenanceExample(
-        raw_record={
-            "schema_version": TWOWIKI_PROVENANCE_SCHEMA_VERSION,
-            "ranking": ranking,
-            "label": label,
-        }
+        raw_record=TwoWikiProvenanceRawRecord(
+            schema_version=TWOWIKI_PROVENANCE_SCHEMA_VERSION,
+            ranking=ranking,
+            label=label,
+        )
     )
 
 
@@ -438,13 +446,13 @@ def deterministic_dev_test_partition(
 ) -> tuple[list[TwoWikiProvenanceRawRecord], list[TwoWikiProvenanceRawRecord]]:
     if not 0.0 < dev_fraction < 1.0:
         raise ValueError("dev_fraction must be between 0 and 1.")
-    ordered = sorted(records, key=lambda record: record["ranking"]["task_id"])
+    ordered = sorted(records, key=lambda record: record.ranking.task_id)
     shuffled = list(ordered)
     random.Random(seed).shuffle(shuffled)
     boundary = max(1, min(len(shuffled) - 1, round(len(shuffled) * dev_fraction)))
     return (
-        sorted(shuffled[:boundary], key=lambda record: record["ranking"]["task_id"]),
-        sorted(shuffled[boundary:], key=lambda record: record["ranking"]["task_id"]),
+        sorted(shuffled[:boundary], key=lambda record: record.ranking.task_id),
+        sorted(shuffled[boundary:], key=lambda record: record.ranking.task_id),
     )
 
 
@@ -457,27 +465,27 @@ def _select_candidates(
     ranker: ProvenanceSemanticRanker,
 ) -> list[TwoWikiCandidateSentence]:
     gold = [
-        candidate for candidate in candidates if candidate["sentence_id"] in gold_ids
+        candidate for candidate in candidates if candidate.sentence_id in gold_ids
     ]
     negatives = [
         candidate
         for candidate in candidates
-        if candidate["sentence_id"] not in gold_ids
+        if candidate.sentence_id not in gold_ids
     ]
     request = TextRankingRequest(
         task_id="candidate_selection",
         query_text=question,
         candidates=tuple(
             TextCandidate(
-                item_id=candidate["sentence_id"],
-                text=f"{candidate['title']}. {candidate['text']}",
+                item_id=candidate.sentence_id,
+                text=f"{candidate.title}. {candidate.text}",
                 metadata={},
             )
             for candidate in negatives
         ),
     )
     ranked_ids = [item.node_id for item in ranker.rank(request)] if negatives else []
-    negative_by_id = {candidate["sentence_id"]: candidate for candidate in negatives}
+    negative_by_id = {candidate.sentence_id: candidate for candidate in negatives}
     selected = [
         *gold,
         *[
@@ -494,44 +502,44 @@ def _graph_nodes(
     candidates: Sequence[ProvenanceCandidateRecord],
 ) -> list[ProvenanceNodeRecord]:
     nodes: list[ProvenanceNodeRecord] = [
-        {
-            "node_id": f"task_{_digest(task_id)}",
-            "node_type": "task",
-            "text": question,
-            "metadata": {"role": "query"},
-        },
-        {
-            "node_id": f"agent_{_digest(task_id)}",
-            "node_type": "agent",
-            "text": "evidence retrieval agent",
-            "metadata": {"role": "retriever"},
-        },
+        ProvenanceNodeRecord(
+            node_id=f"task_{_digest(task_id)}",
+            node_type=ProvenanceNodeType.TASK,
+            text=question,
+            metadata={"role": "query"},
+        ),
+        ProvenanceNodeRecord(
+            node_id=f"agent_{_digest(task_id)}",
+            node_type=ProvenanceNodeType.AGENT,
+            text="evidence retrieval agent",
+            metadata={"role": "retriever"},
+        ),
     ]
     for candidate in candidates:
         nodes.extend(
             (
-                {
-                    "node_id": candidate["call_id"],
-                    "node_type": "tool_call",
-                    "text": f"retrieve evidence from {candidate['title']}",
-                    "metadata": {
+                ProvenanceNodeRecord(
+                    node_id=candidate.call_id,
+                    node_type=ProvenanceNodeType.TOOL_CALL,
+                    text=f"retrieve evidence from {candidate.title}",
+                    metadata={
                         "tool_name": "retrieve_evidence",
-                        "source_ref": candidate["title"],
+                        "source_ref": candidate.title,
                         "input_parameters": ["context"],
                     },
-                },
-                {
-                    "node_id": candidate["output_id"],
-                    "node_type": "tool_output",
-                    "text": f"{candidate['title']}. {candidate['text']}",
-                    "metadata": {
-                        "source_ref": candidate["title"],
-                        "sentence_index": candidate["sentence_index"],
+                ),
+                ProvenanceNodeRecord(
+                    node_id=candidate.output_id,
+                    node_type=ProvenanceNodeType.TOOL_OUTPUT,
+                    text=f"{candidate.title}. {candidate.text}",
+                    metadata={
+                        "source_ref": candidate.title,
+                        "sentence_index": candidate.sentence_index,
                         "output_field_hashes": {
                             "evidence": _candidate_field_hash(candidate)
                         },
                     },
-                },
+                ),
             )
         )
     return nodes
@@ -550,17 +558,17 @@ def _graph_edges(
 ) -> tuple[list[ProvenanceEdgeRecord], int, str, str, float]:
     task_id = f"task_{_digest(f'2wiki_provenance_{raw_id}')}"
     agent_id = f"agent_{_digest(f'2wiki_provenance_{raw_id}')}"
-    by_output = {candidate["output_id"]: candidate for candidate in candidates}
+    by_output = {candidate.output_id: candidate for candidate in candidates}
     edges: list[ProvenanceEdgeRecord] = [
         _edge(task_id, agent_id, "contains"),
     ]
     for candidate in candidates:
         edges.extend(
             (
-                _edge(task_id, candidate["call_id"], "contains"),
-                _edge(task_id, candidate["output_id"], "contains"),
-                _edge(agent_id, candidate["call_id"], "invokes"),
-                _edge(candidate["call_id"], candidate["output_id"], "returns"),
+                _edge(task_id, candidate.call_id, "contains"),
+                _edge(task_id, candidate.output_id, "contains"),
+                _edge(agent_id, candidate.call_id, "invokes"),
+                _edge(candidate.call_id, candidate.output_id, "returns"),
             )
         )
 
@@ -569,12 +577,12 @@ def _graph_edges(
         source = by_output[source_output]
         target_candidates = tuple(
             TextCandidate(
-                item_id=target["output_id"],
-                text=f"{target['title']}. {target['text']}",
+                item_id=target.output_id,
+                text=f"{target.title}. {target.text}",
                 metadata={},
             )
             for target in candidates
-            if target["output_id"] != source_output
+            if target.output_id != source_output
         )
         request = TextRankingRequest(
             task_id=f"{raw_id}:{source_output}",
@@ -673,18 +681,18 @@ def _graph_edges(
             selected, probabilities, weights, strict=True
         ):
             target_output = successor.target_output
-            target_call = by_output[target_output]["call_id"]
+            target_call = by_output[target_output].call_id
             edges.append(
                 _edge(
                     source_output,
                     target_call,
                     "feeds",
-                    binding={
-                        "output_field": "evidence",
-                        "input_parameter": "context",
-                        "binding_value_hash": _candidate_field_hash(source),
-                        "binding_kind": "semantic_reference",
-                    },
+                    binding=ProvenanceBindingRecord(
+                        output_field="evidence",
+                        input_parameter="context",
+                        binding_value_hash=_candidate_field_hash(source),
+                        binding_kind="semantic_reference",
+                    ),
                     weight=weight,
                     metadata={
                         "semantic_scorer": graph_config.strategy,
@@ -911,7 +919,7 @@ def _source_query(
         raise ValueError(
             f"Unsupported provenance query template={query_template_version!r}."
         )
-    return f"{question}\nSource evidence: {source['title']}. {source['text']}"
+    return f"{question}\nSource evidence: {source.title}. {source.text}"
 
 
 def _edge(
@@ -926,14 +934,14 @@ def _edge(
     edge_metadata: dict[str, JsonValue] = {"synthetic": True}
     if metadata is not None:
         edge_metadata.update(metadata)
-    return {
-        "source": source,
-        "target": target,
-        "edge_type": edge_type,
-        "binding": binding,
-        "weight": weight,
-        "metadata": edge_metadata,
-    }
+    return ProvenanceEdgeRecord(
+        source=source,
+        target=target,
+        edge_type=ProvenanceEdgeType(edge_type),
+        binding=binding,
+        weight=weight,
+        metadata=edge_metadata,
+    )
 
 
 def _node_ids(raw_id: str, source_id: str) -> tuple[str, str]:
@@ -942,7 +950,7 @@ def _node_ids(raw_id: str, source_id: str) -> tuple[str, str]:
 
 
 def _candidate_field_hash(candidate: ProvenanceCandidateRecord) -> str:
-    return _digest(f"{candidate['title']}\n{candidate['text']}")
+    return _digest(f"{candidate.title}\n{candidate.text}")
 
 
 def _digest(value: str) -> str:

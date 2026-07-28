@@ -4,7 +4,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
-from graph_memory.contracts.graphs import GraphEdge
+from graph_memory.graphs.contracts import GraphEdge
 from graph_memory.retrieval.contracts import (
     CandidateEdgeTrace,
     DenseRankTrace,
@@ -68,7 +68,11 @@ class GraphRAGMethod:
                 f"{self.name} requires GraphRAGRequest, got {type(request).__name__}."
             )
         dense_ranked = self.dense_ranker.rank(
-            TextRankingRequest(request.task_id, request.query_text, request.candidates)
+            TextRankingRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+            )
         )
         dense_rank = {
             node.node_id: index for index, node in enumerate(dense_ranked, start=1)
@@ -109,7 +113,9 @@ class GraphRAGMethod:
             dense_rank=dense_rank,
             preserve_dense_top_n=self.config.preserve_dense_top_n,
         )
-        actual_bridges = {bridge for bridge, _old_rank, _new_rank in moved}
+        actual_bridges = tuple(
+            bridge for bridge, _old_rank, _new_rank in moved
+        )
         for bridge in tuple(outcomes):
             accepted, reason = outcomes[bridge]
             if accepted and bridge not in actual_bridges:
@@ -119,7 +125,7 @@ class GraphRAGMethod:
         else:
             score_slots = [node.score for node in dense_ranked]
             ranked_nodes = [
-                RankedNode(node_id, score_slots[index])
+                RankedNode(node_id=node_id, score=score_slots[index])
                 for index, node_id in enumerate(final_ids)
             ]
         final_rank = {
@@ -177,9 +183,9 @@ class GraphRAGMethod:
             ),
         )
         return RetrievalMethodResult(
-            ranked_nodes=ranked_nodes,
+            ranked_nodes=tuple(ranked_nodes),
             trace=RetrievalTrace(
-                retrieved_edges=retrieved_edges,
+                retrieved_edges=tuple(retrieved_edges),
                 native_trace=trace,
             ),
         )
@@ -353,13 +359,13 @@ def _stable_insert(
 
 
 def _bridge_edge(bridge: GraphRAGCandidateBridge) -> GraphEdge:
-    return {
-        "source": bridge.source_candidate_id,
-        "target": bridge.target_candidate_id,
-        "edge_type": "bridge_to",
-        "weight": bridge.confidence,
-        "directed": True,
-    }
+    return GraphEdge(
+        source=bridge.source_candidate_id,
+        target=bridge.target_candidate_id,
+        edge_type="bridge_to",
+        weight=bridge.confidence,
+        directed=True,
+    )
 
 
 __all__ = ["GraphRAGMethod"]

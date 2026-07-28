@@ -6,6 +6,7 @@ import pytest
 
 from graph_memory.datasets.hotpotqa import (
     HotpotQAConversionResult,
+    HotpotQARankingRecord,
     convert_hotpotqa_examples,
     parse_hotpotqa_examples,
 )
@@ -36,24 +37,24 @@ def test_supporting_facts_map_title_sentence_to_node_ids():
     assert isinstance(conversion, HotpotQAConversionResult)
     inputs = conversion.ranking_records
     labels = conversion.label_records
-    assert inputs[0]["task_id"] == "hotpot_ex1"
+    assert inputs[0].task_id == "hotpot_ex1"
     assert (
-        inputs[0]["question"]
+        inputs[0].question
         == "Where is the Eiffel Tower and what river runs through that city?"
     )
-    assert inputs[0]["candidate_sentences"][0]["sentence_id"] == "m0"
-    assert inputs[0]["candidate_sentences"][0]["sentence_index"] == 0
-    assert inputs[0]["candidate_sentences"][0]["position"] == 0
-    assert inputs[0]["candidate_sentences"][3]["sentence_id"] == "m3"
-    assert inputs[0]["candidate_sentences"][3]["sentence_index"] == 1
-    assert inputs[0]["candidate_sentences"][3]["position"] == 3
-    assert labels[0]["task_id"] == "hotpot_ex1"
-    assert labels[0]["gold_answer"] == "Paris and the Seine"
-    assert labels[0]["gold_evidence_sentence_ids"] == ["m0", "m3"]
-    assert labels[0]["gold_dependency_edges"] == []
-    assert "gold_answer" not in inputs[0]
-    assert "gold_evidence_sentence_ids" not in inputs[0]
-    assert "supporting_facts" not in inputs[0]
+    assert inputs[0].candidate_sentences[0].sentence_id == "m0"
+    assert inputs[0].candidate_sentences[0].sentence_index == 0
+    assert inputs[0].candidate_sentences[0].position == 0
+    assert inputs[0].candidate_sentences[3].sentence_id == "m3"
+    assert inputs[0].candidate_sentences[3].sentence_index == 1
+    assert inputs[0].candidate_sentences[3].position == 3
+    assert labels[0].task_id == "hotpot_ex1"
+    assert labels[0].gold_answer == "Paris and the Seine"
+    assert labels[0].gold_evidence_sentence_ids == ("m0", "m3")
+    assert labels[0].gold_dependency_edges == ()
+    assert "gold_answer" not in type(inputs[0]).model_fields
+    assert "gold_evidence_sentence_ids" not in type(inputs[0]).model_fields
+    assert "supporting_facts" not in type(inputs[0]).model_fields
 
 
 def test_hotpotqa_parse_and_convert_reject_invalid_records() -> None:
@@ -107,8 +108,10 @@ def test_prepare_hotpotqa_drops_record_with_empty_candidate_sentence(tmp_path: P
     assert prepared.counts["valid_examples"] == 1
     assert prepared.counts["invalid_examples_dropped"] == 1
     assert prepared.counts["task_inputs"] == 1
-    assert isinstance(prepared.task_inputs[0], dict)
-    assert prepared.task_inputs[0]["task_id"] == "hotpot_ex1"
+    assert (
+        HotpotQARankingRecord.model_validate(prepared.task_inputs[0]).task_id
+        == "hotpot_ex1"
+    )
 
 
 def test_sample_split_is_deterministic_disjoint_and_bounds_checked() -> None:

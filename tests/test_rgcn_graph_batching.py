@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import replace
 from typing import cast
 
@@ -8,8 +7,8 @@ import pytest
 import torch
 
 from graph_memory.contracts.common import TrainPairSampleType
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.models.graph_batching import (
@@ -105,6 +104,7 @@ def test_evidence_tail_graph_batch_produces_its_own_optimizer_step() -> None:
     result = train_graph_retriever(
         train_requests=requests,
         train_graphs=graphs,
+        train_labels=labels,
         train_pairs=pairs,
         dev_requests=requests,
         dev_labels=labels,
@@ -113,10 +113,8 @@ def test_evidence_tail_graph_batch_produces_its_own_optimizer_step() -> None:
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
         device="cpu",
-        training_config=replace(
-            tiny_training_config(),
-            epochs=1,
-            per_device_graph_batch_size=2,
+        training_config=tiny_training_config().model_copy(
+            update={"epochs": 1, "per_device_graph_batch_size": 2}
         ),
     )
 
@@ -178,10 +176,8 @@ def _evidence_tasks(
     )
     for index, sample_count in enumerate(sample_counts):
         task_id = f"evidence-batch-{index}"
-        task = deepcopy(base_task)
-        task["task_id"] = task_id
-        graph = deepcopy(base_graph)
-        graph["task_id"] = task_id
+        task = base_task.model_copy(update={"task_id": task_id})
+        graph = base_graph.model_copy(update={"task_id": task_id})
         requests.append(projector.project(task))
         graphs.append(graph)
         labels.append(
@@ -193,11 +189,12 @@ def _evidence_tasks(
             )
         )
         for node_id, row_label, sample_type in rows[:sample_count]:
-            pair: TrainPairRecord = {
-                "task_id": task_id,
-                "node_id": node_id,
-                "label": row_label,
-                "sample_type": sample_type,
-            }
-            pairs.append(pair)
+            pairs.append(
+                TrainPairRecord(
+                    task_id=task_id,
+                    node_id=node_id,
+                    label=1 if row_label == 1 else 0,
+                    sample_type=sample_type,
+                )
+            )
     return requests, graphs, pairs, labels

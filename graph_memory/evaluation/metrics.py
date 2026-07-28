@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from graph_memory.contracts.common import NodeId
-from graph_memory.validation import ContractValidationError
 
 
 def recall_at(ranked_nodes: list[NodeId], gold_nodes: set[NodeId], k: int) -> float:
@@ -35,7 +34,7 @@ def mrr(ranked_nodes: list[NodeId], gold_nodes: set[NodeId]) -> float:
 
 def require_gold_nodes(gold_nodes: set[NodeId]) -> None:
     if not gold_nodes:
-        raise ContractValidationError("Gold evidence nodes must be non-empty.")
+        raise ValueError("Gold evidence nodes must be non-empty.")
 
 
 __all__ = ["evidence_f1_at", "full_support_at", "mrr", "recall_at", "require_gold_nodes"]

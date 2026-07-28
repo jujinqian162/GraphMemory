@@ -6,7 +6,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from pydantic import Field
+
+from graph_memory.contracts.model import (
+    DomainModel,
+    NonEmptyStr,
+    NonNegativeFiniteFloat,
+    NonNegativeInt,
+    PositiveFiniteFloat,
+    PositiveInt,
+)
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.embeddings import load_sentence_transformer
@@ -19,34 +29,35 @@ from graph_memory.models.dense_finetune.metadata import (
 )
 
 
-@dataclass(frozen=True)
-class DenseFinetuneTrainerSettings:
-    learning_rate: float = 2e-5
-    train_batch_size: int = 16
-    eval_batch_size: int = 64
-    epochs: int = 1
-    warmup_steps: int = 0
-    max_grad_norm: float = 1.0
+class DenseFinetuneTrainerSettings(DomainModel):
+    learning_rate: PositiveFiniteFloat = 2e-5
+    train_batch_size: PositiveInt = 16
+    eval_batch_size: PositiveInt = 64
+    epochs: PositiveInt = 1
+    warmup_steps: NonNegativeInt = 0
+    max_grad_norm: NonNegativeFiniteFloat = 1.0
     random_seed: int = 13
-    device: str = "cuda"
+    device: NonEmptyStr = "cuda"
     use_amp: bool = False
 
 
-@dataclass(frozen=True)
-class DenseFinetuneSelectionSettings:
-    best_metric: str = "eval_dev_cos_sim_map@100"
+class DenseFinetuneSelectionSettings(DomainModel):
+    best_metric: NonEmptyStr = "eval_dev_cos_sim_map@100"
     higher_is_better: bool = True
 
 
-@dataclass(frozen=True)
-class DenseFinetuneRunConfig:
-    base_model: str
+class DenseFinetuneRunConfig(DomainModel):
+    base_model: NonEmptyStr
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
-    batch_size: int = 64
-    data: DenseFinetuneDataSettings = DenseFinetuneDataSettings()
-    trainer: DenseFinetuneTrainerSettings = DenseFinetuneTrainerSettings()
-    selection: DenseFinetuneSelectionSettings = DenseFinetuneSelectionSettings()
+    batch_size: PositiveInt = 64
+    data: DenseFinetuneDataSettings = Field(default_factory=DenseFinetuneDataSettings)
+    trainer: DenseFinetuneTrainerSettings = Field(
+        default_factory=DenseFinetuneTrainerSettings
+    )
+    selection: DenseFinetuneSelectionSettings = Field(
+        default_factory=DenseFinetuneSelectionSettings
+    )
 
 
 class DenseFinetuneModel(Protocol):

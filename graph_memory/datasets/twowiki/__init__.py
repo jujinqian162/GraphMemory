@@ -24,6 +24,7 @@ from graph_memory.datasets.twowiki.records import (
     TwoWikiEvidenceTriple,
     TwoWikiExample,
     TwoWikiLabelRecord,
+    TwoWikiPreparedSplit,
     TwoWikiRankingRecord,
     TwoWikiSupportingFact,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "TwoWikiEvidenceTriple",
     "TwoWikiExample",
     "TwoWikiLabelRecord",
+    "TwoWikiPreparedSplit",
     "TwoWikiRankingRecord",
     "TwoWikiSupportingFact",
     "TwoWikiToEvidenceEvaluationRequest",

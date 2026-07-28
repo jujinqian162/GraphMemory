@@ -14,7 +14,7 @@ from prefect.settings import (
     temporary_settings,
 )
 
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     DirectorySourceRef,

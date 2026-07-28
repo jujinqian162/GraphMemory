@@ -9,7 +9,7 @@ from dataclasses import replace
 import numpy as np
 import torch
 
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.provenance import (
@@ -279,12 +279,12 @@ def materialize_provenance_training_task(
     }
     seen_pair_nodes: set[str] = set()
     for pair in train_pairs:
-        if pair["task_id"] != label.task_id:
+        if pair.task_id != label.task_id:
             raise ValueError(
                 "Provenance train pair task mismatch: "
-                f"expected={label.task_id!r} observed={pair['task_id']!r}."
+                f"expected={label.task_id!r} observed={pair.task_id!r}."
             )
-        node_id = pair["node_id"]
+        node_id = pair.node_id
         if node_id not in candidate_index:
             raise ValueError(
                 f"Provenance train pair node_id={node_id!r} is not a candidate."
@@ -295,7 +295,7 @@ def materialize_provenance_training_task(
                 f"task_id={label.task_id!r} node_id={node_id!r}."
             )
         seen_pair_nodes.add(node_id)
-        candidate_targets[candidate_index[node_id]] = int(pair["label"])
+        candidate_targets[candidate_index[node_id]] = int(pair.label)
     if not bool((candidate_targets == 1).any()):
         raise ValueError(
             f"Provenance task_id={label.task_id!r} has no positive train pairs."

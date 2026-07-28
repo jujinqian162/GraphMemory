@@ -12,33 +12,39 @@ dataset adapter
 
 ```text
 graph_memory/
-  contracts/          shared types, graphs, ranking, metrics
-  datasets/           HotpotQA, 2Wiki, MuSiQue, twowiki_provenance
-  graphs/             evidence construction; provenance values
+  contracts/          low-level scalar/model primitives and shared IDs
+  datasets/           dataset-owned Pydantic records and projectors
+  graphs/             Pydantic evidence/provenance contracts and construction
   embeddings/         frozen dense encoders
   retrieval/          requests, flat / graphrag / epgm methods
   models/             dense_finetune, graph_retriever (R-GCN)
   registry/           method IDs, settings, builders
   stages/             prepare, graphs, pairs, models, retrieve, evaluate
   experiment/         Hydra job, Prefect Flow, artifacts, tracking
-  evaluation/         metrics and tables
-  training_pairs/     pair sampling
-  validation/         fail-fast validators
+  evaluation/         Pydantic labels, metric rows, suites, and tables
+  training_pairs/     Pydantic pair contracts and pair sampling
   analysis/           post-run aggregation helpers
 ```
 
 ## Ownership rules
 
-- `datasets/` projects source records into consumer-specific requests; it does not invent cross-domain graphs.
-- `contracts/graphs.py` owns traditional `EvidenceGraph`.
-- `graphs/provenance/` owns `ExecutionProvenanceGraph` values and validation.
-- `retrieval/requests/` owns the closed request union.
+- `datasets/` owns closed Pydantic source/prepared records and projects them into consumer-specific requests; it does not invent cross-domain graphs.
+- `graphs/contracts.py` owns the closed `EvidenceGraph` model.
+- `graphs/provenance/` owns the closed `ExecutionProvenanceGraph` and field-binding models.
+- `retrieval/requests/` owns the closed request union; `retrieval/results.py` owns ranked results and request/result aggregates.
 - GraphRAG owns its entity graph end-to-end; Registry may assemble mentions before the method runs.
 - EPGM lives under `retrieval/methods/epgm/`.
 - `models/graph_retriever/` owns node-wise R-GCN train/infer for both evidence and provenance families (separate method IDs and pair protocols).
 - `registry/` owns public IDs, request/family compatibility, and builders. Workflow scheduling stays in `experiment/workflow.py`, not Registry metadata.
 - `experiment/` schedules stages from real artifact dependencies of the selected method/variant.
+- `training_pairs/`, `evaluation/`, and each model package own their Pydantic artifact/config contracts. There is no central validation package.
 - Root `io.py` / `compat.py` are thin ports only.
+
+## Contract and artifact rule
+
+A scientific field is declared once, in the Pydantic model owned by its domain. Custom scientific invariants are model validators on that model or on a typed aggregate joining related models. Contributors must not add parallel allowed-field sets, central `validate_*` functions, or hand-written serializers.
+
+Project-owned JSON is validated immediately at the consuming stage boundary with the owning model or a cached `TypeAdapter`. Inside the pipeline, code passes frozen model instances and uses attributes. Publication uses `model_dump(mode="json", by_alias=True)` (directly or through the Pydantic-aware IO port). Training-pair and dev-input aggregates are constructed before encoder/model loading or optimizer creation, so malformed artifacts fail before expensive work.
 
 ## Three graphs, no translation
 

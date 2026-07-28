@@ -138,10 +138,10 @@ class EqualEncoder:
 
 def _candidates() -> tuple[TextCandidate, ...]:
     return (
-        TextCandidate("call-1", "lookup Alpha", {}),
-        TextCandidate("out-1", "Alpha result", {}),
-        TextCandidate("call-2", "use Alpha result", {}),
-        TextCandidate("out-2", "final Alpha answer", {}),
+        TextCandidate(item_id="call-1", text="lookup Alpha", metadata={}),
+        TextCandidate(item_id="out-1", text="Alpha result", metadata={}),
+        TextCandidate(item_id="call-2", text="use Alpha result", metadata={}),
+        TextCandidate(item_id="out-2", text="final Alpha answer", metadata={}),
     )
 
 
@@ -164,16 +164,16 @@ def _local_dense_ranker(
 def _local_graphrag_candidates() -> tuple[TextCandidate, ...]:
     return (
         TextCandidate(
-            "a",
-            "Alpha. Alpha was born in Bridge City.",
-            {"title": "Alpha", "source_ref": "Alpha"},
+            item_id="a",
+            text="Alpha. Alpha was born in Bridge City.",
+            metadata={"title": "Alpha", "source_ref": "Alpha"},
         ),
-        TextCandidate("x", "Noise One. Distractor.", {"title": "Noise One"}),
-        TextCandidate("y", "Noise Two. Distractor.", {"title": "Noise Two"}),
+        TextCandidate(item_id="x", text="Noise One. Distractor.", metadata={"title": "Noise One"}),
+        TextCandidate(item_id="y", text="Noise Two. Distractor.", metadata={"title": "Noise Two"}),
         TextCandidate(
-            "b",
-            "Bridge City. Bridge City is located in Country Z.",
-            {"title": "Bridge City"},
+            item_id="b",
+            text="Bridge City. Bridge City is located in Country Z.",
+            metadata={"title": "Bridge City"},
         ),
     )
 
@@ -184,37 +184,37 @@ def _local_provenance_request(
     binding_hash = "alpha-hash" if valid_binding else "wrong-hash"
     nodes = (
         ExecutionProvenanceNode(
-            "call-a",
-            ProvenanceNodeType.TOOL_CALL,
-            "Alpha call",
-            {"input_parameters": ["context"]},
+            node_id="call-a",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="Alpha call",
+            metadata={"input_parameters": ["context"]},
         ),
         ExecutionProvenanceNode(
-            "a",
-            ProvenanceNodeType.TOOL_OUTPUT,
-            "Alpha source",
-            {"output_field_hashes": {"evidence": "alpha-hash"}},
+            node_id="a",
+            node_type=ProvenanceNodeType.TOOL_OUTPUT,
+            text="Alpha source",
+            metadata={"output_field_hashes": {"evidence": "alpha-hash"}},
         ),
-        ExecutionProvenanceNode("x", ProvenanceNodeType.TOOL_OUTPUT, "Noise One"),
-        ExecutionProvenanceNode("y", ProvenanceNodeType.TOOL_OUTPUT, "Noise Two"),
+        ExecutionProvenanceNode(node_id="x", node_type=ProvenanceNodeType.TOOL_OUTPUT, text="Noise One"),
+        ExecutionProvenanceNode(node_id="y", node_type=ProvenanceNodeType.TOOL_OUTPUT, text="Noise Two"),
         ExecutionProvenanceNode(
-            "call-b",
-            ProvenanceNodeType.TOOL_CALL,
-            "Bridge call",
-            {"input_parameters": ["context"]},
+            node_id="call-b",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="Bridge call",
+            metadata={"input_parameters": ["context"]},
         ),
         ExecutionProvenanceNode(
-            "b", ProvenanceNodeType.TOOL_OUTPUT, "Bridge City target"
+            node_id="b", node_type=ProvenanceNodeType.TOOL_OUTPUT, text="Bridge City target"
         ),
     )
     edges = (
-        ExecutionProvenanceEdge("call-a", "a", ProvenanceEdgeType.RETURNS),
+        ExecutionProvenanceEdge(source="call-a", target="a", edge_type=ProvenanceEdgeType.RETURNS),
         ExecutionProvenanceEdge(
-            "a",
-            "call-b",
-            ProvenanceEdgeType.FEEDS,
+            source="a",
+            target="call-b",
+            edge_type=ProvenanceEdgeType.FEEDS,
             binding=FieldBinding(
-                "evidence", "context", binding_hash, "semantic_reference"
+                output_field="evidence", input_parameter="context", binding_value_hash=binding_hash, binding_kind="semantic_reference"
             ),
             weight=0.8,
             metadata={
@@ -223,18 +223,18 @@ def _local_provenance_request(
                 "semantic_score": 0.7,
             },
         ),
-        ExecutionProvenanceEdge("call-b", "b", ProvenanceEdgeType.RETURNS),
+        ExecutionProvenanceEdge(source="call-b", target="b", edge_type=ProvenanceEdgeType.RETURNS),
     )
     return ExecutionProvenanceRankingRequest(
-        "local-path",
-        "base query",
-        (
-            TextCandidate("a", "Alpha source", {}),
-            TextCandidate("x", "Noise One", {}),
-            TextCandidate("y", "Noise Two", {}),
-            TextCandidate("b", "Bridge City target", {}),
+        task_id="local-path",
+        query_text="base query",
+        candidates=(
+            TextCandidate(item_id="a", text="Alpha source", metadata={}),
+            TextCandidate(item_id="x", text="Noise One", metadata={}),
+            TextCandidate(item_id="y", text="Noise Two", metadata={}),
+            TextCandidate(item_id="b", text="Bridge City target", metadata={}),
         ),
-        ExecutionProvenanceGraph("local-path", nodes, edges),
+        graph=ExecutionProvenanceGraph(task_id="local-path", nodes=nodes, edges=edges),
     )
 
 
@@ -242,34 +242,34 @@ def _provenance_graph(
     *, include_untraversed_edge: bool = False
 ) -> ExecutionProvenanceGraph:
     nodes = (
-        ExecutionProvenanceNode("task", ProvenanceNodeType.TASK, "find Alpha"),
-        ExecutionProvenanceNode("agent", ProvenanceNodeType.AGENT, "assistant"),
-        ExecutionProvenanceNode("call-1", ProvenanceNodeType.TOOL_CALL, "lookup Alpha"),
+        ExecutionProvenanceNode(node_id="task", node_type=ProvenanceNodeType.TASK, text="find Alpha"),
+        ExecutionProvenanceNode(node_id="agent", node_type=ProvenanceNodeType.AGENT, text="assistant"),
+        ExecutionProvenanceNode(node_id="call-1", node_type=ProvenanceNodeType.TOOL_CALL, text="lookup Alpha"),
         ExecutionProvenanceNode(
-            "out-1",
-            ProvenanceNodeType.TOOL_OUTPUT,
-            "Alpha result",
-            {"output_field_hashes": {"result": "alpha-hash"}},
+            node_id="out-1",
+            node_type=ProvenanceNodeType.TOOL_OUTPUT,
+            text="Alpha result",
+            metadata={"output_field_hashes": {"result": "alpha-hash"}},
         ),
         ExecutionProvenanceNode(
-            "call-2",
-            ProvenanceNodeType.TOOL_CALL,
-            "use Alpha result",
-            {"input_parameters": ["input"]},
+            node_id="call-2",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="use Alpha result",
+            metadata={"input_parameters": ["input"]},
         ),
         ExecutionProvenanceNode(
-            "out-2", ProvenanceNodeType.TOOL_OUTPUT, "final Alpha answer"
+            node_id="out-2", node_type=ProvenanceNodeType.TOOL_OUTPUT, text="final Alpha answer"
         ),
-        ExecutionProvenanceNode("answer", ProvenanceNodeType.ANSWER, "Alpha"),
+        ExecutionProvenanceNode(node_id="answer", node_type=ProvenanceNodeType.ANSWER, text="Alpha"),
     )
     edges = [
-        ExecutionProvenanceEdge("agent", "call-1", ProvenanceEdgeType.INVOKES),
-        ExecutionProvenanceEdge("call-1", "out-1", ProvenanceEdgeType.RETURNS),
+        ExecutionProvenanceEdge(source="agent", target="call-1", edge_type=ProvenanceEdgeType.INVOKES),
+        ExecutionProvenanceEdge(source="call-1", target="out-1", edge_type=ProvenanceEdgeType.RETURNS),
         ExecutionProvenanceEdge(
-            "out-1",
-            "call-2",
-            ProvenanceEdgeType.FEEDS,
-            binding=FieldBinding("result", "input", "alpha-hash", "exact"),
+            source="out-1",
+            target="call-2",
+            edge_type=ProvenanceEdgeType.FEEDS,
+            binding=FieldBinding(output_field="result", input_parameter="input", binding_value_hash="alpha-hash", binding_kind="exact"),
             weight=0.9,
             metadata={
                 "semantic_scorer": "frozen_dense",
@@ -277,14 +277,14 @@ def _provenance_graph(
                 "semantic_score": 0.8,
             },
         ),
-        ExecutionProvenanceEdge("call-2", "out-2", ProvenanceEdgeType.RETURNS),
-        ExecutionProvenanceEdge("out-2", "answer", ProvenanceEdgeType.GROUNDS),
+        ExecutionProvenanceEdge(source="call-2", target="out-2", edge_type=ProvenanceEdgeType.RETURNS),
+        ExecutionProvenanceEdge(source="out-2", target="answer", edge_type=ProvenanceEdgeType.GROUNDS),
     ]
     if include_untraversed_edge:
         edges.append(
-            ExecutionProvenanceEdge("call-1", "call-2", ProvenanceEdgeType.PRECEDES)
+            ExecutionProvenanceEdge(source="call-1", target="call-2", edge_type=ProvenanceEdgeType.PRECEDES)
         )
-    return ExecutionProvenanceGraph("task-1", nodes, tuple(edges))
+    return ExecutionProvenanceGraph(task_id="task-1", nodes=nodes, edges=tuple(edges))
 
 
 def test_registry_exposes_exact_method_matrix_and_semantic_inputs() -> None:
@@ -318,10 +318,14 @@ def test_retired_method_id_is_explicitly_unsupported() -> None:
 def test_registry_rejects_cross_graph_method_requests() -> None:
     candidates = _candidates()
     provenance_request = ExecutionProvenanceRankingRequest(
-        "task-1", "find Alpha", candidates, _provenance_graph()
+        task_id="task-1", query_text="find Alpha", candidates=candidates, graph=_provenance_graph()
     )
     evidence_request = EvidenceGraphRankingRequest(
-        "hotpot_rgcn_train", "find Alpha", candidates[:3], tiny_graphs()[0], {}
+        task_id="hotpot_rgcn_train",
+        query_text="find Alpha",
+        candidates=tuple(TextCandidate(item_id=f"m{index}", text=f"candidate {index}", metadata={}) for index in range(3)),
+        graph=tiny_graphs()[0],
+        initial_scores={f"m{index}": 0.0 for index in range(3)},
     )
 
     with pytest.raises(TypeError, match="EvidenceGraphRankingRequest"):
@@ -340,10 +344,10 @@ def test_registry_rejects_cross_graph_method_requests() -> None:
 
 def test_feeds_requires_binding_but_precedes_does_not() -> None:
     with pytest.raises(ValueError, match="binding"):
-        ExecutionProvenanceEdge("out-1", "call-2", ProvenanceEdgeType.FEEDS)
+        ExecutionProvenanceEdge(source="out-1", target="call-2", edge_type=ProvenanceEdgeType.FEEDS)
 
     chronological = ExecutionProvenanceEdge(
-        "out-1", "call-2", ProvenanceEdgeType.PRECEDES
+        source="out-1", target="call-2", edge_type=ProvenanceEdgeType.PRECEDES
     )
     assert chronological.binding is None
 
@@ -351,7 +355,7 @@ def test_feeds_requires_binding_but_precedes_does_not() -> None:
 def test_graphrag_builds_typed_mentions_without_evidence_graph() -> None:
     config = GraphRAGConfig(seed_top_s=2)
     request = build_graphrag_request(
-        TextRankingRequest("task-1", "Alpha answer", _candidates()), config
+        TextRankingRequest(task_id="task-1", query_text="Alpha answer", candidates=_candidates()), config
     )
     method = GraphRAGMethod(
         dense_ranker=_dense_ranker(),
@@ -364,7 +368,7 @@ def test_graphrag_builds_typed_mentions_without_evidence_graph() -> None:
     assert isinstance(result.trace.native_trace, GraphRAGTrace)
     assert result.trace.native_trace.exact_dense_fallback
     assert result.trace.native_trace.dense_ranks
-    assert result.trace.retrieved_edges == []
+    assert result.trace.retrieved_edges == ()
 
 
 def test_graphrag_promotes_only_resolved_partner_after_protected_prefix() -> None:
@@ -378,7 +382,7 @@ def test_graphrag_promotes_only_resolved_partner_after_protected_prefix() -> Non
     )
     ranker = _local_dense_ranker()
     request = build_graphrag_request(
-        TextRankingRequest("local-bridge", "Which country?", candidates), config
+        TextRankingRequest(task_id="local-bridge", query_text="Which country?", candidates=candidates), config
     )
 
     result = GraphRAGMethod(ranker, config).rank_task(request, top_k=4)
@@ -390,7 +394,9 @@ def test_graphrag_promotes_only_resolved_partner_after_protected_prefix() -> Non
     trace = result.trace.native_trace
     assert isinstance(trace, GraphRAGTrace)
     accepted = next(item for item in trace.bridges if item.accepted)
-    assert result.trace.retrieved_edges == [
+    assert [
+        edge.model_dump(mode="json") for edge in result.trace.retrieved_edges
+    ] == [
         {
             "source": "a",
             "target": "b",
@@ -406,9 +412,9 @@ def test_graphrag_low_margin_abstains_to_exact_dense_objects() -> None:
     candidates = (
         *_local_graphrag_candidates(),
         TextCandidate(
-            "b2",
-            "Bridge City. Another possible sentence.",
-            {"title": "Bridge City"},
+            item_id="b2",
+            text="Bridge City. Another possible sentence.",
+            metadata={"title": "Bridge City"},
         ),
     )
     config = GraphRAGConfig(
@@ -420,15 +426,15 @@ def test_graphrag_low_margin_abstains_to_exact_dense_objects() -> None:
     )
     ranker = _local_dense_ranker(EqualEncoder())
     request = build_graphrag_request(
-        TextRankingRequest("ambiguous-bridge", "Which country?", candidates), config
+        TextRankingRequest(task_id="ambiguous-bridge", query_text="Which country?", candidates=candidates), config
     )
     dense = ranker.rank(
-        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+        TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
     )
 
     result = GraphRAGMethod(ranker, config).rank_task(request, top_k=5)
 
-    assert result.ranked_nodes == dense
+    assert list(result.ranked_nodes) == dense
     trace = result.trace.native_trace
     assert isinstance(trace, GraphRAGTrace)
     assert trace.exact_dense_fallback
@@ -441,7 +447,7 @@ def test_graphrag_low_margin_abstains_to_exact_dense_objects() -> None:
 def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
     graph = _provenance_graph(include_untraversed_edge=True)
     request = ExecutionProvenanceRankingRequest(
-        "task-1", "Alpha answer", _candidates(), graph
+        task_id="task-1", query_text="Alpha answer", candidates=_candidates(), graph=graph
     )
     method = EpgmRetriever(
         dense_ranker=_dense_ranker(),
@@ -465,7 +471,7 @@ def test_provenance_retriever_returns_only_actual_traversed_edges() -> None:
         for edge in result.trace.native_trace.edges
     )
     assert all(
-        edge["source"] == "out-1" and edge["target"] == "out-2"
+        edge.source == "out-1" and edge.target == "out-2"
         for edge in result.trace.retrieved_edges
     )
 
@@ -488,7 +494,9 @@ def test_provenance_local_path_promotes_partner_and_uses_confidence_once() -> No
     # Path confidence is the recorded weight scaled by the relation's frozen
     # type prior (feeds = 0.6), so a graph whose weights are all identical
     # placeholders still yields relation-discriminative path scores.
-    assert result.trace.retrieved_edges == [
+    assert [
+        edge.model_dump(mode="json") for edge in result.trace.retrieved_edges
+    ] == [
         {
             "source": "a",
             "target": "b",
@@ -508,7 +516,7 @@ def test_provenance_binding_failure_abstains_to_exact_dense_objects() -> None:
     request = _local_provenance_request(valid_binding=False)
     ranker = _local_dense_ranker()
     dense = ranker.rank(
-        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+        TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
     )
     method = EpgmRetriever(
         dense_ranker=ranker,
@@ -522,8 +530,8 @@ def test_provenance_binding_failure_abstains_to_exact_dense_objects() -> None:
 
     result = method.rank_task(request, top_k=4)
 
-    assert result.ranked_nodes == dense
-    assert result.trace.retrieved_edges == []
+    assert list(result.ranked_nodes) == dense
+    assert result.trace.retrieved_edges == ()
     trace = result.trace.native_trace
     assert isinstance(trace, StatelessExecutionProvenanceTrace)
     assert trace.exact_dense_fallback
@@ -532,7 +540,7 @@ def test_provenance_binding_failure_abstains_to_exact_dense_objects() -> None:
 
 def test_provenance_expansion_does_not_reverse_incoming_dependencies() -> None:
     request = ExecutionProvenanceRankingRequest(
-        "task-1", "Alpha answer", _candidates(), _provenance_graph()
+        task_id="task-1", query_text="Alpha answer", candidates=_candidates(), graph=_provenance_graph()
     )
 
     paths = search_epgm_paths(
@@ -557,7 +565,7 @@ def test_provenance_config_rejects_empty_beam() -> None:
 
 def test_registry_builds_provenance_method_from_native_payload() -> None:
     request = ExecutionProvenanceRankingRequest(
-        "task-1", "Alpha answer", _candidates(), _provenance_graph()
+        task_id="task-1", query_text="Alpha answer", candidates=_candidates(), graph=_provenance_graph()
     )
     settings = ExecutionProvenanceRetrievalSettings(
         top_k=3,
@@ -620,30 +628,30 @@ def _revision_request() -> ExecutionProvenanceRankingRequest:
 
     nodes = (
         ExecutionProvenanceNode(
-            "verify", ProvenanceNodeType.VERIFICATION, "verification alpha check"
+            node_id="verify", node_type=ProvenanceNodeType.VERIFICATION, text="verification alpha check"
         ),
         ExecutionProvenanceNode(
-            "claim-old",
-            ProvenanceNodeType.CLAIM,
-            "obsolete unrelated wording",
-            {"lifecycle_state": "invalidated"},
+            node_id="claim-old",
+            node_type=ProvenanceNodeType.CLAIM,
+            text="obsolete unrelated wording",
+            metadata={"lifecycle_state": "invalidated"},
         ),
-        ExecutionProvenanceNode("noise", ProvenanceNodeType.CLAIM, "noise one"),
+        ExecutionProvenanceNode(node_id="noise", node_type=ProvenanceNodeType.CLAIM, text="noise one"),
     )
     edges = (
         ExecutionProvenanceEdge(
-            "verify", "claim-old", ProvenanceEdgeType.CONTRADICTS
+            source="verify", target="claim-old", edge_type=ProvenanceEdgeType.CONTRADICTS
         ),
     )
     return ExecutionProvenanceRankingRequest(
-        "revision-task",
-        "alpha",
-        (
-            TextCandidate("verify", "verification alpha check", {}),
-            TextCandidate("claim-old", "obsolete unrelated wording", {}),
-            TextCandidate("noise", "noise one", {}),
+        task_id="revision-task",
+        query_text="alpha",
+        candidates=(
+            TextCandidate(item_id="verify", text="verification alpha check", metadata={}),
+            TextCandidate(item_id="claim-old", text="obsolete unrelated wording", metadata={}),
+            TextCandidate(item_id="noise", text="noise one", metadata={}),
         ),
-        ExecutionProvenanceGraph("revision-task", nodes, edges),
+        graph=ExecutionProvenanceGraph(task_id="revision-task", nodes=nodes, edges=edges),
     )
 
 
@@ -685,14 +693,14 @@ def test_dependency_path_gate_rejects_audit_only_paths_with_a_reason() -> None:
     assert trace.paths
     assert not any(path.accepted for path in trace.paths)
     assert {path.rejection_reason for path in trace.paths} == {"incomplete_path"}
-    assert result.trace.retrieved_edges == []
+    assert result.trace.retrieved_edges == ()
 
 
 def test_stable_insert_preserves_dense_score_multiset_but_additive_rescores() -> None:
     request = _local_provenance_request()
     ranker = _local_dense_ranker()
     dense = ranker.rank(
-        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+        TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
     )
     dense_scores = sorted((node.score for node in dense), reverse=True)
 
@@ -724,7 +732,7 @@ def test_additive_fusion_never_demotes_a_dense_hit() -> None:
     request = _local_provenance_request()
     ranker = _local_dense_ranker()
     dense = ranker.rank(
-        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+        TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
     )
     dense_rank = {node.node_id: index for index, node in enumerate(dense, start=1)}
 
@@ -758,7 +766,7 @@ def _weighted_feeds_graph(
         binding_kind="semantic_reference",
     )
     nodes = tuple(
-        ExecutionProvenanceNode(node_id, node_type, f"text for {node_id}", {})
+        ExecutionProvenanceNode(node_id=node_id, node_type=node_type, text=f"text for {node_id}", metadata={})
         for node_id, node_type in (
             ("out_a", ProvenanceNodeType.TOOL_OUTPUT),
             ("out_b", ProvenanceNodeType.TOOL_OUTPUT),
@@ -888,36 +896,36 @@ def _sibling_feeds_graph(weights: tuple[float, float]) -> ExecutionProvenanceGra
     )
     nodes = (
         ExecutionProvenanceNode(
-            "out",
-            ProvenanceNodeType.TOOL_OUTPUT,
-            "shared source",
-            {"output_field_hashes": {"evidence": "b" * 8}},
+            node_id="out",
+            node_type=ProvenanceNodeType.TOOL_OUTPUT,
+            text="shared source",
+            metadata={"output_field_hashes": {"evidence": "b" * 8}},
         ),
         ExecutionProvenanceNode(
-            "call-a",
-            ProvenanceNodeType.TOOL_CALL,
-            "first branch",
-            {"input_parameters": ["context"]},
+            node_id="call-a",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="first branch",
+            metadata={"input_parameters": ["context"]},
         ),
         ExecutionProvenanceNode(
-            "call-b",
-            ProvenanceNodeType.TOOL_CALL,
-            "second branch",
-            {"input_parameters": ["context"]},
+            node_id="call-b",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="second branch",
+            metadata={"input_parameters": ["context"]},
         ),
     )
     edges = tuple(
         ExecutionProvenanceEdge(
-            "out",
-            target,
-            ProvenanceEdgeType.FEEDS,
-            binding,
-            weight,
-            {},
+            source="out",
+            target=target,
+            edge_type=ProvenanceEdgeType.FEEDS,
+            binding=binding,
+            weight=weight,
+            metadata={},
         )
         for target, weight in zip(("call-a", "call-b"), weights, strict=True)
     )
-    return ExecutionProvenanceGraph("siblings", nodes, edges)
+    return ExecutionProvenanceGraph(task_id="siblings", nodes=nodes, edges=edges)
 
 
 def _uniform_relations(graph: ExecutionProvenanceGraph) -> tuple[RelationAffinity, ...]:
@@ -1043,21 +1051,21 @@ def test_invalid_field_binding_is_excluded_from_typed_transitions() -> None:
     graph = _sibling_feeds_graph((0.8, 0.6))
     invalid_edges = tuple(
         ExecutionProvenanceEdge(
-            edge.source,
-            edge.target,
-            edge.edge_type,
-            FieldBinding(
+            source=edge.source,
+            target=edge.target,
+            edge_type=edge.edge_type,
+            binding=FieldBinding(
                 output_field="evidence",
                 input_parameter="context",
                 binding_value_hash="wrong-hash",
                 binding_kind="semantic_reference",
             ),
-            edge.weight,
-            edge.metadata,
+            weight=edge.weight,
+            metadata=edge.metadata,
         )
         for edge in graph.edges
     )
-    invalid = ExecutionProvenanceGraph(graph.task_id, graph.nodes, invalid_edges)
+    invalid = ExecutionProvenanceGraph(task_id=graph.task_id, nodes=graph.nodes, edges=invalid_edges)
 
     transitions = build_typed_transitions(
         invalid, _uniform_relations(invalid), EpgmRetrieverConfig()
@@ -1068,18 +1076,18 @@ def test_invalid_field_binding_is_excluded_from_typed_transitions() -> None:
 
 def test_ppr_steiner_uses_byte_for_byte_dense_fallback_without_dependencies() -> None:
     nodes = (
-        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "alpha", {}),
-        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "beta", {}),
+        ExecutionProvenanceNode(node_id="a", node_type=ProvenanceNodeType.CLAIM, text="alpha", metadata={}),
+        ExecutionProvenanceNode(node_id="b", node_type=ProvenanceNodeType.CLAIM, text="beta", metadata={}),
     )
     request = ExecutionProvenanceRankingRequest(
-        "edgeless",
-        "alpha",
-        (TextCandidate("a", "alpha", {}), TextCandidate("b", "beta", {})),
-        ExecutionProvenanceGraph("edgeless", nodes, ()),
+        task_id="edgeless",
+        query_text="alpha",
+        candidates=(TextCandidate(item_id="a", text="alpha", metadata={}), TextCandidate(item_id="b", text="beta", metadata={})),
+        graph=ExecutionProvenanceGraph(task_id="edgeless", nodes=nodes, edges=()),
     )
     ranker = _dense_ranker()
     dense = ranker.rank(
-        TextRankingRequest(request.task_id, request.query_text, request.candidates)
+        TextRankingRequest(task_id=request.task_id, query_text=request.query_text, candidates=request.candidates)
     )
 
     result = EpgmRetriever(ranker, EpgmRetrieverConfig()).rank_task(request, top_k=2)
@@ -1087,38 +1095,38 @@ def test_ppr_steiner_uses_byte_for_byte_dense_fallback_without_dependencies() ->
 
     assert isinstance(trace, QueryConditionedExecutionProvenanceTrace)
     assert trace.exact_dense_fallback
-    assert result.ranked_nodes == dense
-    assert result.trace.retrieved_edges == []
+    assert list(result.ranked_nodes) == dense
+    assert result.trace.retrieved_edges == ()
     assert trace.selected_candidate_ids == ()
     assert trace.emitted_edges == ()
 
 
 def test_connected_selection_emits_stored_orientation_after_reverse_walk() -> None:
     nodes = (
-        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "alpha", {}),
-        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "beta", {}),
+        ExecutionProvenanceNode(node_id="a", node_type=ProvenanceNodeType.CLAIM, text="alpha", metadata={}),
+        ExecutionProvenanceNode(node_id="b", node_type=ProvenanceNodeType.CLAIM, text="beta", metadata={}),
     )
     graph = ExecutionProvenanceGraph(
-        "reverse",
-        nodes,
-        (
+        task_id="reverse",
+        nodes=nodes,
+        edges=(
             ExecutionProvenanceEdge(
-                "b", "a", ProvenanceEdgeType.DEPENDS_ON, None, 1.0, {}
+                source="b", target="a", edge_type=ProvenanceEdgeType.DEPENDS_ON, binding=None, weight=1.0, metadata={}
             ),
         ),
     )
     request = ExecutionProvenanceRankingRequest(
-        "reverse",
-        "alpha",
-        (TextCandidate("a", "alpha", {}), TextCandidate("b", "beta", {})),
-        graph,
+        task_id="reverse",
+        query_text="alpha",
+        candidates=(TextCandidate(item_id="a", text="alpha", metadata={}), TextCandidate(item_id="b", text="beta", metadata={})),
+        graph=graph,
     )
 
     result = EpgmRetriever(_dense_ranker(), EpgmRetrieverConfig()).rank_task(
         request, top_k=2
     )
 
-    assert [(edge["source"], edge["target"]) for edge in result.trace.retrieved_edges] == [
+    assert [(edge.source, edge.target) for edge in result.trace.retrieved_edges] == [
         ("b", "a")
     ]
 
@@ -1288,17 +1296,17 @@ def test_dense_teleport_preserves_query_score_dynamic_range() -> None:
 
 def test_typed_transition_penalizes_high_degree_hub_targets() -> None:
     nodes = tuple(
-        ExecutionProvenanceNode(node_id, ProvenanceNodeType.CLAIM, node_id, {})
+        ExecutionProvenanceNode(node_id=node_id, node_type=ProvenanceNodeType.CLAIM, text=node_id, metadata={})
         for node_id in ("source", "hub", "leaf", "x1", "x2", "x3")
     )
     edges = (
-        ExecutionProvenanceEdge("source", "hub", ProvenanceEdgeType.SUPPORTS),
-        ExecutionProvenanceEdge("source", "leaf", ProvenanceEdgeType.SUPPORTS),
-        ExecutionProvenanceEdge("hub", "x1", ProvenanceEdgeType.SUPPORTS),
-        ExecutionProvenanceEdge("hub", "x2", ProvenanceEdgeType.SUPPORTS),
-        ExecutionProvenanceEdge("hub", "x3", ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge(source="source", target="hub", edge_type=ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge(source="source", target="leaf", edge_type=ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge(source="hub", target="x1", edge_type=ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge(source="hub", target="x2", edge_type=ProvenanceEdgeType.SUPPORTS),
+        ExecutionProvenanceEdge(source="hub", target="x3", edge_type=ProvenanceEdgeType.SUPPORTS),
     )
-    graph = ExecutionProvenanceGraph("hub", nodes, edges)
+    graph = ExecutionProvenanceGraph(task_id="hub", nodes=nodes, edges=edges)
 
     transitions = build_typed_transitions(
         graph, _uniform_relations(graph), EpgmRetrieverConfig()
@@ -1314,28 +1322,28 @@ def test_typed_transition_penalizes_high_degree_hub_targets() -> None:
 
 def test_provenance_graph_rejects_parallel_edges_with_the_same_typed_key() -> None:
     nodes = (
-        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "a", {}),
-        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "b", {}),
+        ExecutionProvenanceNode(node_id="a", node_type=ProvenanceNodeType.CLAIM, text="a", metadata={}),
+        ExecutionProvenanceNode(node_id="b", node_type=ProvenanceNodeType.CLAIM, text="b", metadata={}),
     )
     duplicate = ExecutionProvenanceEdge(
-        "a", "b", ProvenanceEdgeType.SUPPORTS, None, 1.0, {}
+        source="a", target="b", edge_type=ProvenanceEdgeType.SUPPORTS, binding=None, weight=1.0, metadata={}
     )
 
     with pytest.raises(ValueError, match="duplicate typed edge"):
-        ExecutionProvenanceGraph("duplicate", nodes, (duplicate, duplicate))
+        ExecutionProvenanceGraph(task_id="duplicate", nodes=nodes, edges=(duplicate, duplicate))
 
 
 def test_zero_weight_edge_has_no_forward_or_reverse_transition() -> None:
     nodes = (
-        ExecutionProvenanceNode("a", ProvenanceNodeType.CLAIM, "a", {}),
-        ExecutionProvenanceNode("b", ProvenanceNodeType.CLAIM, "b", {}),
+        ExecutionProvenanceNode(node_id="a", node_type=ProvenanceNodeType.CLAIM, text="a", metadata={}),
+        ExecutionProvenanceNode(node_id="b", node_type=ProvenanceNodeType.CLAIM, text="b", metadata={}),
     )
     graph = ExecutionProvenanceGraph(
-        "zero",
-        nodes,
-        (
+        task_id="zero",
+        nodes=nodes,
+        edges=(
             ExecutionProvenanceEdge(
-                "a", "b", ProvenanceEdgeType.DEPENDS_ON, None, 0.0, {}
+                source="a", target="b", edge_type=ProvenanceEdgeType.DEPENDS_ON, binding=None, weight=0.0, metadata={}
             ),
         ),
     )

@@ -1,99 +1,84 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Literal
 
-from graph_memory.contracts.common import MethodName
+from pydantic import Field, StrictBool, model_validator
+
+from graph_memory.contracts.common import EdgeType
+from graph_memory.contracts.model import (
+    DomainModel,
+    FiniteFloat,
+    NonEmptyStr,
+    NonNegativeFiniteFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
+
+_KNOWN_NODE_FEATURES = frozenset(
+    {"seed_score", "seed_rank_percentile", "is_question_node"}
+)
 
 
-@dataclass(frozen=True)
-class NodeFeatureConfig:
-    """
-    Ordered numeric node feature configuration.
-    有序的节点数值特征配置。
-    """
-
-    node_feature_names: tuple[str, ...] = (
+class NodeFeatureConfig(DomainModel):
+    node_feature_names: tuple[NonEmptyStr, ...] = (
         "seed_score",
         "seed_rank_percentile",
         "is_question_node",
     )
-    scorer_feature_names: tuple[str, ...] = ("seed_score", "seed_rank_percentile")
+    scorer_feature_names: tuple[NonEmptyStr, ...] = (
+        "seed_score",
+        "seed_rank_percentile",
+    )
+
+    @model_validator(mode="after")
+    def _validate_features(self) -> "NodeFeatureConfig":
+        for field_name in ("node_feature_names", "scorer_feature_names"):
+            values = getattr(self, field_name)
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field_name} must be unique")
+            unknown = sorted(set(values) - _KNOWN_NODE_FEATURES)
+            if unknown:
+                raise ValueError(f"unsupported {field_name}={unknown}")
+        if not set(self.scorer_feature_names).issubset(self.node_feature_names):
+            raise ValueError("scorer features must be enabled node features")
+        return self
 
 
-@dataclass(frozen=True)
-class RgcnModelConfig:
-    """
-    Minimal model reconstruction config saved in every trainable checkpoint.
-    每个可训练 checkpoint 中保存的最小模型重建配置。
-    """
-
-    method_name: MethodName
-    encoder_model: str
-    encoder_dim: int
+class RgcnModelConfig(DomainModel):
+    method_name: NonEmptyStr
+    encoder_model: NonEmptyStr
+    encoder_dim: PositiveInt
     query_prefix: str
     passage_prefix: str
-    encoder_batch_size: int
-    hidden_dim: int
-    num_layers: int
-    dropout: float
+    encoder_batch_size: PositiveInt
+    hidden_dim: PositiveInt
+    num_layers: NonNegativeInt
+    dropout: FiniteFloat = Field(ge=0.0, lt=1.0)
     feature_config: NodeFeatureConfig
-    relation_vocab: tuple[str, ...]
-    graph_encoder_type: str
-    message_transform_type: str
-    edge_weight_policy: str
-    enabled_edge_types: tuple[str, ...]
-    ablation_name: str
+    relation_vocab: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    graph_encoder_type: Literal["identity", "rgcn"]
+    message_transform_type: Literal["typed", "shared"]
+    edge_weight_policy: Literal["artifact", "uniform"]
+    enabled_edge_types: tuple[EdgeType, ...]
+    ablation_name: NonEmptyStr
 
-    def to_json_dict(self) -> dict[str, object]:
-        return {
-            "method_name": self.method_name,
-            "encoder_model": self.encoder_model,
-            "encoder_dim": self.encoder_dim,
-            "query_prefix": self.query_prefix,
-            "passage_prefix": self.passage_prefix,
-            "encoder_batch_size": self.encoder_batch_size,
-            "hidden_dim": self.hidden_dim,
-            "num_layers": self.num_layers,
-            "dropout": self.dropout,
-            "feature_config": {
-                "node_feature_names": list(self.feature_config.node_feature_names),
-                "scorer_feature_names": list(self.feature_config.scorer_feature_names),
-            },
-            "relation_vocab": list(self.relation_vocab),
-            "graph_encoder_type": self.graph_encoder_type,
-            "message_transform_type": self.message_transform_type,
-            "edge_weight_policy": self.edge_weight_policy,
-            "enabled_edge_types": list(self.enabled_edge_types),
-            "ablation_name": self.ablation_name,
-        }
+    @model_validator(mode="after")
+    def _validate_vocab(self) -> "RgcnModelConfig":
+        if len(self.relation_vocab) != len(set(self.relation_vocab)):
+            raise ValueError("relation_vocab must be unique")
+        if len(self.enabled_edge_types) != len(set(self.enabled_edge_types)):
+            raise ValueError("enabled_edge_types must be unique")
+        return self
 
 
-@dataclass(frozen=True)
-class RgcnTrainingConfig:
-    """Training and physical graph-batch semantics for evidence R-GCN."""
-
-    optimizer_name: str = "AdamW"
-    learning_rate: float = 1e-4
-    per_device_graph_batch_size: int = 1
-    max_grad_norm: float = 1.0
+class RgcnTrainingConfig(DomainModel):
+    optimizer_name: Literal["AdamW"] = "AdamW"
+    learning_rate: NonNegativeFiniteFloat = 1e-4
+    per_device_graph_batch_size: PositiveInt = 1
+    max_grad_norm: NonNegativeFiniteFloat = 1.0
     random_seed: int = 13
-    pos_weight_enabled: bool = False
-    epochs: int = 1
-
-    def __post_init__(self) -> None:
-        if self.per_device_graph_batch_size <= 0:
-            raise ValueError("per_device_graph_batch_size must be positive.")
-
-    def to_json_dict(self) -> dict[str, object]:
-        return {
-            "optimizer_name": self.optimizer_name,
-            "learning_rate": self.learning_rate,
-            "per_device_graph_batch_size": self.per_device_graph_batch_size,
-            "max_grad_norm": self.max_grad_norm,
-            "random_seed": self.random_seed,
-            "pos_weight_enabled": self.pos_weight_enabled,
-            "epochs": self.epochs,
-        }
+    pos_weight_enabled: StrictBool = False
+    epochs: PositiveInt = 1
 
 
 __all__ = [

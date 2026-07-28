@@ -23,6 +23,7 @@ from graph_memory.datasets.hotpotqa.records import (
     HotpotQADocument,
     HotpotQAExample,
     HotpotQALabelRecord,
+    HotpotQAPreparedSplit,
     HotpotQARankingRecord,
     HotpotQASupportingFact,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "HotpotQADocument",
     "HotpotQAExample",
     "HotpotQALabelRecord",
+    "HotpotQAPreparedSplit",
     "HotpotQARankingRecord",
     "HotpotQASupportingFact",
     "HotpotQAToEvidenceEvaluationRequest",

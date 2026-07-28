@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
-
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.hotpotqa.records import (
     CombinedHotpotQARecord,
@@ -27,11 +25,15 @@ def combined_hotpotqa_records(
     ranking_records: Sequence[HotpotQARankingRecord],
     label_records: Sequence[HotpotQALabelRecord],
 ) -> list[CombinedHotpotQARecord]:
-    labels_by_task_id = {record["task_id"]: record for record in label_records}
+    labels_by_task_id = {record.task_id: record for record in label_records}
     return [
-        cast(
-            CombinedHotpotQARecord,
-            cast(object, {**record, **labels_by_task_id[record["task_id"]]}),
+        CombinedHotpotQARecord.model_validate(
+            {
+                **record.model_dump(mode="python", exclude_none=True),
+                **labels_by_task_id[record.task_id].model_dump(
+                    mode="python", exclude_none=True
+                ),
+            }
         )
         for record in ranking_records
     ]
@@ -46,13 +48,13 @@ def convert_hotpotqa_example(example: HotpotQAExample) -> ConvertedHotpotQAExamp
     for document in example.documents:
         for sentence_index, sentence in enumerate(document.sentences):
             sentence_id_from_position: NodeId = f"m{position}"
-            candidate_sentence: HotpotQACandidateSentence = {
-                "sentence_id": sentence_id_from_position,
-                "title": document.title,
-                "sentence_index": sentence_index,
-                "position": position,
-                "text": sentence,
-            }
+            candidate_sentence = HotpotQACandidateSentence(
+                sentence_id=sentence_id_from_position,
+                title=document.title,
+                sentence_index=sentence_index,
+                position=position,
+                text=sentence,
+            )
             candidate_sentences.append(candidate_sentence)
             title_sentence_to_node_id[(document.title, sentence_index)] = sentence_id_from_position
             position += 1
@@ -75,15 +77,15 @@ def convert_hotpotqa_example(example: HotpotQAExample) -> ConvertedHotpotQAExamp
     if not gold_evidence_sentence_ids:
         raise ValueError(f"HotpotQA example _id={example.raw_id} must contain at least one supporting fact.")
 
-    ranking_record: HotpotQARankingRecord = {
-        "task_id": task_id,
-        "question": example.question,
-        "candidate_sentences": candidate_sentences,
-    }
-    label_record: HotpotQALabelRecord = {
-        "task_id": task_id,
-        "gold_answer": example.answer,
-        "gold_evidence_sentence_ids": gold_evidence_sentence_ids,
-        "gold_dependency_edges": [],
-    }
+    ranking_record = HotpotQARankingRecord(
+        task_id=task_id,
+        question=example.question,
+        candidate_sentences=tuple(candidate_sentences),
+    )
+    label_record = HotpotQALabelRecord(
+        task_id=task_id,
+        gold_answer=example.answer,
+        gold_evidence_sentence_ids=tuple(gold_evidence_sentence_ids),
+        gold_dependency_edges=(),
+    )
     return ConvertedHotpotQAExample(ranking_record=ranking_record, label_record=label_record)

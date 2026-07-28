@@ -14,7 +14,6 @@ from graph_memory.datasets.twowiki_provenance.projectors import (
     TwoWikiProvenanceToEvidenceEvaluationRequest,
     TwoWikiProvenanceToExecutionProvenanceRankingRequest,
     TwoWikiProvenanceToTextRankingRequest,
-    provenance_graph_from_record,
 )
 from graph_memory.datasets.twowiki_provenance.records import (
     TWOWIKI_PROVENANCE_SCHEMA_VERSION,
@@ -27,6 +26,7 @@ from graph_memory.datasets.twowiki_provenance.records import (
     ProvenanceNodeRecord,
     TwoWikiProvenanceConversionResult,
     TwoWikiProvenanceLabelRecord,
+    TwoWikiProvenancePreparedSplit,
     TwoWikiProvenanceRankingRecord,
     TwoWikiProvenanceRawRecord,
 )
@@ -52,6 +52,7 @@ __all__ = [
     "TWOWIKI_PROVENANCE_SCHEMA_VERSION",
     "TwoWikiProvenanceConversionResult",
     "TwoWikiProvenanceLabelRecord",
+    "TwoWikiProvenancePreparedSplit",
     "TwoWikiProvenanceRankingRecord",
     "TwoWikiProvenanceRawRecord",
     "TwoWikiProvenanceToEvidenceEvaluationRequest",
@@ -63,5 +64,4 @@ __all__ = [
     "resolve_worker_count",
     "parse_twowiki_provenance_record",
     "parse_twowiki_provenance_records",
-    "provenance_graph_from_record",
 ]

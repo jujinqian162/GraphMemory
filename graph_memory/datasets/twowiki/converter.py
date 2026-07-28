@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
-
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.twowiki.records import (
     CombinedTwoWikiRecord,
@@ -44,11 +42,15 @@ def combined_twowiki_records(
     ranking_records: Sequence[TwoWikiRankingRecord],
     label_records: Sequence[TwoWikiLabelRecord],
 ) -> list[CombinedTwoWikiRecord]:
-    labels_by_task_id = {record["task_id"]: record for record in label_records}
+    labels_by_task_id = {record.task_id: record for record in label_records}
     return [
-        cast(
-            CombinedTwoWikiRecord,
-            cast(object, {**record, **labels_by_task_id[record["task_id"]]}),
+        CombinedTwoWikiRecord.model_validate(
+            {
+                **record.model_dump(mode="python", exclude_none=True),
+                **labels_by_task_id[record.task_id].model_dump(
+                    mode="python", exclude_none=True
+                ),
+            }
         )
         for record in ranking_records
     ]
@@ -64,13 +66,13 @@ def convert_twowiki_example(example: TwoWikiExample) -> ConvertedTwoWikiExample:
     for document in example.documents:
         for sentence_index, sentence in enumerate(document.sentences):
             sentence_id_from_position: NodeId = f"m{position}"
-            candidate_sentence: TwoWikiCandidateSentence = {
-                "sentence_id": sentence_id_from_position,
-                "title": document.title,
-                "sentence_index": sentence_index,
-                "position": position,
-                "text": sentence,
-            }
+            candidate_sentence = TwoWikiCandidateSentence(
+                sentence_id=sentence_id_from_position,
+                title=document.title,
+                sentence_index=sentence_index,
+                position=position,
+                text=sentence,
+            )
             candidate_sentences.append(candidate_sentence)
             title_sentence_to_node_id[(document.title, sentence_index)] = sentence_id_from_position
             sentence_text_by_node_id[sentence_id_from_position] = sentence
@@ -108,25 +110,27 @@ def convert_twowiki_example(example: TwoWikiExample) -> ConvertedTwoWikiExample:
     gold_dependency_edges = _dependency_edges(path_label_triples, mapped_evidences)
     mapping_ambiguity_count = sum(mapped.ambiguity_count for mapped in mapped_evidences)
 
-    ranking_record: TwoWikiRankingRecord = {
-        "task_id": task_id,
-        "question": example.question,
-        "question_type": example.question_type,
-        "candidate_sentences": candidate_sentences,
-        "metadata": {"dataset": "2wiki", "raw_id": example.raw_id},
-    }
-    label_record: TwoWikiLabelRecord = {
-        "task_id": task_id,
-        "gold_answer": example.answer,
-        "gold_evidence_sentence_ids": gold_evidence_sentence_ids,
-        "gold_dependency_edges": gold_dependency_edges,
-        "metadata": {
+    ranking_record = TwoWikiRankingRecord(
+        task_id=task_id,
+        question=example.question,
+        question_type=example.question_type,
+        candidate_sentences=tuple(candidate_sentences),
+        metadata={"dataset": "2wiki", "raw_id": example.raw_id},
+    )
+    label_record = TwoWikiLabelRecord(
+        task_id=task_id,
+        gold_answer=example.answer,
+        gold_evidence_sentence_ids=tuple(gold_evidence_sentence_ids),
+        gold_dependency_edges=tuple(
+            (edge[0], edge[1]) for edge in gold_dependency_edges
+        ),
+        metadata={
             "question_type": example.question_type,
             "path_label_source": path_label_source,
             "path_supported": bool(gold_dependency_edges),
             "mapping_ambiguity_count": mapping_ambiguity_count,
         },
-    }
+    )
     return ConvertedTwoWikiExample(ranking_record=ranking_record, label_record=label_record)
 
 

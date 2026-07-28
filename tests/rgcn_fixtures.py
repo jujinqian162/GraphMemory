@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from graph_memory.contracts.graphs import GraphItemNode, EvidenceGraph
+from graph_memory.graphs.contracts import GraphItemNode, EvidenceGraph
 from graph_memory.datasets.hotpotqa.records import HotpotQARankingRecord
 from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
@@ -55,7 +55,7 @@ class FakeTextEmbeddingProvider(TextEmbeddingProvider):
 
 def tiny_task_inputs() -> list[HotpotQARankingRecord]:
     return [
-        {
+        HotpotQARankingRecord.model_validate({
             "task_id": "hotpot_rgcn_train",
             "question": "Which evidence mentions Alpha?",
             "candidate_sentences": [
@@ -81,36 +81,35 @@ def tiny_task_inputs() -> list[HotpotQARankingRecord]:
                     "position": 2,
                 },
             ],
-        }
+        })
     ]
 
 
 def _graph_nodes(task: HotpotQARankingRecord) -> list[GraphItemNode]:
     return [
-        {
-            "id": sentence["sentence_id"],
-            "node_type": "graph_item",
-            "node_kind": "document_sentence",
-            "text": sentence["text"],
-            "source_ref": sentence["title"],
-            "group_key": f"document:{sentence['title']}",
-            "sequence_index": sentence["sentence_index"],
-            "metadata": {
-                "title": sentence["title"],
-                "position": sentence["position"],
+        GraphItemNode(
+            id=sentence.sentence_id,
+            node_kind="document_sentence",
+            text=sentence.text,
+            source_ref=sentence.title,
+            group_key=f"document:{sentence.title}",
+            sequence_index=sentence.sentence_index,
+            metadata={
+                "title": sentence.title,
+                "position": sentence.position,
             },
-        }
-        for sentence in task["candidate_sentences"]
+        )
+        for sentence in task.candidate_sentences
     ]
 
 
 def tiny_graphs() -> list[EvidenceGraph]:
     task = tiny_task_inputs()[0]
     return [
-        {
-            "task_id": task["task_id"],
+        EvidenceGraph.model_validate({
+            "task_id": task.task_id,
             "nodes": [
-                {"id": "q", "node_type": "question", "text": task["question"]},
+                {"id": "q", "node_type": "question", "text": task.question},
                 *_graph_nodes(task),
             ],
             "edges": [
@@ -129,7 +128,7 @@ def tiny_graphs() -> list[EvidenceGraph]:
                     "directed": False,
                 },
             ],
-        }
+        })
     ]
 
 

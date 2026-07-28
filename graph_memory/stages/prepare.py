@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 from graph_memory.datasets.hotpotqa import (
+    HotpotQAPreparedSplit,
     combined_hotpotqa_records,
     convert_hotpotqa_example,
     convert_hotpotqa_examples,
@@ -17,6 +18,7 @@ from graph_memory.datasets.hotpotqa import (
     parse_hotpotqa_examples,
 )
 from graph_memory.datasets.musique import (
+    MuSiQuePreparedSplit,
     combined_musique_records,
     convert_musique_example,
     convert_musique_examples,
@@ -25,6 +27,7 @@ from graph_memory.datasets.musique import (
 )
 from graph_memory.datasets.splits import sample_split
 from graph_memory.datasets.twowiki import (
+    TwoWikiPreparedSplit,
     combined_twowiki_records,
     convert_twowiki_example,
     convert_twowiki_examples,
@@ -32,6 +35,7 @@ from graph_memory.datasets.twowiki import (
     parse_twowiki_examples,
 )
 from graph_memory.datasets.twowiki_provenance import (
+    TwoWikiProvenancePreparedSplit,
     TwoWikiProvenanceRawRecord,
     parse_twowiki_provenance_record,
 )
@@ -45,15 +49,6 @@ from graph_memory.experiment.artifacts import (
 from graph_memory.experiment.config import DatasetName, SplitName
 from graph_memory.io import read_json, write_json
 from graph_memory.stages.results import PreparedSplitResult
-from graph_memory.validation import (
-    validate_hotpotqa_label_records,
-    validate_hotpotqa_ranking_records,
-    validate_musique_label_records,
-    validate_musique_ranking_records,
-    validate_twowiki_label_records,
-    validate_twowiki_provenance_record,
-    validate_twowiki_ranking_records,
-)
 
 
 @dataclass(frozen=True)
@@ -141,9 +136,18 @@ def materialize_prepared_split(
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        write_json(publisher.workspace / "tasks.json", prepared.task_inputs)
-        write_json(publisher.workspace / "labels.json", prepared.task_labels)
-        write_json(publisher.workspace / "combined.json", prepared.combined)
+        write_json(
+            publisher.workspace / "tasks.json",
+            [_json_record(record) for record in prepared.task_inputs],
+        )
+        write_json(
+            publisher.workspace / "labels.json",
+            [_json_record(record) for record in prepared.task_labels],
+        )
+        write_json(
+            publisher.workspace / "combined.json",
+            [_json_record(record) for record in prepared.combined],
+        )
         write_json(publisher.workspace / "counts.json", prepared.counts)
         artifact = publisher.publish(
             {
@@ -181,10 +185,12 @@ def _prepare_hotpotqa(
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
     parsed = parse_hotpotqa_examples(selected)
     conversion = convert_hotpotqa_examples(parsed)
-    tasks = list(conversion.ranking_records)
-    labels = list(conversion.label_records)
-    validate_hotpotqa_ranking_records(tasks)
-    validate_hotpotqa_label_records(labels, {row["task_id"]: row for row in tasks})
+    split = HotpotQAPreparedSplit(
+        rankings=tuple(conversion.ranking_records),
+        labels=tuple(conversion.label_records),
+    )
+    tasks = list(split.rankings)
+    labels = list(split.labels)
     return _prepared(
         raw=raw,
         valid=valid,
@@ -217,10 +223,12 @@ def _prepare_twowiki(
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
     parsed = parse_twowiki_examples(selected)
     conversion = convert_twowiki_examples(parsed)
-    tasks = list(conversion.ranking_records)
-    labels = list(conversion.label_records)
-    validate_twowiki_ranking_records(tasks)
-    validate_twowiki_label_records(labels, {row["task_id"]: row for row in tasks})
+    split = TwoWikiPreparedSplit(
+        rankings=tuple(conversion.ranking_records),
+        labels=tuple(conversion.label_records),
+    )
+    tasks = list(split.rankings)
+    labels = list(split.labels)
     return _prepared(
         raw=raw,
         valid=valid,
@@ -251,10 +259,12 @@ def _prepare_musique(
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
     parsed = parse_musique_examples(selected)
     conversion = convert_musique_examples(parsed)
-    tasks = list(conversion.ranking_records)
-    labels = list(conversion.label_records)
-    validate_musique_ranking_records(tasks)
-    validate_musique_label_records(labels, {row["task_id"]: row for row in tasks})
+    split = MuSiQuePreparedSplit(
+        rankings=tuple(conversion.ranking_records),
+        labels=tuple(conversion.label_records),
+    )
+    tasks = list(split.rankings)
+    labels = list(split.labels)
     return _prepared(
         raw=raw,
         valid=valid,
@@ -284,11 +294,9 @@ def _prepare_twowiki_provenance(
     for index, value in enumerate(raw):
         try:
             record = parse_twowiki_provenance_record(value, record_index=index)
-            ranking = record["ranking"]
-            task_id = ranking["task_id"]
+            task_id = record.ranking.task_id
             if task_id in seen_task_ids:
                 raise ValueError(f"duplicate task_id={task_id}")
-            validate_twowiki_provenance_record(ranking, record["label"])
         except ValueError as error:
             if strict:
                 raise ValueError(
@@ -299,8 +307,9 @@ def _prepare_twowiki_provenance(
         seen_task_ids.add(task_id)
         valid.append(record)
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
-    tasks = [record["ranking"] for record in selected]
-    labels = [record["label"] for record in selected]
+    split_model = TwoWikiProvenancePreparedSplit(records=tuple(selected))
+    tasks = [record.ranking for record in split_model.records]
+    labels = [record.label for record in split_model.records]
     counts: dict[str, JsonValue] = {
         "raw_examples": len(raw),
         "valid_examples": len(valid),
@@ -314,7 +323,7 @@ def _prepare_twowiki_provenance(
     return PreparedSplitData(
         task_inputs=cast(list[object], tasks),
         task_labels=cast(list[object], labels),
-        combined=cast(list[object], selected),
+        combined=cast(list[object], list(split_model.records)),
         counts=counts,
     )
 
@@ -363,12 +372,24 @@ def _prepared(
         "task_inputs": len(tasks),
         "task_labels": len(labels),
         "path_supported_tasks": sum(
-            1
-            for label in labels
-            if isinstance(label, dict) and bool(label.get("gold_dependency_edges"))
+            1 for label in labels if _has_dependency_edges(label)
         ),
     }
     return PreparedSplitData(tasks, labels, combined, counts)
+
+
+def _json_record(record: object) -> object:
+    if isinstance(record, BaseModel):
+        return record.model_dump(mode="json", exclude_none=True)
+    return record
+
+
+def _has_dependency_edges(label: object) -> bool:
+    if isinstance(label, BaseModel):
+        return bool(getattr(label, "gold_dependency_edges", ()))
+    if isinstance(label, dict):
+        return bool(label.get("gold_dependency_edges"))
+    return False
 
 
 def _read_jsonl(path: Path) -> list[object]:

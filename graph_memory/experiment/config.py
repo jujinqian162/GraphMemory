@@ -16,9 +16,21 @@ from pydantic import (
     model_validator,
 )
 
-from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
+from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
+from graph_memory.models.dense_finetune.training import (
+    DenseFinetuneSelectionSettings,
+    DenseFinetuneTrainerSettings,
+)
+from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
+from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
+from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnTrainingConfig
+from graph_memory.training_pairs.config import (
+    NegativeSamplingConfig,
+    ProvenanceNegativeSamplingConfig,
+)
 from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.retrieval.methods.epgm import EpgmVariant
+from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 
 
 def _scientific_int(value: object) -> int:
@@ -140,9 +152,7 @@ class TwoWikiProvenanceTransformConfig(ClosedModel):
     successors_per_output: Literal[2] = 2
     hybrid_dense_weight: Annotated[ScientificFloat, Field(ge=0.0, le=1.0)] = 0.5
     scorer_identity: str = Field(default="provenance_semantic_v3", min_length=1)
-    query_template_version: str = Field(
-        default="question_source_v1", min_length=1
-    )
+    query_template_version: Literal["question_source_v1"] = "question_source_v1"
     semantic_temperature: PositiveFloat = 0.1
     weight_floor: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)] = 0.5
     branch_policy_version: str = Field(default="rank_banded_v1", min_length=1)
@@ -287,18 +297,9 @@ class DenseMethodConfig(ClosedModel):
     encoder: DenseEncoderConfig
 
 
-class GraphRAGMethodConfig(ClosedModel):
+class GraphRAGMethodConfig(GraphRAGConfig):
     method: Literal["graphrag"]
     encoder: DenseEncoderConfig
-    seed_top_s: PositiveInt
-    max_entity_document_frequency_ratio: Annotated[
-        ScientificFloat, Field(gt=0.0, le=1.0)
-    ]
-    sentence_resolver: Literal["frozen_dense"]
-    min_sentence_score_margin: NonNegativeFloat
-    min_bridge_confidence: NonNegativeFloat
-    max_partners_per_anchor: Literal[1]
-    preserve_dense_top_n: NonNegativeInt
 
 
 class ExecutionProvenanceMethodConfig(ClosedModel):
@@ -314,18 +315,12 @@ class ExecutionProvenanceMethodConfig(ClosedModel):
     variant: EpgmVariant = "dependency_path"
 
 
-class PairSamplingConfig(ClosedModel):
-    random_seed: ScientificInt
-    easy_random_per_positive: NonNegativeInt
-    hard_bm25_per_positive: NonNegativeInt
-    hard_dense_per_positive: NonNegativeInt
-    hard_graph_neighbor_per_positive: NonNegativeInt
-    hard_pool_size: PositiveInt
+class PairSamplingConfig(NegativeSamplingConfig):
+    pass
 
 
-class ProvenancePairSamplingConfig(PairSamplingConfig):
-    hard_provenance_successor_per_positive: NonNegativeInt
-    hard_provenance_predecessor_per_positive: NonNegativeInt
+class ProvenancePairSamplingConfig(ProvenanceNegativeSamplingConfig):
+    pass
 
 
 class RgcnModelConfig(ClosedModel):
@@ -335,20 +330,12 @@ class RgcnModelConfig(ClosedModel):
     ablation: str = Field(min_length=1)
 
 
-class RgcnTrainerConfig(ClosedModel):
-    optimizer_name: str = Field(min_length=1)
-    learning_rate: PositiveFloat
-    per_device_graph_batch_size: PositiveInt
-    max_grad_norm: PositiveFloat
-    random_seed: ScientificInt
-    pos_weight_enabled: StrictBool
-    epochs: PositiveInt
-    device: Device
+class RgcnTrainerConfig(RgcnTrainingConfig):
+    device: Device = "cuda"
 
 
-class ModelSelectionConfig(ClosedModel):
-    best_metric: RgcnSelectionMetric
-    higher_is_better: StrictBool
+class ModelSelectionConfig(RgcnSelectionSettings):
+    pass
 
 
 class RgcnTrainConfig(ClosedModel):
@@ -444,15 +431,8 @@ class ProvenanceRgcnModelSettings(ClosedModel):
         return self
 
 
-class ProvenanceRgcnTrainerSettings(ClosedModel):
-    learning_rate: PositiveFloat
-    per_device_graph_batch_size: PositiveInt
-    epochs: PositiveInt
-    max_grad_norm: PositiveFloat
-    random_seed: ScientificInt
-    device: Device
-    candidate_loss_weight: NonNegativeFloat
-    edge_loss_weight: NonNegativeFloat
+class ProvenanceRgcnTrainerSettings(ProvenanceRgcnTrainingConfig):
+    device: Device = "cuda"
 
 
 class ProvenanceRgcnTrainSettings(ClosedModel):
@@ -511,25 +491,16 @@ class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
         )
 
 
-class DenseFinetuneDataConfig(ClosedModel):
-    hard_negatives_per_positive: NonNegativeInt
+class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
+    pass
 
 
-class DenseFinetuneTrainerConfig(ClosedModel):
-    learning_rate: PositiveFloat
-    train_batch_size: PositiveInt
-    eval_batch_size: PositiveInt
-    epochs: PositiveInt
-    warmup_steps: NonNegativeInt
-    max_grad_norm: PositiveFloat
-    random_seed: ScientificInt
-    device: Device
-    use_amp: StrictBool
+class DenseFinetuneTrainerConfig(DenseFinetuneTrainerSettings):
+    device: Device = "cuda"
 
 
-class DenseFinetuneSelectionConfig(ClosedModel):
-    best_metric: str = Field(min_length=1)
-    higher_is_better: StrictBool
+class DenseFinetuneSelectionConfig(DenseFinetuneSelectionSettings):
+    pass
 
 
 class DenseFinetuneTrainConfig(ClosedModel):

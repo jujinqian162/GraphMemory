@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from graph_memory.contracts.common import TrainPairSampleType
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.provenance import ExecutionProvenanceGraph, ProvenanceEdgeType
 from graph_memory.retrieval.bulk import task_groups
@@ -115,9 +115,9 @@ class GraphNeighborNegativeSampler:
             )
         non_gold_node_id_set = set(context.non_gold_node_ids)
         candidates: list[str] = []
-        for edge in context.graph["edges"]:
-            source = edge["source"]
-            target = edge["target"]
+        for edge in context.graph.edges:
+            source = edge.source
+            target = edge.target
             if source in context.gold_node_ids and target in non_gold_node_id_set:
                 candidates.append(target)
             if target in context.gold_node_ids and source in non_gold_node_id_set:

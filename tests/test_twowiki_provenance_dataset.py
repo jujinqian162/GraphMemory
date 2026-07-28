@@ -4,12 +4,12 @@ import json
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
-from graph_memory.contracts.ranking import RankedResult
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.datasets.selection import (
     evidence_evaluation_request_for_dataset,
@@ -24,13 +24,12 @@ from graph_memory.datasets.twowiki_provenance import (
     deterministic_dev_test_partition,
     parse_twowiki_provenance_record,
 )
-from graph_memory.datasets.twowiki_provenance.records import ProvenanceEdgeRecord
-from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
-from graph_memory.validation import (
-    ContractValidationError,
-    validate_twowiki_provenance_label_records,
-    validate_twowiki_provenance_ranking_records,
+from graph_memory.datasets.twowiki_provenance.records import (
+    TwoWikiProvenancePreparedSplit,
+    TwoWikiProvenanceRankingRecord,
+    TwoWikiProvenanceRawRecord,
 )
+from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 from graph_memory.experiment.artifacts import FileSourceRef, identify_external_source
 from graph_memory.experiment.config import TwoWikiProvenanceTransformConfig
 from graph_memory.stages.transform import materialize_transform_twowiki
@@ -46,12 +45,16 @@ def test_conversion_is_deterministic_balanced_and_leakage_safe() -> None:
 
     assert first == second
     assert first.rejected_reason_counts == {}
-    ranking = first.records[0]["ranking"]
-    label = first.records[0]["label"]
-    validate_twowiki_provenance_ranking_records([ranking])
-    validate_twowiki_provenance_label_records([label], {ranking["task_id"]: ranking})
+    raw_record = first.records[0].model_dump(mode="python")
+    ranking = raw_record["ranking"]
+    label = raw_record["label"]
+    TwoWikiProvenanceRawRecord(
+        schema_version=TWOWIKI_PROVENANCE_SCHEMA_VERSION,
+        ranking=ranking,
+        label=label,
+    )
     assert '"gold' not in json.dumps(ranking, sort_keys=True)
-    assert label["gold_dependency_edges"] == [label["gold_evidence_output_ids"]]
+    assert label["gold_dependency_edges"] == (label["gold_evidence_output_ids"],)
 
     request = execution_provenance_requests_for_dataset(
         "twowiki_provenance", [ranking]
@@ -79,7 +82,7 @@ def test_schema_v3_gold_spine_uses_matched_fixed_degree_branches() -> None:
     )
 
     assert result.rejected_reason_counts == {}
-    raw_record = result.records[0]
+    raw_record = result.records[0].model_dump(mode="python")
     assert TWOWIKI_PROVENANCE_SCHEMA_VERSION == 3
     assert raw_record["schema_version"] == 3
     ranking = raw_record["ranking"]
@@ -94,7 +97,7 @@ def test_schema_v3_gold_spine_uses_matched_fixed_degree_branches() -> None:
     feed_edges = [
         edge for edge in ranking["graph"]["edges"] if edge["edge_type"] == "feeds"
     ]
-    by_source: dict[str, list[ProvenanceEdgeRecord]] = {}
+    by_source: dict[str, list[dict[str, Any]]] = {}
     for edge in feed_edges:
         by_source.setdefault(cast(str, edge["source"]), []).append(edge)
 
@@ -128,11 +131,11 @@ def test_schema_v3_gold_spine_uses_matched_fixed_degree_branches() -> None:
 def test_schema_v3_feed_weights_are_bounded_and_source_mass_preserving() -> None:
     ranking = convert_twowiki_source_records(
         [_source_example("weight-mass")], candidate_cap=6, seed=13
-    ).records[0]["ranking"]
+    ).records[0].ranking.model_dump(mode="python")
     feed_edges = [
         edge for edge in ranking["graph"]["edges"] if edge["edge_type"] == "feeds"
     ]
-    by_source: dict[str, list[ProvenanceEdgeRecord]] = {}
+    by_source: dict[str, list[dict[str, Any]]] = {}
     for edge in feed_edges:
         by_source.setdefault(cast(str, edge["source"]), []).append(edge)
 
@@ -188,10 +191,10 @@ def test_schema_v3_parser_rejects_v2_artifact_explicitly() -> None:
     record = convert_twowiki_source_records(
         [_source_example("v2-reject")], candidate_cap=6, seed=13
     ).records[0]
-    legacy = deepcopy(record)
+    legacy = record.model_dump(mode="python")
     legacy["schema_version"] = 2
 
-    with pytest.raises(ValueError, match="v2 artifacts are not compatible"):
+    with pytest.raises(ValueError, match="schema_version"):
         parse_twowiki_provenance_record(legacy)
 
 
@@ -243,8 +246,8 @@ def _mutate_label_leakage(ranking: dict[str, object]) -> dict[str, object]:
     ("mutator", "match"),
     (
         (_mutate_feed_mass, "feed mass"),
-        (_mutate_confidence_metadata, "confidence metadata"),
-        (_mutate_binding_hash, "inconsistent bindings"),
+        (_mutate_confidence_metadata, "source_probability"),
+        (_mutate_binding_hash, "inconsistent feed bindings"),
         (_mutate_label_leakage, "forbidden"),
     ),
     ids=("feed-mass", "confidence-metadata", "binding-hash", "label-leakage"),
@@ -254,10 +257,10 @@ def test_ranking_validation_rejects_contract_violations(
 ) -> None:
     ranking = convert_twowiki_source_records(
         [_source_example("validation")], candidate_cap=6, seed=13
-    ).records[0]["ranking"]
+    ).records[0].ranking.model_dump(mode="python")
 
-    with pytest.raises(ContractValidationError, match=match):
-        validate_twowiki_provenance_ranking_records([mutator(ranking)])
+    with pytest.raises(ValueError, match=match):
+        TwoWikiProvenanceRankingRecord.model_validate(mutator(ranking))
 
 
 def test_bm25_successor_edges_follow_semantic_matches_not_shuffled_order() -> None:
@@ -270,7 +273,7 @@ def test_bm25_successor_edges_follow_semantic_matches_not_shuffled_order() -> No
             successors_per_output=2,
         ),
     ).records[0]
-    ranking = converted["ranking"]
+    ranking = converted.ranking.model_dump(mode="python")
     by_text = {candidate["text"]: candidate for candidate in ranking["candidates"]}
     source = by_text["Alpha is an artist."]
     related = by_text["Alpha was born in Bridge City."]
@@ -305,9 +308,10 @@ def test_dense_successor_uses_injected_ranker_and_batches_queries() -> None:
 
     assert result.rejected_reason_counts == {}
     assert ranker.batch_sizes == [1, 6]
+    ranking = result.records[0].ranking.model_dump(mode="python")
     feed_edges = [
         edge
-        for edge in result.records[0]["ranking"]["graph"]["edges"]
+        for edge in ranking["graph"]["edges"]
         if edge["edge_type"] == "feeds"
     ]
     assert {cast(str, edge["metadata"]["semantic_scorer"]) for edge in feed_edges} == {
@@ -328,7 +332,7 @@ def test_ambiguous_gold_chain_is_rejected_before_graph_construction() -> None:
 def test_generated_bindings_match_source_field_hash_and_target_input() -> None:
     ranking = convert_twowiki_source_records(
         [_source_example("binding")], candidate_cap=6, seed=13
-    ).records[0]["ranking"]
+    ).records[0].ranking.model_dump(mode="python")
     node_by_id = {node["node_id"]: node for node in ranking["graph"]["nodes"]}
 
     for edge in ranking["graph"]["edges"]:
@@ -359,17 +363,17 @@ def test_dev_test_partition_is_fixed_by_split_seed() -> None:
     # provenance test partition stays identical across training seeds.
     dev_a, test_a = deterministic_dev_test_partition(records, seed=13)
     dev_b, test_b = deterministic_dev_test_partition(records, seed=13)
-    assert [r["ranking"]["task_id"] for r in test_a] == [
-        r["ranking"]["task_id"] for r in test_b
+    assert [r.ranking.task_id for r in test_a] == [
+        r.ranking.task_id for r in test_b
     ]
-    assert [r["ranking"]["task_id"] for r in dev_a] == [
-        r["ranking"]["task_id"] for r in dev_b
+    assert [r.ranking.task_id for r in dev_a] == [
+        r.ranking.task_id for r in dev_b
     ]
     # A different split seed is allowed to move the boundary, proving the
     # partition truly derives from the seed argument.
     _, test_other = deterministic_dev_test_partition(records, seed=41)
-    assert {r["ranking"]["task_id"] for r in test_a} != {
-        r["ranking"]["task_id"] for r in test_other
+    assert {r.ranking.task_id for r in test_a} != {
+        r.ranking.task_id for r in test_other
     }
 
 
@@ -381,14 +385,14 @@ def test_flat_projection_and_split_partition_preserve_identity() -> None:
     ).records
     dev, test = deterministic_dev_test_partition(records, seed=7)
 
-    dev_ids = {record["ranking"]["task_id"] for record in dev}
-    test_ids = {record["ranking"]["task_id"] for record in test}
+    dev_ids = {record.ranking.task_id for record in dev}
+    test_ids = {record.ranking.task_id for record in test}
     assert dev_ids
     assert test_ids
     assert dev_ids.isdisjoint(test_ids)
-    assert dev_ids | test_ids == {record["ranking"]["task_id"] for record in records}
+    assert dev_ids | test_ids == {record.ranking.task_id for record in records}
     text_request = text_ranking_requests_for_dataset(
-        "twowiki_provenance", [records[0]["ranking"]]
+        "twowiki_provenance", [records[0].ranking]
     )[0]
     assert len(text_request.candidates) == 6
     assert all(
@@ -462,9 +466,12 @@ def test_committed_smoke_fixture_matches_schema_v3_generator_input() -> None:
             encoding="utf-8"
         )
     )
-    expected = convert_twowiki_source_records(
-        source, candidate_cap=6, seed=13, strict=True
-    ).records
+    expected = [
+        record.model_dump(mode="json")
+        for record in convert_twowiki_source_records(
+            source, candidate_cap=6, seed=13, strict=True
+        ).records
+    ]
     committed = json.loads(
         (ROOT / "tests/fixtures/twowiki_provenance_smoke.json").read_text(
             encoding="utf-8"
@@ -472,20 +479,18 @@ def test_committed_smoke_fixture_matches_schema_v3_generator_input() -> None:
     )
 
     assert committed == expected
-    validate_twowiki_provenance_ranking_records(
-        [record["ranking"] for record in committed]
-    )
+    TwoWikiProvenancePreparedSplit.model_validate({"records": committed})
 
 
 def test_provenance_path_metrics_do_not_require_an_evidence_graph() -> None:
     converted = convert_twowiki_source_records(
         [_source_example("metric")], candidate_cap=6, seed=13
-    ).records[0]
+    ).records[0].model_dump(mode="python")
     ranking = converted["ranking"]
     label = converted["label"]
     candidate_ids = [candidate["output_id"] for candidate in ranking["candidates"]]
     gold_source, gold_target = label["gold_dependency_edges"][0]
-    prediction: RankedResult = {
+    prediction = RankedResult.model_validate({
         "task_id": ranking["task_id"],
         "method": "execution_provenance_retriever",
         "ranked_nodes": [
@@ -506,7 +511,7 @@ def test_provenance_path_metrics_do_not_require_an_evidence_graph() -> None:
         },
         "latency_ms": 1.0,
         "input_tokens": 0,
-    }
+    })
 
     rows = evaluate_results(
         evidence_evaluation_request_for_dataset(
@@ -517,25 +522,25 @@ def test_provenance_path_metrics_do_not_require_an_evidence_graph() -> None:
         )
     )
 
-    assert rows[0]["Path Recall@10"] == 1.0
-    assert rows[0]["Edge Recall@10"] == 1.0
-    assert rows[0]["Edge Precision@10"] == 1.0
-    assert rows[0]["Edge F1@10"] == 1.0
-    assert rows[0]["Abstention Rate"] == 0.0
+    assert rows[0].path_recall_at_10 == 1.0
+    assert rows[0].edge_recall_at_10 == 1.0
+    assert rows[0].edge_precision_at_10 == 1.0
+    assert rows[0].edge_f1_at_10 == 1.0
+    assert rows[0].abstention_rate == 0.0
 
-    no_edges = deepcopy(prediction)
+    no_edges = deepcopy(prediction.model_dump(mode="python"))
     no_edges["retrieved_subgraph"]["edges"] = []
     zero_rows = evaluate_results(
         evidence_evaluation_request_for_dataset(
             "twowiki_provenance",
-            predictions=[no_edges],
+            predictions=[RankedResult.model_validate(no_edges)],
             labels=[label],
             graphs=[],
         )
     )
-    assert zero_rows[0]["Edge Precision@10"] == 0.0
-    assert zero_rows[0]["Edge Recall@10"] == 0.0
-    assert zero_rows[0]["Edge F1@10"] == 0.0
+    assert zero_rows[0].edge_precision_at_10 == 0.0
+    assert zero_rows[0].edge_recall_at_10 == 0.0
+    assert zero_rows[0].edge_f1_at_10 == 0.0
 
 
 def _source_example(raw_id: str) -> dict[str, object]:
@@ -606,7 +611,7 @@ class _GoldTargetLastRanker:
             ),
         )
         return [
-            RankedNode(candidate.item_id, float(len(ordered) - index))
+            RankedNode(node_id=candidate.item_id, score=float(len(ordered) - index))
             for index, candidate in enumerate(ordered)
         ]
 
@@ -628,7 +633,7 @@ class _BatchCountingRanker:
         self.batch_sizes.append(len(requests))
         return [
             [
-                RankedNode(candidate.item_id, float(len(request.candidates) - index))
+                RankedNode(node_id=candidate.item_id, score=float(len(request.candidates) - index))
                 for index, candidate in enumerate(
                     sorted(request.candidates, key=lambda item: item.item_id)
                 )

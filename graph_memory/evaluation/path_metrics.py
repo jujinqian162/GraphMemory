@@ -4,8 +4,8 @@ from collections import defaultdict, deque
 from collections.abc import Iterable
 
 from graph_memory.contracts.common import NodeId
-from graph_memory.contracts.graphs import GraphEdge
-from graph_memory.contracts.ranking import RetrievedSubgraph
+from graph_memory.graphs.contracts import GraphEdge
+from graph_memory.retrieval.results import RetrievedSubgraph
 
 DependencyEdge = tuple[NodeId, NodeId]
 
@@ -16,13 +16,12 @@ def edge_recall_at(
 ) -> float:
     if not gold_dependency_edges:
         return 0.0
-    retrieved_nodes = set(retrieved_subgraph["nodes"])
-    retrieved_edges = retrieved_subgraph["edges"]
+    retrieved_nodes = set(retrieved_subgraph.nodes)
     covered = 0
     for source, target in gold_dependency_edges:
         if source not in retrieved_nodes or target not in retrieved_nodes:
             continue
-        if _has_direct_visible_edge(retrieved_edges, source, target):
+        if _has_direct_visible_edge(retrieved_subgraph.edges, source, target):
             covered += 1
     return covered / len(gold_dependency_edges)
 
@@ -33,14 +32,11 @@ def path_recall_at(
 ) -> float:
     if not gold_dependency_edges:
         return 0.0
-    retrieved_nodes = set(retrieved_subgraph["nodes"])
+    retrieved_nodes = set(retrieved_subgraph.nodes)
     gold_nodes = {node_id for edge in gold_dependency_edges for node_id in edge}
     if not gold_nodes.issubset(retrieved_nodes):
         return 0.0
-    adjacency = _traversal_adjacency(
-        retrieved_subgraph["edges"],
-        retrieved_nodes,
-    )
+    adjacency = _traversal_adjacency(retrieved_subgraph.edges, retrieved_nodes)
     for source, target in gold_dependency_edges:
         if target not in _reachable_from(source, adjacency):
             return 0.0
@@ -53,11 +49,9 @@ def _has_direct_visible_edge(
     target: NodeId,
 ) -> bool:
     for edge in edges:
-        edge_source = edge["source"]
-        edge_target = edge["target"]
-        if edge_source == source and edge_target == target:
+        if edge.source == source and edge.target == target:
             return True
-        if not edge["directed"] and edge_source == target and edge_target == source:
+        if not edge.directed and edge.source == target and edge.target == source:
             return True
     return False
 
@@ -68,13 +62,11 @@ def _traversal_adjacency(
 ) -> dict[NodeId, set[NodeId]]:
     adjacency: dict[NodeId, set[NodeId]] = defaultdict(set)
     for edge in edges:
-        source = edge["source"]
-        target = edge["target"]
-        if source not in allowed_nodes or target not in allowed_nodes:
+        if edge.source not in allowed_nodes or edge.target not in allowed_nodes:
             continue
-        adjacency[source].add(target)
-        if not edge["directed"]:
-            adjacency[target].add(source)
+        adjacency[edge.source].add(edge.target)
+        if not edge.directed:
+            adjacency[edge.target].add(edge.source)
     return dict(adjacency)
 
 

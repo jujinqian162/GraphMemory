@@ -8,6 +8,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 
 import graph_memory.experiment.tracking as tracking
+from graph_memory.evaluation.contracts import MetricRow
 from graph_memory.experiment.config import (
     ResolvedExperimentConfig,
     parse_composed_config,
@@ -97,12 +98,32 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
         variant=None,
         evaluation=SimpleNamespace(
             metric_rows=(
-                {
-                    "Method": "bm25",
-                    "Recall@10": 0.75,
-                    "MRR": 0.5,
-                    "Retrieval Latency / Query": "NA",
-                },
+                MetricRow.model_validate(dict(
+                    method="bm25",
+                    evaluation_schema="evidence_v3",
+                    recall_at_2=0.0,
+                    recall_at_5=0.0,
+                    recall_at_10=0.75,
+                    evidence_f1_at_5=0.0,
+                    evidence_f1_at_10=0.0,
+                    full_support_at_5=0.0,
+                    full_support_at_10=0.0,
+                    mrr=0.5,
+                    connected_evidence_recall_at_5=0.0,
+                    connected_evidence_recall_at_10=0.0,
+                    query_evidence_connectivity_at_10=0.0,
+                    path_recall_at_10="N/A",
+                    edge_recall_at_10="N/A",
+                    edge_precision_at_10="N/A",
+                    edge_f1_at_10="N/A",
+                    abstention_rate="N/A",
+                    retrieval_latency_per_query=0.0,
+                    index_build_time=0.0,
+                    graph_construction_time=0.0,
+                    memory_size="N/A",
+                    avg_retrieved_nodes=0.0,
+                    avg_retrieved_edges=0.0,
+                )),
             )
         ),
         benchmark=None,
@@ -124,7 +145,9 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
     assert "graph_memory.cache_used" not in tags
     assert tags["graph_memory.variant"] == "none"
     assert tags["graph_memory.prefect_flow_run_id"] == "prefect-flow-123"
-    assert metrics == {"final.recall_at_10": 0.75, "final.mrr": 0.5}
+    assert metrics["final.recall_at_10"] == 0.75
+    assert metrics["final.mrr"] == 0.5
+    assert "final.retrieval_latency_ms_per_query" not in metrics
     assert {path for _, path in captured["log_dict"]} == {"assets/manifest.json"}
     assert captured["log_artifacts"] == [str(run_output)]
 

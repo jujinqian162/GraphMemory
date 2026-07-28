@@ -16,7 +16,6 @@ DOMAIN_PACKAGE_ROOTS = (
     PACKAGE_ROOT / "retrieval",
     PACKAGE_ROOT / "text",
     PACKAGE_ROOT / "training_pairs",
-    PACKAGE_ROOT / "validation",
 )
 ROOT_WORKFLOW_PORT_MODULES = {
     "graph_memory.io",
@@ -101,6 +100,55 @@ def test_domain_packages_do_not_import_root_workflow_integration_ports() -> None
                         f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}"
                     )
 
+    assert violations == []
+
+
+def test_legacy_validation_surfaces_cannot_return() -> None:
+    retired_paths = (
+        PACKAGE_ROOT / "validation",
+        PACKAGE_ROOT / "contracts" / "ranking.py",
+        PACKAGE_ROOT / "contracts" / "graphs.py",
+        PACKAGE_ROOT / "contracts" / "training_pairs.py",
+        PACKAGE_ROOT / "contracts" / "metrics.py",
+        PACKAGE_ROOT / "contracts" / "errors.py",
+    )
+    assert [path.relative_to(REPO_ROOT) for path in retired_paths if path.exists()] == []
+
+    retired_imports = (
+        "graph_memory.validation",
+        "graph_memory.contracts.ranking",
+        "graph_memory.contracts.graphs",
+        "graph_memory.contracts.training_pairs",
+        "graph_memory.contracts.metrics",
+        "graph_memory.contracts.errors",
+    )
+    violations: list[str] = []
+    for path in _package_files(PACKAGE_ROOT):
+        for lineno, imported in _imported_modules(path):
+            if any(
+                imported == retired or imported.startswith(f"{retired}.")
+                for retired in retired_imports
+            ):
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)}:{lineno}:{imported}"
+                )
+    assert violations == []
+
+
+def test_central_validate_apis_cannot_return() -> None:
+    allowed_tensor_assertions = {
+        "graph_memory/models/graph_batching.py:validate_graph_batch",
+    }
+    violations: list[str] = []
+    for path in _package_files(PACKAGE_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
+                "validate_"
+            ):
+                symbol = f"{path.relative_to(REPO_ROOT).as_posix()}:{node.name}"
+                if symbol not in allowed_tensor_assertions:
+                    violations.append(symbol)
     assert violations == []
 
 

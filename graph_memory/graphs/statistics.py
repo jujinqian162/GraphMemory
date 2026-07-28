@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from graph_memory.contracts.common import JsonObject
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.contracts.observability import GraphStatistics
 
 
@@ -19,19 +19,17 @@ def graph_statistics(
     isolated_memory_nodes = 0
 
     for graph in graphs:
-        nodes = graph["nodes"]
-        edges = graph["edges"]
-        total_nodes += len(nodes)
-        total_edges += len(edges)
-        for edge in edges:
-            edge_counts[edge["edge_type"]] += 1
+        total_nodes += len(graph.nodes)
+        total_edges += len(graph.edges)
+        for edge in graph.edges:
+            edge_counts[edge.edge_type] += 1
 
         incident_node_ids: set[str] = set()
-        for edge in edges:
-            incident_node_ids.add(edge["source"])
-            incident_node_ids.add(edge["target"])
-        for node in nodes:
-            if node["id"] != "q" and node["id"] not in incident_node_ids:
+        for edge in graph.edges:
+            incident_node_ids.add(edge.source)
+            incident_node_ids.add(edge.target)
+        for node in graph.nodes:
+            if node.id != "q" and node.id not in incident_node_ids:
                 isolated_memory_nodes += 1
 
     num_graphs = len(graphs)

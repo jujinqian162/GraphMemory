@@ -3,12 +3,17 @@ from __future__ import annotations
 import random
 from collections import Counter, defaultdict
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from tqdm.auto import tqdm
 
 from graph_memory.contracts.common import TaskId, TrainPairSampleType
-from graph_memory.contracts.training_pairs import TrainPairBuildSummary, TrainPairRecord
+from graph_memory.training_pairs.contracts import (
+    TrainPairBuildResult,
+    TrainPairBuildSummary,
+    TrainPairDataset,
+    TrainPairRecord,
+)
 from graph_memory.retrieval.contracts import SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
@@ -31,23 +36,6 @@ from graph_memory.training_pairs.samplers import (
     ProvenancePredecessorNegativeSampler,
     ProvenanceSuccessorNegativeSampler,
 )
-from graph_memory.validation import (
-    validate_train_pair_build_summary,
-    validate_train_pairs,
-)
-
-
-@dataclass(frozen=True)
-class TrainPairBuildResult:
-    """
-    In-memory result of deterministic train pair construction.
-    确定性训练 pair 构造的内存结果。
-    """
-
-    pairs: list[TrainPairRecord]
-    summary: TrainPairBuildSummary
-
-
 @dataclass(frozen=True)
 class TrainPairBuilder:
     """
@@ -72,7 +60,7 @@ class TrainPairBuilder:
             raise ValueError(
                 "Train-pair tasks must either all provide evidence graphs or all omit them."
             )
-        graphs_by_task_id = {graph["task_id"]: graph for graph in graphs}
+        graphs_by_task_id = {graph.task_id: graph for graph in graphs}
         if (
             not graphs_by_task_id
             and self.config.hard_graph_neighbor_per_positive > 0
@@ -136,26 +124,28 @@ class TrainPairBuilder:
                     sample_type=sampler.sample_type,
                 )
 
-        positive_count = sum(1 for pair in pairs if pair["label"] == 1)
+        positive_count = sum(1 for pair in pairs if pair.label == 1)
         negative_count = sum(negative_count_by_type.values())
         num_tasks = len(task_list)
-        summary: TrainPairBuildSummary = {
-            "positive_count": positive_count,
-            "negative_count_by_type": dict(sorted(negative_count_by_type.items())),
-            "avg_positive_per_task": positive_count / num_tasks if num_tasks else 0.0,
-            "avg_negative_per_task": negative_count / num_tasks if num_tasks else 0.0,
-            "tasks_with_no_positive": tasks_with_no_positive,
-            "sampling_config": asdict(self.config),
-        }
-
-        validate_train_pairs(
-            pairs,
-            text_requests,
-            labels_by_task_id,
-            graphs_by_task_id,
+        summary = TrainPairBuildSummary(
+            positive_count=positive_count,
+            negative_count_by_type=dict(sorted(negative_count_by_type.items())),
+            avg_positive_per_task=(
+                positive_count / num_tasks if num_tasks else 0.0
+            ),
+            avg_negative_per_task=(
+                negative_count / num_tasks if num_tasks else 0.0
+            ),
+            tasks_with_no_positive=tuple(tasks_with_no_positive),
+            sampling_config=self.config,
         )
-        validate_train_pair_build_summary(summary)
-        return TrainPairBuildResult(pairs=pairs, summary=summary)
+        dataset = TrainPairDataset(
+            requests=tuple(text_requests),
+            labels=tuple(labels_by_task_id.values()),
+            graphs=tuple(graphs_by_task_id.values()),
+            pairs=tuple(pairs),
+        )
+        return TrainPairBuildResult(pairs=dataset.pairs, summary=summary)
 
 
 def build_train_pairs(
@@ -249,12 +239,12 @@ def build_provenance_train_pairs(
             continue
         for node_id in gold_nodes:
             pairs.append(
-                {
-                    "task_id": task_id,
-                    "node_id": node_id,
-                    "label": 1,
-                    "sample_type": "positive",
-                }
+                TrainPairRecord(
+                    task_id=task_id,
+                    node_id=node_id,
+                    label=1,
+                    sample_type="positive",
+                )
             )
         gold_node_set = set(gold_nodes)
         context = PairSamplingContext(
@@ -314,39 +304,48 @@ def build_provenance_train_pairs(
                 overlap_count_by_type.update(ordered_sources)
             winner: TrainPairSampleType = ordered_sources[0]
             pairs.append(
-                {
-                    "task_id": task_id,
-                    "node_id": node_id,
-                    "label": 0,
-                    "sample_type": winner,
-                }
+                TrainPairRecord(
+                    task_id=task_id,
+                    node_id=node_id,
+                    label=0,
+                    sample_type=winner,
+                )
             )
             negative_count_by_type[winner] += 1
         if task_overlaps:
             source_overlap_by_task[task_id] = task_overlaps
 
-    positive_count = sum(pair["label"] for pair in pairs)
+    positive_count = sum(pair.label for pair in pairs)
     negative_count = sum(negative_count_by_type.values())
     num_tasks = len(task_list)
     shortfall_by_type = {
         sample_type: max(0, requested_by_type[sample_type] - negative_count_by_type[sample_type])
         for sample_type in PROVENANCE_NEGATIVE_PRECEDENCE
     }
-    summary: TrainPairBuildSummary = {
-        "positive_count": positive_count,
-        "negative_count_by_type": dict(sorted(negative_count_by_type.items())),
-        "avg_positive_per_task": positive_count / num_tasks if num_tasks else 0.0,
-        "avg_negative_per_task": negative_count / num_tasks if num_tasks else 0.0,
-        "tasks_with_no_positive": tasks_with_no_positive,
-        "sampling_config": asdict(config),
-        "requested_negative_count_by_type": dict(sorted(requested_by_type.items())),
-        "shortfall_by_type": dict(sorted(shortfall_by_type.items())),
-        "overlap_count_by_type": dict(sorted(overlap_count_by_type.items())),
-        "source_overlap_by_task": source_overlap_by_task,
-    }
-    validate_train_pairs(pairs, text_requests, labels_by_task_id, {})
-    validate_train_pair_build_summary(summary)
-    return TrainPairBuildResult(pairs=pairs, summary=summary)
+    summary = TrainPairBuildSummary(
+        positive_count=positive_count,
+        negative_count_by_type=dict(sorted(negative_count_by_type.items())),
+        avg_positive_per_task=(positive_count / num_tasks if num_tasks else 0.0),
+        avg_negative_per_task=(negative_count / num_tasks if num_tasks else 0.0),
+        tasks_with_no_positive=tuple(tasks_with_no_positive),
+        sampling_config=config,
+        requested_negative_count_by_type=dict(sorted(requested_by_type.items())),
+        shortfall_by_type=dict(sorted(shortfall_by_type.items())),
+        overlap_count_by_type=dict(sorted(overlap_count_by_type.items())),
+        source_overlap_by_task={
+            task_id: {
+                node_id: tuple(sources)
+                for node_id, sources in overlaps.items()
+            }
+            for task_id, overlaps in source_overlap_by_task.items()
+        },
+    )
+    dataset = TrainPairDataset(
+        requests=tuple(text_requests),
+        labels=tuple(labels_by_task_id.values()),
+        pairs=tuple(pairs),
+    )
+    return TrainPairBuildResult(pairs=dataset.pairs, summary=summary)
 
 
 def _build_default_samplers(
@@ -402,12 +401,12 @@ def _append_pair(
         return False
     seen_pair_keys.add(pair_key)
     pairs.append(
-        {
-            "task_id": task_id,
-            "node_id": node_id,
-            "label": 1 if label == 1 else 0,
-            "sample_type": sample_type,
-        }
+        TrainPairRecord(
+            task_id=task_id,
+            node_id=node_id,
+            label=1 if label == 1 else 0,
+            sample_type=sample_type,
+        )
     )
     return True
 

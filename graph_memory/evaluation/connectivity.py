@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from graph_memory.contracts.common import NodeId
-from graph_memory.contracts.graphs import GraphEdge, EvidenceGraph
+from graph_memory.graphs.contracts import GraphEdge, EvidenceGraph
 from graph_memory.evaluation.metrics import require_gold_nodes
 
 
@@ -18,7 +18,7 @@ class GraphConnectivity:
     def from_graph(
         cls, graph: EvidenceGraph, allowed_nodes: set[NodeId]
     ) -> "GraphConnectivity":
-        edges = graph["edges"]
+        edges = graph.edges
         return cls(
             directed_adjacency=_directed_adjacency(edges, allowed_nodes),
             undirected_adjacency=_undirected_adjacency(edges, allowed_nodes),
@@ -67,8 +67,8 @@ def _undirected_adjacency(
 ) -> dict[NodeId, set[NodeId]]:
     adjacency: dict[NodeId, set[NodeId]] = defaultdict(set)
     for edge in edges:
-        source = edge["source"]
-        target = edge["target"]
+        source = edge.source
+        target = edge.target
         if source in allowed_nodes and target in allowed_nodes:
             adjacency[source].add(target)
             adjacency[target].add(source)
@@ -80,12 +80,12 @@ def _directed_adjacency(
 ) -> dict[NodeId, set[NodeId]]:
     adjacency: dict[NodeId, set[NodeId]] = defaultdict(set)
     for edge in edges:
-        source = edge["source"]
-        target = edge["target"]
+        source = edge.source
+        target = edge.target
         if source not in allowed_nodes or target not in allowed_nodes:
             continue
         adjacency[source].add(target)
-        if not edge["directed"]:
+        if not edge.directed:
             adjacency[target].add(source)
     return adjacency
 

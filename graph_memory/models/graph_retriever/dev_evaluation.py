@@ -6,11 +6,11 @@ from collections.abc import Iterable
 import torch
 import torch.nn.functional as F
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.metrics import MetricRow
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.evaluation.contracts import MetricRow
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
+from graph_memory.graphs.views import induced_edges, model_visible_graph
 from graph_memory.models.graph_retriever.batching import (
     build_evidence_dataloader,
     materialize_full_ranking_tasks,
@@ -21,7 +21,9 @@ from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
 from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
 from graph_memory.retrieval.contracts import RankedNode
+from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.results import RankedResultEnvelope
 from graph_memory.retrieval.signals import SeedSignalProvider
 
 
@@ -73,7 +75,7 @@ def predict_dev_from_batches(
     device: torch.device,
 ) -> tuple[list[RankedResult], float]:
     labels_by_task_id = {label.task_id: label for label in labels}
-    graph_by_task_id = {graph["task_id"]: graph for graph in graphs}
+    graph_by_task_id = {graph.task_id: graph for graph in graphs}
     logits_by_task_id: dict[str, list[RankedNode]] = defaultdict(list)
     loss_total = 0.0
     sample_count = 0
@@ -106,20 +108,18 @@ def predict_dev_from_batches(
         visible_graph = model_visible_graph(
             graph_by_task_id[task_id], frozenset(model_config.enabled_edge_types)
         )
-        subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
-        predictions.append(
-            {
-                "task_id": task_id,
-                "method": model_config.method_name,
-                "ranked_nodes": [
-                    {"node_id": node.node_id, "score": node.score}
-                    for node in ranked_nodes
-                ],
-                "retrieved_subgraph": subgraph,
-                "latency_ms": 0.0,
-                "input_tokens": 0,
-            }
+        retrieved_edges = induced_edges(visible_graph, top_node_ids)
+        prediction = assemble_ranked_result(
+            text_request=request,
+            method=model_config.method_name,
+            ranked_nodes=ranked_nodes,
+            top_k=10,
+            latency_ms=0.0,
+            retrieved_edges=retrieved_edges,
+            native_trace=None,
         )
+        RankedResultEnvelope(request=request, result=prediction)
+        predictions.append(prediction)
         if not set(labels_by_task_id[task_id].gold_evidence_item_ids):
             raise ValueError(
                 f"Dev labels must contain gold evidence nodes for task_id={task_id}."
@@ -129,16 +129,7 @@ def predict_dev_from_batches(
 
 def best_metric(row: MetricRow) -> float:
     return (
-        0.50 * _metric_float(row, "Full Support@5")
-        + 0.30 * _metric_float(row, "Recall@5")
-        + 0.20 * _metric_float(row, "MRR")
+        0.50 * row.full_support_at_5
+        + 0.30 * row.recall_at_5
+        + 0.20 * row.mrr
     )
-
-
-def _metric_float(row: MetricRow, key: str) -> float:
-    value = row[key]
-    if not isinstance(value, (int, float)):
-        raise ValueError(
-            f"Metric column must be numeric for best checkpoint selection: {key}"
-        )
-    return float(value)

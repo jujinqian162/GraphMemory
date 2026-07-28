@@ -12,10 +12,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass, field, fields, replace
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Literal, Mapping
+from typing import Literal
 
+from pydantic import Field, model_validator
+
+from graph_memory.contracts.model import DomainModel
 from graph_memory.graphs.provenance import ProvenanceEdgeType
 
 EpgmVariant = Literal["ppr_steiner", "typed_beam", "dependency_path"]
@@ -114,8 +117,7 @@ NON_TRAVERSABLE_EDGE_TYPES: frozenset[str] = frozenset(
 HUB_NODE_TYPES: frozenset[str] = frozenset({"task", "agent"})
 
 
-@dataclass(frozen=True)
-class EpgmRetrieverConfig:
+class EpgmRetrieverConfig(DomainModel):
     """No-train EPGM configuration; every behavior field is cache-relevant."""
 
     variant: EpgmVariant = "ppr_steiner"
@@ -134,7 +136,9 @@ class EpgmRetrieverConfig:
     hop_decay: float = 0.6
     reverse_edge_factor: float = 0.85
     min_edge_prior: float = 0.05
-    edge_priors: Mapping[str, float] = field(default=DEFAULT_EDGE_PRIORS)
+    edge_priors: Mapping[str, float] = Field(
+        default_factory=lambda: dict(DEFAULT_EDGE_PRIORS)
+    )
     # Global path multiplication is a measured negative diagnostic and is off.
     weight_aware: bool = False
     min_effective_weight: float = 0.1
@@ -144,8 +148,8 @@ class EpgmRetrieverConfig:
 
     # Query-conditioned typed transition model.
     relation_description_version: str = RELATION_DESCRIPTION_VERSION
-    relation_descriptions: Mapping[str, str] = field(
-        default=DEFAULT_RELATION_DESCRIPTIONS
+    relation_descriptions: Mapping[str, str] = Field(
+        default_factory=lambda: dict(DEFAULT_RELATION_DESCRIPTIONS)
     )
     relation_temperature: float = 0.2
     hub_degree_exponent: float = 0.5
@@ -163,7 +167,8 @@ class EpgmRetrieverConfig:
     connector_hop_cost: float = 0.05
     selection_min_gain: float = 0.0
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _validate_config(self) -> "EpgmRetrieverConfig":
         if self.variant not in EPGM_VARIANTS:
             raise ValueError(f"unknown EPGM variant={self.variant!r}.")
         for name in (
@@ -223,6 +228,7 @@ class EpgmRetrieverConfig:
             raise ValueError("min_edge_prior must be in [0, 1].")
         if not 0.0 <= self.min_effective_weight <= 1.0:
             raise ValueError("min_effective_weight must be in [0, 1].")
+        return self
 
     @classmethod
     def for_variant(
@@ -236,7 +242,11 @@ class EpgmRetrieverConfig:
             base = _TYPED_BEAM_PRESET
         else:
             base = _DEPENDENCY_PATH_PRESET
-        return base if not overrides else replace(base, **overrides)  # type: ignore[arg-type]
+        return (
+            base
+            if not overrides
+            else cls.model_validate(base._plain_values() | overrides)
+        )
 
     def edge_prior(self, edge_type: str) -> float:
         return self.edge_priors.get(edge_type, self.min_edge_prior)
@@ -244,12 +254,7 @@ class EpgmRetrieverConfig:
     def cache_fingerprint(self) -> str:
         """Digest every frozen behavior field for Prefect ranking identity."""
 
-        payload: dict[str, object] = {}
-        for item in fields(self):
-            value = getattr(self, item.name)
-            payload[item.name] = (
-                dict(sorted(value.items())) if isinstance(value, Mapping) else value
-            )
+        payload = self._plain_values(sort_mappings=True)
         encoded = json.dumps(
             payload,
             ensure_ascii=False,
@@ -257,6 +262,19 @@ class EpgmRetrieverConfig:
             separators=(",", ":"),
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()[:16]
+
+    def _plain_values(self, *, sort_mappings: bool = False) -> dict[str, object]:
+        return {
+            name: (
+                dict(sorted(value.items()))
+                if sort_mappings and isinstance(value, Mapping)
+                else dict(value)
+                if isinstance(value, Mapping)
+                else value
+            )
+            for name in type(self).model_fields
+            for value in (getattr(self, name),)
+        }
 
 
 _TYPED_BEAM_PRESET = EpgmRetrieverConfig(

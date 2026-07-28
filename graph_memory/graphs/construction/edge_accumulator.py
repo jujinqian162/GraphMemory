@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from graph_memory.contracts.common import EdgeType
-from graph_memory.contracts.graphs import GraphEdge
+from graph_memory.graphs.contracts import GraphEdge
 
 
 @dataclass
@@ -25,13 +25,13 @@ class EdgeAccumulator:
             return
         self.seen_edge_keys.add(edge_key)
         self.edges.append(
-            {
-                "source": source,
-                "target": target,
-                "edge_type": edge_type,
-                "weight": weight,
-                "directed": directed,
-            }
+            GraphEdge(
+                source=source,
+                target=target,
+                edge_type=edge_type,
+                weight=weight,
+                directed=directed,
+            )
         )
 
     @staticmethod

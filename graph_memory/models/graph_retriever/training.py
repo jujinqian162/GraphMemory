@@ -11,8 +11,8 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from tqdm.auto import tqdm
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.models.graph_retriever.batching import (
@@ -65,6 +65,7 @@ def train_graph_retriever(
     *,
     train_requests: list[TextRankingRequest],
     train_graphs: list[EvidenceGraph],
+    train_labels: list[EvidenceLabel],
     train_pairs: list[TrainPairRecord],
     dev_requests: list[TextRankingRequest],
     dev_labels: list[EvidenceLabel],
@@ -81,6 +82,24 @@ def train_graph_retriever(
     Train a frozen-encoder R-GCN binary node scorer.
     训练一个 frozen-encoder R-GCN 二分类节点 scorer。
     """
+
+    validated_train = TrainPairDataset(
+        requests=tuple(train_requests),
+        labels=tuple(train_labels),
+        graphs=tuple(train_graphs),
+        pairs=tuple(train_pairs),
+    )
+    train_requests = list(validated_train.requests)
+    train_labels = list(validated_train.labels)
+    train_graphs = list(validated_train.graphs)
+    train_pairs = list(validated_train.pairs)
+    validated_dev = EvidenceEvaluationRequest(
+        predictions=(),
+        labels=tuple(dev_labels),
+        graphs=tuple(dev_graphs),
+    )
+    dev_labels = list(validated_dev.labels)
+    dev_graphs = list(validated_dev.graphs)
 
     _ = torch.manual_seed(training_config.random_seed)
     device = torch.device(device)
@@ -129,7 +148,7 @@ def train_graph_retriever(
     best_state = _cpu_state_dict(model)
     global_step = 0
     negative_count_by_type = _negative_count_by_type(train_pairs)
-    positive_count = sum(1 for pair in train_pairs if pair["label"] == 1)
+    positive_count = sum(1 for pair in train_pairs if pair.label == 1)
     train_nodes_per_task = [len(task.graph_tensor.node_ids) for task in train_tasks]
     train_edges_per_task = [
         int(task.graph_tensor.edge_index.shape[1]) for task in train_tasks
@@ -205,15 +224,17 @@ def train_graph_retriever(
         dev_peak_device_memory_bytes = _peak_memory(device)
         dev_rows = evaluate_results(
             EvidenceEvaluationRequest(
-                predictions=dev_predictions, labels=dev_labels, graphs=dev_graphs
+                predictions=tuple(dev_predictions),
+                labels=tuple(dev_labels),
+                graphs=tuple(dev_graphs),
             )
         )
         dev_row = dev_rows[0]
         selection_metrics = build_selection_metrics(
-            dev_full_support_at_5=float(dev_row["Full Support@5"]),
-            dev_full_support_at_10=float(dev_row["Full Support@10"]),
-            dev_recall_at_5=float(dev_row["Recall@5"]),
-            dev_mrr=float(dev_row["MRR"]),
+            dev_full_support_at_5=dev_row.full_support_at_5,
+            dev_full_support_at_10=dev_row.full_support_at_10,
+            dev_recall_at_5=dev_row.recall_at_5,
+            dev_mrr=dev_row.mrr,
             dev_loss=dev_loss,
         )
         dev_metric = resolve_selection_metric(selection_metrics, selection_settings)
@@ -259,10 +280,10 @@ def train_graph_retriever(
                 if train_sample_count
                 else 0.0,
                 "dev_loss": dev_loss,
-                "dev_recall_at_5": float(dev_row["Recall@5"]),
-                "dev_full_support_at_5": float(dev_row["Full Support@5"]),
-                "dev_full_support_at_10": float(dev_row["Full Support@10"]),
-                "dev_mrr": float(dev_row["MRR"]),
+                "dev_recall_at_5": dev_row.recall_at_5,
+                "dev_full_support_at_5": dev_row.full_support_at_5,
+                "dev_full_support_at_10": dev_row.full_support_at_10,
+                "dev_mrr": dev_row.mrr,
                 "selection_metric": selection_settings.best_metric,
                 "selection_metric_value": dev_metric,
                 "best_dev_metric": best_metric,
@@ -325,8 +346,8 @@ def _peak_memory(device: torch.device) -> int:
 
 
 def _pos_weight(train_pairs: list[TrainPairRecord], device: torch.device) -> Tensor:
-    positive_count = sum(1 for pair in train_pairs if pair["label"] == 1)
-    negative_count = sum(1 for pair in train_pairs if pair["label"] == 0)
+    positive_count = sum(1 for pair in train_pairs if pair.label == 1)
+    negative_count = sum(1 for pair in train_pairs if pair.label == 0)
     if positive_count == 0:
         raise ValueError("pos_weight requires at least one positive sample.")
     return torch.tensor(
@@ -336,7 +357,7 @@ def _pos_weight(train_pairs: list[TrainPairRecord], device: torch.device) -> Ten
 
 def _negative_count_by_type(train_pairs: list[TrainPairRecord]) -> dict[str, int]:
     counter: Counter[str] = Counter(
-        pair["sample_type"] for pair in train_pairs if pair["label"] == 0
+        pair.sample_type for pair in train_pairs if pair.label == 0
     )
     return dict(sorted(counter.items()))
 

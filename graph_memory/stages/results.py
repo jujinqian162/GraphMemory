@@ -12,6 +12,7 @@ from graph_memory.experiment.artifacts import (
     PredictionsArtifactRef,
     TrainingPairsArtifactRef,
 )
+from graph_memory.evaluation.contracts import MetricRow, PerTaskMetricRow
 from graph_memory.experiment.config import SplitName
 
 
@@ -59,8 +60,8 @@ class EvaluationResult(_StageResult):
     stage: Literal["evaluate"] = "evaluate"
     method: str = Field(min_length=1)
     artifact: EvaluationArtifactRef
-    metric_rows: tuple[dict[str, JsonValue], ...]
-    per_task_rows: tuple[dict[str, JsonValue], ...] = ()
+    metric_rows: tuple[MetricRow, ...]
+    per_task_rows: tuple[PerTaskMetricRow, ...] = ()
     failure_case_count: int = Field(ge=0)
 
 

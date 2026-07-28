@@ -11,7 +11,7 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.models.graph_batching import TaskTensorDataset
@@ -40,7 +40,10 @@ from graph_memory.models.provenance_rgcn.tensorization import (
     tensorize_provenance_task,
 )
 from graph_memory.retrieval.contracts import ExecutionProvenanceTrace
-from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -131,12 +134,12 @@ def compute_provenance_loss(
     )
     seen_pair_nodes: set[str] = set()
     for pair in train_pairs:
-        if pair["task_id"] != label.task_id:
+        if pair.task_id != label.task_id:
             raise ValueError(
                 "Provenance train pair task mismatch: "
-                f"expected={label.task_id!r} observed={pair['task_id']!r}."
+                f"expected={label.task_id!r} observed={pair.task_id!r}."
             )
-        node_id = pair["node_id"]
+        node_id = pair.node_id
         if node_id not in candidate_index:
             raise ValueError(
                 f"Provenance train pair node_id={node_id!r} is not a candidate."
@@ -147,7 +150,7 @@ def compute_provenance_loss(
                 f"task_id={label.task_id!r} node_id={node_id!r}."
             )
         seen_pair_nodes.add(node_id)
-        candidate_targets[candidate_index[node_id]] = int(pair["label"])
+        candidate_targets[candidate_index[node_id]] = int(pair.label)
     if not bool((candidate_targets == 1).any()):
         raise ValueError(
             f"Provenance task_id={label.task_id!r} has no positive train pairs."
@@ -258,6 +261,19 @@ def train_provenance_rgcn(
     dev_labels: list[EvidenceLabel] | None = None,
     device: str | torch.device = "cpu",
 ) -> ProvenanceTrainingResult:
+    validated_pairs = TrainPairDataset(
+        requests=tuple(
+            TextRankingRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+            )
+            for request in train_requests
+        ),
+        labels=tuple(train_labels),
+        pairs=tuple(train_pairs),
+    )
+    train_pairs = list(validated_pairs.pairs)
     labels_by_task = {label.task_id: label for label in train_labels}
     if set(labels_by_task) != {request.task_id for request in train_requests}:
         raise ValueError("Provenance train request/label task IDs must align.")
@@ -265,12 +281,12 @@ def train_provenance_rgcn(
         request.task_id: [] for request in train_requests
     }
     for pair in train_pairs:
-        if pair["task_id"] not in pairs_by_task:
+        if pair.task_id not in pairs_by_task:
             raise ValueError(
                 "Provenance train pair has no matching request: "
-                f"task_id={pair['task_id']!r}."
+                f"task_id={pair.task_id!r}."
             )
-        pairs_by_task[pair["task_id"]].append(pair)
+        pairs_by_task[pair.task_id].append(pair)
 
     torch.manual_seed(training_config.random_seed)
     target_device = torch.device(device)
@@ -469,8 +485,8 @@ def train_provenance_rgcn(
             **dev_metrics.to_record(),
         }
         pair_category_counts = {
-            sample_type: sum(pair["sample_type"] == sample_type for pair in train_pairs)
-            for sample_type in sorted({pair["sample_type"] for pair in train_pairs})
+            sample_type: sum(pair.sample_type == sample_type for pair in train_pairs)
+            for sample_type in sorted({pair.sample_type for pair in train_pairs})
         }
         epoch_metrics.update(
             {
@@ -547,7 +563,7 @@ def _dev_metrics(
                     0.0,
                 )
                 predicted_edges = {
-                    (edge["source"], edge["target"])
+                    (edge.source, edge.target)
                     for edge in result.trace.retrieved_edges
                 }
                 gold_edges = set(label.gold_dependency_edges)

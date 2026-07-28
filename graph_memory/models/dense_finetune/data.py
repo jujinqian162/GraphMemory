@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 
 from graph_memory.contracts.common import NodeId, TaskId, TrainPairSampleType
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.embeddings import format_dense_passage, format_dense_query
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.models.dense_finetune.contracts import (
@@ -39,10 +39,10 @@ def build_dense_finetune_examples(
     }
     indexed_pairs_by_task: dict[TaskId, list[tuple[int, TrainPairRecord]]] = defaultdict(list)
     for index, pair in enumerate(train_pairs):
-        task_id = pair["task_id"]
+        task_id = pair.task_id
         if task_id not in request_by_id:
             raise ValueError(f"Unknown train pair task_id={task_id}.")
-        _require_candidate(candidate_by_task[task_id], task_id=task_id, node_id=pair["node_id"])
+        _require_candidate(candidate_by_task[task_id], task_id=task_id, node_id=pair.node_id)
         indexed_pairs_by_task[task_id].append((index, pair))
 
     examples: list[DenseFinetuneExample] = []
@@ -50,12 +50,15 @@ def build_dense_finetune_examples(
     for request in request_by_id.values():
         task_id = request.task_id
         indexed_pairs = indexed_pairs_by_task.get(task_id, [])
-        positives = [pair for _, pair in indexed_pairs if pair["label"] == 1]
+        positives = [pair for _, pair in indexed_pairs if pair.label == 1]
         negatives = [
             pair
             for _, pair in sorted(
-                ((index, pair) for index, pair in indexed_pairs if pair["label"] == 0),
-                key=lambda indexed_pair: (_NEGATIVE_PRIORITY[indexed_pair[1]["sample_type"]], indexed_pair[0]),
+                ((index, pair) for index, pair in indexed_pairs if pair.label == 0),
+                key=lambda indexed_pair: (
+                    _NEGATIVE_PRIORITY[indexed_pair[1].sample_type],
+                    indexed_pair[0],
+                ),
             )
         ]
         selected_negatives = negatives[: settings.hard_negatives_per_positive]
@@ -64,14 +67,14 @@ def build_dense_finetune_examples(
             positive_item = _require_candidate(
                 candidate_by_task[task_id],
                 task_id=task_id,
-                node_id=positive_pair["node_id"],
+                node_id=positive_pair.node_id,
             )
             if not selected_negatives:
                 example = _build_example(
                     request,
                     positive_item=positive_item,
                     negative_item=None,
-                    positive_node_id=positive_pair["node_id"],
+                    positive_node_id=positive_pair.node_id,
                     negative_sample_type=None,
                     query_prefix=query_prefix,
                     passage_prefix=passage_prefix,
@@ -86,14 +89,14 @@ def build_dense_finetune_examples(
                 negative_item = _require_candidate(
                     candidate_by_task[task_id],
                     task_id=task_id,
-                    node_id=negative_pair["node_id"],
+                    node_id=negative_pair.node_id,
                 )
                 example = _build_example(
                     request,
                     positive_item=positive_item,
                     negative_item=negative_item,
-                    positive_node_id=positive_pair["node_id"],
-                    negative_sample_type=negative_pair["sample_type"],
+                    positive_node_id=positive_pair.node_id,
+                    negative_sample_type=negative_pair.sample_type,
                     query_prefix=query_prefix,
                     passage_prefix=passage_prefix,
                 )
@@ -145,7 +148,10 @@ def build_ir_evaluator_payload(
     return DenseFinetuneIREvaluatorPayload(
         queries=queries,
         corpus=corpus,
-        relevant_docs=relevant_docs,
+        relevant_docs={
+            task_id: frozenset(node_ids)
+            for task_id, node_ids in relevant_docs.items()
+        },
     )
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
+from graph_memory.graphs.views import induced_edges, model_visible_graph
 from graph_memory.models.graph_retriever.batching import (
     collate_evidence_tasks,
     materialize_full_ranking_tasks,
@@ -21,6 +21,7 @@ from graph_memory.retrieval.contracts import (
     RetrievalMethodResult,
     RetrievalTrace,
 )
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
     TextRankingRequest,
@@ -79,10 +80,10 @@ class GraphRetrieverInference:
         visible_graph = model_visible_graph(
             graph, frozenset(self.model_config.enabled_edge_types)
         )
-        retrieved_subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
+        retrieved_edges = induced_edges(visible_graph, top_node_ids)
         return RetrievalMethodResult(
-            ranked_nodes=ranked_nodes,
-            trace=RetrievalTrace(retrieved_edges=retrieved_subgraph["edges"]),
+            ranked_nodes=tuple(ranked_nodes),
+            trace=RetrievalTrace(retrieved_edges=retrieved_edges),
         )
 
 
@@ -124,7 +125,9 @@ class CheckpointGraphRetrieverLoader:
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
         device: str | torch.device = "cpu",
-        expected_method: str = "dense_rgcn_graph_retriever",
+        expected_method: RetrievalMethodId = (
+            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
+        ),
     ) -> GraphRetrieverInference:
         """
         Load a trainable graph retriever inference runtime from `best.pt`.

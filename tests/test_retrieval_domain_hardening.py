@@ -8,7 +8,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.retrieval.results import RankedResult, RankedResultBatch
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
     ExecutionProvenanceGraph,
@@ -40,7 +40,6 @@ from graph_memory.retrieval.requests import (
     TextCandidate,
     TextRankingRequest,
 )
-from graph_memory.validation import ContractValidationError, validate_ranked_results
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,69 +72,69 @@ def _graphrag_text_request() -> TextRankingRequest:
         query_text="What did Ada design?",
         candidates=(
             TextCandidate(
-                "c1",
-                "Ada Lovelace designed the Analytical Engine.",
-                {"title": "Ada Lovelace", "aliases": "Ada"},
+                item_id="c1",
+                text="Ada Lovelace designed the Analytical Engine.",
+                metadata={"title": "Ada Lovelace", "aliases": "Ada"},
             ),
             TextCandidate(
-                "c2",
-                "Ada and the Analytical Engine influenced early computing.",
-                {"title": "Analytical Engine"},
+                item_id="c2",
+                text="Ada and the Analytical Engine influenced early computing.",
+                metadata={"title": "Analytical Engine"},
             ),
         ),
     )
 
 
 def _binding(name: str) -> FieldBinding:
-    return FieldBinding(name, name, f"{name}-hash", "exact")
+    return FieldBinding(output_field=name, input_parameter=name, binding_value_hash=f"{name}-hash", binding_kind="exact")
 
 
 def _alternative_path_request() -> ExecutionProvenanceRankingRequest:
     nodes = (
         ExecutionProvenanceNode(
-            "seed",
-            ProvenanceNodeType.TOOL_OUTPUT,
-            "seed result",
-            {"output_field_hashes": {"seed": "seed-hash"}},
+            node_id="seed",
+            node_type=ProvenanceNodeType.TOOL_OUTPUT,
+            text="seed result",
+            metadata={"output_field_hashes": {"seed": "seed-hash"}},
         ),
         ExecutionProvenanceNode(
-            "call-a",
-            ProvenanceNodeType.TOOL_CALL,
-            "use seed",
-            {"input_parameters": ["seed"]},
+            node_id="call-a",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="use seed",
+            metadata={"input_parameters": ["seed"]},
         ),
         ExecutionProvenanceNode(
-            "out-a",
-            ProvenanceNodeType.TOOL_OUTPUT,
-            "bound result",
-            {"output_field_hashes": {"result": "result-hash"}},
+            node_id="out-a",
+            node_type=ProvenanceNodeType.TOOL_OUTPUT,
+            text="bound result",
+            metadata={"output_field_hashes": {"result": "result-hash"}},
         ),
         ExecutionProvenanceNode(
-            "target",
-            ProvenanceNodeType.TOOL_CALL,
-            "final call",
-            {"input_parameters": ["result"]},
+            node_id="target",
+            node_type=ProvenanceNodeType.TOOL_CALL,
+            text="final call",
+            metadata={"input_parameters": ["result"]},
         ),
     )
     edges = (
-        ExecutionProvenanceEdge("seed", "target", ProvenanceEdgeType.DEPENDS_ON),
+        ExecutionProvenanceEdge(source="seed", target="target", edge_type=ProvenanceEdgeType.DEPENDS_ON),
         ExecutionProvenanceEdge(
-            "seed", "call-a", ProvenanceEdgeType.FEEDS, binding=_binding("seed")
+            source="seed", target="call-a", edge_type=ProvenanceEdgeType.FEEDS, binding=_binding("seed")
         ),
-        ExecutionProvenanceEdge("call-a", "out-a", ProvenanceEdgeType.RETURNS),
+        ExecutionProvenanceEdge(source="call-a", target="out-a", edge_type=ProvenanceEdgeType.RETURNS),
         ExecutionProvenanceEdge(
-            "out-a", "target", ProvenanceEdgeType.FEEDS, binding=_binding("result")
+            source="out-a", target="target", edge_type=ProvenanceEdgeType.FEEDS, binding=_binding("result")
         ),
     )
-    graph = ExecutionProvenanceGraph("path-task", nodes, edges)
+    graph = ExecutionProvenanceGraph(task_id="path-task", nodes=nodes, edges=edges)
     return ExecutionProvenanceRankingRequest(
-        "path-task",
-        "find result",
-        (
-            TextCandidate("seed", "seed result", {}),
-            TextCandidate("target", "final call", {}),
+        task_id="path-task",
+        query_text="find result",
+        candidates=(
+            TextCandidate(item_id="seed", text="seed result", metadata={}),
+            TextCandidate(item_id="target", text="final call", metadata={}),
         ),
-        graph,
+        graph=graph,
     )
 
 
@@ -208,14 +207,14 @@ def test_new_dense_methods_preserve_query_and_passage_prefixes() -> None:
 
 
 def test_provenance_rejects_untyped_support_transition() -> None:
-    with pytest.raises(ValueError, match="Invalid supports transition"):
+    with pytest.raises(ValueError, match="invalid supports transition"):
         ExecutionProvenanceGraph(
-            "invalid",
-            (
-                ExecutionProvenanceNode("answer", ProvenanceNodeType.ANSWER, "answer"),
-                ExecutionProvenanceNode("call", ProvenanceNodeType.TOOL_CALL, "call"),
+            task_id="invalid",
+            nodes=(
+                ExecutionProvenanceNode(node_id="answer", node_type=ProvenanceNodeType.ANSWER, text="answer"),
+                ExecutionProvenanceNode(node_id="call", node_type=ProvenanceNodeType.TOOL_CALL, text="call"),
             ),
-            (ExecutionProvenanceEdge("answer", "call", ProvenanceEdgeType.SUPPORTS),),
+            edges=(ExecutionProvenanceEdge(source="answer", target="call", edge_type=ProvenanceEdgeType.SUPPORTS),),
         )
 
 
@@ -257,37 +256,37 @@ def test_provenance_accepts_single_role_path_and_rejects_multi_semantic_paths() 
 
 def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() -> None:
     graph = ExecutionProvenanceGraph(
-        "revision-task",
-        (
+        task_id="revision-task",
+        nodes=(
             ExecutionProvenanceNode(
-                "verification", ProvenanceNodeType.VERIFICATION, "new check"
+                node_id="verification", node_type=ProvenanceNodeType.VERIFICATION, text="new check"
             ),
             ExecutionProvenanceNode(
-                "edge-invalidated", ProvenanceNodeType.CLAIM, "old claim"
+                node_id="edge-invalidated", node_type=ProvenanceNodeType.CLAIM, text="old claim"
             ),
             ExecutionProvenanceNode(
-                "metadata-invalidated",
-                ProvenanceNodeType.CLAIM,
-                "obsolete claim",
-                {"lifecycle_state": "superseded"},
+                node_id="metadata-invalidated",
+                node_type=ProvenanceNodeType.CLAIM,
+                text="obsolete claim",
+                metadata={"lifecycle_state": "superseded"},
             ),
         ),
-        (
+        edges=(
             ExecutionProvenanceEdge(
-                "verification",
-                "edge-invalidated",
-                ProvenanceEdgeType.INVALIDATES,
+                source="verification",
+                target="edge-invalidated",
+                edge_type=ProvenanceEdgeType.INVALIDATES,
             ),
         ),
     )
     request = ExecutionProvenanceRankingRequest(
-        "revision-task",
-        "current claim",
-        (
-            TextCandidate("edge-invalidated", "old claim", {}),
-            TextCandidate("metadata-invalidated", "obsolete claim", {}),
+        task_id="revision-task",
+        query_text="current claim",
+        candidates=(
+            TextCandidate(item_id="edge-invalidated", text="old claim", metadata={}),
+            TextCandidate(item_id="metadata-invalidated", text="obsolete claim", metadata={}),
         ),
-        graph,
+        graph=graph,
     )
 
     assert invalidated_node_ids(request.graph) == frozenset(
@@ -299,7 +298,7 @@ def test_provenance_invalidation_uses_revision_edges_and_lifecycle_metadata() ->
 
 def test_ranked_result_validation_rejects_malformed_native_trace() -> None:
     request = TextRankingRequest(
-        "trace-task", "query", (TextCandidate("c1", "candidate", {}),)
+        task_id="trace-task", query_text="query", candidates=(TextCandidate(item_id="c1", text="candidate", metadata={}),)
     )
     prediction = {
         "task_id": "trace-task",
@@ -323,8 +322,10 @@ def test_ranked_result_validation_rejects_malformed_native_trace() -> None:
         },
     }
 
-    with pytest.raises(ContractValidationError, match="native trace"):
-        validate_ranked_results([prediction], [request])
+    with pytest.raises(ValueError, match="finite"):
+        RankedResultBatch.model_validate(
+            {"results": (prediction,), "requests": (request,)}
+        )
 
 
 def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
@@ -340,7 +341,7 @@ def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
     )
     result = built.method.rank_task(request, top_k=3)
     text_request = TextRankingRequest(
-        request.task_id, request.query_text, request.candidates
+        task_id=request.task_id, query_text=request.query_text, candidates=request.candidates
     )
     prediction = assemble_ranked_result(
         text_request=text_request,
@@ -357,9 +358,9 @@ def _ppr_steiner_prediction() -> tuple[RankedResult, TextRankingRequest]:
 def test_ppr_steiner_trace_round_trips_through_ranked_result_validation() -> None:
     prediction, request = _ppr_steiner_prediction()
 
-    validate_ranked_results([prediction], [request])
+    RankedResultBatch(results=(prediction,), requests=(request,))
 
-    plain = cast(dict[str, Any], cast(object, prediction))
+    plain = prediction.model_dump(mode="python")
     metadata = cast(dict[str, Any], plain["metadata"])
     trace = cast(dict[str, Any], metadata["native_trace"])
     assert trace["trace_kind"] == "execution_provenance_subgraph"
@@ -368,7 +369,7 @@ def test_ppr_steiner_trace_round_trips_through_ranked_result_validation() -> Non
 
 def test_ppr_steiner_trace_rejects_non_normalized_transition_row() -> None:
     prediction, request = _ppr_steiner_prediction()
-    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
+    malformed = copy.deepcopy(prediction.model_dump(mode="python"))
     metadata = cast(dict[str, Any], malformed["metadata"])
     trace = cast(dict[str, Any], metadata["native_trace"])
     transitions = cast(list[dict[str, Any]], trace["transitions"])
@@ -377,9 +378,9 @@ def test_ppr_steiner_trace_rejects_non_normalized_transition_row() -> None:
         if transition["source"] == source:
             transition["probability"] *= 0.5
 
-    with pytest.raises(ContractValidationError, match="does not sum to one"):
-        validate_ranked_results(
-            [cast(RankedResult, cast(object, malformed))], [request]
+    with pytest.raises(ValueError, match="sum to one"):
+        RankedResultBatch.model_validate(
+            {"results": (malformed,), "requests": (request,)}
         )
 
 
@@ -409,14 +410,14 @@ def test_ppr_steiner_reuses_dense_query_vector_and_caches_relation_vectors() -> 
 
 def test_ppr_steiner_trace_rejects_selected_native_edge_reorientation() -> None:
     prediction, request = _ppr_steiner_prediction()
-    malformed = cast(dict[str, Any], cast(object, copy.deepcopy(prediction)))
+    malformed = copy.deepcopy(prediction.model_dump(mode="python"))
     metadata = cast(dict[str, Any], malformed["metadata"])
     trace = cast(dict[str, Any], metadata["native_trace"])
     edges = cast(list[dict[str, Any]], trace["selected_native_edges"])
     assert edges
     edges[0]["source"], edges[0]["target"] = edges[0]["target"], edges[0]["source"]
 
-    with pytest.raises(ContractValidationError, match="orientation is inconsistent"):
-        validate_ranked_results(
-            [cast(RankedResult, cast(object, malformed))], [request]
+    with pytest.raises(ValueError, match="orientation is inconsistent"):
+        RankedResultBatch.model_validate(
+            {"results": (malformed,), "requests": (request,)}
         )

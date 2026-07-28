@@ -6,11 +6,11 @@ from graph_memory.models.graph_retriever.internals.tensorization import (
     EdgeTensorizer,
     UniformEdgeWeightPolicy,
 )
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
 
 
 def tensor_graph() -> EvidenceGraph:
-    return {
+    return EvidenceGraph.model_validate({
         "task_id": "hotpot_tensor_test",
         "nodes": [
             {"id": "q", "node_type": "question", "text": "question"},
@@ -68,7 +68,7 @@ def tensor_graph() -> EvidenceGraph:
                 "directed": True,
             },
         ],
-    }
+    })
 
 
 def test_default_relation_vocab_is_stable():

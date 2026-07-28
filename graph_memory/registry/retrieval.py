@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.compat import StrEnum
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.methods.epgm import (
     EpgmRetrieverConfig,
 )
@@ -29,17 +30,6 @@ PayloadT = TypeVar("PayloadT")
 class RetrievalTaskFamily(StrEnum):
     EVIDENCE_RETRIEVAL = "evidence_retrieval"
     EXECUTION_PROVENANCE = "execution_provenance"
-
-
-class RetrievalMethodId(StrEnum):
-    BM25 = "bm25"
-    DENSE = "dense"
-    DENSE_FT = "dense_ft"
-    GRAPHRAG = "graphrag"
-    DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
-    DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
-    EXECUTION_PROVENANCE_RETRIEVER = "execution_provenance_retriever"
-    EXECUTION_PROVENANCE_RGCN_RETRIEVER = "execution_provenance_rgcn_retriever"
 
 
 @dataclass(frozen=True)

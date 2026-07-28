@@ -10,15 +10,11 @@ from graph_memory.experiment.config import (
     ProvenanceRgcnStageConfig,
     RgcnTrainConfig,
 )
-from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
-    DenseFinetuneSelectionSettings,
-    DenseFinetuneTrainerSettings,
     DenseFinetuneTrainingResult,
     train_dense_finetune,
 )
-from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
@@ -44,7 +40,6 @@ class RgcnGraphRetrieverTrainer:
         from graph_memory.models.graph_retriever.config.defaults import (
             default_model_config,
         )
-        from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
         from graph_memory.models.graph_retriever.training import train_graph_retriever
 
         if not isinstance(payload, RgcnTrainPayload):
@@ -71,27 +66,18 @@ class RgcnGraphRetrieverTrainer:
             ablation_name=settings.model.ablation,
         )
         return train_graph_retriever(
-            train_requests=payload.train_requests,
-            train_graphs=payload.train_graphs,
-            train_pairs=payload.train_pairs,
-            dev_requests=payload.dev_requests,
-            dev_labels=payload.dev_labels,
-            dev_graphs=payload.dev_graphs,
+            train_requests=list(payload.train_requests),
+            train_graphs=list(payload.train_graphs),
+            train_labels=list(payload.train_labels),
+            train_pairs=list(payload.train_pairs),
+            dev_requests=list(payload.dev_requests),
+            dev_labels=list(payload.dev_labels),
+            dev_graphs=list(payload.dev_graphs),
             model_config=model_config,
-            training_config=RgcnTrainingConfig(
-                optimizer_name=settings.trainer.optimizer_name,
-                learning_rate=settings.trainer.learning_rate,
-                per_device_graph_batch_size=(
-                    settings.trainer.per_device_graph_batch_size
-                ),
-                max_grad_norm=settings.trainer.max_grad_norm,
-                random_seed=settings.trainer.random_seed,
-                pos_weight_enabled=settings.trainer.pos_weight_enabled,
-                epochs=settings.trainer.epochs,
-            ),
+            training_config=settings.trainer,
             text_embedding_provider=deps.text_embedding_provider,
             seed_signal_provider=deps.seed_signal_provider,
-            selection_settings=RgcnSelectionSettings(**settings.selection.model_dump()),
+            selection_settings=settings.selection,
             device=settings.trainer.device,
         )
 
@@ -114,11 +100,9 @@ class DenseFinetuneMethodTrainer:
                 query_prefix=encoder.query_prefix,
                 passage_prefix=encoder.passage_prefix,
                 batch_size=encoder.batch_size,
-                data=DenseFinetuneDataSettings(**settings.data.model_dump()),
-                trainer=DenseFinetuneTrainerSettings(**settings.trainer.model_dump()),
-                selection=DenseFinetuneSelectionSettings(
-                    **settings.selection.model_dump()
-                ),
+                data=settings.data,
+                trainer=settings.trainer,
+                selection=settings.selection,
             ),
             train_requests=payload.train_requests,
             train_pairs=payload.train_pairs,
@@ -138,7 +122,6 @@ class ProvenanceRgcnMethodTrainer:
 
         from graph_memory.embeddings import load_sentence_transformer
         from graph_memory.models.provenance_rgcn import (
-            ProvenanceRgcnTrainingConfig,
             default_provenance_rgcn_model_config,
             train_provenance_rgcn,
         )
@@ -165,10 +148,10 @@ class ProvenanceRgcnMethodTrainer:
         model = self.config.train.model
         trainer = self.config.train.trainer
         return train_provenance_rgcn(
-            train_requests=payload.train_requests,
-            train_labels=payload.train_labels,
-            dev_requests=payload.dev_requests,
-            dev_labels=payload.dev_labels,
+            train_requests=list(payload.train_requests),
+            train_labels=list(payload.train_labels),
+            dev_requests=list(payload.dev_requests),
+            dev_labels=list(payload.dev_labels),
             model_config=default_provenance_rgcn_model_config(
                 encoder_model=self.config.encoder.model_name,
                 encoder_dim=int(probe.shape[1]),
@@ -185,16 +168,8 @@ class ProvenanceRgcnMethodTrainer:
                 preserve_node_top_n=model.preserve_node_top_n,
                 edge_accept_threshold=model.edge_accept_threshold,
             ),
-            training_config=ProvenanceRgcnTrainingConfig(
-                learning_rate=trainer.learning_rate,
-                per_device_graph_batch_size=trainer.per_device_graph_batch_size,
-                epochs=trainer.epochs,
-                max_grad_norm=trainer.max_grad_norm,
-                random_seed=trainer.random_seed,
-                candidate_loss_weight=trainer.candidate_loss_weight,
-                edge_loss_weight=trainer.edge_loss_weight,
-            ),
-            train_pairs=payload.train_pairs,
+            training_config=trainer,
+            train_pairs=list(payload.train_pairs),
             encoder=encoder,
             device=trainer.device,
         )

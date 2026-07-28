@@ -58,7 +58,7 @@ def main(composed: DictConfig) -> None:
     print(
         f"run={config.name} method={result.method} "
         f"variant={result.variant or 'none'} "
-        f"recall@10={metric_row.get('Recall@10', 'NA')}"
+        f"recall@10={metric_row.recall_at_10}"
     )
 
 

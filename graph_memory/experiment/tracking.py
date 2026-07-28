@@ -79,7 +79,9 @@ def log_experiment_result(
             "graph_memory.prefect_flow_run_id": prefect_flow_run_id,
         }
     )
-    metric_row = result.evaluation.metric_rows[0]
+    metric_row = result.evaluation.metric_rows[0].model_dump(
+        mode="json", by_alias=True
+    )
     metrics: dict[str, float] = {}
     for column, value in metric_row.items():
         if column == "Method":

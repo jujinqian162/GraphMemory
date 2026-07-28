@@ -16,7 +16,7 @@ from typing import Literal, cast
 import numpy as np
 from numpy.typing import NDArray
 
-from graph_memory.contracts.graphs import GraphEdge
+from graph_memory.graphs.contracts import GraphEdge
 from graph_memory.graphs.provenance import (
     ExecutionProvenanceEdge,
     ProvenanceEdgeType,
@@ -104,7 +104,11 @@ class EpgmRetriever:
         if self.config.variant == "ppr_steiner":
             return self._rank_connected_subgraph(request, top_k=top_k)
         dense_ranked = self.dense_ranker.rank(
-            TextRankingRequest(request.task_id, request.query_text, request.candidates)
+            TextRankingRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+            )
         )
         dense_rank = {
             node.node_id: index for index, node in enumerate(dense_ranked, start=1)
@@ -155,9 +159,9 @@ class EpgmRetriever:
             if path.seed_id in top_ids and path.target_id in top_ids
         )
         return RetrievalMethodResult(
-            ranked_nodes=ranked_nodes,
+            ranked_nodes=tuple(ranked_nodes),
             trace=RetrievalTrace(
-                retrieved_edges=_logical_edges(emitted),
+                retrieved_edges=tuple(_logical_edges(emitted)),
                 native_trace=StatelessExecutionProvenanceTrace(
                     dense_ranks=tuple(
                         DenseRankTrace(
@@ -213,7 +217,11 @@ class EpgmRetriever:
         top_k: int,
     ) -> RetrievalMethodResult:
         dense_ranked, query_vector = self.dense_ranker.rank_with_query_vector(
-            TextRankingRequest(request.task_id, request.query_text, request.candidates)
+            TextRankingRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+            )
         )
         dense_scores = {node.node_id: node.score for node in dense_ranked}
         dense_rank = {
@@ -266,7 +274,7 @@ class EpgmRetriever:
             final_ids = [*top_ids, *tail_ids]
             score_slots = [node.score for node in dense_ranked]
             ranked_nodes = [
-                RankedNode(node_id, score_slots[index])
+                RankedNode(node_id=node_id, score=score_slots[index])
                 for index, node_id in enumerate(final_ids)
             ]
         final_rank = {
@@ -286,9 +294,9 @@ class EpgmRetriever:
             selected.transitions, request
         )
         return RetrievalMethodResult(
-            ranked_nodes=ranked_nodes,
+            ranked_nodes=tuple(ranked_nodes),
             trace=RetrievalTrace(
-                retrieved_edges=retrieved_edges,
+                retrieved_edges=tuple(retrieved_edges),
                 native_trace=QueryConditionedExecutionProvenanceTrace(
                     native_graph_node_ids=tuple(
                         sorted(node.node_id for node in request.graph.nodes)
@@ -307,7 +315,9 @@ class EpgmRetriever:
                     ),
                     relations=tuple(
                         ProvenanceRelationAffinityTrace(
-                            item.edge_type, item.similarity, item.affinity
+                            edge_type=ProvenanceEdgeType(item.edge_type),
+                            similarity=item.similarity,
+                            affinity=item.affinity,
                         )
                         for item in ppr.relation_affinities
                     ),
@@ -315,7 +325,7 @@ class EpgmRetriever:
                         ProvenanceTransitionTrace(
                             source=item.source,
                             target=item.target,
-                            edge_type=item.edge_type,
+                            edge_type=ProvenanceEdgeType(item.edge_type),
                             direction=cast(
                                 Literal["forward", "reverse"], item.direction
                             ),
@@ -339,10 +349,10 @@ class EpgmRetriever:
                     ppr_converged=ppr.converged,
                     candidate_prizes=tuple(
                         ProvenanceCandidatePrizeTrace(
-                            item.node_id,
-                            item.dense_component,
-                            item.ppr_component,
-                            item.prize,
+                            node_id=item.node_id,
+                            dense_component=item.dense_component,
+                            ppr_component=item.ppr_component,
+                            prize=item.prize,
                         )
                         for item in prizes
                     ),
@@ -350,27 +360,27 @@ class EpgmRetriever:
                     connector_node_ids=selected.connector_ids,
                     selection_steps=tuple(
                         ProvenanceSelectionStepTrace(
-                            item.anchor_id,
-                            item.target_id,
-                            item.path_node_ids,
-                            tuple(
+                            anchor_id=item.anchor_id,
+                            target_id=item.target_id,
+                            path_node_ids=item.path_node_ids,
+                            transitions=tuple(
                                 ProvenanceSelectedArcTrace(
-                                    transition.source,
-                                    transition.target,
-                                    transition.edge_type,
-                                    cast(
+                                    source=transition.source,
+                                    target=transition.target,
+                                    edge_type=ProvenanceEdgeType(transition.edge_type),
+                                    direction=cast(
                                         Literal["forward", "reverse"],
                                         transition.direction,
                                     ),
                                 )
                                 for transition in item.transitions
                             ),
-                            item.added_candidate_ids,
-                            item.displaced_candidate_ids,
-                            item.prize_gain,
-                            item.edge_cost,
-                            item.displacement_cost,
-                            item.marginal_gain,
+                            added_candidate_ids=item.added_candidate_ids,
+                            displaced_candidate_ids=item.displaced_candidate_ids,
+                            prize_gain=item.prize_gain,
+                            edge_cost=item.edge_cost,
+                            displacement_cost=item.displacement_cost,
+                            marginal_gain=item.marginal_gain,
                         )
                         for item in selected.steps
                     ),
@@ -380,15 +390,15 @@ class EpgmRetriever:
                     exact_dense_fallback=selected.exact_dense_fallback,
                     emitted_edges=tuple(
                         CandidateEdgeTrace(
-                            edge.source,
-                            edge.target,
-                            edge.edge_type,
-                            edge.confidence,
+                            source=edge.source,
+                            target=edge.target,
+                            edge_type=edge.edge_type,
+                            confidence=edge.confidence,
                         )
                         for edge in selected.candidate_edges
                     ),
                     scorer_identity=_scorer_identity(request),
-                    variant=self.config.variant,
+                    variant="ppr_steiner",
                 ),
             ),
         )
@@ -502,13 +512,15 @@ def _additive_ranking(
     }
     fused = [
         RankedNode(
-            node.node_id,
-            seed_relevance.get(node.node_id, 0.0)
-            + graph_weight
-            * (
-                best_by_target[node.node_id].score
-                if node.node_id in best_by_target
-                else 0.0
+            node_id=node.node_id,
+            score=(
+                seed_relevance.get(node.node_id, 0.0)
+                + graph_weight
+                * (
+                    best_by_target[node.node_id].score
+                    if node.node_id in best_by_target
+                    else 0.0
+                )
             ),
         )
         for node in dense_ranked
@@ -614,7 +626,7 @@ def _stable_insert_ranking(
         return dense_ranked, ()
     score_slots = [node.score for node in dense_ranked]
     ranked = [
-        RankedNode(node_id, score_slots[index])
+        RankedNode(node_id=node_id, score=score_slots[index])
         for index, node_id in enumerate(final_ids)
     ]
     return ranked, tuple(promoted)

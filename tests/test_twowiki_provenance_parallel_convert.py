@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
+from pydantic import BaseModel
+
 from graph_memory.datasets.twowiki_provenance import (
     convert_twowiki_source_records,
     resolve_worker_count,
@@ -35,7 +37,16 @@ def _source_example(raw_id: str) -> dict[str, object]:
 
 
 def _canonical(records: Sequence[object]) -> str:
-    return json.dumps(records, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        [
+            record.model_dump(mode="json")
+            if isinstance(record, BaseModel)
+            else record
+            for record in records
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def test_parallel_bm25_output_is_byte_identical_to_serial() -> None:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal, NoReturn, cast
+from typing import Literal, NoReturn, TypeAlias
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
+from pydantic import TypeAdapter
+
 from graph_memory.datasets.hotpotqa.projectors import (
     HotpotQAToEvidenceEvaluationRequest,
     HotpotQAToEvidenceGraphBuildRequest,
@@ -42,21 +42,13 @@ from graph_memory.datasets.twowiki_provenance.records import (
     TwoWikiProvenanceRankingRecord,
 )
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.requests import EvidenceGraphBuildRequest
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextRankingRequest,
 )
-from graph_memory.validation import (
-    validate_hotpotqa_label_records,
-    validate_hotpotqa_ranking_records,
-    validate_musique_label_records,
-    validate_musique_ranking_records,
-    validate_twowiki_label_records,
-    validate_twowiki_provenance_label_records,
-    validate_twowiki_provenance_ranking_records,
-    validate_twowiki_ranking_records,
-)
+from graph_memory.retrieval.results import RankedResult
 
 DatasetId = Literal[
     "hotpotqa",
@@ -64,87 +56,89 @@ DatasetId = Literal[
     "twowiki_provenance",
     "musique",
 ]
+DatasetRankingRecord: TypeAlias = (
+    HotpotQARankingRecord
+    | TwoWikiRankingRecord
+    | TwoWikiProvenanceRankingRecord
+    | MuSiQueRankingRecord
+)
+DatasetLabelRecord: TypeAlias = (
+    HotpotQALabelRecord
+    | TwoWikiLabelRecord
+    | TwoWikiProvenanceLabelRecord
+    | MuSiQueLabelRecord
+)
+
+_HOTPOT_RANKINGS = TypeAdapter(list[HotpotQARankingRecord])
+_HOTPOT_LABELS = TypeAdapter(list[HotpotQALabelRecord])
+_TWOWIKI_RANKINGS = TypeAdapter(list[TwoWikiRankingRecord])
+_TWOWIKI_LABELS = TypeAdapter(list[TwoWikiLabelRecord])
+_PROVENANCE_RANKINGS = TypeAdapter(list[TwoWikiProvenanceRankingRecord])
+_PROVENANCE_LABELS = TypeAdapter(list[TwoWikiProvenanceLabelRecord])
+_MUSIQUE_RANKINGS = TypeAdapter(list[MuSiQueRankingRecord])
+_MUSIQUE_LABELS = TypeAdapter(list[MuSiQueLabelRecord])
 
 
-def validate_ranking_records_for_dataset(dataset: DatasetId, records: object) -> None:
+def ranking_records_for_dataset(
+    dataset: DatasetId, records: object
+) -> list[DatasetRankingRecord]:
     if dataset == "hotpotqa":
-        validate_hotpotqa_ranking_records(records)
-        return
+        return list(_HOTPOT_RANKINGS.validate_python(records))
     if dataset == "twowiki":
-        validate_twowiki_ranking_records(records)
-        return
+        return list(_TWOWIKI_RANKINGS.validate_python(records))
     if dataset == "twowiki_provenance":
-        validate_twowiki_provenance_ranking_records(records)
-        return
+        return list(_PROVENANCE_RANKINGS.validate_python(records))
     if dataset == "musique":
-        validate_musique_ranking_records(records)
-        return
+        return list(_MUSIQUE_RANKINGS.validate_python(records))
     _unsupported_dataset(dataset)
 
 
-def validate_label_records_for_dataset(
-    dataset: DatasetId, labels: object, records_by_task_id: object
-) -> None:
+def label_records_for_dataset(
+    dataset: DatasetId, labels: object
+) -> list[DatasetLabelRecord]:
     if dataset == "hotpotqa":
-        validate_hotpotqa_label_records(labels, records_by_task_id)
-        return
+        return list(_HOTPOT_LABELS.validate_python(labels))
     if dataset == "twowiki":
-        validate_twowiki_label_records(labels, records_by_task_id)
-        return
+        return list(_TWOWIKI_LABELS.validate_python(labels))
     if dataset == "twowiki_provenance":
-        validate_twowiki_provenance_label_records(labels, records_by_task_id)
-        return
+        return list(_PROVENANCE_LABELS.validate_python(labels))
     if dataset == "musique":
-        validate_musique_label_records(labels, records_by_task_id)
-        return
+        return list(_MUSIQUE_LABELS.validate_python(labels))
     _unsupported_dataset(dataset)
 
 
 def text_ranking_requests_for_dataset(
     dataset: DatasetId, records: Sequence[object]
 ) -> list[TextRankingRequest]:
+    validated = ranking_records_for_dataset(dataset, records)
     if dataset == "hotpotqa":
         projector = HotpotQAToTextRankingRequest()
-        return [
-            projector.project(cast(HotpotQARankingRecord, record)) for record in records
-        ]
+        return [projector.project(record) for record in validated]
     if dataset == "twowiki":
         projector = TwoWikiToTextRankingRequest()
-        return [
-            projector.project(cast(TwoWikiRankingRecord, record)) for record in records
-        ]
+        return [projector.project(record) for record in validated]
     if dataset == "twowiki_provenance":
         projector = TwoWikiProvenanceToTextRankingRequest()
-        return [
-            projector.project(cast(TwoWikiProvenanceRankingRecord, record))
-            for record in records
-        ]
+        return [projector.project(record) for record in validated]
     if dataset == "musique":
         projector = MuSiQueToTextRankingRequest()
-        return [
-            projector.project(cast(MuSiQueRankingRecord, record)) for record in records
-        ]
+        return [projector.project(record) for record in validated]
     _unsupported_dataset(dataset)
 
 
 def evidence_graph_build_requests_for_dataset(
     dataset: DatasetId, records: Sequence[object]
 ) -> list[EvidenceGraphBuildRequest]:
+    validated = ranking_records_for_dataset(dataset, records)
     if dataset == "hotpotqa":
         projector = HotpotQAToEvidenceGraphBuildRequest()
-        return [
-            projector.project(cast(HotpotQARankingRecord, record)) for record in records
-        ]
+        return [projector.project(record) for record in validated]
     if dataset == "twowiki":
         projector = TwoWikiToEvidenceGraphBuildRequest()
-        return [
-            projector.project(cast(TwoWikiRankingRecord, record)) for record in records
-        ]
+        return [projector.project(record) for record in validated]
     if dataset == "musique":
         projector = MuSiQueToEvidenceGraphBuildRequest()
-        return [
-            projector.project(cast(MuSiQueRankingRecord, record)) for record in records
-        ]
+        return [projector.project(record) for record in validated]
     if dataset == "twowiki_provenance":
         raise ValueError(
             f"dataset={dataset!r} does not provide EvidenceGraph build requests."
@@ -156,16 +150,16 @@ def execution_provenance_requests_for_dataset(
     dataset: DatasetId,
     records: Sequence[object],
 ) -> list[ExecutionProvenanceRankingRequest]:
-    if dataset == "twowiki_provenance":
-        projector = TwoWikiProvenanceToExecutionProvenanceRankingRequest()
-        return [
-            projector.project(cast(TwoWikiProvenanceRankingRecord, record))
-            for record in records
-        ]
-    raise ValueError(
-        "Execution-provenance retrieval requires a dataset-owned native request; "
-        f"dataset={dataset!r} does not provide one."
-    )
+    if dataset != "twowiki_provenance":
+        raise ValueError(
+            "Execution-provenance retrieval requires a dataset-owned native request; "
+            f"dataset={dataset!r} does not provide one."
+        )
+    projector = TwoWikiProvenanceToExecutionProvenanceRankingRequest()
+    return [
+        projector.project(record)
+        for record in _PROVENANCE_RANKINGS.validate_python(records)
+    ]
 
 
 def evidence_evaluation_request_for_dataset(
@@ -175,28 +169,29 @@ def evidence_evaluation_request_for_dataset(
     labels: Sequence[object],
     graphs: Sequence[EvidenceGraph],
 ) -> EvidenceEvaluationRequest:
+    validated_labels = label_records_for_dataset(dataset, labels)
     if dataset == "hotpotqa":
         return HotpotQAToEvidenceEvaluationRequest().project(
             predictions=predictions,
-            labels=cast(Sequence[HotpotQALabelRecord], labels),
+            labels=_HOTPOT_LABELS.validate_python(validated_labels),
             graphs=graphs,
         )
     if dataset == "twowiki":
         return TwoWikiToEvidenceEvaluationRequest().project(
             predictions=predictions,
-            labels=cast(Sequence[TwoWikiLabelRecord], labels),
+            labels=_TWOWIKI_LABELS.validate_python(validated_labels),
             graphs=graphs,
         )
     if dataset == "twowiki_provenance":
         return TwoWikiProvenanceToEvidenceEvaluationRequest().project(
             predictions=predictions,
-            labels=cast(Sequence[TwoWikiProvenanceLabelRecord], labels),
+            labels=_PROVENANCE_LABELS.validate_python(validated_labels),
             graphs=graphs,
         )
     if dataset == "musique":
         return MuSiQueToEvidenceEvaluationRequest().project(
             predictions=predictions,
-            labels=cast(Sequence[MuSiQueLabelRecord], labels),
+            labels=_MUSIQUE_LABELS.validate_python(validated_labels),
             graphs=graphs,
         )
     _unsupported_dataset(dataset)
@@ -206,7 +201,7 @@ def evidence_labels_for_dataset(
     dataset: DatasetId, labels: Sequence[object]
 ) -> list[EvidenceLabel]:
     request = evidence_evaluation_request_for_dataset(
-        dataset, predictions=[], labels=labels, graphs=[]
+        dataset, predictions=(), labels=labels, graphs=()
     )
     return list(request.labels)
 
@@ -217,11 +212,13 @@ def _unsupported_dataset(dataset: object) -> NoReturn:
 
 __all__ = [
     "DatasetId",
+    "DatasetLabelRecord",
+    "DatasetRankingRecord",
     "evidence_evaluation_request_for_dataset",
-    "evidence_labels_for_dataset",
     "evidence_graph_build_requests_for_dataset",
+    "evidence_labels_for_dataset",
     "execution_provenance_requests_for_dataset",
+    "label_records_for_dataset",
+    "ranking_records_for_dataset",
     "text_ranking_requests_for_dataset",
-    "validate_label_records_for_dataset",
-    "validate_ranking_records_for_dataset",
 ]

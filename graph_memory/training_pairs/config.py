@@ -1,31 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from graph_memory.contracts.model import DomainModel, NonNegativeInt, PositiveInt
 
 
-@dataclass(frozen=True)
-class NegativeSamplingConfig:
-    """
-    Configuration for deterministic train pair negative sampling.
-    确定性训练 pair 负采样配置。
-    """
+class NegativeSamplingConfig(DomainModel):
+    """Deterministic train-pair negative sampling configuration."""
 
     random_seed: int = 13
-    easy_random_per_positive: int = 2
-    hard_bm25_per_positive: int = 2
-    hard_dense_per_positive: int = 2
-    hard_graph_neighbor_per_positive: int = 1
-    hard_pool_size: int = 30
+    easy_random_per_positive: NonNegativeInt = 2
+    hard_bm25_per_positive: NonNegativeInt = 2
+    hard_dense_per_positive: NonNegativeInt = 2
+    hard_graph_neighbor_per_positive: NonNegativeInt = 1
+    hard_pool_size: PositiveInt = 30
 
 
-@dataclass(frozen=True)
 class ProvenanceNegativeSamplingConfig(NegativeSamplingConfig):
-    easy_random_per_positive: int = 2
-    hard_bm25_per_positive: int = 1
-    hard_dense_per_positive: int = 1
-    hard_graph_neighbor_per_positive: int = 0
-    hard_provenance_successor_per_positive: int = 2
-    hard_provenance_predecessor_per_positive: int = 1
+    easy_random_per_positive: NonNegativeInt = 2
+    hard_bm25_per_positive: NonNegativeInt = 1
+    hard_dense_per_positive: NonNegativeInt = 1
+    hard_graph_neighbor_per_positive: NonNegativeInt = 0
+    hard_provenance_successor_per_positive: NonNegativeInt = 2
+    hard_provenance_predecessor_per_positive: NonNegativeInt = 1
 
 
 __all__ = ["NegativeSamplingConfig", "ProvenanceNegativeSamplingConfig"]

@@ -275,7 +275,7 @@ def _build_evidence_rgcn(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         device=settings.device,
-        expected_method=settings.method.value,
+        expected_method=settings.method,
     )
     return _built(
         method,
@@ -340,7 +340,7 @@ def _build_provenance_rgcn(
     build_payload = cast(ProvenanceRgcnBuildPayload, payload)
     checkpoint = load_provenance_rgcn_checkpoint(
         settings.checkpoint,
-        expected_method=settings.method.value,
+        expected_method=settings.method,
         map_location="cpu",
     )
     expected_checkpoint_variant = (
@@ -408,7 +408,7 @@ def _evidence_rgcn_providers(
 
     checkpoint = load_rgcn_checkpoint(
         settings.checkpoint,
-        expected_method=settings.method.value,
+        expected_method=settings.method,
         map_location="cpu",
     )
     if (

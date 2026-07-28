@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Literal, TypeAlias
+
+from graph_memory.contracts.model import DomainModel
 
 
 RgcnSelectionMetric: TypeAlias = Literal[
@@ -24,14 +25,9 @@ SUPPORTED_RGCN_SELECTION_METRICS: tuple[RgcnSelectionMetric, ...] = (
 )
 
 
-@dataclass(frozen=True)
-class RgcnSelectionSettings:
+class RgcnSelectionSettings(DomainModel):
     best_metric: RgcnSelectionMetric = "dev_composite"
     higher_is_better: bool = True
-
-    def __post_init__(self) -> None:
-        if self.best_metric not in SUPPORTED_RGCN_SELECTION_METRICS:
-            raise ValueError(f"Unsupported R-GCN selection metric: {self.best_metric}")
 
 
 def build_selection_metrics(

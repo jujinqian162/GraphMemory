@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 from graph_memory.contracts.common import ALLOWED_EDGE_TYPES
-from graph_memory.contracts.graphs import GraphEdge, EvidenceGraph
+from graph_memory.graphs.contracts import GraphEdge, EvidenceGraph
 
 DEFAULT_RELATION_VOCAB: tuple[str, ...] = (
     "query_overlap_forward",
@@ -40,12 +40,12 @@ class ArtifactEdgeWeightPolicy:
     保留 graph artifact 权重的 edge weight 策略。
 
     Methods / 方法:
-    - weight: Return `edge["weight"]` as a float.
-      weight：以 float 返回 `edge["weight"]`。
+    - weight: Return `edge.weight` as a float.
+      weight：以 float 返回 `edge.weight`。
     """
 
     def weight(self, edge: GraphEdge) -> float:
-        return float(edge["weight"])
+        return float(edge.weight)
 
 
 @dataclass(frozen=True)
@@ -112,8 +112,9 @@ class EdgeTensorizer:
         将单个 graph 中启用的边张量化为 message edge tensors。
         """
 
+        graph = EvidenceGraph.model_validate(graph)
         node_index_by_id = {
-            node["id"]: index for index, node in enumerate(graph["nodes"])
+            node.id: index for index, node in enumerate(graph.nodes)
         }
         relation_id_by_name = {
             relation_name: index
@@ -124,12 +125,12 @@ class EdgeTensorizer:
         relation_ids: list[int] = []
         edge_weights: list[float] = []
 
-        for edge in graph["edges"]:
-            edge_type = edge["edge_type"]
+        for edge in graph.edges:
+            edge_type = edge.edge_type
             if edge_type not in self.enabled_edge_types:
                 continue
-            source = _node_index(node_index_by_id, edge["source"])
-            target = _node_index(node_index_by_id, edge["target"])
+            source = _node_index(node_index_by_id, edge.source)
+            target = _node_index(node_index_by_id, edge.target)
             weight = self.edge_weight_policy.weight(edge)
             self._append_message_edge(
                 sources,
@@ -142,7 +143,7 @@ class EdgeTensorizer:
                 weight=weight,
                 relation_id_by_name=relation_id_by_name,
             )
-            if not edge["directed"]:
+            if not edge.directed:
                 self._append_message_edge(
                     sources,
                     targets,

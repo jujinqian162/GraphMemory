@@ -4,7 +4,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph, EvidenceGraphBatch
 from graph_memory.datasets.selection import evidence_graph_build_requests_for_dataset
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
@@ -24,7 +24,6 @@ from graph_memory.graphs.construction.builder import build_graphs
 from graph_memory.graphs.statistics import graph_statistics
 from graph_memory.io import read_json, write_json
 from graph_memory.stages.results import EvidenceGraphResult
-from graph_memory.validation import validate_graphs
 
 
 def build_evidence_graph_data(
@@ -41,7 +40,13 @@ def build_evidence_graph_data(
         domain_config,
         progress_desc=f"build evidence graphs ({dataset})",
     )
-    validate_graphs(graphs, requests)
+    EvidenceGraphBatch(
+        graphs=tuple(graphs),
+        expected_item_ids_by_task_id={
+            request.task_id: frozenset(node.node_id for node in request.nodes)
+            for request in requests
+        },
+    )
     statistics = graph_statistics(
         graphs,
         graph_config={"dataset": dataset, **config.model_dump(mode="json")},
@@ -72,7 +77,13 @@ def materialize_evidence_graphs(
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        write_json(publisher.workspace / "graphs.json", graphs)
+        write_json(
+            publisher.workspace / "graphs.json",
+            [
+                graph.model_dump(mode="json", exclude_none=True)
+                for graph in graphs
+            ],
+        )
         write_json(publisher.workspace / "statistics.json", statistics)
         artifact = publisher.publish(
             {"graphs": "graphs.json", "statistics": "statistics.json"},

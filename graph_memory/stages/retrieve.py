@@ -6,10 +6,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.selection import (
     execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
@@ -62,7 +62,6 @@ from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.epgm import (
     EpgmRetrieverConfig,
 )
-from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextRankingRequest,
@@ -71,6 +70,7 @@ from graph_memory.stages.results import RankingResult
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
+EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
 
 
 @dataclass(frozen=True)
@@ -143,9 +143,8 @@ def materialize_rankings(
     # Prepared tasks already passed dataset validation at materialize_prepared_split.
     task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
     graph_values = (
-        cast(
-            list[EvidenceGraph],
-            read_json(artifact_payload_path(evidence_graphs, "graphs")),
+        EVIDENCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(evidence_graphs, "graphs"))
         )
         if evidence_graphs is not None
         else []
@@ -184,7 +183,13 @@ def materialize_rankings(
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        write_json(publisher.workspace / "predictions.json", result.predictions)
+        write_json(
+            publisher.workspace / "predictions.json",
+            [
+                prediction.model_dump(mode="json", exclude_none=True)
+                for prediction in result.predictions
+            ],
+        )
         write_json(publisher.workspace / "provenance.json", provenance)
         artifact = publisher.publish(
             {
@@ -271,17 +276,7 @@ def _retrieval_settings(
         return GraphRAGRetrievalSettings(
             top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
-            config=GraphRAGConfig(
-                seed_top_s=method.seed_top_s,
-                max_entity_document_frequency_ratio=(
-                    method.max_entity_document_frequency_ratio
-                ),
-                sentence_resolver=method.sentence_resolver,
-                min_sentence_score_margin=method.min_sentence_score_margin,
-                min_bridge_confidence=method.min_bridge_confidence,
-                max_partners_per_anchor=method.max_partners_per_anchor,
-                preserve_dense_top_n=method.preserve_dense_top_n,
-            ),
+            config=method,
             device=device,
         )
     if isinstance(method, ExecutionProvenanceMethodConfig):

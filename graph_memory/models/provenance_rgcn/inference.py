@@ -5,7 +5,7 @@ from typing import Literal, TypeAlias
 
 import torch
 
-from graph_memory.contracts.graphs import GraphEdge
+from graph_memory.graphs.contracts import GraphEdge
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnModelConfig
 from graph_memory.models.provenance_rgcn.contracts import (
@@ -117,7 +117,7 @@ def rank_provenance_task_output(
     if len(candidate_ids) != len(output.candidate_logits):
         raise ValueError("Candidate IDs and logits must have equal lengths.")
     ranked_nodes = [
-        RankedNode(candidate_id, float(logit.detach().cpu()))
+        RankedNode(node_id=candidate_id, score=float(logit.detach().cpu()))
         for candidate_id, logit in zip(
             candidate_ids, output.candidate_logits, strict=True
         )
@@ -140,9 +140,9 @@ def rank_provenance_task_output(
     native_edges = _native_edges(selected_transitions)
     logical_edges = _logical_edges(selected_transitions)
     return RetrievalMethodResult(
-        ranked_nodes=ranked_nodes,
+        ranked_nodes=tuple(ranked_nodes),
         trace=RetrievalTrace(
-            retrieved_edges=logical_edges,
+            retrieved_edges=tuple(logical_edges),
             native_trace=ExecutionProvenanceTrace(
                 node_ids=tuple(
                     sorted(
@@ -199,13 +199,13 @@ def _logical_edges(
     transitions: tuple[tuple[LogicalProvenanceTransition, float], ...],
 ) -> list[GraphEdge]:
     return [
-        {
-            "source": transition.source_id,
-            "target": transition.target_id,
-            "edge_type": "sequential",
-            "weight": float(torch.sigmoid(torch.tensor(score))),
-            "directed": True,
-        }
+        GraphEdge(
+            source=transition.source_id,
+            target=transition.target_id,
+            edge_type="sequential",
+            weight=float(torch.sigmoid(torch.tensor(score))),
+            directed=True,
+        )
         for transition, score in transitions
     ]
 

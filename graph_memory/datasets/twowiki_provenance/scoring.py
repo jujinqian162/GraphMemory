@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Mapping, Sequence
+from typing import Literal, cast
 
-from graph_memory.contracts.common import JsonValue
+from pydantic import Field, JsonValue, model_serializer, model_validator
+
+from graph_memory.contracts.model import (
+    DomainModel,
+    NonEmptyStr,
+    PositiveFiniteFloat,
+    PositiveInt,
+)
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -12,47 +19,46 @@ from graph_memory.retrieval.requests import TextRankingRequest
 ProvenanceSemanticStrategy = Literal["bm25", "dense", "hybrid"]
 
 
-@dataclass(frozen=True)
-class ProvenanceGraphConstructionConfig:
+class ProvenanceGraphConstructionConfig(DomainModel):
     strategy: ProvenanceSemanticStrategy = "bm25"
-    successors_per_output: int = 2
-    hybrid_dense_weight: float = 0.5
-    scorer_identity: str = "provenance_semantic_v3"
-    query_template_version: str = "question_source_v1"
-    semantic_temperature: float = 0.1
-    weight_floor: float = 0.5
-    branch_policy_version: str = "rank_banded_v1"
-    near_rank_bucket: tuple[int, int] = (2, 4)
-    mid_rank_bucket: tuple[int, int] = (5, 8)
-    tail_rank_bucket: tuple[int, int | None] = (9, None)
+    successors_per_output: Literal[2] = 2
+    hybrid_dense_weight: float = Field(
+        default=0.5, allow_inf_nan=False, ge=0.0, le=1.0
+    )
+    scorer_identity: NonEmptyStr = "provenance_semantic_v3"
+    query_template_version: Literal["question_source_v1"] = "question_source_v1"
+    semantic_temperature: PositiveFiniteFloat = 0.1
+    weight_floor: float = Field(
+        default=0.5, allow_inf_nan=False, ge=0.0, lt=1.0
+    )
+    branch_policy_version: NonEmptyStr = "rank_banded_v1"
+    near_rank_bucket: tuple[PositiveInt, PositiveInt] = (2, 4)
+    mid_rank_bucket: tuple[PositiveInt, PositiveInt] = (5, 8)
+    tail_rank_bucket: tuple[PositiveInt, PositiveInt | None] = (9, None)
 
-    def __post_init__(self) -> None:
-        if self.strategy not in {"bm25", "dense", "hybrid"}:
-            raise ValueError(f"Unsupported provenance graph strategy={self.strategy!r}.")
-        if self.successors_per_output != 2:
-            raise ValueError("schema-v3 successors_per_output must be exactly 2.")
-        if not 0.0 <= self.hybrid_dense_weight <= 1.0:
-            raise ValueError("hybrid_dense_weight must be in [0, 1].")
-        if not self.scorer_identity:
-            raise ValueError("scorer_identity must be non-empty.")
-        if self.query_template_version != "question_source_v1":
-            raise ValueError(
-                "Unsupported provenance query_template_version="
-                f"{self.query_template_version!r}."
-            )
-        if self.semantic_temperature <= 0.0:
-            raise ValueError("semantic_temperature must be positive.")
-        if not 0.0 <= self.weight_floor < 1.0:
-            raise ValueError("weight_floor must be in [0, 1).")
-        if not self.branch_policy_version:
-            raise ValueError("branch_policy_version must be non-empty.")
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_artifact_identity(cls, value: object) -> object:
+        if not isinstance(value, Mapping) or "rank_buckets" not in value:
+            return value
+        normalized = dict(value)
+        buckets = normalized.pop("rank_buckets")
+        if isinstance(buckets, Mapping):
+            normalized["near_rank_bucket"] = buckets.get("near")
+            normalized["mid_rank_bucket"] = buckets.get("mid")
+            normalized["tail_rank_bucket"] = buckets.get("tail")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_buckets(self) -> "ProvenanceGraphConstructionConfig":
         previous_end = 1
         for name, (start, end) in self.rank_buckets:
             if start < 2 or (end is not None and end < start):
-                raise ValueError(f"Invalid {name} rank bucket={(start, end)!r}.")
+                raise ValueError(f"invalid {name} rank bucket={(start, end)!r}")
             if start <= previous_end:
-                raise ValueError("Rank buckets must be ordered and non-overlapping.")
+                raise ValueError("rank buckets must be ordered and non-overlapping")
             previous_end = end if end is not None else start
+        return self
 
     @property
     def rank_buckets(self) -> tuple[tuple[str, tuple[int, int | None]], ...]:
@@ -62,7 +68,14 @@ class ProvenanceGraphConstructionConfig:
             ("tail", self.tail_rank_bucket),
         )
 
-    def identity(self) -> dict[str, JsonValue]:
+    def bucket_bounds(self, name: str) -> tuple[int, int | None]:
+        for bucket_name, bounds in self.rank_buckets:
+            if bucket_name == name:
+                return bounds
+        raise KeyError(name)
+
+    @model_serializer(mode="plain")
+    def _serialize_identity(self) -> dict[str, JsonValue]:
         return {
             "strategy": self.strategy,
             "successors_per_output": self.successors_per_output,
@@ -76,6 +89,9 @@ class ProvenanceGraphConstructionConfig:
                 name: [bounds[0], bounds[1]] for name, bounds in self.rank_buckets
             },
         }
+
+    def identity(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], self.model_dump(mode="json"))
 
 
 @dataclass(frozen=True)
@@ -161,8 +177,8 @@ def _hybrid_ranking(
     dense_score = _rank_percentiles(dense)
     combined = [
         RankedNode(
-            candidate.item_id,
-            (1.0 - dense_weight) * bm25_score[candidate.item_id]
+            node_id=candidate.item_id,
+            score=(1.0 - dense_weight) * bm25_score[candidate.item_id]
             + dense_weight * dense_score[candidate.item_id],
         )
         for candidate in request.candidates

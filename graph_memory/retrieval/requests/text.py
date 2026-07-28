@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from graph_memory.contracts.common import TaskId
+from pydantic import model_validator
+
+from graph_memory.contracts.model import DomainModel, NonEmptyStr
 
 if TYPE_CHECKING:
     from graph_memory.embeddings.contracts import SentenceEncoder
@@ -26,22 +27,33 @@ class DenseConfigLike(Protocol):
     def batch_size(self) -> int: ...
 
 
-@dataclass(frozen=True)
-class TextCandidate:
-    item_id: str
+class TextCandidate(DomainModel):
+    item_id: NonEmptyStr
     text: str
-    metadata: Mapping[str, JsonScalar]
+    metadata: dict[str, JsonScalar]
 
 
-@dataclass(frozen=True)
-class TextRankingRequest:
-    task_id: TaskId
+class TextRankingRequest(DomainModel):
+    task_id: NonEmptyStr
     query_text: str
-    candidates: Sequence[TextCandidate]
+    candidates: tuple[TextCandidate, ...]
+
+    @model_validator(mode="after")
+    def _unique_candidates(self) -> "TextRankingRequest":
+        candidate_ids = [candidate.item_id for candidate in self.candidates]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("text ranking candidate IDs must be unique")
+        return self
+
+    @property
+    def candidate_ids(self) -> frozenset[str]:
+        return frozenset(candidate.item_id for candidate in self.candidates)
 
 
 @dataclass(frozen=True)
 class DenseRuntime:
+    """Opaque runtime dependency bundle, not a persisted artifact contract."""
+
     config: DenseConfigLike
     encoder: SentenceEncoder | None = None
 

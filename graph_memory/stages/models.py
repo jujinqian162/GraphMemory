@@ -3,10 +3,10 @@ from __future__ import annotations
 import shutil
 from typing import cast
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     execution_provenance_requests_for_dataset,
@@ -50,6 +50,8 @@ from graph_memory.stages.trainers import (
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
+EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
+TRAIN_PAIRS_ADAPTER = TypeAdapter(list[TrainPairRecord])
 
 
 def materialize_dense_finetune_model(
@@ -78,8 +80,8 @@ def materialize_dense_finetune_model(
     dev_labels = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
     )
-    pairs = cast(
-        list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
+    pairs = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
     )
     with ArtifactPublisher(
         store,
@@ -101,11 +103,19 @@ def materialize_dense_finetune_model(
         model_dir = publisher.workspace / "model"
         result = DenseFinetuneMethodTrainer(effective).train(
             DenseFinetuneTrainPayload(
-                train_requests=text_ranking_requests_for_dataset(dataset, train_tasks),
-                train_labels=evidence_labels_for_dataset(dataset, train_labels),
-                train_pairs=pairs,
-                dev_requests=text_ranking_requests_for_dataset(dataset, dev_tasks),
-                dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
+                train_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, train_tasks)
+                ),
+                train_labels=tuple(
+                    evidence_labels_for_dataset(dataset, train_labels)
+                ),
+                train_pairs=tuple(pairs),
+                dev_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, dev_tasks)
+                ),
+                dev_labels=tuple(
+                    evidence_labels_for_dataset(dataset, dev_labels)
+                ),
                 output_dir=trainer_output,
                 model_dir=model_dir,
             )
@@ -160,17 +170,20 @@ def materialize_evidence_rgcn_model(
     dev_tasks = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "tasks"))
     )
+    train_labels = cast(
+        list[object], read_json(artifact_payload_path(train_prepared, "labels"))
+    )
     dev_labels = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
     )
-    train_graph_values = cast(
-        list[EvidenceGraph], read_json(artifact_payload_path(train_graphs, "graphs"))
+    train_graph_values = EVIDENCE_GRAPHS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_graphs, "graphs"))
     )
-    dev_graph_values = cast(
-        list[EvidenceGraph], read_json(artifact_payload_path(dev_graphs, "graphs"))
+    dev_graph_values = EVIDENCE_GRAPHS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(dev_graphs, "graphs"))
     )
-    pair_values = cast(
-        list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
+    pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
     )
     seed_dir = (
         artifact_payload_path(seed_model, "model")
@@ -204,12 +217,21 @@ def materialize_evidence_rgcn_model(
             seed_checkpoint=seed_dir,
         ).train(
             RgcnTrainPayload(
-                train_requests=text_ranking_requests_for_dataset(dataset, train_tasks),
-                train_graphs=train_graph_values,
-                train_pairs=pair_values,
-                dev_requests=text_ranking_requests_for_dataset(dataset, dev_tasks),
-                dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
-                dev_graphs=dev_graph_values,
+                train_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, train_tasks)
+                ),
+                train_labels=tuple(
+                    evidence_labels_for_dataset(dataset, train_labels)
+                ),
+                train_graphs=tuple(train_graph_values),
+                train_pairs=tuple(pair_values),
+                dev_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, dev_tasks)
+                ),
+                dev_labels=tuple(
+                    evidence_labels_for_dataset(dataset, dev_labels)
+                ),
+                dev_graphs=tuple(dev_graph_values),
             )
         )
         checkpoints = publisher.workspace / "checkpoints"
@@ -286,8 +308,8 @@ def materialize_provenance_rgcn_model(
     dev_labels = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
     )
-    pairs = cast(
-        list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
+    pairs = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
     )
     pair_summary = cast(
         dict[str, object],
@@ -312,15 +334,19 @@ def materialize_provenance_rgcn_model(
     ) as publisher:
         result = ProvenanceRgcnMethodTrainer(effective).train(
             ProvenanceRgcnTrainPayload(
-                train_requests=execution_provenance_requests_for_dataset(
-                    dataset, train_tasks
+                train_requests=tuple(
+                    execution_provenance_requests_for_dataset(dataset, train_tasks)
                 ),
-                train_labels=evidence_labels_for_dataset(dataset, train_labels),
-                train_pairs=pairs,
-                dev_requests=execution_provenance_requests_for_dataset(
-                    dataset, dev_tasks
+                train_labels=tuple(
+                    evidence_labels_for_dataset(dataset, train_labels)
                 ),
-                dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
+                train_pairs=tuple(pairs),
+                dev_requests=tuple(
+                    execution_provenance_requests_for_dataset(dataset, dev_tasks)
+                ),
+                dev_labels=tuple(
+                    evidence_labels_for_dataset(dataset, dev_labels)
+                ),
             )
         )
         checkpoints = publisher.workspace / "checkpoints"

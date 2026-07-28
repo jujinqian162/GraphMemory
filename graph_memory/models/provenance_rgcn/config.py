@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from collections.abc import Mapping, Sequence
 from typing import Literal, TypeAlias, cast
 
+from pydantic import Field, model_validator
+
+from graph_memory.contracts.model import (
+    DomainModel,
+    FiniteFloat,
+    NonEmptyStr,
+    NonNegativeFiniteFloat,
+    NonNegativeInt,
+    PositiveFiniteFloat,
+    PositiveInt,
+)
 from graph_memory.graphs.provenance import ProvenanceEdgeType, ProvenanceNodeType
 
 PROVENANCE_RGCN_CHECKPOINT_FAMILY = "execution_provenance_rgcn"
@@ -26,6 +35,13 @@ DEFAULT_RELATION_VOCAB = tuple(
 
 ProvenanceRgcnMessageTransformType: TypeAlias = Literal["typed", "shared"]
 ProvenanceRgcnEdgeWeightPolicy: TypeAlias = Literal["artifact", "uniform"]
+ProvenanceRgcnAblation: TypeAlias = Literal[
+    "full_rgcn",
+    "wo_graph",
+    "wo_edge_type",
+    "wo_edge_weight",
+    "diagnostic_shuffled_feed",
+]
 SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS = frozenset(
     {
         "full_rgcn",
@@ -37,114 +53,61 @@ SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class ProvenanceRgcnModelConfig:
-    encoder_model: str = "intfloat/e5-base-v2"
-    encoder_dim: int = 768
+class ProvenanceRgcnModelConfig(DomainModel):
+    encoder_model: NonEmptyStr = "intfloat/e5-base-v2"
+    encoder_dim: PositiveInt = 768
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
-    encoder_batch_size: int = 64
-    hidden_dim: int = 128
-    node_type_dim: int = 16
-    num_layers: int = 2
-    dropout: float = 0.1
-    ablation_name: str = "full_rgcn"
-    message_transform_type: ProvenanceRgcnMessageTransformType = "typed"
-    edge_weight_policy: ProvenanceRgcnEdgeWeightPolicy = "artifact"
-    structured_pool_size: int = 16
-    structured_seed_top_s: int = 5
-    preserve_node_top_n: int = 2
-    edge_accept_threshold: float = 0.5
+    encoder_batch_size: PositiveInt = 64
+    hidden_dim: PositiveInt = 128
+    node_type_dim: PositiveInt = 16
+    num_layers: NonNegativeInt = 2
+    dropout: FiniteFloat = Field(default=0.1, ge=0.0, lt=1.0)
+    ablation_name: ProvenanceRgcnAblation = Field(
+        default="full_rgcn", json_schema_extra={"checkpoint_required": True}
+    )
+    message_transform_type: ProvenanceRgcnMessageTransformType = Field(
+        default="typed", json_schema_extra={"checkpoint_required": True}
+    )
+    edge_weight_policy: ProvenanceRgcnEdgeWeightPolicy = Field(
+        default="artifact", json_schema_extra={"checkpoint_required": True}
+    )
+    structured_pool_size: PositiveInt = 16
+    structured_seed_top_s: PositiveInt = 5
+    preserve_node_top_n: NonNegativeInt = 2
+    edge_accept_threshold: FiniteFloat = Field(default=0.5, ge=0.0, le=1.0)
     feed_message_topology: Literal["native", "shuffled"] = "native"
     feed_message_shuffle_seed: int = 13
-    node_type_vocab: tuple[str, ...] = DEFAULT_NODE_TYPE_VOCAB
-    relation_vocab: tuple[str, ...] = DEFAULT_RELATION_VOCAB
+    node_type_vocab: tuple[NonEmptyStr, ...] = DEFAULT_NODE_TYPE_VOCAB
+    relation_vocab: tuple[NonEmptyStr, ...] = DEFAULT_RELATION_VOCAB
 
-    def __post_init__(self) -> None:
-        for name in (
-            "encoder_dim",
-            "encoder_batch_size",
-            "hidden_dim",
-            "node_type_dim",
+    @model_validator(mode="after")
+    def _validate_model(self) -> "ProvenanceRgcnModelConfig":
+        if self.structured_seed_top_s > self.structured_pool_size:
+            raise ValueError("structured_seed_top_s cannot exceed structured_pool_size")
+        if self.preserve_node_top_n > self.structured_pool_size:
+            raise ValueError("preserve_node_top_n cannot exceed structured_pool_size")
+        if (self.ablation_name == "diagnostic_shuffled_feed") != (
+            self.feed_message_topology == "shuffled"
         ):
-            if getattr(self, name) <= 0:
-                raise ValueError(f"{name} must be positive.")
-        if self.num_layers < 0:
-            raise ValueError("num_layers must be non-negative.")
-        if not 0.0 <= self.dropout < 1.0:
-            raise ValueError("dropout must be in [0, 1).")
-        if self.ablation_name not in SUPPORTED_PROVENANCE_RGCN_MODEL_ABLATIONS:
             raise ValueError(
-                "unsupported provenance R-GCN model ablation: "
-                f"{self.ablation_name!r}."
+                "diagnostic_shuffled_feed must exactly select shuffled feed topology"
             )
-        if self.message_transform_type not in {"typed", "shared"}:
-            raise ValueError("message_transform_type must be 'typed' or 'shared'.")
-        if self.edge_weight_policy not in {"artifact", "uniform"}:
-            raise ValueError("edge_weight_policy must be 'artifact' or 'uniform'.")
-        if self.structured_pool_size <= 0:
-            raise ValueError("structured_pool_size must be positive.")
-        if not 0 < self.structured_seed_top_s <= self.structured_pool_size:
-            raise ValueError(
-                "structured_seed_top_s must be in [1, structured_pool_size]."
-            )
-        if not 0 <= self.preserve_node_top_n <= self.structured_pool_size:
-            raise ValueError(
-                "preserve_node_top_n must be in [0, structured_pool_size]."
-            )
-        if not 0.0 <= self.edge_accept_threshold <= 1.0:
-            raise ValueError("edge_accept_threshold must be in [0, 1].")
-        if self.feed_message_topology not in {"native", "shuffled"}:
-            raise ValueError("feed_message_topology must be native or shuffled.")
-        if (
-            self.ablation_name == "diagnostic_shuffled_feed"
-        ) != (self.feed_message_topology == "shuffled"):
-            raise ValueError(
-                "diagnostic_shuffled_feed must exactly select shuffled feed topology."
-            )
-        if len(set(self.node_type_vocab)) != len(self.node_type_vocab):
-            raise ValueError("node_type_vocab must be unique.")
-        if len(set(self.relation_vocab)) != len(self.relation_vocab):
-            raise ValueError("relation_vocab must be unique.")
+        if len(self.node_type_vocab) != len(set(self.node_type_vocab)):
+            raise ValueError("node_type_vocab must be unique")
+        if len(self.relation_vocab) != len(set(self.relation_vocab)):
+            raise ValueError("relation_vocab must be unique")
+        return self
 
-    def to_dict(self) -> dict[str, object]:
-        result = asdict(self)
-        result["node_type_vocab"] = list(self.node_type_vocab)
-        result["relation_vocab"] = list(self.relation_vocab)
-        return result
 
-    @classmethod
-    def from_dict(cls, value: Mapping[str, object]) -> ProvenanceRgcnModelConfig:
-        return cls(
-            encoder_model=cast(str, value["encoder_model"]),
-            encoder_dim=cast(int, value["encoder_dim"]),
-            query_prefix=cast(str, value["query_prefix"]),
-            passage_prefix=cast(str, value["passage_prefix"]),
-            encoder_batch_size=cast(int, value["encoder_batch_size"]),
-            hidden_dim=cast(int, value["hidden_dim"]),
-            node_type_dim=cast(int, value["node_type_dim"]),
-            num_layers=cast(int, value["num_layers"]),
-            dropout=cast(float, value["dropout"]),
-            ablation_name=cast(str, value["ablation_name"]),
-            message_transform_type=cast(
-                ProvenanceRgcnMessageTransformType,
-                value["message_transform_type"],
-            ),
-            edge_weight_policy=cast(
-                ProvenanceRgcnEdgeWeightPolicy,
-                value["edge_weight_policy"],
-            ),
-            structured_pool_size=cast(int, value["structured_pool_size"]),
-            structured_seed_top_s=cast(int, value["structured_seed_top_s"]),
-            preserve_node_top_n=cast(int, value["preserve_node_top_n"]),
-            edge_accept_threshold=cast(float, value["edge_accept_threshold"]),
-            feed_message_topology=cast(
-                Literal["native", "shuffled"], value["feed_message_topology"]
-            ),
-            feed_message_shuffle_seed=cast(int, value["feed_message_shuffle_seed"]),
-            node_type_vocab=tuple(cast(Sequence[str], value["node_type_vocab"])),
-            relation_vocab=tuple(cast(Sequence[str], value["relation_vocab"])),
-        )
+class ProvenanceRgcnTrainingConfig(DomainModel):
+    learning_rate: PositiveFiniteFloat = 1e-4
+    per_device_graph_batch_size: PositiveInt = 1
+    epochs: PositiveInt = 1
+    max_grad_norm: NonNegativeFiniteFloat = 1.0
+    random_seed: int = 13
+    candidate_loss_weight: NonNegativeFiniteFloat = 1.0
+    edge_loss_weight: NonNegativeFiniteFloat = 0.5
 
 
 def default_provenance_rgcn_model_config(
@@ -169,7 +132,7 @@ def default_provenance_rgcn_model_config(
         raise ValueError(
             f"unsupported provenance R-GCN model ablation: {ablation_name!r}."
         )
-    effective_ablation = ablation_name
+    effective_ablation = cast(ProvenanceRgcnAblation, ablation_name)
     effective_layers = num_layers
     message_transform_type: ProvenanceRgcnMessageTransformType = "typed"
     edge_weight_policy: ProvenanceRgcnEdgeWeightPolicy = "artifact"
@@ -203,50 +166,6 @@ def default_provenance_rgcn_model_config(
         feed_message_topology=feed_message_topology,
         feed_message_shuffle_seed=feed_message_shuffle_seed,
     )
-
-
-@dataclass(frozen=True)
-class ProvenanceRgcnTrainingConfig:
-    learning_rate: float = 1e-4
-    per_device_graph_batch_size: int = 1
-    epochs: int = 1
-    max_grad_norm: float = 1.0
-    random_seed: int = 13
-    candidate_loss_weight: float = 1.0
-    edge_loss_weight: float = 0.5
-
-    def __post_init__(self) -> None:
-        for name in (
-            "learning_rate",
-            "max_grad_norm",
-            "candidate_loss_weight",
-            "edge_loss_weight",
-        ):
-            if getattr(self, name) < 0.0:
-                raise ValueError(f"{name} must be non-negative.")
-        if self.learning_rate == 0.0:
-            raise ValueError("learning_rate must be positive.")
-        if self.per_device_graph_batch_size <= 0:
-            raise ValueError("per_device_graph_batch_size must be positive.")
-        if self.epochs <= 0:
-            raise ValueError("epochs must be positive.")
-
-    def to_dict(self) -> dict[str, object]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, value: Mapping[str, object]) -> ProvenanceRgcnTrainingConfig:
-        return cls(
-            learning_rate=cast(float, value["learning_rate"]),
-            per_device_graph_batch_size=cast(
-                int, value["per_device_graph_batch_size"]
-            ),
-            epochs=cast(int, value["epochs"]),
-            max_grad_norm=cast(float, value["max_grad_norm"]),
-            random_seed=cast(int, value["random_seed"]),
-            candidate_loss_weight=cast(float, value["candidate_loss_weight"]),
-            edge_loss_weight=cast(float, value["edge_loss_weight"]),
-        )
 
 
 __all__ = [

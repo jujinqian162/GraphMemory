@@ -134,8 +134,8 @@ def test_retrieve_stage_runs_without_evidence_graph_artifact(
     )
 
     assert result.provenance.method.value == expected_method
-    assert len(result.predictions[0]["ranked_nodes"]) == 3
-    assert len(result.predictions[0]["retrieved_subgraph"]["nodes"]) == 2
+    assert len(result.predictions[0].ranked_nodes) == 3
+    assert len(result.predictions[0].retrieved_subgraph.nodes) == 2
 
 
 def test_graphrag_builder_rejects_flat_payload() -> None:

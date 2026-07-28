@@ -523,10 +523,10 @@ def run_query(
         ]
         retrieved_edges = [
             {
-                "source": edge["source"],
-                "target": edge["target"],
-                "edge_type": edge["edge_type"],
-                "weight": edge.get("weight"),
+                "source": edge.source,
+                "target": edge.target,
+                "edge_type": edge.edge_type,
+                "weight": edge.weight,
             }
             for edge in result.trace.retrieved_edges
         ]

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from pydantic import JsonValue
+from pydantic import TypeAdapter
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.metrics import FailureCase, MetricRow, PerTaskMetricRow
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.evaluation.contracts import FailureCase, MetricRow, PerTaskMetricRow
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
 from graph_memory.evaluation.suites import evidence_metric_suite
 from graph_memory.evaluation.tables import WIDE_METRIC_COLUMNS
@@ -24,7 +24,10 @@ from graph_memory.experiment.artifacts import (
 from graph_memory.experiment.config import DatasetName
 from graph_memory.io import read_json, write_csv, write_jsonl
 from graph_memory.stages.results import EvaluationResult
-from graph_memory.validation import validate_metric_rows
+
+
+RANKED_RESULTS_ADAPTER = TypeAdapter(list[RankedResult])
+EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,6 @@ def run_evaluate_stage(
         top_k=top_k,
         limit=failure_case_limit,
     )
-    validate_metric_rows(metric_rows)
     return EvaluateStageResult(
         metric_rows=metric_rows,
         failure_cases=failure_cases,
@@ -78,14 +80,13 @@ def materialize_evaluation(
     method = str(predictions.origin["method"])
     variant_value = predictions.origin.get("variant")
     variant = variant_value if isinstance(variant_value, str) else None
-    prediction_values = cast(
-        list[RankedResult], read_json(artifact_payload_path(predictions, "predictions"))
+    prediction_values = RANKED_RESULTS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(predictions, "predictions"))
     )
     labels = cast(list[object], read_json(artifact_payload_path(prepared, "labels")))
     graphs = (
-        cast(
-            list[EvidenceGraph],
-            read_json(artifact_payload_path(evidence_graphs, "graphs")),
+        EVIDENCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(evidence_graphs, "graphs"))
         )
         if evidence_graphs is not None
         else []
@@ -116,11 +117,23 @@ def materialize_evaluation(
     ) as publisher:
         write_csv(
             publisher.workspace / "metrics.csv",
-            result.metric_rows,
+            [
+                row.model_dump(mode="json", by_alias=True)
+                for row in result.metric_rows
+            ],
             WIDE_METRIC_COLUMNS,
         )
-        write_jsonl(publisher.workspace / "failure_cases.jsonl", result.failure_cases)
-        write_jsonl(publisher.workspace / "per_task.jsonl", result.per_task_rows)
+        write_jsonl(
+            publisher.workspace / "failure_cases.jsonl",
+            [row.model_dump(mode="json") for row in result.failure_cases],
+        )
+        write_jsonl(
+            publisher.workspace / "per_task.jsonl",
+            [
+                row.model_dump(mode="json", by_alias=True)
+                for row in result.per_task_rows
+            ],
+        )
         artifact = publisher.publish(
             {
                 "metrics": "metrics.csv",
@@ -137,12 +150,8 @@ def materialize_evaluation(
     return EvaluationResult(
         method=method,
         artifact=artifact,
-        metric_rows=tuple(
-            cast(dict[str, JsonValue], dict(row)) for row in result.metric_rows
-        ),
-        per_task_rows=tuple(
-            cast(dict[str, JsonValue], dict(row)) for row in result.per_task_rows
-        ),
+        metric_rows=tuple(result.metric_rows),
+        per_task_rows=tuple(result.per_task_rows),
         failure_case_count=len(result.failure_cases),
     )
 
