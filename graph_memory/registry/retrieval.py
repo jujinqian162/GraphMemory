@@ -9,14 +9,8 @@ from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.compat import StrEnum
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
-from graph_memory.retrieval.methods.epgm import (
-    EpgmRetrieverConfig,
-)
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
-from graph_memory.retrieval.requests import (
-    ExecutionProvenanceRankingRequest,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import TextRankingRequest
 
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
@@ -89,36 +83,12 @@ class DenseFinetunedRetrievalSettings:
     method: Literal[RetrievalMethodId.DENSE_FT] = RetrievalMethodId.DENSE_FT
 
 
-@dataclass(frozen=True)
-class ExecutionProvenanceRetrievalSettings:
-    top_k: int
-    encoder: DenseEncoderSettings
-    device: str
-    config: EpgmRetrieverConfig = EpgmRetrieverConfig()
-    method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER] = (
-        RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER
-    )
-
-
-@dataclass(frozen=True)
-class ProvenanceRgcnRetrievalSettings:
-    top_k: int
-    checkpoint: Path
-    device: str
-    variant: str = "full_rgcn"
-    method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER] = (
-        RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
-    )
-
-
 RetrievalJobSettings: TypeAlias = (
     Bm25RetrievalSettings
     | DenseRetrievalSettings
     | DenseFinetunedRetrievalSettings
     | GraphRAGRetrievalSettings
     | EvidenceRgcnRetrievalSettings
-    | ExecutionProvenanceRetrievalSettings
-    | ProvenanceRgcnRetrievalSettings
 )
 
 
@@ -163,18 +133,6 @@ class EvidenceRgcnBuildPayload:
     dense_encoder: "SentenceEncoder | None" = None
     text_embedding_provider: "TextEmbeddingProvider | None" = None
     seed_signal_provider: "SeedSignalProvider | None" = None
-
-
-@dataclass(frozen=True)
-class ExecutionProvenanceBuildPayload:
-    provenance_requests: list[ExecutionProvenanceRankingRequest]
-    dense_encoder: "SentenceEncoder | None" = None
-
-
-@dataclass(frozen=True)
-class ProvenanceRgcnBuildPayload:
-    provenance_requests: list[ExecutionProvenanceRankingRequest]
-    dense_encoder: "SentenceEncoder | None" = None
 
 
 def _require_payload(
@@ -226,10 +184,6 @@ def _payload_family(payload: object) -> RetrievalTaskFamily:
         return payload.task_family
     if isinstance(payload, EvidenceRgcnBuildPayload):
         return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
-    if isinstance(payload, ExecutionProvenanceBuildPayload):
-        return RetrievalTaskFamily.EXECUTION_PROVENANCE
-    if isinstance(payload, ProvenanceRgcnBuildPayload):
-        return RetrievalTaskFamily.EXECUTION_PROVENANCE
     raise TypeError(f"Unknown retrieval payload type: {type(payload).__name__}.")
 
 
@@ -241,13 +195,9 @@ __all__ = [
     "DenseRetrievalSettings",
     "EvidenceRgcnBuildPayload",
     "EvidenceRgcnRetrievalSettings",
-    "ExecutionProvenanceBuildPayload",
-    "ExecutionProvenanceRetrievalSettings",
     "FlatRetrievalBuildPayload",
     "GraphRAGBuildPayload",
     "GraphRAGRetrievalSettings",
-    "ProvenanceRgcnBuildPayload",
-    "ProvenanceRgcnRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

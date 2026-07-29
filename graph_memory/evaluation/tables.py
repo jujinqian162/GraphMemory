@@ -29,7 +29,6 @@ PATH_RESULT_COLUMNS = [
     "Edge Recall@10",
     "Edge Precision@10",
     "Edge F1@10",
-    "Abstention Rate",
 ]
 
 EFFICIENCY_RESULT_COLUMNS = [

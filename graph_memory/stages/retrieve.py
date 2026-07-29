@@ -10,10 +10,7 @@ from pydantic import JsonValue, TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.retrieval.results import RankedResult
-from graph_memory.datasets.selection import (
-    execution_provenance_requests_for_dataset,
-    text_ranking_requests_for_dataset,
-)
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
@@ -33,7 +30,6 @@ from graph_memory.experiment.config import (
     DatasetName,
     DenseEncoderConfig,
     DenseMethodConfig,
-    ExecutionProvenanceMethodConfig,
     GraphRAGMethodConfig,
     RankingMethodConfig,
     TrainableRankingConfig,
@@ -47,25 +43,15 @@ from graph_memory.registry.retrieval import (
     DenseRetrievalSettings,
     EvidenceRgcnBuildPayload,
     EvidenceRgcnRetrievalSettings,
-    ExecutionProvenanceBuildPayload,
-    ExecutionProvenanceRetrievalSettings,
     FlatRetrievalBuildPayload,
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
-    ProvenanceRgcnBuildPayload,
-    ProvenanceRgcnRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
     RetrievalTaskFamily,
 )
 from graph_memory.retrieval.execution.service import run_retrieval
-from graph_memory.retrieval.methods.epgm import (
-    EpgmRetrieverConfig,
-)
-from graph_memory.retrieval.requests import (
-    ExecutionProvenanceRankingRequest,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.stages.results import RankingResult
 
 
@@ -92,15 +78,6 @@ def run_retrieve_stage(
     dense_encoder: SentenceEncoder | None = None,
 ) -> RetrieveStageResult:
     text_requests = text_ranking_requests_for_dataset(dataset, task_inputs)
-    provenance_requests = (
-        execution_provenance_requests_for_dataset(dataset, task_inputs)
-        if isinstance(method, ExecutionProvenanceMethodConfig)
-        or (
-            isinstance(method, TrainableRankingConfig)
-            and method.method == "execution_provenance_rgcn_retriever"
-        )
-        else []
-    )
     settings = _retrieval_settings(
         method,
         top_k=top_k,
@@ -116,7 +93,6 @@ def run_retrieve_stage(
             text_requests=text_requests,
             evidence_graphs=evidence_graphs or [],
             dense_encoder=dense_encoder,
-            provenance_requests=provenance_requests,
         ),
     )
     predictions = run_retrieval(
@@ -215,7 +191,6 @@ def _build_payload(
     text_requests: list[TextRankingRequest],
     evidence_graphs: list[EvidenceGraph],
     dense_encoder: SentenceEncoder | None,
-    provenance_requests: list[ExecutionProvenanceRankingRequest],
 ) -> object:
     if isinstance(method, (Bm25MethodConfig, DenseMethodConfig)) or (
         isinstance(method, TrainableRankingConfig) and method.method == "dense_ft"
@@ -229,19 +204,6 @@ def _build_payload(
         return GraphRAGBuildPayload(
             text_requests=text_requests,
             task_family=_task_family(dataset),
-            dense_encoder=dense_encoder,
-        )
-    if isinstance(method, ExecutionProvenanceMethodConfig):
-        return ExecutionProvenanceBuildPayload(
-            provenance_requests=provenance_requests,
-            dense_encoder=dense_encoder,
-        )
-    if (
-        isinstance(method, TrainableRankingConfig)
-        and method.method == "execution_provenance_rgcn_retriever"
-    ):
-        return ProvenanceRgcnBuildPayload(
-            provenance_requests=provenance_requests,
             dense_encoder=dense_encoder,
         )
     if isinstance(method, TrainableRankingConfig) and method.method in {
@@ -279,13 +241,6 @@ def _retrieval_settings(
             config=method,
             device=device,
         )
-    if isinstance(method, ExecutionProvenanceMethodConfig):
-        return ExecutionProvenanceRetrievalSettings(
-            top_k=top_k,
-            encoder=_encoder_settings(method.encoder, encoder_source),
-            config=EpgmRetrieverConfig.for_variant(method.variant),
-            device=device,
-        )
     if isinstance(method, TrainableRankingConfig):
         if method.method == "dense_ft":
             return DenseFinetunedRetrievalSettings(
@@ -306,12 +261,7 @@ def _retrieval_settings(
                 checkpoint=_model_payload(model, "checkpoint"),
                 device=device,
             )
-        return ProvenanceRgcnRetrievalSettings(
-            top_k=top_k,
-            checkpoint=_model_payload(model, "checkpoint"),
-            device=device,
-            variant=method.variant or "full_rgcn",
-        )
+        raise TypeError(f"unsupported trainable method={method.method!r}")
     raise TypeError(f"unsupported method config={type(method).__name__}")
 
 
@@ -337,8 +287,7 @@ def _encoder_settings(
 
 
 def _task_family(dataset: DatasetName) -> RetrievalTaskFamily:
-    if dataset == "isetrace":
-        return RetrievalTaskFamily.EXECUTION_PROVENANCE
+    del dataset
     return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
 
 

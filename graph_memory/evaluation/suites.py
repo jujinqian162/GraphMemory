@@ -25,8 +25,6 @@ from graph_memory.evaluation.metrics import (
 from graph_memory.evaluation.path_metrics import path_recall_at
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest
 from graph_memory.graphs.contracts import EvidenceGraph
-from graph_memory.retrieval.contracts import ExecutionProvenanceTrace
-from graph_memory.retrieval.results import RankedResult
 
 class MetricSuite(Protocol):
     name: str
@@ -71,8 +69,6 @@ class EvidenceMetricSuite:
         edge_true_positive_count = 0
         predicted_edge_count = 0
         gold_edge_count = 0
-        abstained_source_count = 0
-        considered_source_count = 0
 
         task_rows: list[TaskMetricRow] = []
         per_task_rows: list[PerTaskMetricRow] = []
@@ -102,9 +98,6 @@ class EvidenceMetricSuite:
                         prediction.retrieved_subgraph, gold_dependency_edges
                     )
                 )
-                abstained, considered = _abstention_counts(prediction)
-                abstained_source_count += abstained
-                considered_source_count += considered
             task_row = TaskMetricRow.model_validate(
                 {
                     "Recall@2": recall_at(ranked_node_ids, gold_nodes, 2),
@@ -169,7 +162,6 @@ class EvidenceMetricSuite:
             "Edge Recall@10": "N/A",
             "Edge Precision@10": "N/A",
             "Edge F1@10": "N/A",
-            "Abstention Rate": "N/A",
             "Index Build Time": 0.0,
             "Graph Construction Time": 0.0,
         }
@@ -195,11 +187,6 @@ class EvidenceMetricSuite:
             aggregate["Edge F1@10"] = (
                 2.0 * edge_precision * edge_recall / (edge_precision + edge_recall)
                 if edge_precision + edge_recall
-                else 0.0
-            )
-            aggregate["Abstention Rate"] = (
-                abstained_source_count / considered_source_count
-                if considered_source_count
                 else 0.0
             )
         if not request.graphs:
@@ -284,20 +271,6 @@ def _mean(values: Iterable[float]) -> float:
 def _mean_optional(values: Iterable[float]) -> float | str:
     materialized = list(values)
     return sum(materialized) / len(materialized) if materialized else "N/A"
-
-
-def _abstention_counts(prediction: RankedResult) -> tuple[int, int]:
-    metadata = prediction.metadata
-    if metadata is None or not isinstance(
-        metadata.native_trace, ExecutionProvenanceTrace
-    ):
-        return 0, 0
-    trace = metadata.native_trace
-    considered_sources = {
-        transition.source_id for transition in trace.structured_transitions
-    }
-    abstained_sources = set(trace.abstained_source_ids)
-    return len(abstained_sources & considered_sources), len(considered_sources)
 
 
 __all__ = [

@@ -14,10 +14,7 @@ from graph_memory.contracts.model import (
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.retrieval.requests import TextRankingRequest
-from graph_memory.training_pairs.config import (
-    NegativeSamplingConfig,
-    ProvenanceNegativeSamplingConfig,
-)
+from graph_memory.training_pairs.config import NegativeSamplingConfig
 
 _NEGATIVE_SAMPLE_TYPES = frozenset(get_args(TrainPairSampleType)) - {"positive"}
 
@@ -45,7 +42,7 @@ class TrainPairBuildSummary(DomainModel):
     avg_positive_per_task: NonNegativeFiniteFloat
     avg_negative_per_task: NonNegativeFiniteFloat
     tasks_with_no_positive: tuple[NonEmptyStr, ...]
-    sampling_config: NegativeSamplingConfig | ProvenanceNegativeSamplingConfig
+    sampling_config: NegativeSamplingConfig
     requested_negative_count_by_type: dict[NonEmptyStr, NonNegativeInt] | None = None
     shortfall_by_type: dict[NonEmptyStr, NonNegativeInt] | None = None
     overlap_count_by_type: dict[NonEmptyStr, NonNegativeInt] | None = None

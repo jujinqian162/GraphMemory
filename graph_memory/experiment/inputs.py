@@ -32,7 +32,6 @@ _DATASET_REGISTRY_KEYS: dict[DatasetName, tuple[str, str]] = {
     "hotpotqa": ("hotpotqa-v1", "hotpotqa"),
     "twowiki": ("2wiki", "2wiki"),
     "musique": ("musique", "musique"),
-    "isetrace": ("isetrace", "isetrace"),
 }
 
 # local encoder directory (repo-relative) -> Hugging Face repo id.
@@ -62,7 +61,7 @@ def ensure_dataset(
         for split in config.dataset.splits.values()
     ]
     entry = _DATASET_REGISTRY_KEYS.get(config.dataset.name)
-    if config.dataset.name != "isetrace" and all(source.exists() for source in sources):
+    if all(source.exists() for source in sources):
         return
     if entry is None:
         missing = ", ".join(str(s) for s in sources if not s.exists())
@@ -72,12 +71,6 @@ def ensure_dataset(
         )
     registry_key, directory = entry
     prepare_dataset = _load_prepare_dataset(repository_root)
-    if config.dataset.name == "isetrace" and _registered_files_exist(
-        prepare_dataset,
-        registry_key=registry_key,
-        raw_dir=repository_root / "data" / directory / "raw",
-    ):
-        return
     LOGGER.info(
         "dataset %s raw files missing; downloading via prepare_dataset (%s)",
         config.dataset.name,
@@ -94,17 +87,6 @@ def ensure_dataset(
             "--no_verify",
         ]
     )
-
-
-def _registered_files_exist(
-    prepare_dataset: object,
-    *,
-    registry_key: str,
-    raw_dir: Path,
-) -> bool:
-    registry = getattr(prepare_dataset, "DATASET_REGISTRY")
-    spec = registry[registry_key]
-    return all((raw_dir / item.filename).exists() for item in spec.files)
 
 
 def ensure_encoder_models(

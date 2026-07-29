@@ -43,7 +43,6 @@ class MetricRow(DomainModel):
     edge_recall_at_10: OptionalUnitMetric = Field(alias="Edge Recall@10")
     edge_precision_at_10: OptionalUnitMetric = Field(alias="Edge Precision@10")
     edge_f1_at_10: OptionalUnitMetric = Field(alias="Edge F1@10")
-    abstention_rate: OptionalUnitMetric = Field(alias="Abstention Rate")
     retrieval_latency_per_query: NonNegativeFiniteFloat = Field(
         alias="Retrieval Latency / Query"
     )

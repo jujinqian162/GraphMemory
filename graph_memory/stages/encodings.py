@@ -11,10 +11,7 @@ from numpy.lib.format import open_memmap
 from numpy.typing import NDArray
 from pydantic import TypeAdapter
 
-from graph_memory.datasets.selection import (
-    execution_provenance_requests_for_dataset,
-    text_ranking_requests_for_dataset,
-)
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.embeddings import (
     format_dense_passage,
     format_dense_query,
@@ -35,7 +32,6 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import DatasetName, DenseEncoderConfig
 from graph_memory.graphs.contracts import EvidenceGraph
-from graph_memory.graphs.provenance import ProvenanceNodeType
 from graph_memory.io import read_json, write_json
 from graph_memory.models.frozen_embeddings import (
     EmbeddingSplit,
@@ -48,7 +44,7 @@ from graph_memory.stages.results import FrozenEmbeddingsResult
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
-EncodingFamily = Literal["evidence", "provenance"]
+EncodingFamily = Literal["evidence"]
 
 
 @dataclass(frozen=True)
@@ -76,7 +72,7 @@ def materialize_frozen_rgcn_embeddings(
     implementation_version: str,
     sentence_transformer: Any | None = None,
 ) -> FrozenEmbeddingsResult:
-    family: EncodingFamily = "provenance" if dataset == "isetrace" else "evidence"
+    family: EncodingFamily = "evidence"
     groups = [
         *_groups_for_split(
             family,
@@ -292,29 +288,6 @@ def _groups_for_split(
     task_inputs = cast(
         list[object], read_json(artifact_payload_path(prepared, "tasks"))
     )
-    if family == "provenance":
-        if graphs is not None:
-            raise ValueError(
-                "Provenance frozen encoding does not accept evidence graphs."
-            )
-        return [
-            _TextGroup(
-                split=split,
-                task_id=request.task_id,
-                node_ids=tuple(node.node_id for node in request.graph.nodes),
-                texts=tuple(
-                    (
-                        encoder.query_prefix + node.text
-                        if node.node_type is ProvenanceNodeType.TASK
-                        else encoder.passage_prefix + node.text
-                    )
-                    for node in request.graph.nodes
-                ),
-            )
-            for request in execution_provenance_requests_for_dataset(
-                dataset, task_inputs
-            )
-        ]
     if graphs is None:
         raise ValueError("Evidence frozen encoding requires evidence graphs.")
     graph_values = EVIDENCE_GRAPHS_ADAPTER.validate_python(

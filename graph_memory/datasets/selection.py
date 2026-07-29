@@ -35,17 +35,13 @@ from graph_memory.datasets.twowiki.records import (
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.requests import EvidenceGraphBuildRequest
-from graph_memory.retrieval.requests import (
-    ExecutionProvenanceRankingRequest,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.results import RankedResult
 
 DatasetId = Literal[
     "hotpotqa",
     "twowiki",
     "musique",
-    "isetrace",
 ]
 DatasetRankingRecord: TypeAlias = (
     HotpotQARankingRecord | TwoWikiRankingRecord | MuSiQueRankingRecord
@@ -118,17 +114,6 @@ def evidence_graph_build_requests_for_dataset(
     _unsupported_dataset(dataset)
 
 
-def execution_provenance_requests_for_dataset(
-    dataset: DatasetId,
-    records: Sequence[object],
-) -> list[ExecutionProvenanceRankingRequest]:
-    del records
-    raise ValueError(
-        "Execution-provenance retrieval requires a dataset-owned native request; "
-        f"dataset={dataset!r} does not provide one."
-    )
-
-
 def evidence_evaluation_request_for_dataset(
     dataset: DatasetId,
     *,
@@ -178,7 +163,6 @@ __all__ = [
     "evidence_evaluation_request_for_dataset",
     "evidence_graph_build_requests_for_dataset",
     "evidence_labels_for_dataset",
-    "execution_provenance_requests_for_dataset",
     "label_records_for_dataset",
     "ranking_records_for_dataset",
     "text_ranking_requests_for_dataset",

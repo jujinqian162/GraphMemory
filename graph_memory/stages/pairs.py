@@ -8,7 +8,6 @@ from pydantic import JsonValue, TypeAdapter
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
-    execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
 )
 from graph_memory.experiment.artifacts import (
@@ -28,17 +27,13 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     PairBuildConfig,
     PairSamplingConfig,
-    ProvenancePairSamplingConfig,
 )
 from graph_memory.io import read_json, write_json
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.stages.results import TrainingPairsResult
-from graph_memory.training_pairs import build_provenance_train_pairs, build_train_pairs
+from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.contracts import TrainPairRecord
-from graph_memory.training_pairs.requests import (
-    ProvenanceTrainPairBuildTask,
-    TrainPairBuildTask,
-)
+from graph_memory.training_pairs.requests import TrainPairBuildTask
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -71,22 +66,12 @@ def build_training_pair_data(
         encoder_source=encoder_source,
         device=config.device,
     )
-    if dataset == "isetrace":
-        if not isinstance(config.sampling, ProvenancePairSamplingConfig):
-            raise ValueError("isetrace requires provenance pair sampling config.")
-        result = build_provenance_train_pairs(
-            _provenance_pair_tasks(dataset, tasks, labels),
-            config.sampling,
-            dense_config=dense_config,
-            progress_desc="build training pairs",
-        )
-    else:
-        result = build_train_pairs(
-            _pair_tasks(dataset, tasks, labels, graphs),
-            config.sampling,
-            dense_config=dense_config,
-            progress_desc="build training pairs",
-        )
+    result = build_train_pairs(
+        _pair_tasks(dataset, tasks, labels, graphs),
+        config.sampling,
+        dense_config=dense_config,
+        progress_desc="build training pairs",
+    )
     return list(result.pairs), cast(
         dict[str, JsonValue],
         result.summary.model_dump(mode="json", exclude_none=True),
@@ -161,34 +146,8 @@ def _pair_tasks(
     ]
 
 
-def _provenance_pair_tasks(
-    dataset: DatasetName,
-    task_inputs: list[Mapping[str, object]],
-    labels: list[object],
-) -> list[ProvenanceTrainPairBuildTask]:
-    execution_requests = {
-        request.task_id: request
-        for request in execution_provenance_requests_for_dataset(dataset, task_inputs)
-    }
-    text_requests = {
-        request.task_id: request
-        for request in text_ranking_requests_for_dataset(dataset, task_inputs)
-    }
-    labels_by_task_id = {
-        label.task_id: label for label in evidence_labels_for_dataset(dataset, labels)
-    }
-    return [
-        ProvenanceTrainPairBuildTask(
-            text_request=request,
-            graph=execution_requests[task_id].graph,
-            label=labels_by_task_id[task_id],
-        )
-        for task_id, request in text_requests.items()
-    ]
-
-
 def _dense_config(
-    sampling: PairSamplingConfig | ProvenancePairSamplingConfig,
+    sampling: PairSamplingConfig,
     *,
     encoder: DenseEncoderConfig,
     encoder_source: EncoderSourceRef,

@@ -9,7 +9,6 @@ from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
-    execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
 )
 from graph_memory.experiment.artifacts import (
@@ -30,23 +29,19 @@ from graph_memory.experiment.config import (
     DatasetName,
     DenseEncoderConfig,
     DenseFinetuneStageConfig,
-    ProvenanceRgcnStageConfig,
     RgcnTrainStageConfig,
 )
 from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.provenance_rgcn import save_provenance_rgcn_checkpoint
 from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
 from graph_memory.stages.results import ModelResult
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
-    ProvenanceRgcnTrainPayload,
     RgcnTrainPayload,
 )
 from graph_memory.stages.trainers import (
     DenseFinetuneMethodTrainer,
-    ProvenanceRgcnMethodTrainer,
     RgcnGraphRetrieverTrainer,
 )
 
@@ -291,153 +286,6 @@ def materialize_evidence_rgcn_model(
     )
 
 
-def materialize_provenance_rgcn_model(
-    store: ProcessedAssetStore,
-    *,
-    dataset: DatasetName,
-    config: ProvenanceRgcnStageConfig,
-    train_prepared: DatasetArtifactRef,
-    train_pairs: TrainingPairsArtifactRef,
-    dev_prepared: DatasetArtifactRef,
-    encoder_source: EncoderSourceRef,
-    frozen_embeddings: FrozenEmbeddingsArtifactRef,
-    implementation_version: str,
-) -> ModelResult:
-    effective = config.model_copy(
-        update={"encoder": _resolved_encoder(config.encoder, encoder_source)}
-    )
-    train_tasks = cast(
-        list[object], read_json(artifact_payload_path(train_prepared, "tasks"))
-    )
-    train_labels = cast(
-        list[object], read_json(artifact_payload_path(train_prepared, "labels"))
-    )
-    dev_tasks = cast(
-        list[object], read_json(artifact_payload_path(dev_prepared, "tasks"))
-    )
-    dev_labels = cast(
-        list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
-    )
-    pairs = TRAIN_PAIRS_ADAPTER.validate_python(
-        read_json(artifact_payload_path(train_pairs, "pairs"))
-    )
-    pair_summary = cast(
-        dict[str, object],
-        read_json(artifact_payload_path(train_pairs, "summary")),
-    )
-    embedding_store = FrozenEmbeddingStore(frozen_embeddings)
-    if embedding_store.index.family != "provenance":
-        raise ValueError("Provenance R-GCN requires provenance frozen embeddings.")
-    with ArtifactPublisher(
-        store,
-        kind=ArtifactKind.MODEL,
-        namespace=config.method,
-        task_identity=f"train-{config.method}",
-        origin={
-            "stage": "train",
-            "dataset": dataset,
-            "method": config.method,
-            "variant": config.variant,
-            "prepared_digest": train_prepared.digest,
-            "pairs_digest": train_pairs.digest,
-            "dev_digest": dev_prepared.digest,
-            "encoder_identity": _encoder_identity(encoder_source),
-            "frozen_embeddings_digest": frozen_embeddings.digest,
-            "implementation_version": implementation_version,
-        },
-    ) as publisher:
-        result = ProvenanceRgcnMethodTrainer(
-            effective,
-            train_embeddings=embedding_store.partition("train"),
-            dev_embeddings=embedding_store.partition("dev"),
-        ).train(
-            ProvenanceRgcnTrainPayload(
-                train_requests=tuple(
-                    execution_provenance_requests_for_dataset(dataset, train_tasks)
-                ),
-                train_labels=tuple(
-                    evidence_labels_for_dataset(dataset, train_labels)
-                ),
-                train_pairs=tuple(pairs),
-                dev_requests=tuple(
-                    execution_provenance_requests_for_dataset(dataset, dev_tasks)
-                ),
-                dev_labels=tuple(
-                    evidence_labels_for_dataset(dataset, dev_labels)
-                ),
-            )
-        )
-        checkpoints = publisher.workspace / "checkpoints"
-        epoch_checkpoint = checkpoints / f"checkpoint_epoch_{result.best_epoch}.pt"
-        first_train_task = train_tasks[0] if train_tasks else {}
-        train_metadata = (
-            first_train_task.get("metadata", {})
-            if isinstance(first_train_task, dict)
-            else {}
-        )
-        construction_identity = (
-            train_metadata.get("graph_construction", "missing")
-            if isinstance(train_metadata, dict)
-            else "missing"
-        )
-        best_metrics = result.best_metrics
-        for path in (epoch_checkpoint, checkpoints / "best.pt"):
-            save_provenance_rgcn_checkpoint(
-                path,
-                method_name=config.method,
-                model=result.model,
-                optimizer_state_dict=result.optimizer_state_dict,
-                epoch=result.best_epoch,
-                global_step=result.global_step,
-                best_dev_metric=result.best_dev_metric,
-                model_config=result.model_config,
-                training_config=result.training_config,
-                effective_variant=config.variant,
-                scientific_identity={
-                    "dataset": {
-                        "name": dataset,
-                        "schema_version": 3,
-                        "train_prepared_digest": train_prepared.digest,
-                        "dev_prepared_digest": dev_prepared.digest,
-                    },
-                    "construction": construction_identity,
-                    "pairs": {
-                        "digest": train_pairs.digest,
-                        "sampling": pair_summary.get("sampling_config", {}),
-                    },
-                    "encoder": _encoder_identity(encoder_source),
-                },
-                best_metrics=best_metrics,
-            )
-        history = tuple(
-            cast(dict[str, JsonValue], dict(record)) for record in result.metric_records
-        )
-        write_jsonl(publisher.workspace / "training_metrics.jsonl", list(history))
-        artifact = publisher.publish(
-            {
-                "checkpoints": "checkpoints",
-                "checkpoint": "checkpoints/best.pt",
-                "training_metrics": "training_metrics.jsonl",
-            },
-            metadata={
-                "variant": config.variant,
-                "best_epoch": result.best_epoch,
-                "global_step": result.global_step,
-                "best_dev_metric": result.best_dev_metric,
-            },
-        )
-    assert isinstance(artifact, ModelArtifactRef)
-    return ModelResult(
-        method=config.method,
-        artifact=artifact,
-        training_history=history,
-        metadata={
-            "variant": config.variant,
-            "best_epoch": result.best_epoch,
-            "best_dev_metric": result.best_dev_metric,
-        },
-    )
-
 
 def _resolved_encoder(
     encoder: DenseEncoderConfig,
@@ -458,5 +306,4 @@ __all__ = [
     "EncoderSourceRef",
     "materialize_dense_finetune_model",
     "materialize_evidence_rgcn_model",
-    "materialize_provenance_rgcn_model",
 ]

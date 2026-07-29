@@ -10,14 +10,9 @@ from pydantic import ValidationError
 from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
-    ExecutionProvenanceMethodConfig,
-    ExecutionProvenanceRgcnMethodConfig,
     RgcnMethodConfig,
-    resolve_experiment_config,
     parse_composed_config,
 )
-from graph_memory.experiment.inspect import inspect_catalog
-from graph_memory.registry.retrieval import RetrievalMethodId
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,17 +43,9 @@ def test_rgcn_profiles_define_true_graph_batches() -> None:
     evidence = parse_composed_config(
         _compose("profile=full", "method=dense_rgcn_graph_retriever")
     )
-    provenance = parse_composed_config(
-        _compose(
-            "profile=provenance_full",
-            "method=execution_provenance_rgcn_retriever",
-        )
-    )
 
     assert isinstance(evidence.method, RgcnMethodConfig)
-    assert isinstance(provenance.method, ExecutionProvenanceRgcnMethodConfig)
     assert evidence.method.train.trainer.per_device_graph_batch_size == 128
-    assert provenance.method.train.trainer.per_device_graph_batch_size == 8
 
 
 def test_dense_ft_seed_config_is_the_canonical_public_dense_ft_stage() -> None:
@@ -111,28 +98,6 @@ def test_variant_is_rejected_on_non_rgcn_method() -> None:
         parse_composed_config(_compose("method=bm25", "+method.variant=wo_graph"))
 
 
-def test_nontrained_epgm_defaults_to_dependency_path_retrieval() -> None:
-    default = parse_composed_config(_compose("method=execution_provenance_retriever"))
-    legacy = parse_composed_config(
-        _compose(
-            "method=execution_provenance_retriever",
-            "method.variant=typed_beam",
-        )
-    )
-
-    assert isinstance(default.method, ExecutionProvenanceMethodConfig)
-    assert isinstance(legacy.method, ExecutionProvenanceMethodConfig)
-    assert default.method.variant == "dependency_path"
-    assert legacy.method.variant == "typed_beam"
-
-
-def test_provenance_only_method_is_rejected_on_evidence_dataset() -> None:
-    config = parse_composed_config(_compose("method=execution_provenance_retriever"))
-
-    with pytest.raises(ValueError, match="does not support"):
-        resolve_experiment_config(config, repository_root=ROOT)
-
-
 def test_model_only_variant_reuses_pair_contract_but_hard_negative_variant_does_not() -> (
     None
 ):
@@ -152,36 +117,3 @@ def test_model_only_variant_reuses_pair_contract_but_hard_negative_variant_does_
     assert isinstance(wo_hard_negatives.method, RgcnMethodConfig)
     assert full.method.effective().pairs == wo_graph.method.effective().pairs
     assert full.method.effective().pairs != wo_hard_negatives.method.effective().pairs
-
-
-def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
-    base = ("method=execution_provenance_rgcn_retriever",)
-    full = parse_composed_config(_compose(*base))
-    wo_graph = parse_composed_config(_compose(*base, "method.variant=wo_graph"))
-    wo_hard = parse_composed_config(_compose(*base, "method.variant=wo_hard_negatives"))
-    wo_rerank = parse_composed_config(_compose(*base, "method.variant=wo_edge_rerank"))
-
-    assert isinstance(full.method, ExecutionProvenanceRgcnMethodConfig)
-    assert isinstance(wo_graph.method, ExecutionProvenanceRgcnMethodConfig)
-    assert isinstance(wo_hard.method, ExecutionProvenanceRgcnMethodConfig)
-    assert isinstance(wo_rerank.method, ExecutionProvenanceRgcnMethodConfig)
-    assert full.method.effective().pairs == wo_graph.method.effective().pairs
-    assert full.method.effective().pairs == wo_rerank.method.effective().pairs
-    assert full.method.effective().pairs != wo_hard.method.effective().pairs
-    assert wo_hard.method.effective().pairs.hard_provenance_successor_per_positive == 0
-    assert (
-        wo_hard.method.effective().pairs.hard_provenance_predecessor_per_positive == 0
-    )
-    assert full.method.train_stage() == wo_rerank.method.train_stage()
-    assert full.method.train_stage() != wo_graph.method.train_stage()
-
-    variants = inspect_catalog("variants", repository_root=ROOT)
-    assert isinstance(variants, dict)
-    assert variants[RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER] == [
-        "full_rgcn",
-        "wo_graph",
-        "wo_edge_type",
-        "wo_edge_weight",
-        "wo_hard_negatives",
-        "wo_edge_rerank",
-    ]

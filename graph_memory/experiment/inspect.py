@@ -3,11 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, get_args
 
-from graph_memory.experiment.config import (
-    ClosedModel,
-    EvidenceRgcnVariant,
-    ProvenanceRgcnVariant,
-)
+from graph_memory.experiment.config import ClosedModel, EvidenceRgcnVariant
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import RetrievalMethodId
 
@@ -42,13 +38,9 @@ def inspect_catalog(
         return sorted(path.stem for path in config_root.glob("*.yaml"))
     if kind == "variants":
         evidence_variants = [str(value) for value in get_args(EvidenceRgcnVariant)]
-        provenance_variants = [str(value) for value in get_args(ProvenanceRgcnVariant)]
         return {
             RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER: evidence_variants,
             RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER: evidence_variants,
-            RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER: (
-                provenance_variants
-            ),
         }
     if kind == "jobs":
         if name is None:

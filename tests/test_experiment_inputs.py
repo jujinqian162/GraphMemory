@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
 
 import huggingface_hub
 import pytest
 
 from graph_memory.experiment import inputs
-from graph_memory.experiment.config import ResolvedExperimentConfig
 from scripts import prepare_dataset
 
 
@@ -127,82 +124,6 @@ def test_prepare_dataset_does_not_mirror_non_huggingface_downloads(
 
     assert calls == 1
 
-
-def test_ensure_dataset_dispatches_isetrace_download(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    observed: list[list[str]] = []
-    prepare_module = SimpleNamespace(
-        DATASET_REGISTRY=prepare_dataset.DATASET_REGISTRY,
-        main=lambda argv: observed.append(list(argv)),
-    )
-    monkeypatch.setattr(inputs, "_load_prepare_dataset", lambda _root: prepare_module)
-    missing = Path("data/isetrace/raw/trajectories/trajectories-00000.jsonl")
-    config = cast(
-        ResolvedExperimentConfig,
-        cast(
-            object,
-            SimpleNamespace(
-                dataset=SimpleNamespace(
-                    name="isetrace",
-                    splits={
-                        split: SimpleNamespace(source=missing)
-                        for split in ("train", "dev", "test")
-                    },
-                )
-            ),
-        ),
-    )
-
-    inputs.ensure_dataset(config, repository_root=tmp_path)
-
-    assert observed == [
-        [
-            "--dataset",
-            "isetrace",
-            "--name",
-            "isetrace",
-            "--data_dir",
-            str(tmp_path / "data"),
-            "--no_verify",
-        ]
-    ]
-
-
-def test_ensure_dataset_skips_complete_isetrace_raw_files(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    spec = prepare_dataset.DATASET_REGISTRY["isetrace"]
-    raw_dir = tmp_path / "data/isetrace/raw"
-    for item in spec.files:
-        path = raw_dir / item.filename
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch()
-    prepare_module = SimpleNamespace(
-        DATASET_REGISTRY=prepare_dataset.DATASET_REGISTRY,
-        main=lambda _argv: pytest.fail("complete ISETrace data must not download"),
-    )
-    monkeypatch.setattr(inputs, "_load_prepare_dataset", lambda _root: prepare_module)
-    missing_split = Path("data/isetrace/derived/not-built-yet.jsonl")
-    config = cast(
-        ResolvedExperimentConfig,
-        cast(
-            object,
-            SimpleNamespace(
-                dataset=SimpleNamespace(
-                    name="isetrace",
-                    splits={
-                        split: SimpleNamespace(source=missing_split)
-                        for split in ("train", "dev", "test")
-                    },
-                )
-            ),
-        ),
-    )
-
-    inputs.ensure_dataset(config, repository_root=tmp_path)
 
 
 def test_encoder_download_retries_once_via_huggingface_mirror(

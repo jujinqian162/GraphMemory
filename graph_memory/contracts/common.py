@@ -19,8 +19,6 @@ TrainPairSampleType = Literal[
     "hard_bm25",
     "hard_dense",
     "hard_graph_neighbor",
-    "hard_provenance_successor",
-    "hard_provenance_predecessor",
 ]
 
 ALLOWED_NODE_TYPES: set[str] = {"question", "graph_item"}
@@ -32,8 +30,6 @@ TRAIN_PAIR_SAMPLE_TYPES: set[str] = {
     "hard_bm25",
     "hard_dense",
     "hard_graph_neighbor",
-    "hard_provenance_successor",
-    "hard_provenance_predecessor",
 }
 NEGATIVE_TRAIN_PAIR_SAMPLE_TYPES: set[str] = TRAIN_PAIR_SAMPLE_TYPES - {"positive"}
 

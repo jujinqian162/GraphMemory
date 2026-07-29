@@ -16,8 +16,6 @@ from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
-    ExecutionProvenanceMethodConfig,
-    ExecutionProvenanceRgcnMethodConfig,
     GraphRAGMethodConfig,
     PairBuildConfig,
     PrepareSplitConfig,
@@ -41,10 +39,8 @@ from graph_memory.experiment.tasks import (
     resolve_encoder_source,
     train_dense_ft_task,
     train_evidence_rgcn_task,
-    train_provenance_rgcn_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
-from graph_memory.retrieval.methods.epgm import EpgmRetrieverConfig
 from graph_memory.stages.results import (
     BenchmarkResult,
     ModelResult,
@@ -79,7 +75,6 @@ def run_experiment(
                 Bm25MethodConfig,
                 DenseMethodConfig,
                 GraphRAGMethodConfig,
-                ExecutionProvenanceMethodConfig,
             ),
         ):
             test = prepare_split_task(
@@ -333,65 +328,6 @@ def run_experiment(
                 )
             )
 
-        elif isinstance(method, ExecutionProvenanceRgcnMethodConfig):
-            train = prepare_split_task(
-                source=split_sources["train"],
-                config=_prepare_config(config, "train"),
-            )
-            dev = prepare_split_task(
-                source=split_sources["dev"],
-                config=_prepare_config(config, "dev"),
-            )
-            test = prepare_split_task(
-                source=split_sources["test"],
-                config=_prepare_config(config, "test"),
-            )
-            effective = method.effective()
-            encoder_source = resolve_encoder_source(effective.encoder)
-            pairs = build_training_pairs_task(
-                prepared=train.artifact,
-                evidence_graphs=None,
-                dataset=config.dataset.name,
-                config=PairBuildConfig(
-                    sampling=effective.pairs,
-                    encoder=effective.encoder,
-                    device=config.device,
-                ),
-                encoder_source=encoder_source,
-            )
-            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
-                train_prepared=train.artifact,
-                dev_prepared=dev.artifact,
-                train_graphs=None,
-                dev_graphs=None,
-                seed_model=None,
-                dataset=config.dataset.name,
-                encoder=effective.encoder,
-                encoder_source=encoder_source,
-                enable_gpupool=config.encoding.enable_gpupool,
-                device=config.device,
-                chunk_size=config.encoding.chunk_size,
-            )
-            model = train_provenance_rgcn_task(
-                train_prepared=train.artifact,
-                train_pairs=pairs.artifact,
-                dev_prepared=dev.artifact,
-                dataset=config.dataset.name,
-                config=method.train_stage(),
-                encoder_source=encoder_source,
-                frozen_embeddings=frozen_embeddings.artifact,
-            )
-            assets.extend(
-                (
-                    train.artifact,
-                    dev.artifact,
-                    test.artifact,
-                    pairs.artifact,
-                    frozen_embeddings.artifact,
-                    model.artifact,
-                )
-            )
-
         else:
             raise ValueError(f"unsupported final method={type(method).__name__}")
 
@@ -405,14 +341,7 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
-            implementation_version=(
-                "ranking-v5-epgm-schema-roles-"
-                + EpgmRetrieverConfig.for_variant(
-                    rank_config.variant
-                ).cache_fingerprint()
-                if isinstance(rank_config, ExecutionProvenanceMethodConfig)
-                else "ranking-v2-device-aware"
-            ),
+            implementation_version="ranking-v2-device-aware",
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking.artifact,

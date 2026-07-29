@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -18,14 +18,8 @@ from graph_memory.retrieval.contracts import SeedRanker
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignalProvider
-from graph_memory.training_pairs.config import (
-    NegativeSamplingConfig,
-    ProvenanceNegativeSamplingConfig,
-)
-from graph_memory.training_pairs.requests import (
-    ProvenanceTrainPairBuildTask,
-    TrainPairBuildTask,
-)
+from graph_memory.training_pairs.config import NegativeSamplingConfig
+from graph_memory.training_pairs.requests import TrainPairBuildTask
 from graph_memory.training_pairs.samplers import (
     BM25HardNegativeSampler,
     DenseHardNegativeSampler,
@@ -33,8 +27,6 @@ from graph_memory.training_pairs.samplers import (
     GraphNeighborNegativeSampler,
     NegativeSampler,
     PairSamplingContext,
-    ProvenancePredecessorNegativeSampler,
-    ProvenanceSuccessorNegativeSampler,
 )
 @dataclass(frozen=True)
 class TrainPairBuilder:
@@ -175,177 +167,6 @@ def build_train_pairs(
     )
     return builder.build(tasks, progress_desc=progress_desc)
 
-
-PROVENANCE_NEGATIVE_PRECEDENCE: tuple[TrainPairSampleType, ...] = (
-    "hard_provenance_successor",
-    "hard_provenance_predecessor",
-    "hard_dense",
-    "hard_bm25",
-    "easy_random",
-)
-
-
-def build_provenance_train_pairs(
-    tasks: Sequence[ProvenanceTrainPairBuildTask],
-    config: ProvenanceNegativeSamplingConfig,
-    *,
-    bm25_retriever: SeedRanker | None = None,
-    dense_retriever: SeedRanker | None = None,
-    dense_seed_signal_provider: SeedSignalProvider | None = None,
-    dense_config: DenseConfig | None = None,
-    progress_desc: str | None = None,
-) -> TrainPairBuildResult:
-    task_list = list(tasks)
-    text_requests = [task.text_request for task in task_list]
-    labels_by_task_id = {task.label.task_id: task.label for task in task_list}
-
-    semantic_samplers = tuple(
-        sampler
-        for sampler in _build_default_samplers(
-            config,
-            bm25_retriever=bm25_retriever,
-            dense_retriever=dense_retriever,
-            dense_seed_signal_provider=dense_seed_signal_provider,
-            dense_config=dense_config,
-        )
-        if sampler.sample_type != "hard_graph_neighbor"
-    )
-    prepared_samplers = tuple(
-        sampler.precompute(text_requests)
-        if isinstance(sampler, DenseHardNegativeSampler)
-        else sampler
-        for sampler in semantic_samplers
-    )
-    successor_sampler = ProvenanceSuccessorNegativeSampler()
-    predecessor_sampler = ProvenancePredecessorNegativeSampler()
-    rng = random.Random(config.random_seed)
-    pairs: list[TrainPairRecord] = []
-    negative_count_by_type: Counter[str] = Counter()
-    requested_by_type: Counter[str] = Counter()
-    raw_count_by_type: Counter[str] = Counter()
-    overlap_count_by_type: Counter[str] = Counter()
-    source_overlap_by_task: dict[str, dict[str, list[str]]] = {}
-    tasks_with_no_positive: list[TaskId] = []
-
-    task_iterator = task_list
-    if progress_desc is not None:
-        task_iterator = tqdm(task_list, desc=progress_desc, unit="task")
-    for task in task_iterator:
-        request = task.text_request
-        task_id = request.task_id
-        gold_nodes = list(task.label.gold_evidence_item_ids)
-        if not gold_nodes:
-            tasks_with_no_positive.append(task_id)
-            continue
-        for node_id in gold_nodes:
-            pairs.append(
-                TrainPairRecord(
-                    task_id=task_id,
-                    node_id=node_id,
-                    label=1,
-                    sample_type="positive",
-                )
-            )
-        gold_node_set = set(gold_nodes)
-        context = PairSamplingContext(
-            text_request=request,
-            graph=None,
-            gold_node_ids=gold_node_set,
-            non_gold_node_ids=[
-                candidate.item_id
-                for candidate in request.candidates
-                if candidate.item_id not in gold_node_set
-            ],
-            rng=rng,
-        )
-        desired_by_type: dict[TrainPairSampleType, int] = {
-            "hard_provenance_successor": (
-                config.hard_provenance_successor_per_positive * len(gold_nodes)
-            ),
-            "hard_provenance_predecessor": (
-                config.hard_provenance_predecessor_per_positive * len(gold_nodes)
-            ),
-            "hard_dense": config.hard_dense_per_positive * len(gold_nodes),
-            "hard_bm25": config.hard_bm25_per_positive * len(gold_nodes),
-            "easy_random": config.easy_random_per_positive * len(gold_nodes),
-        }
-        selected_by_type: dict[TrainPairSampleType, list[str]] = {
-            "hard_provenance_successor": successor_sampler.sample(
-                task.graph,
-                task.label,
-                desired_by_type["hard_provenance_successor"],
-            ),
-            "hard_provenance_predecessor": predecessor_sampler.sample(
-                task.graph,
-                task.label,
-                desired_by_type["hard_provenance_predecessor"],
-            ),
-        }
-        for sampler in prepared_samplers:
-            selected_by_type[sampler.sample_type] = sampler.sample(
-                context, desired_by_type[sampler.sample_type]
-            )
-        sources_by_node: defaultdict[str, set[TrainPairSampleType]] = defaultdict(set)
-        for sample_type, node_ids in selected_by_type.items():
-            requested_by_type[sample_type] += desired_by_type[sample_type]
-            raw_count_by_type[sample_type] += len(node_ids)
-            for node_id in node_ids:
-                if node_id not in gold_node_set:
-                    sources_by_node[node_id].add(sample_type)
-        task_overlaps: dict[str, list[str]] = {}
-        for node_id, sources in sorted(sources_by_node.items()):
-            ordered_sources: list[TrainPairSampleType] = [
-                sample_type
-                for sample_type in PROVENANCE_NEGATIVE_PRECEDENCE
-                if sample_type in sources
-            ]
-            if len(ordered_sources) > 1:
-                task_overlaps[node_id] = list(ordered_sources)
-                overlap_count_by_type.update(ordered_sources)
-            winner: TrainPairSampleType = ordered_sources[0]
-            pairs.append(
-                TrainPairRecord(
-                    task_id=task_id,
-                    node_id=node_id,
-                    label=0,
-                    sample_type=winner,
-                )
-            )
-            negative_count_by_type[winner] += 1
-        if task_overlaps:
-            source_overlap_by_task[task_id] = task_overlaps
-
-    positive_count = sum(pair.label for pair in pairs)
-    negative_count = sum(negative_count_by_type.values())
-    num_tasks = len(task_list)
-    shortfall_by_type = {
-        sample_type: max(0, requested_by_type[sample_type] - negative_count_by_type[sample_type])
-        for sample_type in PROVENANCE_NEGATIVE_PRECEDENCE
-    }
-    summary = TrainPairBuildSummary(
-        positive_count=positive_count,
-        negative_count_by_type=dict(sorted(negative_count_by_type.items())),
-        avg_positive_per_task=(positive_count / num_tasks if num_tasks else 0.0),
-        avg_negative_per_task=(negative_count / num_tasks if num_tasks else 0.0),
-        tasks_with_no_positive=tuple(tasks_with_no_positive),
-        sampling_config=config,
-        requested_negative_count_by_type=dict(sorted(requested_by_type.items())),
-        shortfall_by_type=dict(sorted(shortfall_by_type.items())),
-        overlap_count_by_type=dict(sorted(overlap_count_by_type.items())),
-        source_overlap_by_task={
-            task_id: {
-                node_id: tuple(sources)
-                for node_id, sources in overlaps.items()
-            }
-            for task_id, overlaps in source_overlap_by_task.items()
-        },
-    )
-    dataset = TrainPairDataset(
-        requests=tuple(text_requests),
-        labels=tuple(labels_by_task_id.values()),
-        pairs=tuple(pairs),
-    )
-    return TrainPairBuildResult(pairs=dataset.pairs, summary=summary)
 
 
 def _build_default_samplers(

@@ -5,9 +5,6 @@ from typing import TypeAlias
 from graph_memory.retrieval.requests.evidence_graph import (
     EvidenceGraphRankingRequest,
 )
-from graph_memory.retrieval.requests.execution_provenance import (
-    ExecutionProvenanceRankingRequest,
-)
 from graph_memory.retrieval.requests.graphrag import (
     EntityMentionType,
     GraphRAGCandidateBridge,
@@ -26,10 +23,7 @@ from graph_memory.retrieval.requests.text import (
 )
 
 RankingMethodRequest: TypeAlias = (
-    TextRankingRequest
-    | EvidenceGraphRankingRequest
-    | GraphRAGRequest
-    | ExecutionProvenanceRankingRequest
+    TextRankingRequest | EvidenceGraphRankingRequest | GraphRAGRequest
 )
 
 __all__ = [
@@ -37,7 +31,6 @@ __all__ = [
     "DenseRuntime",
     "EntityMentionType",
     "EvidenceGraphRankingRequest",
-    "ExecutionProvenanceRankingRequest",
     "GraphRAGCandidateBridge",
     "GraphRAGEntityMention",
     "GraphRAGKnowledgeGraph",

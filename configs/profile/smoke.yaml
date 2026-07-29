@@ -13,15 +13,6 @@ trainable:
     hard_bm25_per_positive: 1
     hard_dense_per_positive: 0
     hard_graph_neighbor_per_positive: 1
-  provenance_rgcn:
-    hidden_dim: 32
-    num_layers: 1
-    per_device_graph_batch_size: 1
-    epochs: 1
-    easy_random_per_positive: 1
-    hard_bm25_per_positive: 1
-    hard_dense_per_positive: 0
-    hard_graph_neighbor_per_positive: 1
   dense_ft:
     train_batch_size: 1
     eval_batch_size: 4

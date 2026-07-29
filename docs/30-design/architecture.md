@@ -14,10 +14,10 @@ dataset adapter
 graph_memory/
   contracts/          low-level scalar/model primitives and shared IDs
   datasets/           dataset-owned Pydantic records and projectors
-  graphs/             Pydantic evidence/provenance contracts and construction
+  graphs/             evidence contracts and construction
   embeddings/         frozen dense encoders
-  retrieval/          requests, flat / graphrag / epgm methods
-  models/             dense_finetune, graph_retriever (R-GCN)
+  retrieval/          requests, flat and GraphRAG methods
+  models/             dense_finetune, graph_retriever (evidence R-GCN)
   registry/           method IDs, settings, builders
   stages/             prepare, graphs, pairs, models, retrieve, evaluate
   experiment/         Hydra job, Prefect Flow, artifacts, tracking
@@ -30,11 +30,9 @@ graph_memory/
 
 - `datasets/` owns closed Pydantic source/prepared records and projects them into consumer-specific requests; it does not invent cross-domain graphs.
 - `graphs/contracts.py` owns the closed `EvidenceGraph` model.
-- `graphs/provenance/` owns the closed `ExecutionProvenanceGraph` and field-binding models.
 - `retrieval/requests/` owns the closed request union; `retrieval/results.py` owns ranked results and request/result aggregates.
 - GraphRAG owns its entity graph end-to-end; Registry may assemble mentions before the method runs.
-- EPGM lives under `retrieval/methods/epgm/`.
-- `models/graph_retriever/` owns node-wise R-GCN train/infer for both evidence and provenance families (separate method IDs and pair protocols).
+- `models/graph_retriever/` owns the evidence R-GCN train/infer implementation.
 - `registry/` owns public IDs, request/family compatibility, and builders. Workflow scheduling stays in `experiment/workflow.py`, not Registry metadata.
 - `experiment/` schedules stages from real artifact dependencies of the selected method/variant.
 - `training_pairs/`, `evaluation/`, and each model package own their Pydantic artifact/config contracts. There is no central validation package.
@@ -46,13 +44,12 @@ A scientific field is declared once, in the Pydantic model owned by its domain. 
 
 Project-owned JSON is validated immediately at the consuming stage boundary with the owning model or a cached `TypeAdapter`. Inside the pipeline, code passes frozen model instances and uses attributes. Publication uses `model_dump(mode="json", by_alias=True)` (directly or through the Pydantic-aware IO port). Training-pair and dev-input aggregates are constructed before encoder/model loading or optimizer creation, so malformed artifacts fail before expensive work.
 
-## Three graphs, no translation
+## Current graphs
 
 1. **EvidenceGraph** — question/evidence nodes and evidence relations; required only by the two evidence R-GCN methods.
-2. **GraphRAG entity graph** — rebuilt from candidates inside the method; never an `EvidenceGraph` or provenance graph.
-3. **ExecutionProvenanceGraph** — Task / Agent / ToolCall / ToolOutput / Answer nodes with typed execution and dataflow edges (`invokes`, `returns`, `feeds`, `grounds`, optional chronology). Carried on the request.
+2. **GraphRAG entity graph** — rebuilt from candidates inside the method; never an `EvidenceGraph` artifact.
 
-No compatibility alias converts one graph domain into another. Flat and GraphRAG jobs must not schedule EvidenceGraph construction.
+The legacy `ExecutionProvenanceGraph` was removed. A replacement must be trajectory-native and query-independent; no compatibility alias should translate ISETrace into the deleted Task/Answer/weighted-edge schema.
 
 ## Runtime boundary
 

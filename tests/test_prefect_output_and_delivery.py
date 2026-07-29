@@ -81,7 +81,6 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         edge_recall_at_10="N/A",
         edge_precision_at_10="N/A",
         edge_f1_at_10="N/A",
-        abstention_rate="N/A",
         retrieval_latency_per_query=3.0,
         index_build_time=0.0,
         graph_construction_time=0.0,

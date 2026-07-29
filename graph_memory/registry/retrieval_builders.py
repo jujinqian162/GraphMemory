@@ -16,8 +16,6 @@ from graph_memory.registry.retrieval import (
     DenseRetrievalSettings,
     EvidenceRgcnBuildPayload,
     EvidenceRgcnRetrievalSettings,
-    ExecutionProvenanceBuildPayload,
-    ExecutionProvenanceRetrievalSettings,
     FlatRetrievalBuildPayload,
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
@@ -27,15 +25,10 @@ from graph_memory.registry.retrieval import (
     RetrievalRegistry,
     SeedRetrieverBuildPayload,
     SeedRetrievalSettings,
-    ProvenanceRgcnBuildPayload,
-    ProvenanceRgcnRetrievalSettings,
     _require_payload,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
-from graph_memory.retrieval.methods.epgm import (
-    EpgmRetriever,
-)
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
@@ -91,20 +84,6 @@ def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegist
                 EvidenceRgcnBuildPayload,
                 lambda settings, deps: _build_evidence_rgcn(
                     cast(EvidenceRgcnRetrievalSettings, settings), deps
-                ),
-            ),
-            ExecutionProvenanceRetrievalSettings: RetrievalBuilderSpec(
-                ExecutionProvenanceRetrievalSettings,
-                ExecutionProvenanceBuildPayload,
-                lambda settings, deps: _build_execution_provenance(
-                    cast(ExecutionProvenanceRetrievalSettings, settings), deps
-                ),
-            ),
-            ProvenanceRgcnRetrievalSettings: RetrievalBuilderSpec(
-                ProvenanceRgcnRetrievalSettings,
-                ProvenanceRgcnBuildPayload,
-                lambda settings, deps: _build_provenance_rgcn(
-                    cast(ProvenanceRgcnRetrievalSettings, settings), deps
                 ),
             ),
         },
@@ -307,105 +286,6 @@ def _build_evidence_rgcn(
         ),
     )
 
-
-def _build_execution_provenance(
-    settings: ExecutionProvenanceRetrievalSettings,
-    payload: object,
-) -> BuiltRetrievalMethod:
-    build_payload = cast(ExecutionProvenanceBuildPayload, payload)
-    dense_ranker = _build_dense_ranker(
-        settings.encoder, build_payload.dense_encoder, device=settings.device
-    )
-    tasks = [
-        RetrievalExecutionTask(
-            text_request=TextRankingRequest(
-                task_id=request.task_id,
-                query_text=request.query_text,
-                candidates=request.candidates,
-            ),
-            method_request=request,
-        )
-        for request in build_payload.provenance_requests
-    ]
-    return _built(
-        EpgmRetriever(
-            dense_ranker=dense_ranker,
-            config=settings.config,
-        ),
-        method=settings.method,
-        device=settings.device,
-        encoder=settings.encoder,
-        execution_tasks=tasks,
-    )
-
-
-def _build_provenance_rgcn(
-    settings: ProvenanceRgcnRetrievalSettings,
-    payload: object,
-) -> BuiltRetrievalMethod:
-    from graph_memory.models.provenance_rgcn import (
-        ExecutionProvenanceRGCN,
-        ExecutionProvenanceRgcnRetriever,
-        load_provenance_rgcn_checkpoint,
-    )
-
-    build_payload = cast(ProvenanceRgcnBuildPayload, payload)
-    checkpoint = load_provenance_rgcn_checkpoint(
-        settings.checkpoint,
-        expected_method=settings.method,
-        map_location=settings.device,
-    )
-    expected_checkpoint_variant = (
-        "full_rgcn" if settings.variant == "wo_edge_rerank" else settings.variant
-    )
-    if checkpoint.payload.get("effective_variant") != expected_checkpoint_variant:
-        raise ValueError(
-            "Provenance R-GCN checkpoint variant mismatch: "
-            f"expected={expected_checkpoint_variant!r} "
-            f"observed={checkpoint.payload.get('effective_variant')!r}."
-        )
-    model = ExecutionProvenanceRGCN(checkpoint.model_config)
-    model.load_state_dict(checkpoint.payload["model_state_dict"])
-    encoder = build_payload.dense_encoder or _resolve_encoder(
-        DenseEncoderSettings(
-            model_name=checkpoint.model_config.encoder_model,
-            query_prefix=checkpoint.model_config.query_prefix,
-            passage_prefix=checkpoint.model_config.passage_prefix,
-            batch_size=checkpoint.model_config.encoder_batch_size,
-        ),
-        None,
-        device=settings.device,
-    )
-    tasks = [
-        RetrievalExecutionTask(
-            text_request=TextRankingRequest(
-                task_id=request.task_id,
-                query_text=request.query_text,
-                candidates=request.candidates,
-            ),
-            method_request=request,
-        )
-        for request in build_payload.provenance_requests
-    ]
-    return _built(
-        ExecutionProvenanceRgcnRetriever(
-            model=model,
-            encoder=encoder,
-            config=checkpoint.model_config,
-            device=settings.device,
-            enable_edge_rerank=settings.variant != "wo_edge_rerank",
-        ),
-        method=settings.method,
-        model=settings.checkpoint,
-        device=settings.device,
-        encoder=DenseEncoderSettings(
-            model_name=checkpoint.model_config.encoder_model,
-            query_prefix=checkpoint.model_config.query_prefix,
-            passage_prefix=checkpoint.model_config.passage_prefix,
-            batch_size=checkpoint.model_config.encoder_batch_size,
-        ),
-        execution_tasks=tasks,
-    )
 
 
 def _evidence_rgcn_providers(

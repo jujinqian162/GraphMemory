@@ -165,7 +165,6 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "Edge Recall@10": "N/A",
             "Edge Precision@10": "N/A",
             "Edge F1@10": "N/A",
-            "Abstention Rate": "N/A",
             "Retrieval Latency / Query": 4.0,
             "Index Build Time": 0.0,
             "Graph Construction Time": 0.0,

@@ -23,7 +23,7 @@ class FrozenEmbeddingGroup(DomainModel):
 
 class FrozenEmbeddingIndex(DomainModel):
     version: Literal[1] = 1
-    family: Literal["evidence", "provenance"]
+    family: Literal["evidence"]
     embedding_dim: int = Field(gt=0)
     row_count: int = Field(gt=0)
     groups: tuple[FrozenEmbeddingGroup, ...] = Field(min_length=1)

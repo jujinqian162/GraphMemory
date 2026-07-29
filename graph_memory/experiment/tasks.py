@@ -38,7 +38,6 @@ from graph_memory.experiment.config import (
     GraphBuildConfig,
     PairBuildConfig,
     PrepareSplitConfig,
-    ProvenanceRgcnStageConfig,
     RankingMethodConfig,
     RgcnTrainStageConfig,
     SplitName,
@@ -50,7 +49,6 @@ from graph_memory.stages.graphs import materialize_evidence_graphs
 from graph_memory.stages.models import (
     materialize_dense_finetune_model,
     materialize_evidence_rgcn_model,
-    materialize_provenance_rgcn_model,
 )
 from graph_memory.stages.pairs import materialize_training_pairs
 from graph_memory.stages.prepare import materialize_prepared_split
@@ -274,38 +272,6 @@ def train_evidence_rgcn_task(
     )
 
 
-@task(
-    name="train-provenance-rgcn",
-    persist_result=True,
-    cache_policy=SCIENTIFIC_CACHE_POLICY,
-)
-def train_provenance_rgcn_task(
-    train_prepared: DatasetArtifactRef,
-    train_pairs: TrainingPairsArtifactRef,
-    dev_prepared: DatasetArtifactRef,
-    dataset: DatasetName,
-    config: ProvenanceRgcnStageConfig,
-    encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
-    frozen_embeddings: FrozenEmbeddingsArtifactRef,
-    implementation_version: str = "provenance-rgcn-train-v2-preencoded",
-) -> ModelResult:
-    get_run_logger().info(
-        "train provenance-rgcn | dataset=%s epochs=%s",
-        dataset,
-        config.train.trainer.epochs,
-    )
-    return materialize_provenance_rgcn_model(
-        processed_store(),
-        dataset=dataset,
-        config=config,
-        train_prepared=train_prepared,
-        train_pairs=train_pairs,
-        dev_prepared=dev_prepared,
-        encoder_source=encoder_source,
-        frozen_embeddings=frozen_embeddings,
-        implementation_version=implementation_version,
-    )
-
 
 @task(
     name="generate-rankings",
@@ -467,5 +433,4 @@ __all__ = [
     "resolve_encoder_source",
     "train_dense_ft_task",
     "train_evidence_rgcn_task",
-    "train_provenance_rgcn_task",
 ]

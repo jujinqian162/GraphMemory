@@ -9,10 +9,7 @@ from pydantic import model_validator
 from graph_memory.contracts.model import DomainModel
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.contracts import EvidenceGraph
-from graph_memory.retrieval.requests import (
-    ExecutionProvenanceRankingRequest,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 
 if TYPE_CHECKING:
@@ -67,46 +64,7 @@ class DenseFinetuneTrainPayload(DomainModel):
         return self
 
 
-class ProvenanceRgcnTrainPayload(DomainModel):
-    train_requests: tuple[ExecutionProvenanceRankingRequest, ...]
-    train_labels: tuple[EvidenceLabel, ...]
-    train_pairs: tuple[TrainPairRecord, ...]
-    dev_requests: tuple[ExecutionProvenanceRankingRequest, ...]
-    dev_labels: tuple[EvidenceLabel, ...]
-
-    @model_validator(mode="after")
-    def _validate_training_input(self) -> "ProvenanceRgcnTrainPayload":
-        text_requests = tuple(
-            TextRankingRequest(
-                task_id=request.task_id,
-                query_text=request.query_text,
-                candidates=request.candidates,
-            )
-            for request in self.train_requests
-        )
-        TrainPairDataset(
-            requests=text_requests,
-            labels=self.train_labels,
-            pairs=self.train_pairs,
-        )
-        _validate_dev(
-            tuple(
-                TextRankingRequest(
-                    task_id=request.task_id,
-                    query_text=request.query_text,
-                    candidates=request.candidates,
-                )
-                for request in self.dev_requests
-            ),
-            self.dev_labels,
-            (),
-        )
-        return self
-
-
-TrainPayload: TypeAlias = (
-    RgcnTrainPayload | DenseFinetuneTrainPayload | ProvenanceRgcnTrainPayload
-)
+TrainPayload: TypeAlias = RgcnTrainPayload | DenseFinetuneTrainPayload
 
 
 def _validate_dev(
@@ -129,7 +87,6 @@ def _validate_dev(
 __all__ = [
     "DenseFinetuneTrainPayload",
     "RgcnTrainPayload",
-    "ProvenanceRgcnTrainPayload",
     "TrainDependencies",
     "TrainPayload",
 ]

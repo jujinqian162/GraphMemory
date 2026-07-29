@@ -28,7 +28,6 @@ FINAL_METRIC_KEYS = {
     "Edge Recall@10": "final.edge_recall_at_10",
     "Edge Precision@10": "final.edge_precision_at_10",
     "Edge F1@10": "final.edge_f1_at_10",
-    "Abstention Rate": "final.abstention_rate",
     "Avg Retrieved Nodes": "final.avg_retrieved_nodes",
     "Avg Retrieved Edges": "final.avg_retrieved_edges",
 }

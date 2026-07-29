@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from graph_memory.registry.retrieval import RetrievalMethodId, RetrievalTaskFamily
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
-    ExecutionProvenanceRankingRequest,
     GraphRAGRequest,
     TextRankingRequest,
 )
@@ -95,16 +94,6 @@ def build_method_registry() -> MethodRegistry:
             RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
             EvidenceGraphRankingRequest,
             evidence,
-        ),
-        MethodDefinition(
-            RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER,
-            ExecutionProvenanceRankingRequest,
-            provenance,
-        ),
-        MethodDefinition(
-            RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER,
-            ExecutionProvenanceRankingRequest,
-            provenance,
         ),
     )
     return MethodRegistry(

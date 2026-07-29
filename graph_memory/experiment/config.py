@@ -23,13 +23,8 @@ from graph_memory.models.dense_finetune.training import (
 )
 from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
-from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnTrainingConfig
-from graph_memory.training_pairs.config import (
-    NegativeSamplingConfig,
-    ProvenanceNegativeSamplingConfig,
-)
+from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.registry.retrieval import RetrievalMethodId
-from graph_memory.retrieval.methods.epgm import EpgmVariant
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 
 
@@ -66,7 +61,6 @@ DatasetName: TypeAlias = Literal[
     "hotpotqa",
     "twowiki",
     "musique",
-    "isetrace",
 ]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
 EvidenceRgcnVariant: TypeAlias = Literal[
@@ -81,16 +75,6 @@ EvidenceRgcnVariant: TypeAlias = Literal[
     "wo_seed_score",
     "wo_hard_negatives",
 ]
-ProvenanceRgcnVariant: TypeAlias = Literal[
-    "full_rgcn",
-    "wo_graph",
-    "wo_edge_type",
-    "wo_edge_weight",
-    "wo_hard_negatives",
-    "wo_edge_rerank",
-]
-
-
 class ClosedModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -177,7 +161,6 @@ class DenseFinetuneProfileSettings(ClosedModel):
 
 class TrainableProfileSettings(ClosedModel):
     evidence_rgcn: RgcnProfileSettings
-    provenance_rgcn: RgcnProfileSettings
     dense_ft: DenseFinetuneProfileSettings
 
 
@@ -208,24 +191,7 @@ class GraphRAGMethodConfig(GraphRAGConfig):
     encoder: DenseEncoderConfig
 
 
-class ExecutionProvenanceMethodConfig(ClosedModel):
-    """Non-trained EPGM retriever.
-
-    ``variant`` selects a frozen strategy of the single implementation:
-    ``dependency_path`` is the reported default; ``ppr_steiner`` and
-    ``typed_beam`` are reproducibility diagnostics.
-    """
-
-    method: Literal["execution_provenance_retriever"]
-    encoder: DenseEncoderConfig
-    variant: EpgmVariant = "dependency_path"
-
-
 class PairSamplingConfig(NegativeSamplingConfig):
-    pass
-
-
-class ProvenancePairSamplingConfig(ProvenanceNegativeSamplingConfig):
     pass
 
 
@@ -317,85 +283,6 @@ class RgcnMethodConfig(RgcnStageConfig):
 DenseRgcnMethodConfig = RgcnMethodConfig
 
 
-class ProvenanceRgcnModelSettings(ClosedModel):
-    hidden_dim: PositiveInt
-    node_type_dim: PositiveInt
-    num_layers: NonNegativeInt
-    dropout: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)]
-    ablation: str = Field(min_length=1)
-    structured_pool_size: PositiveInt
-    structured_seed_top_s: PositiveInt
-    preserve_node_top_n: NonNegativeInt
-    edge_accept_threshold: Annotated[ScientificFloat, Field(ge=0.0, le=1.0)]
-
-    @model_validator(mode="after")
-    def validate_structured_bounds(self) -> ProvenanceRgcnModelSettings:
-        if self.structured_seed_top_s > self.structured_pool_size:
-            raise ValueError("structured_seed_top_s exceeds structured_pool_size")
-        if self.preserve_node_top_n > self.structured_pool_size:
-            raise ValueError("preserve_node_top_n exceeds structured_pool_size")
-        return self
-
-
-class ProvenanceRgcnTrainerSettings(ProvenanceRgcnTrainingConfig):
-    device: Device
-
-
-class ProvenanceRgcnTrainSettings(ClosedModel):
-    model: ProvenanceRgcnModelSettings
-    trainer: ProvenanceRgcnTrainerSettings
-
-
-class ProvenanceRgcnStageConfig(ClosedModel):
-    method: Literal["execution_provenance_rgcn_retriever"]
-    variant: ProvenanceRgcnVariant = "full_rgcn"
-    encoder: DenseEncoderConfig
-    train: ProvenanceRgcnTrainSettings
-
-
-class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
-    pairs: ProvenancePairSamplingConfig
-
-    def effective(self) -> ExecutionProvenanceRgcnMethodConfig:
-        if self.variant in {"full_rgcn", "wo_edge_rerank"}:
-            return self
-        if self.variant == "wo_hard_negatives":
-            return self.model_copy(
-                update={
-                    "pairs": self.pairs.model_copy(
-                        update={
-                            "hard_bm25_per_positive": 0,
-                            "hard_dense_per_positive": 0,
-                            "hard_graph_neighbor_per_positive": 0,
-                            "hard_provenance_successor_per_positive": 0,
-                            "hard_provenance_predecessor_per_positive": 0,
-                        }
-                    )
-                }
-            )
-        model_updates: dict[str, object] = {"ablation": self.variant}
-        if self.variant == "wo_graph":
-            model_updates["num_layers"] = 0
-        return self.model_copy(
-            update={
-                "train": self.train.model_copy(
-                    update={"model": self.train.model.model_copy(update=model_updates)}
-                )
-            }
-        )
-
-    def train_stage(self) -> ProvenanceRgcnStageConfig:
-        effective = self.effective()
-        train_variant: ProvenanceRgcnVariant = (
-            "full_rgcn" if self.variant == "wo_edge_rerank" else effective.variant
-        )
-        return ProvenanceRgcnStageConfig(
-            method=effective.method,
-            variant=train_variant,
-            encoder=effective.encoder,
-            train=effective.train,
-        )
-
 
 class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
     pass
@@ -456,11 +343,9 @@ MethodConfig: TypeAlias = Annotated[
         Bm25MethodConfig,
         DenseMethodConfig,
         GraphRAGMethodConfig,
-        ExecutionProvenanceMethodConfig,
         RgcnMethodConfig,
         DenseFinetuneMethodConfig,
         DenseFtRgcnMethodConfig,
-        ExecutionProvenanceRgcnMethodConfig,
     ],
     Field(discriminator="method"),
 ]
@@ -471,7 +356,6 @@ class TrainableRankingConfig(ClosedModel):
         "dense_ft",
         "dense_rgcn_graph_retriever",
         "dense_ft_rgcn_graph_retriever",
-        "execution_provenance_rgcn_retriever",
     ]
     variant: str | None = None
 
@@ -481,7 +365,6 @@ RankingMethodConfig: TypeAlias = Annotated[
         Bm25MethodConfig,
         DenseMethodConfig,
         GraphRAGMethodConfig,
-        ExecutionProvenanceMethodConfig,
         TrainableRankingConfig,
     ],
     Field(discriminator="method"),
@@ -495,7 +378,6 @@ def ranking_config(method: MethodConfig) -> RankingMethodConfig:
             Bm25MethodConfig,
             DenseMethodConfig,
             GraphRAGMethodConfig,
-            ExecutionProvenanceMethodConfig,
         ),
     ):
         return method
@@ -506,7 +388,7 @@ def ranking_config(method: MethodConfig) -> RankingMethodConfig:
 
 
 class PairBuildConfig(ClosedModel):
-    sampling: PairSamplingConfig | ProvenancePairSamplingConfig
+    sampling: PairSamplingConfig
     encoder: DenseEncoderConfig
     device: Device
 
@@ -709,11 +591,7 @@ def _check_dataset_method_compatibility(
     from graph_memory.registry import Registry
     from graph_memory.registry.retrieval import RetrievalTaskFamily
 
-    family = (
-        RetrievalTaskFamily.EXECUTION_PROVENANCE
-        if dataset == "isetrace"
-        else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
-    )
+    family = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     method_id = RetrievalMethodId(method.method)
     supported = Registry.methods.get(method_id).supported_families
     if family not in supported:
@@ -747,8 +625,6 @@ __all__ = [
     "Device",
     "EncodingConfig",
     "EvaluationConfig",
-    "ExecutionProvenanceMethodConfig",
-    "ExecutionProvenanceRgcnMethodConfig",
     "ExperimentConfig",
     "FixedCountPolicy",
     "GraphBuildConfig",
@@ -763,11 +639,6 @@ __all__ = [
     "PositiveInt",
     "ProfileConfig",
     "PrepareSplitConfig",
-    "ProvenanceRgcnModelSettings",
-    "ProvenancePairSamplingConfig",
-    "ProvenanceRgcnTrainerSettings",
-    "ProvenanceRgcnTrainSettings",
-    "ProvenanceRgcnStageConfig",
     "RankingMethodConfig",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",

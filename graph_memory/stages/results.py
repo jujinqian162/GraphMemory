@@ -43,7 +43,7 @@ class TrainingPairsResult(_StageResult):
 
 class FrozenEmbeddingsResult(_StageResult):
     stage: Literal["encode"] = "encode"
-    family: Literal["evidence", "provenance"]
+    family: Literal["evidence"]
     artifact: FrozenEmbeddingsArtifactRef
     embedding_dim: int = Field(gt=0)
     row_count: int = Field(gt=0)
