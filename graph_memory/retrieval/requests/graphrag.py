@@ -1,158 +1,121 @@
 from __future__ import annotations
 
-import math
-from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Literal
 
-from graph_memory.contracts.common import TaskId
+from pydantic import Field, StrictBool, model_validator
+
+from graph_memory.contracts.model import (
+    DomainModel,
+    FiniteFloat,
+    NonEmptyStr,
+    PositiveInt,
+)
 from graph_memory.retrieval.requests.text import TextCandidate
 
 EntityMentionType = Literal["TITLE_ENTITY", "MENTIONS"]
 
 
-@dataclass(frozen=True)
-class GraphRAGEntityMention:
-    candidate_id: str
-    entity_id: str
+class GraphRAGEntityMention(DomainModel):
+    candidate_id: NonEmptyStr
+    entity_id: NonEmptyStr
     mention_type: EntityMentionType
-    normalized_surface: str
-    source_prior: float
-    alias_confidence: float
-    entity_document_frequency: int
-    normalized_idf: float
-    mention_confidence: float
-
-    def __post_init__(self) -> None:
-        for name in ("candidate_id", "entity_id", "normalized_surface"):
-            if not getattr(self, name).strip():
-                raise ValueError(f"GraphRAG mention {name} must be non-empty.")
-        if self.mention_type not in {"TITLE_ENTITY", "MENTIONS"}:
-            raise ValueError("GraphRAG mention_type is unsupported.")
-        if self.entity_document_frequency <= 0:
-            raise ValueError("GraphRAG entity document frequency must be positive.")
-        for name in (
-            "source_prior",
-            "alias_confidence",
-            "normalized_idf",
-            "mention_confidence",
-        ):
-            value = getattr(self, name)
-            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
-                raise ValueError(f"GraphRAG mention {name} must be in [0, 1].")
+    normalized_surface: NonEmptyStr
+    source_prior: FiniteFloat = Field(ge=0.0, le=1.0)
+    alias_confidence: FiniteFloat = Field(ge=0.0, le=1.0)
+    entity_document_frequency: PositiveInt
+    normalized_idf: FiniteFloat = Field(ge=0.0, le=1.0)
+    mention_confidence: FiniteFloat = Field(ge=0.0, le=1.0)
 
 
-@dataclass(frozen=True)
-class GraphRAGTitleEntityGroup:
-    entity_id: str
-    normalized_title_entity: str
-    candidate_ids: tuple[str, ...]
-    group_size: int
-    entity_document_frequency: int
-    document_frequency_ratio: float
+class GraphRAGTitleEntityGroup(DomainModel):
+    entity_id: NonEmptyStr
+    normalized_title_entity: NonEmptyStr
+    candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    group_size: PositiveInt
+    entity_document_frequency: PositiveInt
+    document_frequency_ratio: FiniteFloat = Field(gt=0.0, le=1.0)
 
-    def __post_init__(self) -> None:
-        if not self.entity_id.strip() or not self.normalized_title_entity.strip():
-            raise ValueError("GraphRAG title group entity fields must be non-empty.")
-        if not self.candidate_ids or len(self.candidate_ids) != len(
-            set(self.candidate_ids)
-        ):
-            raise ValueError(
-                "GraphRAG title group candidates must be non-empty/unique."
-            )
+    @model_validator(mode="after")
+    def _validate_group(self) -> "GraphRAGTitleEntityGroup":
+        if len(self.candidate_ids) != len(set(self.candidate_ids)):
+            raise ValueError("title group candidate IDs must be unique")
         if self.group_size != len(self.candidate_ids):
-            raise ValueError("GraphRAG title group size must match candidate IDs.")
+            raise ValueError("title group size must match candidate IDs")
         if self.entity_document_frequency < self.group_size:
-            raise ValueError("GraphRAG title group document frequency is inconsistent.")
-        if not 0.0 < self.document_frequency_ratio <= 1.0:
-            raise ValueError("GraphRAG title group DF ratio must be in (0, 1].")
+            raise ValueError("title group document frequency is inconsistent")
+        return self
 
 
-@dataclass(frozen=True)
-class GraphRAGResolverEvidence:
-    anchor_candidate_id: str
-    entity_id: str
-    candidate_ids: tuple[str, ...]
-    selected_candidate_id: str | None
-    top1_score: float | None
-    top2_score: float | None
-    score_margin: float | None
-    accepted: bool
-    rejection_reason: str | None = None
+class GraphRAGResolverEvidence(DomainModel):
+    anchor_candidate_id: NonEmptyStr
+    entity_id: NonEmptyStr
+    candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    selected_candidate_id: NonEmptyStr | None
+    top1_score: FiniteFloat | None
+    top2_score: FiniteFloat | None
+    score_margin: FiniteFloat | None
+    accepted: StrictBool
+    rejection_reason: NonEmptyStr | None = None
 
-    def __post_init__(self) -> None:
-        if not self.anchor_candidate_id.strip() or not self.entity_id.strip():
-            raise ValueError("GraphRAG resolver evidence IDs must be non-empty.")
-        if not self.candidate_ids or len(self.candidate_ids) != len(
-            set(self.candidate_ids)
-        ):
-            raise ValueError(
-                "GraphRAG resolver candidate IDs must be non-empty/unique."
-            )
+    @model_validator(mode="after")
+    def _validate_resolution(self) -> "GraphRAGResolverEvidence":
+        if len(self.candidate_ids) != len(set(self.candidate_ids)):
+            raise ValueError("resolver candidate IDs must be unique")
         if self.accepted != (self.selected_candidate_id is not None):
-            raise ValueError("GraphRAG resolver accepted state must match selection.")
+            raise ValueError("resolver accepted state must match selection")
         if self.accepted and self.selected_candidate_id not in self.candidate_ids:
-            raise ValueError(
-                "GraphRAG resolver selected candidate must belong to group."
-            )
-        if not self.accepted and not self.rejection_reason:
-            raise ValueError("Rejected GraphRAG resolution requires a reason.")
+            raise ValueError("selected candidate must belong to resolver group")
+        if not self.accepted and self.rejection_reason is None:
+            raise ValueError("rejected resolution requires a reason")
+        if self.accepted and self.rejection_reason is not None:
+            raise ValueError("accepted resolution cannot have a rejection reason")
+        return self
 
 
-@dataclass(frozen=True)
-class GraphRAGCandidateBridge:
-    source_candidate_id: str
-    target_candidate_id: str
-    bridge_entity_id: str
-    confidence: float
-    resolver_score: float
-    resolver_margin: float | None
-    construction_reason: str
+class GraphRAGCandidateBridge(DomainModel):
+    source_candidate_id: NonEmptyStr
+    target_candidate_id: NonEmptyStr
+    bridge_entity_id: NonEmptyStr
+    confidence: FiniteFloat = Field(ge=0.0, le=1.0)
+    resolver_score: FiniteFloat
+    resolver_margin: FiniteFloat | None
+    construction_reason: NonEmptyStr
     direction: Literal["BRIDGE_TO"] = "BRIDGE_TO"
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _reject_self_loop(self) -> "GraphRAGCandidateBridge":
         if self.source_candidate_id == self.target_candidate_id:
-            raise ValueError("GraphRAG candidate bridge cannot be a self loop.")
-        for name in (
-            "source_candidate_id",
-            "target_candidate_id",
-            "bridge_entity_id",
-            "construction_reason",
-        ):
-            if not getattr(self, name).strip():
-                raise ValueError(f"GraphRAG bridge {name} must be non-empty.")
-        if not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0:
-            raise ValueError("GraphRAG bridge confidence must be in [0, 1].")
-        if not math.isfinite(self.resolver_score):
-            raise ValueError("GraphRAG resolver score must be finite.")
-        if self.resolver_margin is not None and not math.isfinite(self.resolver_margin):
-            raise ValueError("GraphRAG resolver margin must be finite.")
+            raise ValueError("candidate bridge cannot be a self loop")
+        return self
 
 
-@dataclass(frozen=True)
-class GraphRAGKnowledgeGraph:
+class GraphRAGKnowledgeGraph(DomainModel):
     mentions: tuple[GraphRAGEntityMention, ...]
     title_groups: tuple[GraphRAGTitleEntityGroup, ...]
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _unique_groups(self) -> "GraphRAGKnowledgeGraph":
         group_entities = [group.entity_id for group in self.title_groups]
         if len(group_entities) != len(set(group_entities)):
-            raise ValueError("GraphRAG title group entity IDs must be unique.")
+            raise ValueError("title group entity IDs must be unique")
+        return self
 
 
-@dataclass(frozen=True)
-class GraphRAGRequest:
-    task_id: TaskId
+class GraphRAGRequest(DomainModel):
+    task_id: NonEmptyStr
     query_text: str
-    candidates: Sequence[TextCandidate]
+    candidates: tuple[TextCandidate, ...]
     knowledge_graph: GraphRAGKnowledgeGraph
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _validate_references(self) -> "GraphRAGRequest":
         candidate_ids = [candidate.item_id for candidate in self.candidates]
         if len(candidate_ids) != len(set(candidate_ids)):
-            raise ValueError("GraphRAG candidate IDs must be unique.")
+            raise ValueError("GraphRAG candidate IDs must be unique")
         valid = set(candidate_ids)
-        referenced = {mention.candidate_id for mention in self.knowledge_graph.mentions}
+        referenced = {
+            mention.candidate_id for mention in self.knowledge_graph.mentions
+        }
         referenced.update(
             candidate_id
             for group in self.knowledge_graph.title_groups
@@ -161,8 +124,9 @@ class GraphRAGRequest:
         missing = sorted(referenced - valid)
         if missing:
             raise ValueError(
-                f"GraphRAG knowledge graph references missing candidates: {missing}"
+                f"knowledge graph references missing candidates: {missing}"
             )
+        return self
 
 
 __all__ = [

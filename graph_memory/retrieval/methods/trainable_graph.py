@@ -11,6 +11,7 @@ from graph_memory.models.graph_retriever.inference import (
     GraphRetrieverInference,
 )
 from graph_memory.retrieval.contracts import RetrievalMethodResult
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
     RankingMethodRequest,
@@ -35,8 +36,10 @@ class TrainableGraphRetrievalMethod:
         *,
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
-        device: str | torch.device = "cpu",
-        expected_method: str = "dense_rgcn_graph_retriever",
+        device: str | torch.device,
+        expected_method: RetrievalMethodId = (
+            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
+        ),
     ) -> "TrainableGraphRetrievalMethod":
         inference = CheckpointGraphRetrieverLoader().load(
             checkpoint_path,

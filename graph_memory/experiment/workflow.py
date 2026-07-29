@@ -13,6 +13,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
+    DenseEncoderConfig,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
@@ -24,14 +25,17 @@ from graph_memory.experiment.config import (
     ResolvedExperimentConfig,
     RgcnMethodConfig,
     SplitName,
+    TwoWikiProvenanceTransformConfig,
     ranking_config,
 )
 from graph_memory.experiment.output import project_run_output
+from graph_memory.experiment.inputs import ensure_inputs
 from graph_memory.experiment.results import FinalExperimentResult
 from graph_memory.experiment.tasks import (
     benchmark_retrieval_task,
     build_evidence_graphs_task,
     build_training_pairs_task,
+    encode_frozen_rgcn_embeddings_task,
     evaluate_rankings_task,
     generate_rankings_task,
     prefect_storage_settings,
@@ -40,8 +44,10 @@ from graph_memory.experiment.tasks import (
     train_dense_ft_task,
     train_evidence_rgcn_task,
     train_provenance_rgcn_task,
+    transform_twowiki_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
+from graph_memory.retrieval.methods.epgm import EpgmRetrieverConfig
 from graph_memory.stages.results import (
     BenchmarkResult,
     ModelResult,
@@ -49,6 +55,7 @@ from graph_memory.stages.results import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_SPLIT_NAMES: tuple[SplitName, ...] = ("train", "dev", "test")
 
 
 @flow(name="graph-memory-experiment", persist_result=False)
@@ -65,7 +72,10 @@ def run_experiment(
     ranking_encoder = None
     assets: list[ArtifactRef] = []
 
+    ensure_inputs(config)
+
     with prefect_storage_settings(refresh_cache=config.cache.refresh):
+        split_sources = _resolve_split_sources(config)
         if isinstance(
             method,
             (
@@ -76,7 +86,7 @@ def run_experiment(
             ),
         ):
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             assets.append(test.artifact)
@@ -85,15 +95,15 @@ def run_experiment(
 
         elif isinstance(method, DenseFinetuneMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             assets.extend((train.artifact, dev.artifact, test.artifact))
@@ -139,15 +149,15 @@ def run_experiment(
 
         elif isinstance(method, RgcnMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             train_graphs = build_evidence_graphs_task(
@@ -181,6 +191,19 @@ def run_experiment(
                 ),
                 encoder_source=encoder_source,
             )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=train_graphs.artifact,
+                dev_graphs=dev_graphs.artifact,
+                seed_model=None,
+                dataset=config.dataset.name,
+                encoder=effective.encoder,
+                encoder_source=encoder_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
             model = train_evidence_rgcn_task(
                 train_prepared=train.artifact,
                 train_graphs=train_graphs.artifact,
@@ -191,6 +214,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method.train_stage(),
                 encoder_source=encoder_source,
+                frozen_embeddings=frozen_embeddings.artifact,
             )
             ranking_graphs = test_graphs.artifact
             assets.extend(
@@ -202,21 +226,22 @@ def run_experiment(
                     dev_graphs.artifact,
                     test_graphs.artifact,
                     pairs.artifact,
+                    frozen_embeddings.artifact,
                     model.artifact,
                 )
             )
 
         elif isinstance(method, DenseFtRgcnMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             train_graphs = build_evidence_graphs_task(
@@ -272,6 +297,19 @@ def run_experiment(
                 ),
                 encoder_source=rgcn_source,
             )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=train_graphs.artifact,
+                dev_graphs=dev_graphs.artifact,
+                seed_model=seed_model.artifact,
+                dataset=config.dataset.name,
+                encoder=rgcn.encoder,
+                encoder_source=rgcn_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
             model = train_evidence_rgcn_task(
                 train_prepared=train.artifact,
                 train_graphs=train_graphs.artifact,
@@ -282,6 +320,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method.rgcn_train_stage(),
                 encoder_source=rgcn_source,
+                frozen_embeddings=frozen_embeddings.artifact,
             )
             dependency_models = (seed_model,)
             ranking_graphs = test_graphs.artifact
@@ -296,21 +335,22 @@ def run_experiment(
                     seed_pairs.artifact,
                     seed_model.artifact,
                     rgcn_pairs.artifact,
+                    frozen_embeddings.artifact,
                     model.artifact,
                 )
             )
 
         elif isinstance(method, ExecutionProvenanceRgcnMethodConfig):
             train = prepare_split_task(
-                source=_split_source(config, "train"),
+                source=split_sources["train"],
                 config=_prepare_config(config, "train"),
             )
             dev = prepare_split_task(
-                source=_split_source(config, "dev"),
+                source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
             )
             test = prepare_split_task(
-                source=_split_source(config, "test"),
+                source=split_sources["test"],
                 config=_prepare_config(config, "test"),
             )
             effective = method.effective()
@@ -326,6 +366,19 @@ def run_experiment(
                 ),
                 encoder_source=encoder_source,
             )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=None,
+                dev_graphs=None,
+                seed_model=None,
+                dataset=config.dataset.name,
+                encoder=effective.encoder,
+                encoder_source=encoder_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
             model = train_provenance_rgcn_task(
                 train_prepared=train.artifact,
                 train_pairs=pairs.artifact,
@@ -333,6 +386,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method.train_stage(),
                 encoder_source=encoder_source,
+                frozen_embeddings=frozen_embeddings.artifact,
             )
             assets.extend(
                 (
@@ -340,6 +394,7 @@ def run_experiment(
                     dev.artifact,
                     test.artifact,
                     pairs.artifact,
+                    frozen_embeddings.artifact,
                     model.artifact,
                 )
             )
@@ -357,6 +412,14 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
+            implementation_version=(
+                "ranking-v5-epgm-schema-roles-"
+                + EpgmRetrieverConfig.for_variant(
+                    rank_config.variant
+                ).cache_fingerprint()
+                if isinstance(rank_config, ExecutionProvenanceMethodConfig)
+                else "ranking-v2-device-aware"
+            ),
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking.artifact,
@@ -409,7 +472,15 @@ def run_experiment(
     return completed
 
 
-def _split_source(
+def _resolve_split_sources(
+    config: ResolvedExperimentConfig,
+) -> dict[SplitName, FileSourceRef]:
+    if config.dataset.name == "twowiki_provenance":
+        return _transform_split_sources(config)
+    return {split: _direct_split_source(config, split) for split in _SPLIT_NAMES}
+
+
+def _direct_split_source(
     config: ResolvedExperimentConfig,
     split: SplitName,
 ) -> FileSourceRef:
@@ -422,17 +493,57 @@ def _split_source(
     return source
 
 
+def _transform_split_sources(
+    config: ResolvedExperimentConfig,
+) -> dict[SplitName, FileSourceRef]:
+    transform = config.dataset.transform
+    if transform is None:
+        raise ValueError(
+            "twowiki_provenance requires a resolved transform configuration"
+        )
+    train_source = _direct_split_source(config, "train")
+    dev_source = _direct_split_source(config, "dev")
+    encoder_source = _transform_encoder_source(transform)
+    result = transform_twowiki_task(
+        train_source=train_source,
+        dev_source=dev_source,
+        config=transform,
+        encoder_source=encoder_source,
+        device=config.device,
+        split_seed=config.split_seed,
+    )
+    return {"train": result.train, "dev": result.dev, "test": result.test}
+
+
+def _transform_encoder_source(config: TwoWikiProvenanceTransformConfig):
+    if config.edge_scorer not in {"dense", "hybrid"}:
+        return None
+    return resolve_encoder_source(
+        DenseEncoderConfig(
+            model_name=config.dense_model,
+            query_prefix=config.dense_query_prefix,
+            passage_prefix=config.dense_passage_prefix,
+            batch_size=config.dense_batch_size,
+        )
+    )
+
+
 def _prepare_config(
     config: ResolvedExperimentConfig,
     split: SplitName,
 ) -> PrepareSplitConfig:
     split_config = config.dataset.splits[split]
+    # The test split must stay identical across training seeds and methods, so
+    # it is sampled with a dedicated fixed split_seed decoupled from config.seed.
+    # Train/dev keep using config.seed so trainable methods still receive
+    # seed-dependent training and validation data across seeds.
+    sampling_seed = config.split_seed if split == "test" else config.seed
     return PrepareSplitConfig(
         dataset=config.dataset.name,
         split=split,
         count=split_config.count,
         offset=split_config.offset,
-        seed=config.seed,
+        seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
     )
 

@@ -1,24 +1,38 @@
-# Stateless graph retrieval methods
+# GraphRAG and EPGM
 
-This operation surface covers only graphrag and execution_provenance_retriever. It does not regenerate or migrate any dataset.
+Covers non-trained graph methods only. No dataset migration.
 
 ## GraphRAG
 
-The method configuration owns seed_top_s, max_entity_document_frequency_ratio, sentence_resolver, min_sentence_score_margin, min_bridge_confidence, max_partners_per_anchor, and preserve_dense_top_n.
+Dense ranks all candidates first. The method derives typed title/body entity evidence with the same frozen encoder, then applies local stable insertion of bridge partners. If nothing moves, the ranking is exactly Dense. Entity structure is method-private and never an EvidenceGraph.
 
-GraphRAG ranks all candidates with Dense first. It then derives typed title/body entity evidence, resolves each title group to at most one sentence with the same frozen encoder instance, and applies only local stable insertion. If no bridge moves a partner, the result is exactly Dense.
+## EPGM (`execution_provenance_retriever`)
 
-## Execution provenance
+One public method id; reported default `ppr_steiner`.
 
-The method configuration owns seed_top_s, beam_width, max_hops, max_paths_per_seed, max_path_expansions, min_path_confidence, preserve_dense_top_n, and hop_penalty.
+| Variant | Role |
+|---|---|
+| `ppr_steiner` | Default: query-conditioned typed PPR + budgeted connected subgraph |
+| `typed_beam` | Historical diagnostic |
+| `dependency_path` | Historical diagnostic |
 
-The method consumes the existing ExecutionProvenanceRankingRequest graph. Binding, path completeness, and lifecycle are validity gates. Existing semantic edge weights are consumed once; the method does not rebuild dataset graphs. If no path moves a partner, the result is exactly Dense.
+Default sketch:
 
-## Compatibility boundary
+1. Dense ranks candidates.
+2. Query is compared to schema-owned natural-language relation descriptions.
+3. Stored edges become directed arcs (relation affinity, type prior, direction, degree, recorded weight); strengths normalize per source.
+4. PPR diffuses a Dense-derived teleport over candidates and connectors.
+5. Budgeted connected selection keeps ≤ `top_k` candidates with positive marginal prize.
+6. Collapsed logical edges for evaluation are `feeds`; native relations stay in `native_trace`.
 
-- Existing twowiki_provenance schema, converter, fixtures, prepared artifacts, and caches remain unchanged.
-- Trainable R-GCN methods and checkpoints remain unchanged.
-- Shared evaluation metrics and artifact roles remain unchanged.
-- New native traces are method-local: typed_local_bridge and execution_provenance_local.
+No positive multi-candidate connection ⇒ ranking equals Dense.
 
-Use the normal experiment command with the existing method YAML. No data preparation command specific to this change is required.
+```powershell
+uv run python experiment/run.py `
+  name=epgm_default dataset=twowiki_provenance profile=provenance_full device=cuda:0 `
+  method=execution_provenance_retriever
+
+uv run python scripts/run_epgm_provenance.py --epgm-variant ppr_steiner --device cuda:0 --output-dir runs/epgm_rq3
+```
+
+Variant + frozen behavior fingerprint enter Prefect ranking identity and `graph_memory.variant` tags.

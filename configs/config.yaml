@@ -6,10 +6,17 @@ defaults:
 
 name: ???
 seed: 13
+# Fixed test-split seed, decoupled from the training `seed`. The test split is
+# sampled with this value so it stays identical across training seeds and
+# methods (shared fixed test set). Train/dev keep using `seed`.
+split_seed: 13
 device: cuda
 top_k: 10
 cache:
   refresh: false
+encoding:
+  enable_gpupool: false
+  chunk_size: 100000
 benchmark:
   enabled: false
   warmup: 1

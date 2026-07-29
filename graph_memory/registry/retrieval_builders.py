@@ -4,7 +4,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from graph_memory.contracts.graphs import EvidenceGraph
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
@@ -34,8 +33,8 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceRetriever,
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetriever,
 )
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
@@ -53,13 +52,11 @@ from graph_memory.retrieval.requests import (
     TextRankingRequest,
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
-from graph_memory.validation import validate_graphs, validate_task_id_alignment
 
 
 def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegistry:
     return RetrievalRegistry(
-        seed_build=_build_seed_retriever,
-        method_registry=method_registry,
+        validate_request=method_registry.validate_request,
         builders={
             Bm25RetrievalSettings: RetrievalBuilderSpec(
                 Bm25RetrievalSettings,
@@ -117,21 +114,31 @@ def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegist
 def seed_retrieval_settings_for_method(
     *,
     method: RetrievalMethodId,
+    device: str,
     dense_config: DenseConfigLike | None = None,
 ) -> SeedRetrievalSettings:
     if method is RetrievalMethodId.BM25:
-        return SeedRetrievalSettings(method=RetrievalMethodId.BM25)
+        return SeedRetrievalSettings(
+            method=RetrievalMethodId.BM25,
+            device=device,
+        )
     if method is RetrievalMethodId.DENSE:
         return SeedRetrievalSettings(
             method=RetrievalMethodId.DENSE,
             encoder=_dense_encoder_settings(dense_config),
+            device=device,
         )
     raise ValueError(f"Unsupported seed retrieval method: {method.value}")
 
 
 def _dense_encoder_settings(config: DenseConfigLike | None) -> DenseEncoderSettings:
     if config is None:
-        config = DenseConfig()
+        return DenseEncoderSettings(
+            model_name="intfloat/e5-base-v2",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
+            batch_size=64,
+        )
     return DenseEncoderSettings(
         model_name=config.model_name,
         query_prefix=config.query_prefix,
@@ -144,9 +151,8 @@ def _build_bm25(
     settings: Bm25RetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, FlatRetrievalBuildPayload, method=settings.method.value
-    )
+    # Payload type already checked by RetrievalRegistry.build.
+    build_payload = cast(FlatRetrievalBuildPayload, payload)
     return _built(
         ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever()),
         method=settings.method,
@@ -158,9 +164,7 @@ def _build_dense(
     settings: DenseRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, FlatRetrievalBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(FlatRetrievalBuildPayload, payload)
     return _built(
         ScorePipelineMethod(
             name=settings.method.value,
@@ -184,9 +188,7 @@ def _build_dense_ft(
     settings: DenseFinetunedRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, FlatRetrievalBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(FlatRetrievalBuildPayload, payload)
     metadata = load_dense_ft_model_metadata(settings.checkpoint)
     encoder = build_payload.dense_encoder
     if encoder is None:
@@ -208,12 +210,14 @@ def _build_dense_ft(
         name=settings.method.value,
         retriever=DenseTaskRetriever(
             config=DenseConfig(
+                device=settings.device,
                 model_name=str(settings.checkpoint),
                 query_prefix=metadata.query_prefix,
                 passage_prefix=metadata.passage_prefix,
                 batch_size=metadata.batch_size,
             ),
             encoder=encoder,
+            device=settings.device,
         ),
     )
     return _built(
@@ -235,9 +239,7 @@ def _build_graphrag(
     settings: GraphRAGRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload, GraphRAGBuildPayload, method=settings.method.value
-    )
+    build_payload = cast(GraphRAGBuildPayload, payload)
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
@@ -275,14 +277,8 @@ def _build_evidence_rgcn(
         TrainableGraphRetrievalMethod,
     )
 
-    build_payload = _require_payload(
-        payload, EvidenceRgcnBuildPayload, method=settings.method.value
-    )
-    graph_index = _validated_graph_index(
-        settings.method.value,
-        build_payload.text_requests,
-        build_payload.evidence_graphs,
-    )
+    build_payload = cast(EvidenceRgcnBuildPayload, payload)
+    graph_index = GraphIndex.from_graphs(build_payload.evidence_graphs)
     text_embedding_provider, seed_signal_provider, checkpoint = (
         _evidence_rgcn_providers(settings, build_payload)
     )
@@ -291,7 +287,7 @@ def _build_evidence_rgcn(
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,
         device=settings.device,
-        expected_method=settings.method.value,
+        expected_method=settings.method,
     )
     return _built(
         method,
@@ -316,11 +312,7 @@ def _build_execution_provenance(
     settings: ExecutionProvenanceRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = _require_payload(
-        payload,
-        ExecutionProvenanceBuildPayload,
-        method=settings.method.value,
-    )
+    build_payload = cast(ExecutionProvenanceBuildPayload, payload)
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
@@ -336,7 +328,7 @@ def _build_execution_provenance(
         for request in build_payload.provenance_requests
     ]
     return _built(
-        ExecutionProvenanceRetriever(
+        EpgmRetriever(
             dense_ranker=dense_ranker,
             config=settings.config,
         ),
@@ -357,16 +349,21 @@ def _build_provenance_rgcn(
         load_provenance_rgcn_checkpoint,
     )
 
-    build_payload = _require_payload(
-        payload,
-        ProvenanceRgcnBuildPayload,
-        method=settings.method.value,
-    )
+    build_payload = cast(ProvenanceRgcnBuildPayload, payload)
     checkpoint = load_provenance_rgcn_checkpoint(
         settings.checkpoint,
-        expected_method=settings.method.value,
-        map_location="cpu",
+        expected_method=settings.method,
+        map_location=settings.device,
     )
+    expected_checkpoint_variant = (
+        "full_rgcn" if settings.variant == "wo_edge_rerank" else settings.variant
+    )
+    if checkpoint.payload.get("effective_variant") != expected_checkpoint_variant:
+        raise ValueError(
+            "Provenance R-GCN checkpoint variant mismatch: "
+            f"expected={expected_checkpoint_variant!r} "
+            f"observed={checkpoint.payload.get('effective_variant')!r}."
+        )
     model = ExecutionProvenanceRGCN(checkpoint.model_config)
     model.load_state_dict(checkpoint.payload["model_state_dict"])
     encoder = build_payload.dense_encoder or _resolve_encoder(
@@ -396,6 +393,7 @@ def _build_provenance_rgcn(
             encoder=encoder,
             config=checkpoint.model_config,
             device=settings.device,
+            enable_edge_rerank=settings.variant != "wo_edge_rerank",
         ),
         method=settings.method,
         model=settings.checkpoint,
@@ -422,9 +420,10 @@ def _evidence_rgcn_providers(
 
     checkpoint = load_rgcn_checkpoint(
         settings.checkpoint,
-        expected_method=settings.method.value,
-        map_location="cpu",
+        expected_method=settings.method,
+        map_location=settings.device,
     )
+
     if (
         payload.text_embedding_provider is not None
         and payload.seed_signal_provider is not None
@@ -467,6 +466,7 @@ def _evidence_rgcn_providers(
                 query_prefix=checkpoint.model_config.query_prefix,
                 passage_prefix=checkpoint.model_config.passage_prefix,
                 encoder=cast(SentenceEncoder | None, encoder),
+                device=settings.device,
             )
         )
     return text_embedding_provider, seed_signal_provider, checkpoint
@@ -476,7 +476,7 @@ def _resolve_encoder(
     settings: DenseEncoderSettings,
     encoder: SentenceEncoder | None,
     *,
-    device: str | None = None,
+    device: str,
 ) -> SentenceEncoder:
     if encoder is not None:
         return encoder
@@ -498,7 +498,7 @@ def _build_dense_ranker(
     settings: DenseEncoderSettings,
     encoder: SentenceEncoder | None,
     *,
-    device: str | None = None,
+    device: str,
 ) -> DenseTaskRetriever:
     return DenseTaskRetriever(
         config=DenseConfig(
@@ -509,6 +509,7 @@ def _build_dense_ranker(
             device=device,
         ),
         encoder=encoder or _resolve_encoder(settings, None, device=device),
+        device=device,
     )
 
 
@@ -544,6 +545,8 @@ def _build_seed_retriever(
         return BM25TaskRetriever()
     if settings.encoder is None:
         raise ValueError("Dense seed retrieval requires encoder settings.")
+    if settings.device is None:
+        raise ValueError("Dense seed retrieval requires an explicit device.")
     return DenseTaskRetriever(
         config=DenseConfig(
             model_name=settings.encoder.model_name,
@@ -555,25 +558,6 @@ def _build_seed_retriever(
         encoder=build_payload.dense_encoder,
         device=settings.device,
     )
-
-
-def _validated_graph_index(
-    method: str,
-    ranking_requests: list[TextRankingRequest],
-    graphs: list[EvidenceGraph],
-) -> GraphIndex:
-    if not graphs:
-        raise ValueError(
-            f"Evidence R-GCN method={method} requires EvidenceGraph artifacts."
-        )
-    requests_by_task_id = {request.task_id: request for request in ranking_requests}
-    validate_graphs(graphs, ranking_requests)
-    validate_task_id_alignment(
-        "retrieval evidence graph inputs",
-        set(requests_by_task_id),
-        {graph["task_id"] for graph in graphs},
-    )
-    return GraphIndex.from_graphs(graphs)
 
 
 def _text_execution_tasks(

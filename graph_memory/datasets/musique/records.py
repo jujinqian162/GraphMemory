@@ -1,37 +1,115 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypedDict
 
-from graph_memory.contracts.common import JsonValue
+from pydantic import Field, JsonValue, model_validator
 
-
-class MuSiQueCandidateParagraph(TypedDict):
-    paragraph_id: str
-    title: str
-    paragraph_index: int
-    position: int
-    text: str
+from graph_memory.contracts.model import (
+    DomainModel,
+    NonEmptyStr,
+    NonNegativeInt,
+    reject_label_fields,
+)
 
 
-class MuSiQueRankingRecord(TypedDict):
-    task_id: str
-    question: str
-    candidate_paragraphs: list[MuSiQueCandidateParagraph]
+class MuSiQueCandidateParagraph(DomainModel):
+    paragraph_id: NonEmptyStr
+    title: NonEmptyStr
+    paragraph_index: NonNegativeInt
+    position: NonNegativeInt
+    text: NonEmptyStr
+
+
+class MuSiQueRankingRecord(DomainModel):
+    task_id: NonEmptyStr
+    question: NonEmptyStr
+    candidate_paragraphs: tuple[MuSiQueCandidateParagraph, ...] = Field(min_length=1)
     metadata: dict[str, JsonValue]
+    debug: dict[str, JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def _validate_ranking(self) -> "MuSiQueRankingRecord":
+        if not self.task_id.startswith("musique_"):
+            raise ValueError("MuSiQue task_id must start with musique_")
+        candidate_ids: list[str] = []
+        for expected, candidate in enumerate(self.candidate_paragraphs):
+            candidate_ids.append(candidate.paragraph_id)
+            if candidate.position != expected:
+                raise ValueError(
+                    f"paragraph_id={candidate.paragraph_id} position="
+                    f"{candidate.position} expected {expected}"
+                )
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("MuSiQue paragraph IDs must be unique")
+        reject_label_fields(
+            self.model_dump(mode="python", exclude_none=True),
+            path="MuSiQue ranking record",
+        )
+        return self
+
+    @property
+    def candidate_ids(self) -> frozenset[str]:
+        return frozenset(item.paragraph_id for item in self.candidate_paragraphs)
 
 
-class MuSiQueLabelRecord(TypedDict):
-    task_id: str
-    gold_answer: str
-    gold_answer_aliases: list[str]
-    gold_evidence_paragraph_ids: list[str]
-    gold_dependency_edges: list[list[str]]
+class MuSiQueLabelRecord(DomainModel):
+    task_id: NonEmptyStr
+    gold_answer: NonEmptyStr
+    gold_answer_aliases: tuple[str, ...]
+    gold_evidence_paragraph_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    gold_dependency_edges: tuple[tuple[NonEmptyStr, NonEmptyStr], ...]
     metadata: dict[str, JsonValue]
+    debug: dict[str, JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def _validate_label(self) -> "MuSiQueLabelRecord":
+        if len(self.gold_evidence_paragraph_ids) != len(
+            set(self.gold_evidence_paragraph_ids)
+        ):
+            raise ValueError("gold evidence paragraph IDs must be unique")
+        return self
 
 
-class CombinedMuSiQueRecord(MuSiQueRankingRecord, MuSiQueLabelRecord):
-    """Combined MuSiQue inspection artifact; retrieval code must not consume it."""
+class CombinedMuSiQueRecord(DomainModel):
+    task_id: NonEmptyStr
+    question: NonEmptyStr
+    candidate_paragraphs: tuple[MuSiQueCandidateParagraph, ...]
+    gold_answer: NonEmptyStr
+    gold_answer_aliases: tuple[str, ...]
+    gold_evidence_paragraph_ids: tuple[NonEmptyStr, ...]
+    gold_dependency_edges: tuple[tuple[NonEmptyStr, NonEmptyStr], ...]
+    metadata: dict[str, JsonValue]
+    debug: dict[str, JsonValue] | None = None
+
+
+class MuSiQuePreparedSplit(DomainModel):
+    rankings: tuple[MuSiQueRankingRecord, ...]
+    labels: tuple[MuSiQueLabelRecord, ...]
+
+    @model_validator(mode="after")
+    def _validate_alignment(self) -> "MuSiQuePreparedSplit":
+        ranking_by_id = {record.task_id: record for record in self.rankings}
+        label_by_id = {record.task_id: record for record in self.labels}
+        if len(ranking_by_id) != len(self.rankings):
+            raise ValueError("MuSiQue ranking task IDs must be unique")
+        if len(label_by_id) != len(self.labels):
+            raise ValueError("MuSiQue label task IDs must be unique")
+        if set(ranking_by_id) != set(label_by_id):
+            raise ValueError("MuSiQue ranking and label task IDs must align")
+        for task_id, label in label_by_id.items():
+            valid = ranking_by_id[task_id].candidate_ids
+            missing = set(label.gold_evidence_paragraph_ids) - valid
+            if missing:
+                raise ValueError(
+                    f"task_id={task_id} gold paragraphs do not exist: {sorted(missing)}"
+                )
+            for source, target in label.gold_dependency_edges:
+                if source not in valid or target not in valid:
+                    raise ValueError(
+                        f"task_id={task_id} gold dependency edge references "
+                        "a missing candidate"
+                    )
+        return self
 
 
 @dataclass(frozen=True)
@@ -71,3 +149,17 @@ class ConvertedMuSiQueExample:
 class MuSiQueConversionResult:
     ranking_records: list[MuSiQueRankingRecord]
     label_records: list[MuSiQueLabelRecord]
+
+
+__all__ = [
+    "CombinedMuSiQueRecord",
+    "ConvertedMuSiQueExample",
+    "MuSiQueCandidateParagraph",
+    "MuSiQueConversionResult",
+    "MuSiQueDecompositionStep",
+    "MuSiQueExample",
+    "MuSiQueLabelRecord",
+    "MuSiQueParagraph",
+    "MuSiQuePreparedSplit",
+    "MuSiQueRankingRecord",
+]

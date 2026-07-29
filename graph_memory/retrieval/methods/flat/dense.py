@@ -17,11 +17,11 @@ from graph_memory.retrieval.requests import DenseConfigLike, TextRankingRequest
 
 @dataclass(frozen=True)
 class DenseConfig:
+    device: str
     model_name: str = "intfloat/e5-base-v2"
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
     batch_size: int = 64
-    device: str | None = None
 
 
 class DenseTaskRetriever:
@@ -35,9 +35,11 @@ class DenseTaskRetriever:
         passage_prefix: str = "passage: ",
         config: DenseConfigLike | None = None,
         encoder: SentenceEncoder | None = None,
-        device: str | None = None,
+        *,
+        device: str,
     ) -> None:
         self.config = config or DenseConfig(
+            device=device,
             model_name=model_name,
             query_prefix=query_prefix,
             passage_prefix=passage_prefix,
@@ -56,7 +58,21 @@ class DenseTaskRetriever:
         )
 
     def rank(self, request: TextRankingRequest) -> list[RankedNode]:
-        return self.rank_many([request])[0]
+        return self.rank_with_query_vector(request)[0]
+
+    def rank_with_query_vector(
+        self, request: TextRankingRequest
+    ) -> tuple[list[RankedNode], np.ndarray]:
+        """Rank once and expose the normalized query vector to graph methods."""
+
+        encoding_request = DenseTaskEncodingRequest(
+            ranking_request=request,
+            node_ids=("q", *(candidate.item_id for candidate in request.candidates)),
+        )
+        result = self.encoding_service.encode_task(encoding_request)
+        return self._rank_from_embeddings(request, result.embeddings), result.embeddings[
+            0
+        ].copy()
 
     def rank_many(self, requests: list[TextRankingRequest]) -> list[list[RankedNode]]:
         encoding_requests = [
@@ -86,7 +102,7 @@ class DenseTaskRetriever:
         return sorted(ranked_nodes, key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id))
 
     @staticmethod
-    def _load_encoder(model_name: str, device: str | None) -> SentenceEncoder:
+    def _load_encoder(model_name: str, device: str) -> SentenceEncoder:
         try:
             return cast(
                 SentenceEncoder,

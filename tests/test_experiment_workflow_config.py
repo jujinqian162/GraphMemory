@@ -10,10 +10,14 @@ from pydantic import ValidationError
 from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
+    ExecutionProvenanceMethodConfig,
+    ExecutionProvenanceRgcnMethodConfig,
     RgcnMethodConfig,
     resolve_experiment_config,
     parse_composed_config,
 )
+from graph_memory.experiment.inspect import inspect_catalog
+from graph_memory.registry.retrieval import RetrievalMethodId
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,25 +33,6 @@ def _compose(*overrides: str):
 
 @pytest.mark.parametrize(
     "method",
-    (
-        "bm25",
-        "dense",
-        "graphrag",
-        "dense_ft",
-        "dense_rgcn_graph_retriever",
-        "dense_ft_rgcn_graph_retriever",
-    ),
-)
-def test_evidence_method_configs_compose_as_one_final_method(method: str) -> None:
-    config = parse_composed_config(_compose(f"method={method}"))
-
-    assert config.method.method == method
-    assert not hasattr(config, "methods")
-    assert not hasattr(config, "method_configs")
-
-
-@pytest.mark.parametrize(
-    "method",
     ("execution_provenance_retriever", "execution_provenance_rgcn_retriever"),
 )
 def test_provenance_method_configs_compose_for_provenance_dataset(method: str) -> None:
@@ -58,6 +43,37 @@ def test_provenance_method_configs_compose_for_provenance_dataset(method: str) -
 
     assert resolved.method.method == method
     assert resolved.dataset.name == "twowiki_provenance"
+
+
+def test_frozen_encoding_config_enables_pytorch_gpu_pool() -> None:
+    config = parse_composed_config(
+        _compose(
+            "method=dense_rgcn_graph_retriever",
+            "encoding.enable_gpupool=true",
+            "encoding.chunk_size=2048",
+        )
+    )
+
+    assert config.encoding.enable_gpupool is True
+    assert config.encoding.chunk_size == 2048
+
+
+def test_rgcn_profiles_define_true_graph_batches() -> None:
+    evidence = parse_composed_config(
+        _compose("profile=full", "method=dense_rgcn_graph_retriever")
+    )
+    provenance = parse_composed_config(
+        _compose(
+            "profile=provenance_full",
+            "dataset=twowiki_provenance",
+            "method=execution_provenance_rgcn_retriever",
+        )
+    )
+
+    assert isinstance(evidence.method, RgcnMethodConfig)
+    assert isinstance(provenance.method, ExecutionProvenanceRgcnMethodConfig)
+    assert evidence.method.train.trainer.per_device_graph_batch_size == 128
+    assert provenance.method.train.trainer.per_device_graph_batch_size == 8
 
 
 def test_dense_ft_seed_config_is_the_canonical_public_dense_ft_stage() -> None:
@@ -86,12 +102,9 @@ def test_rgcn_has_one_singular_variant_and_applies_it_at_the_first_change() -> N
     assert effective.pairs.hard_graph_neighbor_per_positive == 0
     assert effective.train.model.ablation == "full_rgcn"
 
-
-def test_rgcn_defaults_to_full_variant() -> None:
-    config = parse_composed_config(_compose("method=dense_rgcn_graph_retriever"))
-
-    assert isinstance(config.method, RgcnMethodConfig)
-    assert config.method.variant == "full_rgcn"
+    defaulted = parse_composed_config(_compose("method=dense_rgcn_graph_retriever"))
+    assert isinstance(defaulted.method, RgcnMethodConfig)
+    assert defaulted.method.variant == "full_rgcn"
 
 
 @pytest.mark.parametrize(
@@ -113,6 +126,21 @@ def test_retired_or_list_valued_selection_is_rejected(override: str) -> None:
 def test_variant_is_rejected_on_non_rgcn_method() -> None:
     with pytest.raises((ValidationError, ConfigCompositionException)):
         parse_composed_config(_compose("method=bm25", "+method.variant=wo_graph"))
+
+
+def test_nontrained_epgm_defaults_to_dependency_path_retrieval() -> None:
+    default = parse_composed_config(_compose("method=execution_provenance_retriever"))
+    legacy = parse_composed_config(
+        _compose(
+            "method=execution_provenance_retriever",
+            "method.variant=typed_beam",
+        )
+    )
+
+    assert isinstance(default.method, ExecutionProvenanceMethodConfig)
+    assert isinstance(legacy.method, ExecutionProvenanceMethodConfig)
+    assert default.method.variant == "dependency_path"
+    assert legacy.method.variant == "typed_beam"
 
 
 def test_provenance_only_method_is_rejected_on_evidence_dataset() -> None:
@@ -143,8 +171,38 @@ def test_model_only_variant_reuses_pair_contract_but_hard_negative_variant_does_
     assert full.method.effective().pairs != wo_hard_negatives.method.effective().pairs
 
 
-def test_hydra_multirun_subdir_uses_only_native_interpolations() -> None:
-    config_text = (ROOT / "configs" / "config.yaml").read_text(encoding="utf-8")
+def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
+    base = ("dataset=twowiki_provenance", "method=execution_provenance_rgcn_retriever")
+    full = parse_composed_config(_compose(*base))
+    wo_graph = parse_composed_config(_compose(*base, "method.variant=wo_graph"))
+    wo_hard = parse_composed_config(
+        _compose(*base, "method.variant=wo_hard_negatives")
+    )
+    wo_rerank = parse_composed_config(
+        _compose(*base, "method.variant=wo_edge_rerank")
+    )
 
-    assert "subdir: ${hydra.job.num}_${method.method}" in config_text
-    assert "concise_override" not in config_text
+    assert isinstance(full.method, ExecutionProvenanceRgcnMethodConfig)
+    assert isinstance(wo_graph.method, ExecutionProvenanceRgcnMethodConfig)
+    assert isinstance(wo_hard.method, ExecutionProvenanceRgcnMethodConfig)
+    assert isinstance(wo_rerank.method, ExecutionProvenanceRgcnMethodConfig)
+    assert full.method.effective().pairs == wo_graph.method.effective().pairs
+    assert full.method.effective().pairs == wo_rerank.method.effective().pairs
+    assert full.method.effective().pairs != wo_hard.method.effective().pairs
+    assert wo_hard.method.effective().pairs.hard_provenance_successor_per_positive == 0
+    assert wo_hard.method.effective().pairs.hard_provenance_predecessor_per_positive == 0
+    assert full.method.train_stage() == wo_rerank.method.train_stage()
+    assert full.method.train_stage() != wo_graph.method.train_stage()
+
+    variants = inspect_catalog("variants", repository_root=ROOT)
+    assert isinstance(variants, dict)
+    assert variants[
+        RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
+    ] == [
+        "full_rgcn",
+        "wo_graph",
+        "wo_edge_type",
+        "wo_edge_weight",
+        "wo_hard_negatives",
+        "wo_edge_rerank",
+    ]

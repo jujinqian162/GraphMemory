@@ -3,10 +3,10 @@ from __future__ import annotations
 import shutil
 from typing import cast
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     execution_provenance_requests_for_dataset,
@@ -19,6 +19,7 @@ from graph_memory.experiment.artifacts import (
     DirectorySourceRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
+    FrozenEmbeddingsArtifactRef,
     ModelArtifactRef,
     ProcessedAssetStore,
     RevisionSourceRef,
@@ -36,6 +37,7 @@ from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.provenance_rgcn import save_provenance_rgcn_checkpoint
+from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
 from graph_memory.stages.results import ModelResult
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
@@ -50,6 +52,8 @@ from graph_memory.stages.trainers import (
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
+EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
+TRAIN_PAIRS_ADAPTER = TypeAdapter(list[TrainPairRecord])
 
 
 def materialize_dense_finetune_model(
@@ -78,8 +82,8 @@ def materialize_dense_finetune_model(
     dev_labels = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
     )
-    pairs = cast(
-        list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
+    pairs = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
     )
     with ArtifactPublisher(
         store,
@@ -101,11 +105,19 @@ def materialize_dense_finetune_model(
         model_dir = publisher.workspace / "model"
         result = DenseFinetuneMethodTrainer(effective).train(
             DenseFinetuneTrainPayload(
-                train_requests=text_ranking_requests_for_dataset(dataset, train_tasks),
-                train_labels=evidence_labels_for_dataset(dataset, train_labels),
-                train_pairs=pairs,
-                dev_requests=text_ranking_requests_for_dataset(dataset, dev_tasks),
-                dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
+                train_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, train_tasks)
+                ),
+                train_labels=tuple(
+                    evidence_labels_for_dataset(dataset, train_labels)
+                ),
+                train_pairs=tuple(pairs),
+                dev_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, dev_tasks)
+                ),
+                dev_labels=tuple(
+                    evidence_labels_for_dataset(dataset, dev_labels)
+                ),
                 output_dir=trainer_output,
                 model_dir=model_dir,
             )
@@ -149,6 +161,7 @@ def materialize_evidence_rgcn_model(
     dev_graphs: EvidenceGraphArtifactRef,
     encoder_source: EncoderSourceRef,
     seed_model: ModelArtifactRef | None,
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
 ) -> ModelResult:
     method = config.method
@@ -157,29 +170,32 @@ def materialize_evidence_rgcn_model(
     train_tasks = cast(
         list[object], read_json(artifact_payload_path(train_prepared, "tasks"))
     )
-    train_labels = cast(
-        list[object], read_json(artifact_payload_path(train_prepared, "labels"))
-    )
     dev_tasks = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "tasks"))
+    )
+    train_labels = cast(
+        list[object], read_json(artifact_payload_path(train_prepared, "labels"))
     )
     dev_labels = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
     )
-    train_graph_values = cast(
-        list[EvidenceGraph], read_json(artifact_payload_path(train_graphs, "graphs"))
+    train_graph_values = EVIDENCE_GRAPHS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_graphs, "graphs"))
     )
-    dev_graph_values = cast(
-        list[EvidenceGraph], read_json(artifact_payload_path(dev_graphs, "graphs"))
+    dev_graph_values = EVIDENCE_GRAPHS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(dev_graphs, "graphs"))
     )
-    pair_values = cast(
-        list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
+    pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
     )
     seed_dir = (
         artifact_payload_path(seed_model, "model")
         if seed_model is not None
         else None
     )
+    embedding_store = FrozenEmbeddingStore(frozen_embeddings)
+    if embedding_store.index.family != "evidence":
+        raise ValueError("Evidence R-GCN requires evidence frozen embeddings.")
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -197,6 +213,7 @@ def materialize_evidence_rgcn_model(
             "dev_graph_digest": dev_graphs.digest,
             "encoder_identity": _encoder_identity(encoder_source),
             "seed_model_digest": None if seed_model is None else seed_model.digest,
+            "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
         },
     ) as publisher:
@@ -205,16 +222,25 @@ def materialize_evidence_rgcn_model(
             encoder=effective_encoder,
             train_config=config.train,
             seed_checkpoint=seed_dir,
+            train_embeddings=embedding_store.partition("train"),
+            dev_embeddings=embedding_store.partition("dev"),
         ).train(
             RgcnTrainPayload(
-                train_requests=text_ranking_requests_for_dataset(dataset, train_tasks),
-                train_labels=evidence_labels_for_dataset(dataset, train_labels),
-                train_graphs=train_graph_values,
-                train_pairs=pair_values,
-                dev_requests=text_ranking_requests_for_dataset(dataset, dev_tasks),
-                dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
-                dev_graphs=dev_graph_values,
-                seed_checkpoint=seed_dir,
+                train_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, train_tasks)
+                ),
+                train_labels=tuple(
+                    evidence_labels_for_dataset(dataset, train_labels)
+                ),
+                train_graphs=tuple(train_graph_values),
+                train_pairs=tuple(pair_values),
+                dev_requests=tuple(
+                    text_ranking_requests_for_dataset(dataset, dev_tasks)
+                ),
+                dev_labels=tuple(
+                    evidence_labels_for_dataset(dataset, dev_labels)
+                ),
+                dev_graphs=tuple(dev_graph_values),
             )
         )
         checkpoints = publisher.workspace / "checkpoints"
@@ -274,6 +300,7 @@ def materialize_provenance_rgcn_model(
     train_pairs: TrainingPairsArtifactRef,
     dev_prepared: DatasetArtifactRef,
     encoder_source: EncoderSourceRef,
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
 ) -> ModelResult:
     effective = config.model_copy(
@@ -291,9 +318,16 @@ def materialize_provenance_rgcn_model(
     dev_labels = cast(
         list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
     )
-    pairs = cast(
-        list[TrainPairRecord], read_json(artifact_payload_path(train_pairs, "pairs"))
+    pairs = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
     )
+    pair_summary = cast(
+        dict[str, object],
+        read_json(artifact_payload_path(train_pairs, "summary")),
+    )
+    embedding_store = FrozenEmbeddingStore(frozen_embeddings)
+    if embedding_store.index.family != "provenance":
+        raise ValueError("Provenance R-GCN requires provenance frozen embeddings.")
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -308,24 +342,45 @@ def materialize_provenance_rgcn_model(
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
             "encoder_identity": _encoder_identity(encoder_source),
+            "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        result = ProvenanceRgcnMethodTrainer(effective).train(
+        result = ProvenanceRgcnMethodTrainer(
+            effective,
+            train_embeddings=embedding_store.partition("train"),
+            dev_embeddings=embedding_store.partition("dev"),
+        ).train(
             ProvenanceRgcnTrainPayload(
-                train_requests=execution_provenance_requests_for_dataset(
-                    dataset, train_tasks
+                train_requests=tuple(
+                    execution_provenance_requests_for_dataset(dataset, train_tasks)
                 ),
-                train_labels=evidence_labels_for_dataset(dataset, train_labels),
-                train_pairs=pairs,
-                dev_requests=execution_provenance_requests_for_dataset(
-                    dataset, dev_tasks
+                train_labels=tuple(
+                    evidence_labels_for_dataset(dataset, train_labels)
                 ),
-                dev_labels=evidence_labels_for_dataset(dataset, dev_labels),
+                train_pairs=tuple(pairs),
+                dev_requests=tuple(
+                    execution_provenance_requests_for_dataset(dataset, dev_tasks)
+                ),
+                dev_labels=tuple(
+                    evidence_labels_for_dataset(dataset, dev_labels)
+                ),
             )
         )
         checkpoints = publisher.workspace / "checkpoints"
         epoch_checkpoint = checkpoints / f"checkpoint_epoch_{result.best_epoch}.pt"
+        first_train_task = train_tasks[0] if train_tasks else {}
+        train_metadata = (
+            first_train_task.get("metadata", {})
+            if isinstance(first_train_task, dict)
+            else {}
+        )
+        construction_identity = (
+            train_metadata.get("graph_construction", "missing")
+            if isinstance(train_metadata, dict)
+            else "missing"
+        )
+        best_metrics = result.best_metrics
         for path in (epoch_checkpoint, checkpoints / "best.pt"):
             save_provenance_rgcn_checkpoint(
                 path,
@@ -333,9 +388,26 @@ def materialize_provenance_rgcn_model(
                 model=result.model,
                 optimizer_state_dict=result.optimizer_state_dict,
                 epoch=result.best_epoch,
+                global_step=result.global_step,
                 best_dev_metric=result.best_dev_metric,
                 model_config=result.model_config,
                 training_config=result.training_config,
+                effective_variant=config.variant,
+                scientific_identity={
+                    "dataset": {
+                        "name": dataset,
+                        "schema_version": 3,
+                        "train_prepared_digest": train_prepared.digest,
+                        "dev_prepared_digest": dev_prepared.digest,
+                    },
+                    "construction": construction_identity,
+                    "pairs": {
+                        "digest": train_pairs.digest,
+                        "sampling": pair_summary.get("sampling_config", {}),
+                    },
+                    "encoder": _encoder_identity(encoder_source),
+                },
+                best_metrics=best_metrics,
             )
         history = tuple(
             cast(dict[str, JsonValue], dict(record)) for record in result.metric_records
@@ -350,6 +422,7 @@ def materialize_provenance_rgcn_model(
             metadata={
                 "variant": config.variant,
                 "best_epoch": result.best_epoch,
+                "global_step": result.global_step,
                 "best_dev_metric": result.best_dev_metric,
             },
         )

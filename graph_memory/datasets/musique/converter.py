@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.musique.records import (
+    CombinedMuSiQueRecord,
     ConvertedMuSiQueExample,
     MuSiQueCandidateParagraph,
     MuSiQueConversionResult,
@@ -31,13 +32,13 @@ def convert_musique_example(example: MuSiQueExample) -> ConvertedMuSiQueExample:
     for position, paragraph in enumerate(example.paragraphs):
         node_id: NodeId = f"p{paragraph.idx}"
         candidate_paragraphs.append(
-            {
-                "paragraph_id": node_id,
-                "title": paragraph.title,
-                "paragraph_index": paragraph.idx,
-                "position": position,
-                "text": paragraph.paragraph_text,
-            }
+            MuSiQueCandidateParagraph(
+                paragraph_id=node_id,
+                title=paragraph.title,
+                paragraph_index=paragraph.idx,
+                position=position,
+                text=paragraph.paragraph_text,
+            )
         )
         paragraph_idx_to_node_id[paragraph.idx] = node_id
 
@@ -51,39 +52,50 @@ def convert_musique_example(example: MuSiQueExample) -> ConvertedMuSiQueExample:
 
     gold_dependency_edges, unresolved_reference_count = _dependency_edges(example, paragraph_idx_to_node_id)
 
-    ranking_record: MuSiQueRankingRecord = {
-        "task_id": task_id,
-        "question": example.question,
-        "candidate_paragraphs": candidate_paragraphs,
-        "metadata": {"dataset": "musique", "raw_id": example.raw_id},
-    }
-    label_record: MuSiQueLabelRecord = {
-        "task_id": task_id,
-        "gold_answer": example.answer,
-        "gold_answer_aliases": list(example.answer_aliases),
-        "gold_evidence_paragraph_ids": gold_evidence_paragraph_ids,
-        "gold_dependency_edges": gold_dependency_edges,
-        "metadata": {
+    ranking_record = MuSiQueRankingRecord(
+        task_id=task_id,
+        question=example.question,
+        candidate_paragraphs=tuple(candidate_paragraphs),
+        metadata={"dataset": "musique", "raw_id": example.raw_id},
+    )
+    label_record = MuSiQueLabelRecord(
+        task_id=task_id,
+        gold_answer=example.answer,
+        gold_answer_aliases=example.answer_aliases,
+        gold_evidence_paragraph_ids=tuple(gold_evidence_paragraph_ids),
+        gold_dependency_edges=tuple(
+            (edge[0], edge[1]) for edge in gold_dependency_edges
+        ),
+        metadata={
             "answerable": example.answerable,
             "path_label_source": "question_decomposition",
             "path_supported": bool(gold_dependency_edges),
             "unresolved_decomposition_reference_count": unresolved_reference_count,
         },
-    }
+    )
     return ConvertedMuSiQueExample(ranking_record=ranking_record, label_record=label_record)
 
 
 def combined_musique_records(
     ranking_records: Sequence[MuSiQueRankingRecord],
     label_records: Sequence[MuSiQueLabelRecord],
-) -> list[dict[str, object]]:
-    labels_by_task_id = {label["task_id"]: label for label in label_records}
-    combined: list[dict[str, object]] = []
+) -> list[CombinedMuSiQueRecord]:
+    labels_by_task_id = {label.task_id: label for label in label_records}
+    combined: list[CombinedMuSiQueRecord] = []
     for ranking_record in ranking_records:
-        label_record = labels_by_task_id.get(ranking_record["task_id"])
+        label_record = labels_by_task_id.get(ranking_record.task_id)
         if label_record is None:
-            raise ValueError(f"Missing MuSiQue label record for task_id={ranking_record['task_id']}.")
-        combined.append({**ranking_record, **label_record})
+            raise ValueError(
+                f"Missing MuSiQue label record for task_id={ranking_record.task_id}."
+            )
+        combined.append(
+            CombinedMuSiQueRecord.model_validate(
+                {
+                    **ranking_record.model_dump(mode="python", exclude_none=True),
+                    **label_record.model_dump(mode="python", exclude_none=True),
+                }
+            )
+        )
     return combined
 
 

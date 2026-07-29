@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import shutil
 from pathlib import Path
-from typing import cast
 
 
 from graph_memory.evaluation.tables import (
@@ -56,12 +55,15 @@ def project_run_output(
         {"assets": [asset.model_dump(mode="json") for asset in result.assets]},
     )
 
-    metric_rows = [dict(row) for row in result.evaluation.metric_rows]
+    metric_rows = [
+        row.model_dump(mode="json", by_alias=True)
+        for row in result.evaluation.metric_rows
+    ]
     if len(metric_rows) != 1:
         raise ValueError(
             f"one final method requires exactly one metric row, got {len(metric_rows)}"
         )
-    final_row = cast(dict[str, object], metric_rows[0])
+    final_row: dict[str, object] = dict(metric_rows[0])
     if result.benchmark is None:
         final_row["Retrieval Latency / Query"] = "NA"
     else:
@@ -107,6 +109,10 @@ def project_run_output(
     debug_target = destination / "debug" / "failure_cases.jsonl"
     debug_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(failure_cases, debug_target)
+    per_task = artifact_payload_path(result.evaluation.artifact, "per_task")
+    per_task_target = destination / "metrics" / "per_task.jsonl"
+    per_task_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(per_task, per_task_target)
     write_yaml_atomic(
         destination / "workflow" / "ranking_origin.yaml",
         {

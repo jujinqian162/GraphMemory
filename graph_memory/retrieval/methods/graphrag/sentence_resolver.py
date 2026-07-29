@@ -168,6 +168,7 @@ def _encode(
         texts,
         batch_size=batch_size,
         normalize_embeddings=True,
+        show_progress_bar=False,
     )
     matrix = np.asarray(value, dtype=float)
     if matrix.ndim != 2 or matrix.shape[0] != len(texts) or matrix.shape[1] <= 0:

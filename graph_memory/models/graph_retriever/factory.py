@@ -10,7 +10,6 @@ from graph_memory.models.graph_retriever.internals.neural import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
-from graph_memory.validation import validate_rgcn_model_config
 
 
 @dataclass(frozen=True)
@@ -30,7 +29,6 @@ def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringMod
     根据保存的 model config 重建 EvidenceScoringModel。
     """
 
-    validate_rgcn_model_config(model_config)
     if model_config.graph_encoder_type == "identity" or model_config.num_layers == 0:
         graph_encoder = IdentityGraphEncoder()
     elif model_config.graph_encoder_type == "rgcn":

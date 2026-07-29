@@ -16,8 +16,21 @@ from pydantic import (
     model_validator,
 )
 
-from graph_memory.models.graph_retriever.selection import RgcnSelectionMetric
+from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
+from graph_memory.models.dense_finetune.training import (
+    DenseFinetuneSelectionSettings,
+    DenseFinetuneTrainerSettings,
+)
+from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
+from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
+from graph_memory.models.provenance_rgcn.config import ProvenanceRgcnTrainingConfig
+from graph_memory.training_pairs.config import (
+    NegativeSamplingConfig,
+    ProvenanceNegativeSamplingConfig,
+)
 from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.retrieval.methods.epgm import EpgmVariant
+from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 
 
 def _scientific_int(value: object) -> int:
@@ -74,6 +87,7 @@ ProvenanceRgcnVariant: TypeAlias = Literal[
     "wo_edge_type",
     "wo_edge_weight",
     "wo_hard_negatives",
+    "wo_edge_rerank",
 ]
 
 
@@ -89,11 +103,11 @@ class ClosedModel(BaseModel):
 class DatasetSplitBase(ClosedModel):
     source: Path
     offset: NonNegativeInt
-    capacity: PositiveInt
+    capacity: PositiveInt | None = None
 
     @model_validator(mode="after")
     def validate_offset(self) -> DatasetSplitBase:
-        if self.offset >= self.capacity:
+        if self.capacity is not None and self.offset >= self.capacity:
             raise ValueError(
                 f"split offset={self.offset} must be smaller than capacity={self.capacity}"
             )
@@ -113,10 +127,103 @@ class DatasetSplitsConfig(ClosedModel):
     test: DatasetSplitConfig
 
 
+ProvenanceEdgeScorer: TypeAlias = Literal["bm25", "dense", "hybrid"]
+
+
+class RankBucketConfig(ClosedModel):
+    lower: PositiveInt
+    upper: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> RankBucketConfig:
+        if self.lower < 2:
+            raise ValueError("rank bucket lower bound must be at least 2")
+        if self.upper is not None and self.upper < self.lower:
+            raise ValueError("rank bucket upper bound must be >= lower bound")
+        return self
+
+
+class TwoWikiProvenanceTransformConfig(ClosedModel):
+    edge_scorer: ProvenanceEdgeScorer = "bm25"
+    seed: ScientificInt = 13
+    candidate_cap: PositiveInt = 32
+    dev_fraction: Annotated[ScientificFloat, Field(gt=0.0, lt=1.0)] = 0.5
+    strict: StrictBool = False
+    successors_per_output: Literal[2] = 2
+    hybrid_dense_weight: Annotated[ScientificFloat, Field(ge=0.0, le=1.0)] = 0.5
+    scorer_identity: str = Field(default="provenance_semantic_v3", min_length=1)
+    query_template_version: Literal["question_source_v1"] = "question_source_v1"
+    semantic_temperature: PositiveFloat = 0.1
+    weight_floor: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)] = 0.5
+    branch_policy_version: str = Field(default="rank_banded_v1", min_length=1)
+    near_rank_bucket: RankBucketConfig = Field(
+        default_factory=lambda: RankBucketConfig(lower=2, upper=4)
+    )
+    mid_rank_bucket: RankBucketConfig = Field(
+        default_factory=lambda: RankBucketConfig(lower=5, upper=8)
+    )
+    tail_rank_bucket: RankBucketConfig = Field(
+        default_factory=lambda: RankBucketConfig(lower=9, upper=None)
+    )
+    dense_model: str = Field(default="models/intfloat-e5-base-v2", min_length=1)
+    dense_query_prefix: str = "query: "
+    dense_passage_prefix: str = "passage: "
+    dense_batch_size: PositiveInt = 64
+    # Performance-only knobs. They intentionally stay OUT of identity() so that
+    # changing parallelism never changes the version tag or invalidates the
+    # Prefect cache: transformed data is byte-identical regardless of them.
+    workers: PositiveInt | None = None
+
+    def identity(self) -> dict[str, JsonValue]:
+        return {
+            "edge_scorer": self.edge_scorer,
+            "seed": self.seed,
+            "candidate_cap": self.candidate_cap,
+            "dev_fraction": self.dev_fraction,
+            "strict": self.strict,
+            "successors_per_output": self.successors_per_output,
+            "hybrid_dense_weight": self.hybrid_dense_weight,
+            "scorer_identity": self.scorer_identity,
+            "query_template_version": self.query_template_version,
+            "semantic_temperature": self.semantic_temperature,
+            "weight_floor": self.weight_floor,
+            "branch_policy_version": self.branch_policy_version,
+            "rank_buckets": {
+                "near": [self.near_rank_bucket.lower, self.near_rank_bucket.upper],
+                "mid": [self.mid_rank_bucket.lower, self.mid_rank_bucket.upper],
+                "tail": [self.tail_rank_bucket.lower, self.tail_rank_bucket.upper],
+            },
+            "dense": (
+                {
+                    "model": self.dense_model,
+                    "query_prefix": self.dense_query_prefix,
+                    "passage_prefix": self.dense_passage_prefix,
+                    "batch_size": self.dense_batch_size,
+                }
+                if self.edge_scorer in {"dense", "hybrid"}
+                else None
+            ),
+        }
+
+
 class DatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool = False
     splits: DatasetSplitsConfig
+    transform: TwoWikiProvenanceTransformConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_transform(self) -> DatasetConfig:
+        if self.name == "twowiki_provenance" and self.transform is None:
+            raise ValueError(
+                "dataset=twowiki_provenance requires a transform configuration block"
+            )
+        if self.name != "twowiki_provenance" and self.transform is not None:
+            raise ValueError(
+                f"dataset={self.name!r} must not define a transform block; "
+                "transform is only valid for twowiki_provenance"
+            )
+        return self
 
 
 class FixedCountPolicy(ClosedModel):
@@ -143,7 +250,7 @@ class ProfileSplitPolicies(ClosedModel):
 class RgcnProfileSettings(ClosedModel):
     hidden_dim: PositiveInt
     num_layers: NonNegativeInt
-    batch_size: PositiveInt
+    per_device_graph_batch_size: PositiveInt
     epochs: PositiveInt
     easy_random_per_positive: NonNegativeInt
     hard_bm25_per_positive: NonNegativeInt
@@ -162,7 +269,8 @@ class DenseFinetuneProfileSettings(ClosedModel):
 
 
 class TrainableProfileSettings(ClosedModel):
-    rgcn: RgcnProfileSettings
+    evidence_rgcn: RgcnProfileSettings
+    provenance_rgcn: RgcnProfileSettings
     dense_ft: DenseFinetuneProfileSettings
 
 
@@ -188,40 +296,30 @@ class DenseMethodConfig(ClosedModel):
     encoder: DenseEncoderConfig
 
 
-class GraphRAGMethodConfig(ClosedModel):
+class GraphRAGMethodConfig(GraphRAGConfig):
     method: Literal["graphrag"]
     encoder: DenseEncoderConfig
-    seed_top_s: PositiveInt
-    max_entity_document_frequency_ratio: Annotated[
-        ScientificFloat, Field(gt=0.0, le=1.0)
-    ]
-    sentence_resolver: Literal["frozen_dense"]
-    min_sentence_score_margin: NonNegativeFloat
-    min_bridge_confidence: NonNegativeFloat
-    max_partners_per_anchor: Literal[1]
-    preserve_dense_top_n: NonNegativeInt
 
 
 class ExecutionProvenanceMethodConfig(ClosedModel):
+    """Non-trained EPGM retriever.
+
+    ``variant`` selects a frozen strategy of the single implementation:
+    ``dependency_path`` is the reported default; ``ppr_steiner`` and
+    ``typed_beam`` are reproducibility diagnostics.
+    """
+
     method: Literal["execution_provenance_retriever"]
     encoder: DenseEncoderConfig
-    seed_top_s: PositiveInt
-    beam_width: PositiveInt
-    max_hops: PositiveInt
-    max_paths_per_seed: Literal[1]
-    max_path_expansions: PositiveInt
-    min_path_confidence: NonNegativeFloat
-    preserve_dense_top_n: NonNegativeInt
-    hop_penalty: NonNegativeFloat
+    variant: EpgmVariant = "dependency_path"
 
 
-class PairSamplingConfig(ClosedModel):
-    random_seed: ScientificInt
-    easy_random_per_positive: NonNegativeInt
-    hard_bm25_per_positive: NonNegativeInt
-    hard_dense_per_positive: NonNegativeInt
-    hard_graph_neighbor_per_positive: NonNegativeInt
-    hard_pool_size: PositiveInt
+class PairSamplingConfig(NegativeSamplingConfig):
+    pass
+
+
+class ProvenancePairSamplingConfig(ProvenanceNegativeSamplingConfig):
+    pass
 
 
 class RgcnModelConfig(ClosedModel):
@@ -231,20 +329,12 @@ class RgcnModelConfig(ClosedModel):
     ablation: str = Field(min_length=1)
 
 
-class RgcnTrainerConfig(ClosedModel):
-    optimizer_name: str = Field(min_length=1)
-    learning_rate: PositiveFloat
-    batch_size: PositiveInt
-    max_grad_norm: PositiveFloat
-    random_seed: ScientificInt
-    pos_weight_enabled: StrictBool
-    epochs: PositiveInt
+class RgcnTrainerConfig(RgcnTrainingConfig):
     device: Device
 
 
-class ModelSelectionConfig(ClosedModel):
-    best_metric: RgcnSelectionMetric
-    higher_is_better: StrictBool
+class ModelSelectionConfig(RgcnSelectionSettings):
+    pass
 
 
 class RgcnTrainConfig(ClosedModel):
@@ -326,17 +416,22 @@ class ProvenanceRgcnModelSettings(ClosedModel):
     num_layers: NonNegativeInt
     dropout: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)]
     ablation: str = Field(min_length=1)
+    structured_pool_size: PositiveInt
+    structured_seed_top_s: PositiveInt
+    preserve_node_top_n: NonNegativeInt
+    edge_accept_threshold: Annotated[ScientificFloat, Field(ge=0.0, le=1.0)]
+
+    @model_validator(mode="after")
+    def validate_structured_bounds(self) -> ProvenanceRgcnModelSettings:
+        if self.structured_seed_top_s > self.structured_pool_size:
+            raise ValueError("structured_seed_top_s exceeds structured_pool_size")
+        if self.preserve_node_top_n > self.structured_pool_size:
+            raise ValueError("preserve_node_top_n exceeds structured_pool_size")
+        return self
 
 
-class ProvenanceRgcnTrainerSettings(ClosedModel):
-    learning_rate: PositiveFloat
-    batch_size: PositiveInt
-    epochs: PositiveInt
-    max_grad_norm: PositiveFloat
-    random_seed: ScientificInt
+class ProvenanceRgcnTrainerSettings(ProvenanceRgcnTrainingConfig):
     device: Device
-    candidate_loss_weight: NonNegativeFloat
-    edge_loss_weight: NonNegativeFloat
 
 
 class ProvenanceRgcnTrainSettings(ClosedModel):
@@ -352,10 +447,10 @@ class ProvenanceRgcnStageConfig(ClosedModel):
 
 
 class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
-    pairs: PairSamplingConfig
+    pairs: ProvenancePairSamplingConfig
 
     def effective(self) -> ExecutionProvenanceRgcnMethodConfig:
-        if self.variant == "full_rgcn":
+        if self.variant in {"full_rgcn", "wo_edge_rerank"}:
             return self
         if self.variant == "wo_hard_negatives":
             return self.model_copy(
@@ -365,6 +460,8 @@ class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
                             "hard_bm25_per_positive": 0,
                             "hard_dense_per_positive": 0,
                             "hard_graph_neighbor_per_positive": 0,
+                            "hard_provenance_successor_per_positive": 0,
+                            "hard_provenance_predecessor_per_positive": 0,
                         }
                     )
                 }
@@ -382,33 +479,27 @@ class ExecutionProvenanceRgcnMethodConfig(ProvenanceRgcnStageConfig):
 
     def train_stage(self) -> ProvenanceRgcnStageConfig:
         effective = self.effective()
+        train_variant: ProvenanceRgcnVariant = (
+            "full_rgcn" if self.variant == "wo_edge_rerank" else effective.variant
+        )
         return ProvenanceRgcnStageConfig(
             method=effective.method,
-            variant=effective.variant,
+            variant=train_variant,
             encoder=effective.encoder,
             train=effective.train,
         )
 
 
-class DenseFinetuneDataConfig(ClosedModel):
-    hard_negatives_per_positive: NonNegativeInt
+class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
+    pass
 
 
-class DenseFinetuneTrainerConfig(ClosedModel):
-    learning_rate: PositiveFloat
-    train_batch_size: PositiveInt
-    eval_batch_size: PositiveInt
-    epochs: PositiveInt
-    warmup_steps: NonNegativeInt
-    max_grad_norm: PositiveFloat
-    random_seed: ScientificInt
+class DenseFinetuneTrainerConfig(DenseFinetuneTrainerSettings):
     device: Device
-    use_amp: StrictBool
 
 
-class DenseFinetuneSelectionConfig(ClosedModel):
-    best_metric: str = Field(min_length=1)
-    higher_is_better: StrictBool
+class DenseFinetuneSelectionConfig(DenseFinetuneSelectionSettings):
+    pass
 
 
 class DenseFinetuneTrainConfig(ClosedModel):
@@ -508,7 +599,7 @@ def ranking_config(method: MethodConfig) -> RankingMethodConfig:
 
 
 class PairBuildConfig(ClosedModel):
-    sampling: PairSamplingConfig
+    sampling: PairSamplingConfig | ProvenancePairSamplingConfig
     encoder: DenseEncoderConfig
     device: Device
 
@@ -523,7 +614,7 @@ class GraphBuildConfig(ClosedModel):
 class PrepareSplitConfig(ClosedModel):
     dataset: DatasetName
     split: SplitName
-    count: PositiveInt
+    count: PositiveInt | None = None
     offset: NonNegativeInt
     seed: ScientificInt
     strict_invalid_examples: StrictBool
@@ -531,6 +622,13 @@ class PrepareSplitConfig(ClosedModel):
 
 class CacheConfig(ClosedModel):
     refresh: StrictBool = False
+
+
+class EncodingConfig(ClosedModel):
+    """Runtime controls for frozen R-GCN encoding; not scientific identity."""
+
+    enable_gpupool: StrictBool
+    chunk_size: PositiveInt
 
 
 class BenchmarkConfig(ClosedModel):
@@ -555,9 +653,11 @@ class ExperimentConfig(ClosedModel):
     profile: ProfileConfig
     method: MethodConfig
     seed: ScientificInt
+    split_seed: ScientificInt = 13
     device: Device
     top_k: PositiveInt
     cache: CacheConfig
+    encoding: EncodingConfig
     benchmark: BenchmarkConfig
     graph: GraphBuildConfig
     evaluation: EvaluationConfig
@@ -568,8 +668,8 @@ class ResolvedRawSplitConfig(ClosedModel):
     kind: Literal["raw"]
     source: Path
     offset: NonNegativeInt
-    capacity: PositiveInt
-    count: PositiveInt
+    capacity: PositiveInt | None = None
+    count: PositiveInt | None = None
 
 
 ResolvedSplitConfig: TypeAlias = ResolvedRawSplitConfig
@@ -579,6 +679,7 @@ class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool
     splits: dict[SplitName, ResolvedSplitConfig]
+    transform: TwoWikiProvenanceTransformConfig | None = None
 
 
 class ResolvedTrackingConfig(ClosedModel):
@@ -597,9 +698,11 @@ class ResolvedExperimentConfig(ClosedModel):
     profile: str
     method: MethodConfig
     seed: ScientificInt
+    split_seed: ScientificInt = 13
     device: Device
     top_k: PositiveInt
     cache: CacheConfig
+    encoding: EncodingConfig
     benchmark: BenchmarkConfig
     graph: GraphBuildConfig
     evaluation: EvaluationConfig
@@ -642,9 +745,17 @@ def resolve_experiment_config(
     for split_name in split_names:
         dataset_split = getattr(config.dataset.splits, split_name)
         policy = getattr(config.profile.splits, split_name)
-        available = dataset_split.capacity - dataset_split.offset
-        count = policy.count if isinstance(policy, FixedCountPolicy) else available
-        if count > available:
+        if isinstance(policy, FixedCountPolicy):
+            count: int | None = policy.count
+        elif dataset_split.capacity is not None:
+            count = dataset_split.capacity - dataset_split.offset
+        else:
+            count = None
+        if (
+            dataset_split.capacity is not None
+            and count is not None
+            and count > dataset_split.capacity - dataset_split.offset
+        ):
             raise ValueError(
                 f"profile={config.profile.name} split={split_name} requests "
                 f"offset+count={dataset_split.offset + count} beyond "
@@ -665,13 +776,16 @@ def resolve_experiment_config(
             name=config.dataset.name,
             strict_invalid_examples=config.dataset.strict_invalid_examples,
             splits=resolved_splits,
+            transform=config.dataset.transform,
         ),
         profile=config.profile.name,
         method=config.method,
         seed=config.seed,
+        split_seed=config.split_seed,
         device=config.device,
         top_k=config.top_k,
         cache=config.cache,
+        encoding=config.encoding,
         benchmark=config.benchmark,
         graph=config.graph,
         evaluation=config.evaluation,
@@ -688,7 +802,7 @@ def _check_dataset_method_compatibility(
     method: MethodConfig,
 ) -> None:
     from graph_memory.registry import Registry
-    from graph_memory.registry.semantics import RetrievalTaskFamily
+    from graph_memory.registry.retrieval import RetrievalTaskFamily
 
     family = (
         RetrievalTaskFamily.EXECUTION_PROVENANCE
@@ -696,7 +810,7 @@ def _check_dataset_method_compatibility(
         else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     )
     method_id = RetrievalMethodId(method.method)
-    supported = Registry.methods.get(method_id).input_spec.supported_families
+    supported = Registry.methods.get(method_id).supported_families
     if family not in supported:
         raise ValueError(
             f"dataset={dataset!r} uses family={family.value!r}, but "
@@ -726,6 +840,7 @@ __all__ = [
     "DenseMethodConfig",
     "DenseRgcnMethodConfig",
     "Device",
+    "EncodingConfig",
     "EvaluationConfig",
     "ExecutionProvenanceMethodConfig",
     "ExecutionProvenanceRgcnMethodConfig",
@@ -744,9 +859,11 @@ __all__ = [
     "ProfileConfig",
     "PrepareSplitConfig",
     "ProvenanceRgcnModelSettings",
+    "ProvenancePairSamplingConfig",
     "ProvenanceRgcnTrainerSettings",
     "ProvenanceRgcnTrainSettings",
     "ProvenanceRgcnStageConfig",
+    "RankBucketConfig",
     "RankingMethodConfig",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",
@@ -761,6 +878,7 @@ __all__ = [
     "SplitName",
     "TrackingConfig",
     "TrainableRankingConfig",
+    "TwoWikiProvenanceTransformConfig",
     "ranking_config",
     "resolve_experiment_config",
     "parse_composed_config",

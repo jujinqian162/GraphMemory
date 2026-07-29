@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import cast
+from collections.abc import Sequence
 
 from graph_memory.datasets.twowiki_provenance.records import (
-    TWOWIKI_PROVENANCE_SCHEMA_VERSION,
     TwoWikiProvenanceRawRecord,
 )
-
-RAW_FIELDS = {"schema_version", "ranking", "label"}
 
 
 def parse_twowiki_provenance_records(
@@ -25,25 +21,16 @@ def parse_twowiki_provenance_record(
     *,
     record_index: int | None = None,
 ) -> TwoWikiProvenanceRawRecord:
-    path = (
-        "2Wiki provenance raw record"
-        if record_index is None
-        else f"2Wiki provenance raw record index={record_index}"
-    )
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{path} must be an object.")
-    unknown = sorted(set(value) - RAW_FIELDS)
-    if unknown:
-        raise ValueError(f"{path} contains unknown fields={unknown}.")
-    if value.get("schema_version") != TWOWIKI_PROVENANCE_SCHEMA_VERSION:
-        raise ValueError(
-            f"{path} schema_version must be {TWOWIKI_PROVENANCE_SCHEMA_VERSION}."
+    try:
+        return TwoWikiProvenanceRawRecord.model_validate(value)
+    except ValueError as error:
+        location = (
+            "2Wiki provenance raw record"
+            if record_index is None
+            else f"2Wiki provenance raw record index={record_index}"
         )
-    if not isinstance(value.get("ranking"), Mapping):
-        raise ValueError(f"{path} ranking must be an object.")
-    if not isinstance(value.get("label"), Mapping):
-        raise ValueError(f"{path} label must be an object.")
-    return cast(TwoWikiProvenanceRawRecord, cast(object, dict(value)))
+        error.add_note(location)
+        raise
 
 
 __all__ = [

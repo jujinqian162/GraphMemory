@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,15 +11,12 @@ from graph_memory.experiment.config import (
     ProvenanceRgcnStageConfig,
     RgcnTrainConfig,
 )
-from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
+from graph_memory.models.frozen_embeddings import FrozenTaskEmbeddings
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
-    DenseFinetuneSelectionSettings,
-    DenseFinetuneTrainerSettings,
     DenseFinetuneTrainingResult,
     train_dense_finetune,
 )
-from graph_memory.registry.conversions import rgcn_training_config_from_trainer_settings
 from graph_memory.registry.retrieval import DenseEncoderSettings
 from graph_memory.stages.train_payloads import (
     DenseFinetuneTrainPayload,
@@ -39,12 +37,13 @@ class RgcnGraphRetrieverTrainer:
     encoder: DenseEncoderConfig
     train_config: RgcnTrainConfig
     seed_checkpoint: Path | None = None
+    train_embeddings: Mapping[str, FrozenTaskEmbeddings] | None = None
+    dev_embeddings: Mapping[str, FrozenTaskEmbeddings] | None = None
 
     def train(self, payload: TrainPayload) -> RgcnTrainingResult:
         from graph_memory.models.graph_retriever.config.defaults import (
             default_model_config,
         )
-        from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
         from graph_memory.models.graph_retriever.training import train_graph_retriever
 
         if not isinstance(payload, RgcnTrainPayload):
@@ -55,13 +54,31 @@ class RgcnGraphRetrieverTrainer:
         encoder_settings = _effective_rgcn_encoder_settings(
             self.encoder, self.seed_checkpoint
         )
-        deps = payload.dependencies or _build_rgcn_dependencies(
-            encoder_settings, device=settings.trainer.device
-        )
+        if (self.train_embeddings is None) != (self.dev_embeddings is None):
+            raise ValueError("Evidence R-GCN requires both train and dev embeddings.")
+        if self.train_embeddings is None:
+            train_deps = _build_rgcn_dependencies(
+                encoder_settings, device=settings.trainer.device
+            )
+            dev_deps = train_deps
+        else:
+            from graph_memory.models.graph_retriever.text_embeddings import (
+                PrecomputedGraphFeatureProvider,
+            )
+
+            embedding_dim = next(iter(self.train_embeddings.values())).values.shape[1]
+            train_provider = PrecomputedGraphFeatureProvider(
+                self.train_embeddings, embedding_dim=embedding_dim
+            )
+            dev_provider = PrecomputedGraphFeatureProvider(
+                self.dev_embeddings or {}, embedding_dim=embedding_dim
+            )
+            train_deps = TrainDependencies(train_provider, train_provider)
+            dev_deps = TrainDependencies(dev_provider, dev_provider)
         model_config = default_model_config(
             method_name=self.method,
             encoder_model=encoder_settings.model_name,
-            encoder_dim=deps.text_embedding_provider.embedding_dim,
+            encoder_dim=train_deps.text_embedding_provider.embedding_dim,
             query_prefix=encoder_settings.query_prefix,
             passage_prefix=encoder_settings.passage_prefix,
             encoder_batch_size=encoder_settings.batch_size,
@@ -71,20 +88,20 @@ class RgcnGraphRetrieverTrainer:
             ablation_name=settings.model.ablation,
         )
         return train_graph_retriever(
-            train_requests=payload.train_requests,
-            train_graphs=payload.train_graphs,
-            train_pairs=payload.train_pairs,
-            train_labels=payload.train_labels,
-            dev_requests=payload.dev_requests,
-            dev_labels=payload.dev_labels,
-            dev_graphs=payload.dev_graphs,
+            train_requests=list(payload.train_requests),
+            train_graphs=list(payload.train_graphs),
+            train_labels=list(payload.train_labels),
+            train_pairs=list(payload.train_pairs),
+            dev_requests=list(payload.dev_requests),
+            dev_labels=list(payload.dev_labels),
+            dev_graphs=list(payload.dev_graphs),
             model_config=model_config,
-            training_config=rgcn_training_config_from_trainer_settings(
-                settings.trainer
-            ),
-            text_embedding_provider=deps.text_embedding_provider,
-            seed_signal_provider=deps.seed_signal_provider,
-            selection_settings=RgcnSelectionSettings(**settings.selection.model_dump()),
+            training_config=settings.trainer,
+            text_embedding_provider=train_deps.text_embedding_provider,
+            seed_signal_provider=train_deps.seed_signal_provider,
+            dev_text_embedding_provider=dev_deps.text_embedding_provider,
+            dev_seed_signal_provider=dev_deps.seed_signal_provider,
+            selection_settings=settings.selection,
             device=settings.trainer.device,
         )
 
@@ -107,11 +124,9 @@ class DenseFinetuneMethodTrainer:
                 query_prefix=encoder.query_prefix,
                 passage_prefix=encoder.passage_prefix,
                 batch_size=encoder.batch_size,
-                data=DenseFinetuneDataSettings(**settings.data.model_dump()),
-                trainer=DenseFinetuneTrainerSettings(**settings.trainer.model_dump()),
-                selection=DenseFinetuneSelectionSettings(
-                    **settings.selection.model_dump()
-                ),
+                data=settings.data,
+                trainer=settings.trainer,
+                selection=settings.selection,
             ),
             train_requests=payload.train_requests,
             train_pairs=payload.train_pairs,
@@ -125,13 +140,14 @@ class DenseFinetuneMethodTrainer:
 @dataclass(frozen=True)
 class ProvenanceRgcnMethodTrainer:
     config: ProvenanceRgcnStageConfig
+    train_embeddings: Mapping[str, FrozenTaskEmbeddings] | None = None
+    dev_embeddings: Mapping[str, FrozenTaskEmbeddings] | None = None
 
     def train(self, payload: TrainPayload) -> ProvenanceTrainingResult:
         import numpy as np
 
         from graph_memory.embeddings import load_sentence_transformer
         from graph_memory.models.provenance_rgcn import (
-            ProvenanceRgcnTrainingConfig,
             default_provenance_rgcn_model_config,
             train_provenance_rgcn,
         )
@@ -141,29 +157,39 @@ class ProvenanceRgcnMethodTrainer:
                 "Provenance R-GCN trainer expected ProvenanceRgcnTrainPayload, "
                 f"got {type(payload).__name__}."
             )
-        encoder = payload.encoder or load_sentence_transformer(
-            self.config.encoder.model_name,
-            device=self.config.train.trainer.device,
-        )
-        probe = np.asarray(
-            encoder.encode(
-                [self.config.encoder.query_prefix + "dimension probe"],
-                batch_size=1,
-                normalize_embeddings=True,
+        if (self.train_embeddings is None) != (self.dev_embeddings is None):
+            raise ValueError("Provenance R-GCN requires both train and dev embeddings.")
+        encoder = None
+        if self.train_embeddings is None:
+            encoder = load_sentence_transformer(
+                self.config.encoder.model_name,
+                device=self.config.train.trainer.device,
             )
-        )
-        if probe.ndim != 2 or probe.shape[0] != 1:
-            raise ValueError("Unable to infer provenance encoder dimension.")
+            probe = np.asarray(
+                encoder.encode(
+                    [self.config.encoder.query_prefix + "dimension probe"],
+                    batch_size=1,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
+            )
+            if probe.ndim != 2 or probe.shape[0] != 1:
+                raise ValueError("Unable to infer provenance encoder dimension.")
+            embedding_dim = int(probe.shape[1])
+        else:
+            embedding_dim = int(
+                next(iter(self.train_embeddings.values())).values.shape[1]
+            )
         model = self.config.train.model
         trainer = self.config.train.trainer
         return train_provenance_rgcn(
-            train_requests=payload.train_requests,
-            train_labels=payload.train_labels,
-            dev_requests=payload.dev_requests,
-            dev_labels=payload.dev_labels,
+            train_requests=list(payload.train_requests),
+            train_labels=list(payload.train_labels),
+            dev_requests=list(payload.dev_requests),
+            dev_labels=list(payload.dev_labels),
             model_config=default_provenance_rgcn_model_config(
                 encoder_model=self.config.encoder.model_name,
-                encoder_dim=int(probe.shape[1]),
+                encoder_dim=embedding_dim,
                 query_prefix=self.config.encoder.query_prefix,
                 passage_prefix=self.config.encoder.passage_prefix,
                 encoder_batch_size=self.config.encoder.batch_size,
@@ -172,18 +198,16 @@ class ProvenanceRgcnMethodTrainer:
                 num_layers=model.num_layers,
                 dropout=model.dropout,
                 ablation_name=model.ablation,
+                structured_pool_size=model.structured_pool_size,
+                structured_seed_top_s=model.structured_seed_top_s,
+                preserve_node_top_n=model.preserve_node_top_n,
+                edge_accept_threshold=model.edge_accept_threshold,
             ),
-            training_config=ProvenanceRgcnTrainingConfig(
-                learning_rate=trainer.learning_rate,
-                batch_size=trainer.batch_size,
-                epochs=trainer.epochs,
-                max_grad_norm=trainer.max_grad_norm,
-                random_seed=trainer.random_seed,
-                candidate_loss_weight=trainer.candidate_loss_weight,
-                edge_loss_weight=trainer.edge_loss_weight,
-            ),
-            train_pairs=payload.train_pairs,
+            training_config=trainer,
+            train_pairs=list(payload.train_pairs),
             encoder=encoder,
+            train_node_embeddings=self.train_embeddings,
+            dev_node_embeddings=self.dev_embeddings,
             device=trainer.device,
         )
 

@@ -1,14 +1,13 @@
+# Non-trained EPGM retriever. One implementation, three variants:
+#   dependency_path  - reported default: directed dependency-edge traversal with
+#                      schema gating and stable insertion
+#   ppr_steiner      - query-conditioned typed diffusion and budgeted
+#                      connected-subgraph extraction
+#   typed_beam       - typed-path diagnostic
 method: execution_provenance_retriever
 encoder:
   model_name: models/intfloat-e5-base-v2
   query_prefix: "query: "
   passage_prefix: "passage: "
   batch_size: 64
-seed_top_s: 5
-beam_width: 8
-max_hops: 2
-max_paths_per_seed: 1
-max_path_expansions: 256
-min_path_confidence: 0.2
-preserve_dense_top_n: 2
-hop_penalty: 0.04
+variant: dependency_path

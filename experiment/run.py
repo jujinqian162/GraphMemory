@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E402 -- experiment/inspect.py otherwise shadows stdlib inspect
 
+import logging
 import sys
 from pathlib import Path
 
@@ -26,6 +27,11 @@ from graph_memory.experiment.workflow import run_experiment
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="config")
 def main(composed: DictConfig) -> None:
+    # Prefect's in-process ephemeral API makes httpx log every request at INFO,
+    # which Hydra's INFO root then prints. Silence it; keep prefect progress logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("root").setLevel(logging.WARNING)
+
     config = resolve_experiment_config(
         parse_composed_config(composed),
         repository_root=REPOSITORY_ROOT,
@@ -52,7 +58,7 @@ def main(composed: DictConfig) -> None:
     print(
         f"run={config.name} method={result.method} "
         f"variant={result.variant or 'none'} "
-        f"recall@10={metric_row.get('Recall@10', 'NA')}"
+        f"recall@10={metric_row.recall_at_10}"
     )
 
 

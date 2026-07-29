@@ -6,9 +6,10 @@ from pathlib import Path
 
 import torch
 
-from graph_memory.graphs.views import induced_retrieved_subgraph, model_visible_graph
+from graph_memory.graphs.views import induced_edges, model_visible_graph
 from graph_memory.models.graph_retriever.batching import (
-    build_full_ranking_batches,
+    collate_evidence_tasks,
+    materialize_full_ranking_tasks,
     move_training_batch,
 )
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
@@ -20,6 +21,7 @@ from graph_memory.retrieval.contracts import (
     RetrievalMethodResult,
     RetrievalTrace,
 )
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
     TextRankingRequest,
@@ -54,23 +56,23 @@ class GraphRetrieverInference:
             query_text=request.query_text,
             candidates=request.candidates,
         )
-        batches = build_full_ranking_batches(
+        tasks = materialize_full_ranking_tasks(
             ranking_requests=[text_request],
             graphs=[graph],
             model_config=self.model_config,
             text_embedding_provider=self.text_embedding_provider,
             seed_signal_provider=_PrecomputedGraphRankingSignalProvider(request),
-            batch_size=1,
         )
-        if len(batches) != 1:
-            raise RuntimeError("Expected exactly one full ranking batch.")
+        if len(tasks) != 1:
+            raise RuntimeError("Expected exactly one full ranking task tensor.")
+        cpu_batch = collate_evidence_tasks(tasks)
         with torch.no_grad():
-            batch = move_training_batch(batches[0], self.device)
+            batch = move_training_batch(cpu_batch, self.device)
             logits = self.model(batch).detach().cpu().tolist()
         ranked_nodes = sorted(
             [
                 RankedNode(node_id=node_id, score=float(score))
-                for node_id, score in zip(batches[0].sample_node_ids, logits)
+                for node_id, score in zip(cpu_batch.sample_node_ids, logits)
             ],
             key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
         )
@@ -78,10 +80,10 @@ class GraphRetrieverInference:
         visible_graph = model_visible_graph(
             graph, frozenset(self.model_config.enabled_edge_types)
         )
-        retrieved_subgraph = induced_retrieved_subgraph(visible_graph, top_node_ids)
+        retrieved_edges = induced_edges(visible_graph, top_node_ids)
         return RetrievalMethodResult(
-            ranked_nodes=ranked_nodes,
-            trace=RetrievalTrace(retrieved_edges=retrieved_subgraph["edges"]),
+            ranked_nodes=tuple(ranked_nodes),
+            trace=RetrievalTrace(retrieved_edges=retrieved_edges),
         )
 
 
@@ -122,8 +124,10 @@ class CheckpointGraphRetrieverLoader:
         *,
         text_embedding_provider: TextEmbeddingProvider,
         seed_signal_provider: SeedSignalProvider,
-        device: str | torch.device = "cpu",
-        expected_method: str = "dense_rgcn_graph_retriever",
+        device: str | torch.device,
+        expected_method: RetrievalMethodId = (
+            RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
+        ),
     ) -> GraphRetrieverInference:
         """
         Load a trainable graph retriever inference runtime from `best.pt`.

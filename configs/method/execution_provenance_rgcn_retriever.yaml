@@ -8,21 +8,27 @@ encoder:
 pairs:
   random_seed: ${seed}
   easy_random_per_positive: 2
-  hard_bm25_per_positive: 2
-  hard_dense_per_positive: 2
+  hard_bm25_per_positive: 1
+  hard_dense_per_positive: 1
   hard_graph_neighbor_per_positive: 0
+  hard_provenance_successor_per_positive: 2
+  hard_provenance_predecessor_per_positive: 1
   hard_pool_size: 20
 train:
   model:
-    hidden_dim: ${profile.trainable.rgcn.hidden_dim}
+    hidden_dim: ${profile.trainable.provenance_rgcn.hidden_dim}
     node_type_dim: 16
-    num_layers: ${profile.trainable.rgcn.num_layers}
+    num_layers: ${profile.trainable.provenance_rgcn.num_layers}
     dropout: 0.1
     ablation: full_rgcn
+    structured_pool_size: 16
+    structured_seed_top_s: 5
+    preserve_node_top_n: 2
+    edge_accept_threshold: 0.5
   trainer:
     learning_rate: 0.0001
-    batch_size: ${profile.trainable.rgcn.batch_size}
-    epochs: ${profile.trainable.rgcn.epochs}
+    per_device_graph_batch_size: ${profile.trainable.provenance_rgcn.per_device_graph_batch_size}
+    epochs: ${profile.trainable.provenance_rgcn.epochs}
     max_grad_norm: 1.0
     random_seed: ${seed}
     device: ${device}

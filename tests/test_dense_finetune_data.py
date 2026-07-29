@@ -1,28 +1,29 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import pytest
 
 from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.datasets.hotpotqa.records import (
-    HotpotQARankingRecord,
     HotpotQALabelRecord,
 )
 from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.contracts.training_pairs import TrainPairRecord
+from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingRequest
 from graph_memory.models.dense_finetune.data import (
     DenseFinetuneDataSettings,
     build_dense_finetune_examples,
     build_ir_evaluator_payload,
 )
+from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 
 
 def _task(
     task_id: str, *, query: str, nodes: Mapping[str, tuple[str, str]]
-) -> HotpotQARankingRecord:
+) -> dict[str, Any]:
     return {
         "task_id": task_id,
         "question": query,
@@ -40,26 +41,35 @@ def _task(
 
 
 def _labels(task_id: str, gold_nodes: list[str]) -> HotpotQALabelRecord:
-    return {
-        "task_id": task_id,
-        "gold_answer": "answer",
-        "gold_evidence_sentence_ids": gold_nodes,
-        "gold_dependency_edges": [],
-    }
+    return HotpotQALabelRecord(
+        task_id=task_id,
+        gold_answer="answer",
+        gold_evidence_sentence_ids=tuple(gold_nodes),
+        gold_dependency_edges=(),
+    )
 
 
-def _request(task: HotpotQARankingRecord):
-    return HotpotQAToTextRankingRequest().project(task)
+def _request(task: dict[str, Any]) -> TextRankingRequest:
+    return TextRankingRequest(
+        task_id=task["task_id"],
+        query_text=task["question"],
+        candidates=tuple(
+            TextCandidate(
+                item_id=candidate["sentence_id"],
+                text=f'{candidate["title"]}. {candidate["text"]}',
+                metadata={"title": candidate["title"]},
+            )
+            for candidate in task["candidate_sentences"]
+        ),
+    )
 
 
 def _evidence_label(label: HotpotQALabelRecord) -> EvidenceLabel:
     return EvidenceLabel(
-        task_id=label["task_id"],
-        gold_answer=label["gold_answer"],
-        gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-        gold_dependency_edges=tuple(
-            (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
-        ),
+        task_id=label.task_id,
+        gold_answer=label.gold_answer,
+        gold_evidence_item_ids=label.gold_evidence_sentence_ids,
+        gold_dependency_edges=label.gold_dependency_edges,
     )
 
 
@@ -72,6 +82,7 @@ class RecordingEncoder:
         texts: Sequence[str],
         batch_size: int = 64,
         normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
     ) -> object:
         text_list = list(texts)
         self.calls.append((text_list, batch_size, normalize_embeddings))

@@ -14,3 +14,7 @@ report/tmp/
 .venv/
 
 .ck/
+
+.pi-subagents/
+# Large raw ablation dumps; regenerate with scripts/analyze_provenance_ablation.py
+report/provenance/ablation_rows.json

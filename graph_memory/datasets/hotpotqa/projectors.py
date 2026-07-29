@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQALabelRecord,
     HotpotQARankingRecord,
@@ -21,45 +21,49 @@ from graph_memory.retrieval.requests import (
 
 
 class HotpotQAToTextRankingRequest:
-    def project(self, record: HotpotQARankingRecord) -> TextRankingRequest:
+    def project(self, record: HotpotQARankingRecord | object) -> TextRankingRequest:
+        record = HotpotQARankingRecord.model_validate(record)
         return TextRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             candidates=tuple(
                 TextCandidate(
-                    item_id=sentence["sentence_id"],
-                    text=f"{sentence['title']}. {sentence['text']}",
+                    item_id=sentence.sentence_id,
+                    text=f"{sentence.title}. {sentence.text}",
                     metadata={
-                        "title": sentence["title"],
-                        "source_ref": sentence["title"],
-                        "sequence_index": sentence["sentence_index"],
-                        "position": sentence["position"],
+                        "title": sentence.title,
+                        "source_ref": sentence.title,
+                        "sequence_index": sentence.sentence_index,
+                        "position": sentence.position,
                     },
                 )
-                for sentence in record["candidate_sentences"]
+                for sentence in record.candidate_sentences
             ),
         )
 
 
 class HotpotQAToEvidenceGraphBuildRequest:
-    def project(self, record: HotpotQARankingRecord) -> EvidenceGraphBuildRequest:
+    def project(
+        self, record: HotpotQARankingRecord | object
+    ) -> EvidenceGraphBuildRequest:
+        record = HotpotQARankingRecord.model_validate(record)
         return EvidenceGraphBuildRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             nodes=tuple(
                 EvidenceGraphBuildNode(
-                    node_id=sentence["sentence_id"],
-                    text=sentence["text"],
+                    node_id=sentence.sentence_id,
+                    text=sentence.text,
                     node_kind="document_sentence",
-                    source_ref=sentence["title"],
-                    group_key=f"document:{sentence['title']}",
-                    sequence_index=sentence["sentence_index"],
+                    source_ref=sentence.title,
+                    group_key=f"document:{sentence.title}",
+                    sequence_index=sentence.sentence_index,
                     metadata={
-                        "title": sentence["title"],
-                        "position": sentence["position"],
+                        "title": sentence.title,
+                        "position": sentence.position,
                     },
                 )
-                for sentence in record["candidate_sentences"]
+                for sentence in record.candidate_sentences
             ),
             input_visible_edges=(),
         )
@@ -72,13 +76,14 @@ class HotpotQAToEvidenceGraphRankingRequest:
         graph: EvidenceGraph,
         initial_scores: Mapping[str, float],
     ) -> EvidenceGraphRankingRequest:
+        record = HotpotQARankingRecord.model_validate(record)
         text_request = HotpotQAToTextRankingRequest().project(record)
         return EvidenceGraphRankingRequest(
-            task_id=record["task_id"],
-            query_text=record["question"],
+            task_id=record.task_id,
+            query_text=record.question,
             candidates=text_request.candidates,
             graph=graph,
-            initial_scores=initial_scores,
+            initial_scores=dict(initial_scores),
         )
 
 
@@ -91,20 +96,20 @@ class HotpotQAToEvidenceEvaluationRequest:
         graphs: Sequence[EvidenceGraph],
     ) -> EvidenceEvaluationRequest:
         return EvidenceEvaluationRequest(
-            predictions=predictions,
+            predictions=tuple(predictions),
             labels=tuple(
                 EvidenceLabel(
-                    task_id=label["task_id"],
-                    gold_answer=label["gold_answer"],
-                    gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
+                    task_id=label.task_id,
+                    gold_answer=label.gold_answer,
+                    gold_evidence_item_ids=tuple(label.gold_evidence_sentence_ids),
                     gold_dependency_edges=tuple(
                         _dependency_edge(edge)
-                        for edge in label["gold_dependency_edges"]
+                        for edge in label.gold_dependency_edges
                     ),
                 )
                 for label in labels
             ),
-            graphs=graphs,
+            graphs=tuple(graphs),
         )
 
 

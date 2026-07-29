@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.registry.ids import StrEnum
-from graph_memory.registry.semantics import RetrievalTaskFamily
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.compat import StrEnum
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceConfig,
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetrieverConfig,
 )
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.requests import (
@@ -21,30 +21,15 @@ from graph_memory.retrieval.requests import (
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-    from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
+    from graph_memory.retrieval.contracts import RetrievalMethod
     from graph_memory.retrieval.signals import SeedSignalProvider
 
 PayloadT = TypeVar("PayloadT")
 
 
-class RetrievalMethodId(StrEnum):
-    BM25 = "bm25"
-    DENSE = "dense"
-    DENSE_FT = "dense_ft"
-    GRAPHRAG = "graphrag"
-    DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
-    DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
-    EXECUTION_PROVENANCE_RETRIEVER = "execution_provenance_retriever"
-    EXECUTION_PROVENANCE_RGCN_RETRIEVER = "execution_provenance_rgcn_retriever"
-
-
-class RequestValidator(Protocol):
-    def validate_request(
-        self,
-        method: str | RetrievalMethodId,
-        request: object,
-        family: RetrievalTaskFamily,
-    ) -> None: ...
+class RetrievalTaskFamily(StrEnum):
+    EVIDENCE_RETRIEVAL = "evidence_retrieval"
+    EXECUTION_PROVENANCE = "execution_provenance"
 
 
 @dataclass(frozen=True)
@@ -65,7 +50,7 @@ class DenseEncoderSettings:
 class DenseRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
-    device: str | None = None
+    device: str
     method: Literal[RetrievalMethodId.DENSE] = RetrievalMethodId.DENSE
 
 
@@ -73,16 +58,16 @@ class DenseRetrievalSettings:
 class GraphRAGRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
+    device: str
     config: GraphRAGConfig = GraphRAGConfig()
-    device: str | None = None
     method: Literal[RetrievalMethodId.GRAPHRAG] = RetrievalMethodId.GRAPHRAG
 
 
 @dataclass(frozen=True)
 class SeedRetrievalSettings:
     method: Literal[RetrievalMethodId.BM25, RetrievalMethodId.DENSE]
+    device: str | None
     encoder: DenseEncoderSettings | None = None
-    device: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,8 +93,8 @@ class DenseFinetunedRetrievalSettings:
 class ExecutionProvenanceRetrievalSettings:
     top_k: int
     encoder: DenseEncoderSettings
-    config: ExecutionProvenanceConfig = ExecutionProvenanceConfig()
-    device: str | None = None
+    device: str
+    config: EpgmRetrieverConfig = EpgmRetrieverConfig()
     method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER] = (
         RetrievalMethodId.EXECUTION_PROVENANCE_RETRIEVER
     )
@@ -120,6 +105,7 @@ class ProvenanceRgcnRetrievalSettings:
     top_k: int
     checkpoint: Path
     device: str
+    variant: str = "full_rgcn"
     method: Literal[RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER] = (
         RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
     )
@@ -214,13 +200,9 @@ class RetrievalBuilderSpec:
 @dataclass(frozen=True)
 class RetrievalRegistry:
     builders: Mapping[type[object], RetrievalBuilderSpec]
-    seed_build: Callable[[SeedRetrievalSettings, object], "SeedRanker"]
-    method_registry: RequestValidator
-
-    def build_seed(
-        self, settings: SeedRetrievalSettings, payload: object
-    ) -> SeedRanker:
-        return self.seed_build(settings, payload)
+    validate_request: Callable[
+        [str | RetrievalMethodId, object, RetrievalTaskFamily], None
+    ]
 
     def build(
         self, settings: RetrievalJobSettings, payload: object
@@ -235,11 +217,7 @@ class RetrievalRegistry:
         built = spec.build(settings, payload)
         family = _payload_family(payload)
         for task in built.execution_tasks:
-            self.method_registry.validate_request(
-                settings.method,
-                task.method_request,
-                family,
-            )
+            self.validate_request(settings.method, task.method_request, family)
         return built
 
 
@@ -275,6 +253,7 @@ __all__ = [
     "RetrievalMethodId",
     "RetrievalProvenance",
     "RetrievalRegistry",
+    "RetrievalTaskFamily",
     "SeedRetrieverBuildPayload",
     "SeedRetrievalSettings",
 ]

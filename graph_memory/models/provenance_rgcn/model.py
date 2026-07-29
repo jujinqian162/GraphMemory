@@ -74,27 +74,29 @@ class ExecutionProvenanceRGCN(nn.Module):
             )
         )
         states = self.graph_encoder.forward(batch, initial)
-        query = states[tensor.query_node_index]
         candidates = states[tensor.candidate_node_indices]
-        query_rows = query.unsqueeze(0).expand_as(candidates)
+        candidate_queries = states[tensor.candidate_query_indices]
         candidate_logits = self.candidate_scorer(
-            torch.cat([candidates, query_rows, candidates * query_rows], dim=1)
+            torch.cat(
+                [
+                    candidates,
+                    candidate_queries,
+                    candidates * candidate_queries,
+                ],
+                dim=1,
+            )
         ).squeeze(-1)
-        if tensor.logical_transitions:
-            source_states = torch.stack(
-                [states[item.source_node_index] for item in tensor.logical_transitions]
-            )
-            target_states = torch.stack(
-                [states[item.target_node_index] for item in tensor.logical_transitions]
-            )
-            edge_query = query.unsqueeze(0).expand_as(source_states)
+        if tensor.transition_node_indices.shape[1] > 0:
+            source_states = states[tensor.transition_node_indices[0]]
+            target_states = states[tensor.transition_node_indices[1]]
+            edge_queries = states[tensor.transition_query_indices]
             edge_logits = self.edge_scorer(
                 torch.cat(
                     [
                         source_states,
                         target_states,
                         source_states * target_states,
-                        edge_query,
+                        edge_queries,
                     ],
                     dim=1,
                 )

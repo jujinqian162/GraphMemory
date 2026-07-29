@@ -6,19 +6,21 @@ from pathlib import Path
 from typing import cast
 
 from prefect import task
-from prefect.cache_policies import INPUTS, TASK_SOURCE
+from prefect.cache_policies import TASK_SOURCE
+from prefect.logging import get_run_logger
 from prefect.settings import (
     PREFECT_LOCAL_STORAGE_PATH,
     PREFECT_TASKS_REFRESH_CACHE,
     temporary_settings,
 )
 
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     DirectorySourceRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
+    FrozenEmbeddingsArtifactRef,
     ModelArtifactRef,
     PredictionsArtifactRef,
     ProcessedAssetStore,
@@ -28,6 +30,10 @@ from graph_memory.experiment.artifacts import (
     identify_external_source,
     identify_immutable_revision,
 )
+from graph_memory.datasets.twowiki_provenance import (
+    TWOWIKI_PROVENANCE_SCHEMA_VERSION,
+)
+from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
     DatasetName,
     DenseEncoderConfig,
@@ -39,8 +45,10 @@ from graph_memory.experiment.config import (
     RankingMethodConfig,
     RgcnTrainStageConfig,
     SplitName,
+    TwoWikiProvenanceTransformConfig,
 )
 from graph_memory.io import read_json
+from graph_memory.stages.encodings import materialize_frozen_rgcn_embeddings
 from graph_memory.stages.evaluate import materialize_evaluation
 from graph_memory.stages.graphs import materialize_evidence_graphs
 from graph_memory.stages.models import (
@@ -54,19 +62,27 @@ from graph_memory.stages.results import (
     BenchmarkResult,
     EvaluationResult,
     EvidenceGraphResult,
+    FrozenEmbeddingsResult,
     ModelResult,
     PreparedSplitResult,
     RankingResult,
     TrainingPairsResult,
 )
 from graph_memory.stages.retrieve import materialize_rankings, run_retrieve_stage
+from graph_memory.stages.transform import (
+    TwoWikiProvenanceTransformResult,
+    materialize_transform_twowiki,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_ROOT = REPOSITORY_ROOT / "data" / "processed"
+TWOWIKI_PROVENANCE_RAW_ROOT = (
+    REPOSITORY_ROOT / "data" / "twowiki_provenance" / "raw"
+)
 
 
-SCIENTIFIC_CACHE_POLICY = INPUTS + TASK_SOURCE
+SCIENTIFIC_CACHE_POLICY = ScientificInputs() + TASK_SOURCE
 SCIENTIFIC_RESULT_STORAGE = PROCESSED_ROOT / "prefect" / "results"
 
 
@@ -85,6 +101,42 @@ def processed_store() -> ProcessedAssetStore:
 
 
 @task(
+    name="transform-twowiki",
+    persist_result=True,
+    cache_policy=SCIENTIFIC_CACHE_POLICY,
+)
+def transform_twowiki_task(
+    train_source: FileSourceRef,
+    dev_source: FileSourceRef,
+    config: TwoWikiProvenanceTransformConfig,
+    encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef | None,
+    device: str,
+    split_seed: int,
+    schema_version: int = TWOWIKI_PROVENANCE_SCHEMA_VERSION,
+) -> TwoWikiProvenanceTransformResult:
+    get_run_logger().info(
+        "transform twowiki_provenance | edge_scorer=%s", config.edge_scorer
+    )
+    if encoder_source is None:
+        encoder_digest = None
+    elif isinstance(encoder_source, RevisionSourceRef):
+        encoder_digest = f"{encoder_source.uri}@{encoder_source.revision}"
+    else:
+        encoder_digest = encoder_source.digest
+    return materialize_transform_twowiki(
+        train_source=train_source,
+        dev_source=dev_source,
+        config=config,
+        schema_version=schema_version,
+        output_root=TWOWIKI_PROVENANCE_RAW_ROOT,
+        repository_root=REPOSITORY_ROOT,
+        encoder_digest=encoder_digest,
+        device=device,
+        split_seed=split_seed,
+    )
+
+
+@task(
     name="prepare-split",
     persist_result=True,
     cache_policy=SCIENTIFIC_CACHE_POLICY,
@@ -94,6 +146,12 @@ def prepare_split_task(
     config: PrepareSplitConfig,
     implementation_version: str = "prepare-v1",
 ) -> PreparedSplitResult:
+    get_run_logger().info(
+        "prepare split | dataset=%s split=%s count=%s",
+        config.dataset,
+        config.split,
+        config.count,
+    )
     return materialize_prepared_split(
         processed_store(),
         dataset=config.dataset,
@@ -119,6 +177,9 @@ def build_evidence_graphs_task(
     graph: GraphBuildConfig,
     implementation_version: str = "evidence-graphs-v1",
 ) -> EvidenceGraphResult:
+    get_run_logger().info(
+        "build evidence graphs | dataset=%s split=%s", dataset, split
+    )
     return materialize_evidence_graphs(
         processed_store(),
         dataset=dataset,
@@ -142,6 +203,7 @@ def build_training_pairs_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "training-pairs-v1",
 ) -> TrainingPairsResult:
+    get_run_logger().info("build training pairs | dataset=%s", dataset)
     return materialize_training_pairs(
         processed_store(),
         dataset=dataset,
@@ -149,6 +211,48 @@ def build_training_pairs_task(
         evidence_graphs=evidence_graphs,
         config=config,
         encoder_source=encoder_source,
+        implementation_version=implementation_version,
+    )
+
+
+@task(
+    name="encode-frozen-rgcn-embeddings",
+    persist_result=True,
+    cache_policy=SCIENTIFIC_CACHE_POLICY,
+)
+def encode_frozen_rgcn_embeddings_task(
+    train_prepared: DatasetArtifactRef,
+    dev_prepared: DatasetArtifactRef,
+    train_graphs: EvidenceGraphArtifactRef | None,
+    dev_graphs: EvidenceGraphArtifactRef | None,
+    seed_model: ModelArtifactRef | None,
+    dataset: DatasetName,
+    encoder: DenseEncoderConfig,
+    encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
+    enable_gpupool: bool,
+    device: str,
+    chunk_size: int,
+    implementation_version: str = "frozen-rgcn-embeddings-v1",
+) -> FrozenEmbeddingsResult:
+    get_run_logger().info(
+        "encode frozen R-GCN embeddings | dataset=%s device=%s gpupool=%s",
+        dataset,
+        device,
+        enable_gpupool,
+    )
+    return materialize_frozen_rgcn_embeddings(
+        processed_store(),
+        dataset=dataset,
+        encoder=encoder,
+        encoder_source=encoder_source,
+        train_prepared=train_prepared,
+        dev_prepared=dev_prepared,
+        train_graphs=train_graphs,
+        dev_graphs=dev_graphs,
+        seed_model=seed_model,
+        enable_gpupool=enable_gpupool,
+        device=device,
+        chunk_size=chunk_size,
         implementation_version=implementation_version,
     )
 
@@ -167,6 +271,9 @@ def train_dense_ft_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "dense-ft-train-v1",
 ) -> ModelResult:
+    get_run_logger().info(
+        "train dense-ft | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
+    )
     return materialize_dense_finetune_model(
         processed_store(),
         dataset=dataset,
@@ -194,8 +301,12 @@ def train_evidence_rgcn_task(
     dataset: DatasetName,
     config: RgcnTrainStageConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
-    implementation_version: str = "evidence-rgcn-train-v1",
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
+    implementation_version: str = "evidence-rgcn-train-v2-preencoded",
 ) -> ModelResult:
+    get_run_logger().info(
+        "train evidence-rgcn | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
+    )
     return materialize_evidence_rgcn_model(
         processed_store(),
         dataset=dataset,
@@ -207,6 +318,7 @@ def train_evidence_rgcn_task(
         dev_graphs=dev_graphs,
         encoder_source=encoder_source,
         seed_model=seed_model,
+        frozen_embeddings=frozen_embeddings,
         implementation_version=implementation_version,
     )
 
@@ -223,8 +335,12 @@ def train_provenance_rgcn_task(
     dataset: DatasetName,
     config: ProvenanceRgcnStageConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
-    implementation_version: str = "provenance-rgcn-train-v1",
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
+    implementation_version: str = "provenance-rgcn-train-v2-preencoded",
 ) -> ModelResult:
+    get_run_logger().info(
+        "train provenance-rgcn | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
+    )
     return materialize_provenance_rgcn_model(
         processed_store(),
         dataset=dataset,
@@ -233,6 +349,7 @@ def train_provenance_rgcn_task(
         train_pairs=train_pairs,
         dev_prepared=dev_prepared,
         encoder_source=encoder_source,
+        frozen_embeddings=frozen_embeddings,
         implementation_version=implementation_version,
     )
 
@@ -253,6 +370,12 @@ def generate_rankings_task(
     device: str,
     implementation_version: str = "ranking-v2-device-aware",
 ) -> RankingResult:
+    get_run_logger().info(
+        "generate rankings | dataset=%s method=%s top_k=%s",
+        dataset,
+        method.method,
+        top_k,
+    )
     return materialize_rankings(
         processed_store(),
         dataset=dataset,
@@ -281,6 +404,7 @@ def evaluate_rankings_task(
     failure_case_limit: int,
     implementation_version: str = "evaluation-v1",
 ) -> EvaluationResult:
+    get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(
         processed_store(),
         dataset=dataset,
@@ -309,6 +433,12 @@ def benchmark_retrieval_task(
     warmup: int,
     repetitions: int,
 ) -> BenchmarkResult:
+    get_run_logger().info(
+        "benchmark retrieval | dataset=%s warmup=%s repetitions=%s",
+        dataset,
+        warmup,
+        repetitions,
+    )
     task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
     graph_values = (
         cast(
@@ -377,6 +507,7 @@ __all__ = [
     "benchmark_retrieval_task",
     "build_evidence_graphs_task",
     "build_training_pairs_task",
+    "encode_frozen_rgcn_embeddings_task",
     "evaluate_rankings_task",
     "generate_rankings_task",
     "prepare_split_task",
@@ -386,4 +517,5 @@ __all__ = [
     "train_dense_ft_task",
     "train_evidence_rgcn_task",
     "train_provenance_rgcn_task",
+    "transform_twowiki_task",
 ]

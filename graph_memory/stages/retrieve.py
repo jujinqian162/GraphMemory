@@ -6,14 +6,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.selection import (
     execution_provenance_requests_for_dataset,
     text_ranking_requests_for_dataset,
-    validate_ranking_records_for_dataset,
 )
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.experiment.artifacts import (
@@ -57,22 +56,21 @@ from graph_memory.registry.retrieval import (
     ProvenanceRgcnRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
+    RetrievalTaskFamily,
 )
-from graph_memory.registry.semantics import RetrievalTaskFamily
 from graph_memory.retrieval.execution.service import run_retrieval
-from graph_memory.retrieval.methods.execution_provenance import (
-    ExecutionProvenanceConfig,
+from graph_memory.retrieval.methods.epgm import (
+    EpgmRetrieverConfig,
 )
-from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextRankingRequest,
 )
 from graph_memory.stages.results import RankingResult
-from graph_memory.validation import validate_ranked_results
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
+EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
 
 
 @dataclass(frozen=True)
@@ -126,7 +124,6 @@ def run_retrieve_stage(
         tasks=built.execution_tasks,
         top_k=top_k,
     )
-    validate_ranked_results(predictions, text_requests)
     return RetrieveStageResult(predictions=predictions, provenance=built.provenance)
 
 
@@ -143,12 +140,11 @@ def materialize_rankings(
     device: str,
     implementation_version: str,
 ) -> RankingResult:
+    # Prepared tasks already passed dataset validation at materialize_prepared_split.
     task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
-    validate_ranking_records_for_dataset(dataset, task_inputs)
     graph_values = (
-        cast(
-            list[EvidenceGraph],
-            read_json(artifact_payload_path(evidence_graphs, "graphs")),
+        EVIDENCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(evidence_graphs, "graphs"))
         )
         if evidence_graphs is not None
         else []
@@ -187,7 +183,13 @@ def materialize_rankings(
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        write_json(publisher.workspace / "predictions.json", result.predictions)
+        write_json(
+            publisher.workspace / "predictions.json",
+            [
+                prediction.model_dump(mode="json", exclude_none=True)
+                for prediction in result.predictions
+            ],
+        )
         write_json(publisher.workspace / "provenance.json", provenance)
         artifact = publisher.publish(
             {
@@ -274,33 +276,14 @@ def _retrieval_settings(
         return GraphRAGRetrievalSettings(
             top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
-            config=GraphRAGConfig(
-                seed_top_s=method.seed_top_s,
-                max_entity_document_frequency_ratio=(
-                    method.max_entity_document_frequency_ratio
-                ),
-                sentence_resolver=method.sentence_resolver,
-                min_sentence_score_margin=method.min_sentence_score_margin,
-                min_bridge_confidence=method.min_bridge_confidence,
-                max_partners_per_anchor=method.max_partners_per_anchor,
-                preserve_dense_top_n=method.preserve_dense_top_n,
-            ),
+            config=method,
             device=device,
         )
     if isinstance(method, ExecutionProvenanceMethodConfig):
         return ExecutionProvenanceRetrievalSettings(
             top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
-            config=ExecutionProvenanceConfig(
-                seed_top_s=method.seed_top_s,
-                beam_width=method.beam_width,
-                max_hops=method.max_hops,
-                max_paths_per_seed=method.max_paths_per_seed,
-                max_path_expansions=method.max_path_expansions,
-                min_path_confidence=method.min_path_confidence,
-                preserve_dense_top_n=method.preserve_dense_top_n,
-                hop_penalty=method.hop_penalty,
-            ),
+            config=EpgmRetrieverConfig.for_variant(method.variant),
             device=device,
         )
     if isinstance(method, TrainableRankingConfig):
@@ -327,6 +310,7 @@ def _retrieval_settings(
             top_k=top_k,
             checkpoint=_model_payload(model, "checkpoint"),
             device=device,
+            variant=method.variant or "full_rgcn",
         )
     raise TypeError(f"unsupported method config={type(method).__name__}")
 

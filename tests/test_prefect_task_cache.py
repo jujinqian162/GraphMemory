@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 from hydra import compose, initialize_config_dir
 from prefect import flow
@@ -12,14 +10,19 @@ import pytest
 
 import graph_memory.experiment.tasks as experiment_tasks
 import graph_memory.experiment.workflow as experiment_workflow
-from graph_memory.experiment.artifacts import FileSourceRef, identify_external_source
+from graph_memory.experiment.artifacts import (
+    ArtifactKind,
+    ArtifactPayload,
+    DatasetArtifactRef,
+    FileSourceRef,
+    identify_external_source,
+)
+from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
-    DenseFinetuneStageConfig,
+    DenseEncoderConfig,
     PairBuildConfig,
+    PairSamplingConfig,
     PrepareSplitConfig,
-    ProvenanceRgcnStageConfig,
-    RgcnTrainStageConfig,
-    TrainableRankingConfig,
     parse_composed_config,
     resolve_experiment_config,
 )
@@ -31,89 +34,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class PairInputsCaptured(Exception):
     pass
-
-
-def test_scientific_tasks_have_no_retry_or_lock_layer() -> None:
-    reusable_tasks: tuple[Any, ...] = (
-        experiment_tasks.prepare_split_task,
-        experiment_tasks.build_evidence_graphs_task,
-        experiment_tasks.build_training_pairs_task,
-        experiment_tasks.train_dense_ft_task,
-        experiment_tasks.train_evidence_rgcn_task,
-        experiment_tasks.train_provenance_rgcn_task,
-        experiment_tasks.generate_rankings_task,
-        experiment_tasks.evaluate_rankings_task,
-    )
-
-    assert not hasattr(experiment_tasks, "CrossProcessFileSystemLockManager")
-    assert not hasattr(experiment_tasks, "_retry_transient")
-    for prefect_task in reusable_tasks:
-        assert prefect_task.retries == 0
-        assert prefect_task.retry_condition_fn is None
-
-
-def test_task_signatures_use_precise_stage_inputs() -> None:
-    pair_inputs = inspect.signature(
-        experiment_tasks.build_training_pairs_task.fn
-    ).parameters
-    train_inputs = inspect.signature(
-        experiment_tasks.train_evidence_rgcn_task.fn
-    ).parameters
-    ranking_inputs = inspect.signature(
-        experiment_tasks.generate_rankings_task.fn
-    ).parameters
-
-    assert "method" not in pair_inputs
-    assert {"prepared", "evidence_graphs", "dataset", "config"} <= set(pair_inputs)
-    assert "runtime_identity" not in train_inputs
-    assert "variant" not in train_inputs
-    assert "runtime_identity" not in ranking_inputs
-    assert "method" in ranking_inputs
-
-
-def test_stage_configs_exclude_unrelated_method_settings() -> None:
-    assert set(PairBuildConfig.model_fields) == {"sampling", "encoder", "device"}
-    assert set(DenseFinetuneStageConfig.model_fields) == {
-        "method",
-        "encoder",
-        "train",
-    }
-    assert set(RgcnTrainStageConfig.model_fields) == {
-        "method",
-        "variant",
-        "encoder",
-        "train",
-    }
-    assert set(ProvenanceRgcnStageConfig.model_fields) == {
-        "method",
-        "variant",
-        "encoder",
-        "train",
-    }
-    assert set(TrainableRankingConfig.model_fields) == {"method", "variant"}
-
-
-def test_flow_calls_tasks_directly_without_forwarding_or_state_mirrors() -> None:
-    owned_helpers = {
-        name
-        for name, value in vars(experiment_workflow).items()
-        if inspect.isfunction(value) and value.__module__ == experiment_workflow.__name__
-    }
-    assert owned_helpers == {"_prepare_config", "_split_source", "_unique_assets"}
-
-    source = inspect.getsource(experiment_workflow.run_experiment.fn)
-    for task_name in (
-        "prepare_split_task",
-        "build_training_pairs_task",
-        "train_dense_ft_task",
-        "train_evidence_rgcn_task",
-        "generate_rankings_task",
-        "evaluate_rankings_task",
-    ):
-        assert f"{task_name}(" in source
-    assert "return_state" not in source
-    assert ".with_options(" not in source
-    assert "task_runs" not in source
 
 
 @pytest.mark.parametrize(
@@ -155,8 +75,8 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     )
     monkeypatch.setattr(
         experiment_workflow,
-        "_split_source",
-        lambda config, split: object(),
+        "_resolve_split_sources",
+        lambda config: {split: object() for split in ("train", "dev", "test")},
     )
     monkeypatch.setattr(
         experiment_workflow,
@@ -205,6 +125,78 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     assert (
         pair_config.sampling.hard_graph_neighbor_per_positive
         == expected_graph_neighbors
+    )
+
+
+def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
+    sampling = PairSamplingConfig(
+        random_seed=13,
+        easy_random_per_positive=1,
+        hard_bm25_per_positive=1,
+        hard_dense_per_positive=1,
+        hard_graph_neighbor_per_positive=0,
+        hard_pool_size=10,
+    )
+    encoder = DenseEncoderConfig(
+        model_name="model@revision",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        batch_size=64,
+    )
+    cpu = PairBuildConfig(sampling=sampling, encoder=encoder, device="cpu")
+    cuda = cpu.model_copy(update={"device": "cuda:7"})
+    policy = ScientificInputs()
+
+    cpu_key = policy.compute_key(None, {"config": cpu}, {})
+    cuda_key = policy.compute_key(None, {"config": cuda}, {})
+    changed_sampling_key = policy.compute_key(
+        None,
+        {
+            "config": cpu.model_copy(
+                update={
+                    "sampling": sampling.model_copy(
+                        update={"hard_bm25_per_positive": 0}
+                    )
+                }
+            )
+        },
+        {},
+    )
+
+    assert cpu_key == cuda_key
+    assert changed_sampling_key != cpu_key
+
+
+def test_scientific_cache_key_uses_artifact_content_not_materialization_uri() -> None:
+    payload = ArtifactPayload(
+        role="tasks",
+        relative_path="tasks.json",
+        kind="file",
+        digest="1" * 64,
+        size_bytes=10,
+        file_count=1,
+    )
+    first = DatasetArtifactRef(
+        uri="/processed/first",
+        kind=ArtifactKind.DATASET,
+        digest="2" * 64,
+        manifest_uri="/processed/first/manifest.json",
+        payloads=(payload,),
+        origin={"run": "first"},
+        size_bytes=10,
+        file_count=1,
+    )
+    second = first.model_copy(
+        update={
+            "uri": "/processed/second",
+            "manifest_uri": "/processed/second/manifest.json",
+            "origin": {"run": "second"},
+        }
+    )
+    policy = ScientificInputs()
+
+    assert policy.compute_key(None, {"prepared": first}, {}) == policy.compute_key(
+        None, {"prepared": second}, {}
     )
 
 

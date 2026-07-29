@@ -6,10 +6,8 @@ from typing import Protocol
 import torch
 from torch import Tensor, nn
 
-from graph_memory.models.graph_retriever.internals.contracts import (
-    GraphBatch,
-    TrainingBatch,
-)
+from graph_memory.models.graph_batching import GraphBatch
+from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
 
 
 class GraphEncoder(Protocol):

@@ -6,7 +6,9 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from graph_memory.contracts.common import TrainPairSampleType
-from graph_memory.contracts.graphs import EvidenceGraph
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.graphs.provenance import ExecutionProvenanceGraph, ProvenanceEdgeType
 from graph_memory.retrieval.bulk import task_groups
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -113,14 +115,79 @@ class GraphNeighborNegativeSampler:
             )
         non_gold_node_id_set = set(context.non_gold_node_ids)
         candidates: list[str] = []
-        for edge in context.graph["edges"]:
-            source = edge["source"]
-            target = edge["target"]
+        for edge in context.graph.edges:
+            source = edge.source
+            target = edge.target
             if source in context.gold_node_ids and target in non_gold_node_id_set:
                 candidates.append(target)
             if target in context.gold_node_ids and source in non_gold_node_id_set:
                 candidates.append(source)
         return _deduplicate_preserve_order(candidates)[:desired_count]
+
+
+@dataclass(frozen=True)
+class ProvenanceSuccessorNegativeSampler:
+    sample_type: TrainPairSampleType = "hard_provenance_successor"
+
+    def sample(
+        self,
+        graph: ExecutionProvenanceGraph,
+        label: EvidenceLabel,
+        desired_count: int,
+    ) -> list[str]:
+        if desired_count <= 0:
+            return []
+        gold_ids = set(label.gold_evidence_item_ids)
+        transitions = _logical_provenance_transitions(graph)
+        candidates = {
+            target
+            for gold_source, gold_target in label.gold_dependency_edges
+            for source, target in transitions
+            if source == gold_source
+            and target != gold_target
+            and target not in gold_ids
+        }
+        return sorted(candidates)[:desired_count]
+
+
+@dataclass(frozen=True)
+class ProvenancePredecessorNegativeSampler:
+    sample_type: TrainPairSampleType = "hard_provenance_predecessor"
+
+    def sample(
+        self,
+        graph: ExecutionProvenanceGraph,
+        label: EvidenceLabel,
+        desired_count: int,
+    ) -> list[str]:
+        if desired_count <= 0:
+            return []
+        gold_ids = set(label.gold_evidence_item_ids)
+        transitions = _logical_provenance_transitions(graph)
+        candidates = {
+            source
+            for gold_source, gold_target in label.gold_dependency_edges
+            for source, target in transitions
+            if target == gold_target
+            and source != gold_source
+            and source not in gold_ids
+        }
+        return sorted(candidates)[:desired_count]
+
+
+def _logical_provenance_transitions(
+    graph: ExecutionProvenanceGraph,
+) -> set[tuple[str, str]]:
+    outputs_by_call: dict[str, set[str]] = {}
+    for edge in graph.edges:
+        if edge.edge_type is ProvenanceEdgeType.RETURNS:
+            outputs_by_call.setdefault(edge.source, set()).add(edge.target)
+    return {
+        (edge.source, output)
+        for edge in graph.edges
+        if edge.edge_type is ProvenanceEdgeType.FEEDS
+        for output in outputs_by_call.get(edge.target, set())
+    }
 
 
 def _hard_retriever_negatives(

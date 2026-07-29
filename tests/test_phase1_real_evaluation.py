@@ -1,64 +1,72 @@
 import pytest
-from typing import cast
 
 from graph_memory.evaluation.connectivity import (
     connected_evidence_at,
     query_evidence_connectivity_at,
 )
-from graph_memory.evaluation.metrics import (
-    evidence_f1_at,
-    full_support_at,
-    mrr,
-    recall_at,
-)
+from graph_memory.evaluation.metrics import full_support_at
 from graph_memory.evaluation.service import (
     evaluate_results,
 )
-from graph_memory.contracts.graphs import EvidenceGraph
-from graph_memory.contracts.ranking import RankedResult
+from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.hotpotqa.records import HotpotQALabelRecord
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.validation import ContractValidationError
+from graph_memory.evaluation.tables import split_metric_tables
 
 
 def _evidence_labels(labels: list[HotpotQALabelRecord]) -> list[EvidenceLabel]:
     return [
         EvidenceLabel(
-            task_id=label["task_id"],
-            gold_answer=label["gold_answer"],
-            gold_evidence_item_ids=tuple(label["gold_evidence_sentence_ids"]),
-            gold_dependency_edges=tuple(
-                (edge[0], edge[1]) for edge in label["gold_dependency_edges"]
-            ),
+            task_id=record.task_id,
+            gold_answer=record.gold_answer,
+            gold_evidence_item_ids=record.gold_evidence_sentence_ids,
+            gold_dependency_edges=record.gold_dependency_edges,
         )
         for label in labels
+        for record in (HotpotQALabelRecord.model_validate(label),)
     ]
 
 
-def test_node_metrics_use_ranked_nodes_and_gold_nodes():
-    ranked = ["m2", "m0", "m1"]
-    gold = {"m0", "m1"}
-
-    assert recall_at(ranked, gold, 2) == 0.5
-    assert evidence_f1_at(ranked, gold, 2) == 0.5
-    assert full_support_at(ranked, gold, 2) == 0.0
-    assert full_support_at(ranked, gold, 3) == 1.0
-    assert mrr(ranked, gold) == 0.5
+def _graph(*edges: object) -> EvidenceGraph:
+    return EvidenceGraph.model_validate({
+        "task_id": "hotpot_ex1",
+        "nodes": [
+            {"id": "q", "node_type": "question", "text": "question"},
+            {
+                "id": "m0",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": "zero",
+            },
+            {
+                "id": "m1",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": "one",
+            },
+            {
+                "id": "m2",
+                "node_type": "graph_item",
+                "node_kind": "document_sentence",
+                "text": "two",
+            },
+        ],
+        "edges": list(edges),
+    })
 
 
 def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
     ranked = ["m0", "m2", "m1"]
     gold = {"m0", "m2"}
-    graph = cast(
-        EvidenceGraph,
-        cast(
-            object,
-            {
-                "task_id": "hotpot_ex1",
-                "nodes": [],
-                "edges": [{"source": "m0", "target": "m2", "edge_type": "bridge"}],
-            },
-        ),
+    graph = _graph(
+        {
+            "source": "m0",
+            "target": "m2",
+            "edge_type": "bridge",
+            "weight": 1.0,
+            "directed": False,
+        }
     )
 
     assert full_support_at(ranked, gold, 2) == 1.0
@@ -68,37 +76,29 @@ def test_full_support_and_connected_evidence_use_top_k_nodes_on_shared_graph():
 def test_query_evidence_connectivity_requires_reachability_from_question():
     ranked = ["m0", "m2", "m1"]
     gold = {"m0", "m2"}
-    graph = cast(
-        EvidenceGraph,
-        cast(
-            object,
-            {
-                "task_id": "hotpot_ex1",
-                "nodes": [],
-                "edges": [
-                    {
-                        "source": "q",
-                        "target": "m0",
-                        "edge_type": "query_overlap",
-                        "directed": True,
-                    },
-                    {
-                        "source": "m0",
-                        "target": "m2",
-                        "edge_type": "bridge",
-                        "directed": False,
-                    },
-                ],
-            },
-        ),
+    graph = _graph(
+        {
+            "source": "q",
+            "target": "m0",
+            "edge_type": "query_overlap",
+            "weight": 1.0,
+            "directed": True,
+        },
+        {
+            "source": "m0",
+            "target": "m2",
+            "edge_type": "bridge",
+            "weight": 1.0,
+            "directed": False,
+        },
     )
 
     assert query_evidence_connectivity_at(ranked, gold, graph, 10) == 1.0
 
 
 def test_evaluate_results_joins_predictions_labels_and_graphs():
-    predictions: list[RankedResult] = [
-        {
+    predictions = [
+        RankedResult.model_validate({
             "task_id": "hotpot_ex1",
             "method": "bm25",
             "ranked_nodes": [
@@ -109,52 +109,47 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "retrieved_subgraph": {"nodes": ["m0", "m2"], "edges": []},
             "latency_ms": 4.0,
             "input_tokens": 10,
-        }
+        })
     ]
-    labels: list[HotpotQALabelRecord] = [
-        {
+    labels = [
+        HotpotQALabelRecord.model_validate({
             "task_id": "hotpot_ex1",
             "gold_answer": "Paris",
             "gold_evidence_sentence_ids": ["m0", "m2"],
             "gold_dependency_edges": [],
-        }
+        })
     ]
-    graphs = cast(
-        list[EvidenceGraph],
-        cast(
-            object,
-            [
-                {
-                    "task_id": "hotpot_ex1",
-                    "nodes": [{"id": "q"}, {"id": "m0"}, {"id": "m1"}, {"id": "m2"}],
-                    "edges": [
-                        {
-                            "source": "q",
-                            "target": "m0",
-                            "edge_type": "query_overlap",
-                            "directed": True,
-                        },
-                        {
-                            "source": "m0",
-                            "target": "m2",
-                            "edge_type": "bridge",
-                            "directed": False,
-                        },
-                    ],
-                }
-            ],
-        ),
-    )
+    graphs = [
+        _graph(
+            {
+                "source": "q",
+                "target": "m0",
+                "edge_type": "query_overlap",
+                "weight": 1.0,
+                "directed": True,
+            },
+            {
+                "source": "m0",
+                "target": "m2",
+                "edge_type": "bridge",
+                "weight": 1.0,
+                "directed": False,
+            },
+        )
+    ]
 
     rows = evaluate_results(
         EvidenceEvaluationRequest(
-            predictions=predictions, labels=_evidence_labels(labels), graphs=graphs
+            predictions=tuple(predictions),
+            labels=tuple(_evidence_labels(labels)),
+            graphs=tuple(graphs)
         )
     )
 
-    assert rows == [
+    assert [row.model_dump(mode="json", by_alias=True) for row in rows] == [
         {
             "Method": "bm25",
+            "Evaluation Schema": "evidence_v3",
             "Recall@2": 1.0,
             "Recall@5": 1.0,
             "Recall@10": 1.0,
@@ -168,6 +163,9 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "Query-Evidence Connectivity@10": 1.0,
             "Path Recall@10": "N/A",
             "Edge Recall@10": "N/A",
+            "Edge Precision@10": "N/A",
+            "Edge F1@10": "N/A",
+            "Abstention Rate": "N/A",
             "Retrieval Latency / Query": 4.0,
             "Index Build Time": 0.0,
             "Graph Construction Time": 0.0,
@@ -176,32 +174,37 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "Avg Retrieved Edges": 0.0,
         }
     ]
+    legacy = rows[0].model_copy(update={"evaluation_schema": "evidence_v2"})
+    with pytest.raises(ValueError, match="mixed evaluation schemas"):
+        split_metric_tables([rows[0], legacy])
 
 
 def test_evaluate_results_rejects_task_id_mismatch():
-    predictions: list[RankedResult] = [
-        {
+    predictions = [
+        RankedResult.model_validate({
             "task_id": "hotpot_ex1",
             "method": "bm25",
             "ranked_nodes": [],
             "retrieved_subgraph": {"nodes": [], "edges": []},
             "latency_ms": 0.0,
             "input_tokens": 0,
-        }
+        })
     ]
-    labels: list[HotpotQALabelRecord] = [
-        {
+    labels = [
+        HotpotQALabelRecord.model_validate({
             "task_id": "hotpot_other",
-            "gold_answer": "",
+            "gold_answer": "unknown",
             "gold_evidence_sentence_ids": ["m0"],
             "gold_dependency_edges": [],
-        }
+        })
     ]
-    graphs: list[EvidenceGraph] = [{"task_id": "hotpot_ex1", "nodes": [], "edges": []}]
+    graphs = [_graph()]
 
-    with pytest.raises(ContractValidationError, match="task_id"):
+    with pytest.raises(ValueError, match="must align"):
         evaluate_results(
             EvidenceEvaluationRequest(
-                predictions=predictions, labels=_evidence_labels(labels), graphs=graphs
+                predictions=tuple(predictions),
+            labels=tuple(_evidence_labels(labels)),
+            graphs=tuple(graphs)
             )
         )

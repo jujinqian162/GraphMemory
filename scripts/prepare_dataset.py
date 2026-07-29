@@ -70,7 +70,44 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
                 num_bytes=46320117,
             ),
         ),
-    )
+    ),
+    "2wiki": DatasetSpec(
+        dataset="2wiki",
+        display_name="2WikiMultiHopQA",
+        files=(
+            DatasetFile(
+                split="train",
+                filename="train.json",
+                url="https://huggingface.co/datasets/voidful/2WikiMultihopQA/resolve/main/train.json",
+            ),
+            DatasetFile(
+                split="dev",
+                filename="dev.json",
+                url="https://huggingface.co/datasets/voidful/2WikiMultihopQA/resolve/main/dev.json",
+            ),
+            DatasetFile(
+                split="test",
+                filename="test.json",
+                url="https://huggingface.co/datasets/voidful/2WikiMultihopQA/resolve/main/test.json",
+            ),
+        ),
+    ),
+    "musique": DatasetSpec(
+        dataset="musique",
+        display_name="MuSiQue-Ans v1.0",
+        files=(
+            DatasetFile(
+                split="train",
+                filename="musique_ans_v1.0_train.jsonl",
+                url="https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/main/musique_ans_v1.0_train.jsonl",
+            ),
+            DatasetFile(
+                split="dev",
+                filename="musique_ans_v1.0_dev.jsonl",
+                url="https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/main/musique_ans_v1.0_dev.jsonl",
+            ),
+        ),
+    ),
 }
 
 

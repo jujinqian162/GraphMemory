@@ -8,16 +8,27 @@
 图编码能否在启发式图重排和任务内微调的稠密检索之上，进一步改善
 证据路径恢复。\emph{RQ3} 考察执行级溯源结构能否提高模拟智能体轨迹中
 完整依赖集合的恢复率，以及这种提升主要来自图消息传递、关系类型、
-边权重还是困难负样本。
+边权重、困难负样本监督还是推理阶段的结构化重排。
 
 \paragraph{数据集与划分。}
 证据路径实验使用 HotpotQA、2WikiMultiHopQA 和 MuSiQue。对于每个
 数据集，我们保留其训练集，取带标签开发集的前 500 个样本进行模型
 选择，并将其余开发样本留作最终测试。我们还由 2WikiMultiHopQA 构造
-了一个受控的执行溯源基准：将两条可恢复的支持事实映射为带类型的
-工具调用、工具输出和数据流依赖，同时加入结构相似的非 gold 分支。
-该基准用于隔离执行依赖对检索的作用，但不能替代自然产生的多智能体
-执行轨迹。表~\ref{tab:data} 给出各划分规模。
+了一个受控的执行溯源基准：将每一对可恢复且有序的支持事实映射为带类型的
+工具调用、工具输出和一条输出依赖。转换器每个 task 最多保留 32 个候选输出，
+固定使用 BM25/dense 等权的 hybrid 后继打分器，并根据“问题 + 来源证据”对
+所有非自身候选排序。对每个来源输出，schema v3 固定构造两条普通
+\texttt{feeds} 后继：一个语义排序第 1 的 head，以及一个从 near（第 2--4
+名）、mid（第 5--8 名）或 tail（第 9 名以后）桶中确定性选择的分支。必需
+依赖以普通 head 或 branch 的形式写入；若 gold 边不是 head，还必须存在同
+rank bucket 的非 gold 分支，否则样本被拒绝，且任何 gold 专用字段都不会
+进入排序输入。来源内置信度以温度 0.1 做 softmax 归一化，再映射为
+$0.5+0.5p$，因此两条 \texttt{feeds} 边权之和固定为 1.5。
+该标签条件化基准用于检验模型能否在匹配干扰项中找回隐藏的必需路径，但不能
+替代自然产生的多智能体执行轨迹。表~\ref{tab:data} 给出各划分规模。历史
+主对比使用 500 个样本进行模型选择；当前 provenance R-GCN v2 消融使用完整
+的 2,850 条生成开发集。两者共享 2,851 条留出测试集，但不属于同一次训练，
+不能混作一批结果。
 
 \begin{table*}[t]
 \centering
@@ -31,7 +42,7 @@
 HotpotQA & 90,025 & 500 & 6,869 & 10 & 证据集合与连通性 \\
 2WikiMultiHopQA & 167,454 & 500 & 12,076 & 10 & 证据集合与依赖路径 \\
 MuSiQue & 19,938 & 500 & 1,917 & 10 & 证据集合与多跳路径 \\
-合成 2Wiki 执行溯源 & 74,012 & 500 & 2,851 & 10 & 工具输出与执行依赖 \\
+合成 2Wiki 执行溯源 & 74,012 & 500 / 2,850 & 2,851 & 10 & 工具输出与执行依赖 \\
 \hline
 \end{tabular}
 \end{table*}
@@ -53,28 +64,35 @@ PageRank，再将实体分数投影回候选证据。该方法借鉴 FastGraphRA
 GraphRAG 复现。\textbf{EPGM} 在类型化执行溯源图上进行有界搜索，
 将语义相关性、依赖完整性、字段绑定和 grounding 组合为路径分数，
 不进行任务特定的参数训练。\textbf{EPGM R-GCN} 是其可训练的关系感知
-版本：它对预训练稠密节点表示执行三层关系特定的消息传递，对
-\texttt{ToolOutput} 候选排序，并联合预测逻辑上的输出间依赖边。
-Dense-FT 训练 1 个 epoch；EPGM R-GCN 训练 15 个 epoch，并按开发集
-联合分数（50\% Full Support@5、25\% MRR、25\% Edge F1@10）选择检查点；
-二者均使用随机种子 13。
+版本：当前 provenance 配置以冻结的 E5-base-v2 节点表示为输入，执行三层
+关系特定的消息传递，对 \texttt{ToolOutput} 候选排序，并联合预测逻辑上的
+输出间依赖边。Dense-FT 训练 1 个 epoch；当前 EPGM R-GCN 训练 15 个
+epoch，并在完整的 2,850 条开发集上按
+$0.50\,\mathrm{FS@5}+0.25\,\mathrm{MRR}+0.25\,\mathrm{EdgeF1@10}$
+选择检查点；并列时依次比较 FS@5、Edge F1@10、MRR，最后选择更早的
+epoch。报告的单种子运行均使用随机种子 13。
 
 \paragraph{评测指标。}
 Recall@$k$ 衡量前 $k$ 个结果覆盖 gold evidence 的比例；Full
 Support@$k$ 仅在全部 gold evidence 均进入前 $k$ 时记为 1，因此直接
 衡量完整支持集合是否被找回。MRR 衡量第一个 gold evidence 的排名。
 Connected Evidence Recall 衡量检索证据在诱导子图中是否保持连通；
-Path Recall@10 衡量检索子图是否包含连接 gold evidence 的有效路径；
-Edge Recall@10 衡量 gold dependency edge 的直接恢复比例。HotpotQA
-不提供有方向的 gold dependency path，因此只报告连通性而不报告路径
-与边召回。路径列中的破折号表示该方法不返回溯源子图，因而指标未定义，
-而不是取值为零。为进一步区分“平均找回部分证据”和“完整找回整条
+Path Recall@10 是逐查询二值指标：仅当全部 gold 端点进入 top-10，且返回
+子图中每条有向 gold dependency 都可达时取 1。Edge Recall@10 衡量 gold
+dependency edge 的直接恢复比例；Edge Precision@10 与 Edge F1@10 则在
+全测试集上按 predicted/gold dependency 做 micro 聚合，且预测边两端必须
+位于 top-10。Abstention rate 表示进入候选 top-5 的来源输出经过 pool、
+阈值与冲突过滤后未产生可接受依赖的比例。平均返回边数统计公开的逻辑
+输出间边，而不是每条路径对应的两条原生 \texttt{feeds}/\texttt{returns}
+边。HotpotQA 不提供有方向的 gold dependency path，因此只报告连通性，
+不报告路径和边指标。路径列中的破折号表示该方法不返回溯源子图，因而指标
+未定义，而不是取值为零。为进一步区分“平均找回部分证据”和“完整找回整条
 支持链”，我们还使用完整性差距
 $\Delta_{\mathrm{comp}}@k=\mathrm{Recall}@k-\mathrm{Full\ Support}@k$
 作为诊断量。该差距越小，表示普通召回中由只命中部分 gold evidence
 造成的虚高越少；它用于解释既有指标，而不是新增的主评测指标。
 
-\subsection{证据路径检索 (RQ1 与 RQ2)}
+\subsection{证据路径检索}
 
 \paragraph{图编码在三个数据集上均提高了完整支持恢复率。}
 表~\ref{tab:hotpot} 给出 HotpotQA 结果。Dense-FT R-GCN 在所有报告
@@ -172,8 +190,7 @@ Recall@10 相差不到 1 个百分点，但 Full Support@5 相差超过 10 个
 把同一推理链上的成员共同放入 top-$k$ 上下文。启发式图重排也会改善
 部分指标，但跨数据集稳定性弱于学习得到的关系感知传播。
 
-为进一步定位关系感知传播中各结构成分的作用（RQ2），我们在同一
-2WikiMultiHopQA 测试集上对常规证据图 R-GCN 做组件消融。
+\subsection{常规证据图消融}
 
 \paragraph{常规证据图中的桥接边主要决定路径恢复。}
 我们在同一 12,076 样本的 2WikiMultiHopQA 测试集上分别消融两种
@@ -220,36 +237,35 @@ Recall@10 分别下降 3.77 和 4.88 个百分点。
 在两种编码器之间稳定复现，因此只将其视为仍需多随机种子验证的调参
 选择，而不是已经独立成立的贡献。
 
-\subsection{模拟智能体轨迹检索 (RQ3)}
+\subsection{模拟智能体轨迹检索}
 
 \paragraph{执行结构主要提高完整依赖集合的恢复率。}
 表~\ref{tab:provenance} 比较稀疏检索、稠密检索、轻量实体图传播、
 无训练的执行溯源搜索和可训练的执行溯源编码。在不进行任务特定训练时，
-EPGM 相较 Dense 将 Full Support@5 与 Full Support@10 分别提高 11.12
-和 6.31 个百分点，Recall@5 提高 4.40 个百分点，而 MRR 基本持平
-（下降 0.64 个百分点）。相较 FastGraphRAG-style，EPGM 将 Full Support@5
-从 34.34\% 提高到 36.44\%，将 Full Support@10 从 58.12\% 提高到 59.94\%；
-二者在 Recall@2 上持平（均为 46.21\%），MRR 则相差不到 1 个百分点
-（80.99\% 对 80.36\%）。这一模式表明，类型化溯源搜索的主要收益在于
-补全依赖集合，而不是均匀地改善第一个相关输出的排名。
+EPGM 相较 Dense 将 Full Support@5 与 Full Support@10 分别提高 7.51
+和 3.58 个百分点；Recall@5 提高 1.98 个百分点，但 MRR 下降 3.09 个
+百分点。相较 FastGraphRAG-style，EPGM 将 Full Support@5 从 19.89\%
+提高到 32.83\%，将 Full Support@10 从 50.30\% 提高到 57.21\%，并将
+MRR 从 71.86\% 提高到 77.91\%。这一模式表明，类型化溯源搜索主要
+帮助补全依赖集合，而不是均匀地改善第一个相关输出的排名。
 
 \begin{table*}[t]
 \centering
 \small
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrrrrrr}
+\begin{tabular}{lrrrrrrrrr}
 \hline
-方法 & R@2 & R@5 & R@10 & F1@5 & F1@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & ms/query \\
+方法 & R@2 & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & ms/query \\
 \hline
-BM25 & 28.32 & 44.05 & 58.59 & 25.17 & 19.53 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
-Dense & 46.21 & 61.89 & 76.76 & 35.37 & 25.59 & 25.32 & 53.63 & 81.00 & -- & -- & 37.51 \\
-FastGraphRAG-style（non-LLM） & 46.21 & 66.35 & 79.01 & 37.91 & 26.34 & 34.34 & 58.12 & \textbf{80.99} & 11.33 & 11.15 & 105.53 \\
-EPGM（无训练） & 46.21 & 66.29 & 79.76 & 37.88 & 26.59 & 36.44 & 59.94 & 80.36 &
-20.83 & 20.17 & 39.04 \\
+BM25 & 28.32 & 44.05 & 58.59 & 7.33 & 23.68 & 55.16 & -- & -- & \textbf{0.60} \\
+Dense & 46.21 & 61.89 & 76.76 & 25.32 & 53.63 & 81.00 & -- & -- & 37.51 \\
+FastGraphRAG-style（non-LLM） & 40.27 & 58.00 & 74.92 & 19.89 & 50.30 & 71.86 & -- & -- & 105.53 \\
+EPGM（无训练） & 43.21 & 63.87 & 78.52 & 32.83 & 57.21 & 77.91 &
+28.83 & 28.73 & 39.04 \\
 \hline
-Dense-FT & 71.03 & 91.32 & 97.91 & 52.18 & 32.64 & 83.02 & 95.83 & 93.09 & -- & -- & 19.53 \\
+Dense-FT & 71.03 & 91.32 & 97.91 & 83.02 & 95.83 & 93.09 & -- & -- & 19.53 \\
 \textbf{EPGM R-GCN} & \textbf{91.93} & \textbf{97.98} & \textbf{99.58} &
-\textbf{55.99} & \textbf{33.19} & \textbf{96.39} & \textbf{99.26} & \textbf{97.66} &
+\textbf{96.39} & \textbf{99.26} & \textbf{97.66} &
 \textbf{97.19} & \textbf{97.02} & 87.84 \\
 \hline
 \end{tabular}%
@@ -264,9 +280,10 @@ Support@5 分别达到 91.32\% 和 83.02\%。EPGM R-GCN 仍将二者提升到
 97.98\% 和 96.39\%，增幅分别为 6.66 和 13.36 个百分点；Full
 Support@10 与 MRR 还分别提高 3.44 和 4.57 个百分点。与平面的
 Dense-FT 不同，可训练的溯源模型会输出依赖子图，并在 $k=10$ 时恢复
-97.19\% 的 gold path 和 97.02\% 的 gold dependency edge。结合
-表~\ref{tab:provenance-ablation}，这种提升主要依赖关系图上的消息传递，
-而不是仅由输出端分类器或困难负样本产生。需要强调的是，Path Recall
+97.19\% 的 gold path 和 97.02\% 的 gold dependency edge。当前协议下的
+表~\ref{tab:provenance-ablation} 独立表明，在其自身的构图、loss、选择与
+解码设置中，关系消息传递是最强的结构组件；但该消融批次与历史主表行不是
+同一次训练，因此它支持机制层面的共同模式，而不是对主表数值的直接分解。需要强调的是，Path Recall
 和 Edge Recall 都是召回指标，不能衡量预测边集是否稀疏或校准良好。
 
 \paragraph{结构建模显著缩小了“部分命中”与“完整命中”之间的差距。}
@@ -291,8 +308,8 @@ top-5 与 top-10 的完整样本数、扩大预算后新增完成的样本数、
 \hline
 BM25 & 209 & 675 & 466 & 2,176 & 36.72 \\
 Dense & 722 & 1,529 & 807 & 1,322 & 36.57 \\
-FastGraphRAG-style（non-LLM） & 979 & 1,657 & 678 & 1,194 & 32.01 \\
-EPGM（无训练） & 1,039 & 1,709 & 670 & 1,142 & 29.85 \\
+FastGraphRAG-style（non-LLM） & 567 & 1,434 & 867 & 1,417 & 38.11 \\
+EPGM（无训练） & 936 & 1,631 & 695 & 1,220 & 31.04 \\
 \hline
 Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 \textbf{EPGM R-GCN} & \textbf{2,748} & \textbf{2,830} & 82 & \textbf{21} & \textbf{1.60} \\
@@ -301,14 +318,13 @@ Dense-FT & 2,367 & 2,732 & 365 & 119 & 8.30 \\
 }
 \end{table*}
 
-在无任务训练的方法中，EPGM 在 top-5 完整恢复 1,039 条轨迹，分别比
-Dense 和 FastGraphRAG-style 多 317 和 60 条；其完整性差距也从
-36.57 和 32.01 个百分点缩小到 29.85 个百分点。这说明执行依赖搜索
-确实更擅长把两个相关输出共同带入有限上下文，但 top-10 仍有 1,142 条
-轨迹未完整恢复，无训练规则远未解决该任务。Dense 在预算从 5 扩大到 10
-时新增完成 807 条，为所有方法中最多，但其小预算完整数最低；EPGM 与
-FastGraphRAG-style 的新增完成数（670 与 678）相近，说明二者更依赖在
-较小预算内直接补全依赖集合，而不是靠扩大检索预算。
+在无任务训练的方法中，EPGM 在 top-5 完整恢复 936 条轨迹，分别比
+Dense 和 FastGraphRAG-style 多 214 和 369 条；其完整性差距也从
+36.57 和 38.11 个百分点缩小到 31.04 个百分点。这说明执行依赖搜索
+确实更擅长把两个相关输出共同带入有限上下文，但 top-10 仍有 1,220 条
+轨迹未完整恢复，无训练规则远未解决该任务。FastGraphRAG-style 在预算
+从 5 扩大到 10 时新增完成 867 条，为所有方法中最多，但最终仍有 1,417
+条未完成；它更依赖扩大检索预算，而不是在较小预算内完成依赖集合。
 
 在训练方法中，EPGM R-GCN 相较 Dense-FT 在 top-5 多完整恢复 381 条
 轨迹，在 top-10 多恢复 98 条，并将 top-10 残余失败从 119 条压缩到
@@ -317,244 +333,401 @@ FastGraphRAG-style 的新增完成数（670 与 678）相近，说明二者更�
 因此，关系传播的主要价值不是只提高平均 gold 输出召回，而是把“只找到
 其中一条”的部分命中转化为可直接支持下游推理的完整依赖集合。
 
-为定位上述增益究竟来自哪一部分执行溯源结构，我们进一步对
-EPGM R-GCN 做组件消融。
+无训练 EPGM 的平均延迟为 39.04 ms/query，比 FastGraphRAG-style 的
+105.53 ms/query 低 63.0\%，并接近 Dense 的 37.51 ms/query。可训练的
+关系传播将 EPGM R-GCN 延迟提高到 87.84 ms/query，以额外计算换取
+完整支持和路径恢复的大幅提升。BM25 仍以 0.60 ms/query 最快。
+Dense-FT 来自相同训练、模型选择和测试划分上的独立运行；所有延迟均为
+实际观测到的检索时间，而不是严格控制硬件与缓存后的系统基准，并且不
+包含数据生成、图构造和模型训练。
 
-\paragraph{溯源 R-GCN 对整条轨迹进行可学习的关系传播，而非附加手工图奖励。}
-执行溯源 R-GCN 并不是在最终排序分数上附加一项手工图奖励，而是对整条
-轨迹进行可学习的关系传播。每个请求首先以唯一的 Task 节点作为查询锚点，
-将 Task、Agent、ToolCall 和 ToolOutput 等节点的文本分别加上 E5 的
-query/passage 前缀，并编码为归一化的 768 维冻结文本表示。模型再拼接
-16 维节点类型嵌入，经线性层投影到 256 维隐空间。每条原生边均展开为
-forward 和 reverse 两条消息边；contains、invokes、returns、feeds 等
-关系拥有独立的变换矩阵，feeds 还根据输出字段到输入参数的绑定类型细分
-关系。完整模型堆叠三层 R-GCN，每条消息可写为
-$w_{uv}c_{v,r}^{-1}W_r h_u$：其中 $W_r$ 由关系类型决定，$w_{uv}$
-来自构图阶段的边权，$c_{v,r}$ 对同关系入度进行归一化。聚合消息与节点
-自身变换相加后，依次经过 ReLU、dropout（0.1）和层归一化。这使任务语义、
-工具调用层级和字段级数据流能够在同一节点状态中联合编码。
+\subsection{真实智能体会话的溯源检索案例}
 
-模型使用两个共享图表示但目标不同的预测头。候选头以
-$[h_o,h_q,h_o\odot h_q]$ 为输入，为每个 ToolOutput 产生检索 logit；
-依赖头以 $[h_s,h_t,h_s\odot h_t,h_q]$ 为输入，对候选逻辑转移打分。
-逻辑转移并非任意节点对，而是将“ToolOutput$_s$ 经 feeds 进入 ToolCall，
-再由 returns 到 ToolOutput$_t$”这两条原生边折叠得到，因此边监督直接
-对应上游输出是否被下游调用消费。训练目标为候选二元交叉熵与带正例重权的
-依赖边二元交叉熵之和，即
-$\mathcal{L}=\mathcal{L}_{\mathrm{cand}}+0.5\mathcal{L}_{\mathrm{edge}}$。
-完整训练使用 AdamW、$10^{-4}$ 学习率、128 的批大小、1.0 的梯度裁剪
-和最多 15 个 epoch；每个正例配两个随机负例、两个 BM25 困难负例和
-两个稠密困难负例。推理时先按候选头对全部 ToolOutput 排序；只有首尾
-节点都进入 top-$k$ 的逻辑转移才可输出，并对同一来源仅保留边头得分最高
-的后继，最后还原成原生 feeds/returns 轨迹。因此 Path@10 与 Edge@10
-同时检验了候选覆盖和依赖解码，而不是脱离检索结果单独评估边分类器。
+\paragraph{在自然产生的多智能体日志上，类型化溯源检索优于平面与实体图基线。}
+合成基准由标签派生的问答链确定性转换而来（见\ref{subsec:limitations}
+的讨论）。为了检验同一方法在自然产生的智能体轨迹上的行为，我们额外
+构造了一个真实会话案例 EPGM-Task2：一个具备联网能力的供应链安全分析
+智能体，对七个被钉死版本的 PyPI 依赖
+（\texttt{requests==2.19.1}、\texttt{urllib3==1.24.1}、
+\texttt{PyYAML==3.13}、\texttt{Jinja2==2.10}、\texttt{Django==2.2.0}、
+\texttt{cryptography==2.3}、\texttt{Werkzeug==0.14.1}）逐一评估漏洞
+暴露面并给出修复排序。该会话由主协调者、七个逐包并行子智能体和一个
+独立复核子智能体组成，其执行溯源图被完整记录：150 个可检索记忆节点
+（任务、智能体、工具输出、观察、声明、验证、决策与最终回答），并包含
+真实的证据修订事件——两个早期声明（Django 最小安全升级为 4.2.26、
+以 PyYAML 为首的原始排序）在独立复核后被 \texttt{contradicts} 与
+\texttt{invalidates} 边推翻，随后由修订声明和最终决策取代，且失效声明
+仍保留在图中供审计。我们在该会话上人工编写了 20 个记忆查询，难度
+涵盖单节点事实、跨节点综合与图结构推理，并保留最小 gold 证据集与
+带类型的 gold 依赖边仅用于对照。
 
-基于上述计算链，我们在相同的 74,012/500/2,851 训练、模型选择和测试
-划分上运行四个有明确定位的变体。w/o graph 将图卷积层数置为零，但保留
-节点类型表示、候选打分器和依赖边预测头，用于隔离消息传递；w/o edge
-type 保留图连接与边权重，但以一套共享变换替代关系特定变换，用于检验
-关系语义；w/o edge weight 保留邻接关系和关系标识，并将所有边权重统一
-设为 1；w/o hard negatives 取消 BM25 与稠密困难负样本，仅保留随机
-简单负样本。所有变体使用随机种子 13，并分别按 500 条开发样本上的同一
-联合分数（50\% Full Support@5、25\% MRR、25\% Edge F1@10）选择检查点。
-该组结果来自独立训练批次，因此表~\ref{tab:provenance-ablation}
-只用于表内比较；完整模型与表~\ref{tab:provenance} 中主实验模型的细小
-数值差异不应解释为方法变化。
+此案例不进行任何任务特定训练，也不做自动指标聚合以外的调参；四种
+无训练方法共享同一候选池，仅在检索机制上不同。表~\ref{tab:epgm-case}
+给出结果。EPGM 在 Recall@10 与 Full Support@10 上均取得最好成绩：
+相较 Dense 分别提高 3.83 和 5.00 个百分点，相较 FastGraphRAG-style
+分别提高 5.00 和 5.00 个百分点。与合成基准上的模式一致，收益主要
+体现在补全完整支持集合，而非第一个相关输出的排名（MRR 略低于两个
+稠密类基线）。按难度细分，EPGM 的优势集中在需要跨节点或跨会话组合
+证据的中等难度查询上，其 Recall@10 达到 0.72，明显高于 Dense 的
+0.58 与 FastGraphRAG-style 的 0.52；在几乎可由单节点直接回答的简单
+查询上，EPGM 与稠密基线持平（均为 0.86），说明加性的图传播只上抬
+图连通证据，不会压低本应排在前列的直接答案节点。
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{真实智能体会话 EPGM-Task2 上的溯源检索结果（\%）。
+所有方法均无任务特定训练，共享同一候选池；20 个人工查询。
+$|\text{typed edges}|$ 为该方法输出带类型溯源边的查询数。}
+\label{tab:epgm-case}
+\begin{tabular}{lrrrrrr}
+\hline
+方法 & R@5 & R@10 & FS@5 & FS@10 & MRR & typed edges \\
+\hline
+BM25 & 34.08 & 41.33 & 10.00 & 15.00 & 40.42 & -- \\
+Dense & 50.50 & 64.42 & 20.00 & 35.00 & \textbf{65.83} & -- \\
+FastGraphRAG-style（non-LLM） & \textbf{51.00} & 63.25 & 20.00 & 35.00 & 67.08 & 5/20 \\
+EPGM（无训练） & 48.67 & \textbf{68.25} & 15.00 & \textbf{40.00} & 60.33 & \textbf{18/20} \\
+\hline
+\end{tabular}
+\end{table}
+
+\paragraph{类型化路径把被推翻的证据按审计意图重新排序。}
+该案例最能体现类型化溯源检索价值的，是它对证据修订的处理。以查询
+“Django 最小安全版本最初判断为何、为何改变、最终为何”为例：被独立
+复核推翻的失效声明 \texttt{claim\_537BCA895F}（最初主张 4.2.26）在纯
+稠密排序中仅列第 8 位，而 EPGM 沿 \texttt{verify\_28A134BF07}
+$\xrightarrow{\texttt{contradicts}}$ \texttt{claim\_537BCA895F} 这条
+矛盾边将其提升至第 5 位，同时在输出中显式标注其
+\texttt{lifecycle\_state=invalidated} 并给出对应的矛盾路径。因此，
+对于“某结论如何被推翻”这类问题，类型化溯源不仅召回相关证据，还沿
+审计语义把失效声明与推翻它的验证并置，这是平面文本检索无法提供的
+结构化上下文。在全部 20 个查询中，EPGM 有 18 个查询输出带类型的
+溯源边（\texttt{grounds}/\texttt{supports}/\texttt{verifies}/
+\texttt{contradicts}/\texttt{invalidates}/\texttt{depends\_on}），而
+FastGraphRAG-style 仅在 5 个查询上产生实体桥边，进一步说明前者能在
+真实智能体记忆上稳定重建可审计的依赖上下文。
+
+\paragraph{同一查询的正面对照：图结构命中被平面检索埋没的证据。}
+查询 Q10“为什么版本范围判定必须使用 PEP 440 / SpecifierSet 语义而非
+朴素字符串比较”最清楚地展示了两类方法的差别。该查询有三个 gold 证据
+节点。FastGraphRAG-style 的 top-10 只命中其中一个
+（\texttt{obs\_F23302D642}，排第 4），另外两个关键证据完全落在其
+返回列表之外：观察节点 \texttt{obs\_42BF2FFDED}
+（“GitHub Advisory API + packaging SpecifierSet 确认 PyYAML 3.13
+落在两个 CRITICAL GHSA 区间内”）在稠密排序中仅列第 17 位，声明节点
+\texttt{claim\_0144C746E7}（“经 PEP440 SpecifierSet 确认 pin 落在
+ vulnerable\_version\_range 内”）列第 10 位——二者的措辞与查询用语
+重叠很低，因此词法、稠密乃至实体桥接都难以将其提前。EPGM 则命中
+全部三个 gold（3/3，对比 FastGraphRAG-style 的 1/3）：它以稠密高排的
+\texttt{claim\_B0F0E49F09}（“PyYAML 最小安全升级为 5.4”）为锚点，沿
+$\texttt{obs\_42BF2FFDED}\xrightarrow{\texttt{supports}}
+\texttt{claim\_B0F0E49F09}$ 的支持边反向到达 \texttt{obs\_42BF2FFDED}
+（提升至第 3 位），再沿
+$\texttt{obs\_42BF2FFDED}\xrightarrow{\texttt{supports}}
+\texttt{claim\_0144C746E7}$ 到达第二个被埋没的声明（提升至第 9 位）。
+换言之，正是“同一条 SpecifierSet 观察同时支撑了最小安全版本声明和
+受影响性声明”这一类型化依赖结构，让 EPGM 把两个在纯文本相似度上
+排在 10 名开外的 PEP 440 证据召回进 top-10，而这恰是查询真正询问的
+内容。相同机制也解释了 Q08（\texttt{cryptography} 为何升级到 48.0.1）
+上 EPGM 2/3、FastGraphRAG-style 1/3 的差距。
+
+\paragraph{案例的范围与边界。}
+该案例为局限性讨论中“在自然产生日志上复现同一优势”的方向提供了直接
+但有限的证据：它规模较小（单会话、20 个查询）、仍是人工编写查询，
+并且只覆盖检索阶段。因此我们将其定位为对合成基准结论的补充性佐证，
+而非独立的大规模评测。它表明，在包含真实工具调用、并行子智能体交接
+与证据修订的会话上，类型化执行溯源检索相较平面与非 LLM 实体图基线
+仍能带来一致的完整支持与可审计结构收益；把该协议扩展到更多自然会话
+与端到端任务，是把这一结论推广到完整多智能体记忆生命周期的自然
+下一步。
+
+\subsection{执行溯源模型消融}
+
+\paragraph{模型实现与消融定位。}
+执行溯源 R-GCN 并不是在最终排序分数上附加手工图奖励，而是对整条轨迹
+进行可学习的关系传播。每个请求必须恰有一个 \texttt{Task} 查询锚点，所有
+排序候选必须是 \texttt{ToolOutput}。全图节点均由冻结的 E5-base-v2
+一次性编码；支持的十种节点类型包括 \texttt{Task}、\texttt{Agent}、
+\texttt{ToolCall}、\texttt{ToolOutput}、\texttt{Claim}、
+\texttt{Verification} 和 \texttt{Decision} 等。\texttt{Task} 文本使用
+\texttt{query:} 前缀，其他节点使用 \texttt{passage:} 前缀，编码器以 64
+为批量产生归一化的 768 维表示。该表示拼接可学习的 16 维节点类型嵌入，
+再经过 Linear$(784,256)$、ReLU 和 dropout（0.1）。这些 CPU tensor 在
+训练前一次性物化，而不是在 DataLoader 中重复编码。
+
+每条原生边都展开为 forward/reverse 两条消息边。当前 28 类消息 relation
+vocabulary 为 12 种非 \texttt{feeds} 边分别建立正反向变换；\texttt{feeds}
+仅区分精确
+的 \texttt{evidence:context:semantic\_reference} binding bucket 和
+\texttt{bound\_other} bucket，并分别建立正反向变换。完整模型堆叠三层
+R-GCN，每条消息可写为 $w_{uv}c_{v,r}^{-1}W_rh_u$：其中 $W_r$ 由关系
+类型决定，$w_{uv}$ 为 artifact 边权，$c_{v,r}$ 为目标节点在关系 $r$
+下的入度。每层实际计算
+$\operatorname{LayerNorm}(\operatorname{ReLU}(W_0h_v+
+\operatorname{Dropout}(\sum_{u,r}w_{uv}c_{v,r}^{-1}W_rh_u)))$；dropout
+只施加于聚合消息，并在与 self-state 相加及 ReLU 之前发生。任务语义、调用
+层级和字段级数据流由此进入同一节点状态。
+
+候选头输入 $[h_o,h_q,h_o\odot h_q]$，使用
+$768\rightarrow256\rightarrow1$ MLP；依赖头输入
+$[h_s,h_t,h_s\odot h_t,h_q]$，使用
+$1024\rightarrow256\rightarrow1$ MLP，两者均包含 ReLU 与 dropout。
+逻辑转移只由“两端都是排序候选”的
+$\texttt{ToolOutput}_s\xrightarrow{\texttt{feeds}}\texttt{ToolCall}
+\xrightarrow{\texttt{returns}}\texttt{ToolOutput}_t$ 折叠得到；重复的
+$(s,t)$ 会被拒绝。候选损失在每个 task 内比较全部已采样 positive 与
+negative，计算 $\operatorname{softplus}(-(s^+-s^-))$ 的成对 logistic
+均值。边损失对全部逻辑转移使用 BCE-with-logits；正负类同时存在时设置
+$\mathrm{pos\_weight}=N_-/N_+$。最后对 task 等权平均：
+$\mathcal{L}=1.0\mathcal{L}_{\mathrm{cand}}+0.5\mathcal{L}_{\mathrm{edge}}$。
+
+完整训练使用 AdamW、$10^{-4}$ 学习率及其余 PyTorch 默认值（包括 0.01
+weight decay、$\beta=(0.9,0.999)$ 与 $\epsilon=10^{-8}$），每设备 8 个
+task graph 组成不连通并图 batch，梯度裁剪为 1.0，训练 15 个 epoch，随机
+种子为 13；DataLoader 按种子 shuffle、\texttt{num\_workers=0}，没有
+scheduler、warmup 或 AMP 路径。每个正例请求两个 easy random、一个 BM25、一个 dense、两个竞争
+provenance successor 和一个竞争 provenance predecessor 负例，hard pool
+为 20。跨采样器重复候选按 successor $>$ predecessor $>$ dense $>$ BM25
+$>$ random 的优先级去重，因此实际数量可因短缺和重合而小于请求数；未采样
+候选的 target 为 $-1$，不进入候选损失。交付的 full artifact 含 148,024
+个正例和 566,221 个唯一负例，共 714,245 个 pair。74,012 个 task graph
+在 batch size 8 下每个 epoch 有 9,252 个 optimizer step（末批 4 个 task），
+15 个 epoch 共 138,780 step。Schema-v4 checkpoint 记录 candidate-loss
+protocol、不连通并图 batch semantics，以及构图、pair、encoder、variant、
+inference 和 selection identity；旧 schema 会被拒绝，不做兼容转换。
+
+推理时，候选 logit 先按分数降序、再按 node ID 排序。解码器只考虑原始
+top-5 中的来源输出，要求转移两端均位于原始 top-16 pool 且
+$\sigma(s_{st})\geq0.5$；随后每个来源只保留概率最高的后继，并解决 target
+冲突，使每个 target 至多有一个 winner。启用 promotion 时，若 winner
+target 原始排名不高于 source，就在不扰动原始 top-2 的前提下插到 source
+之后；最终位置重新分配原始分数 multiset。仅当两端仍在最终 top-$k$ 中，
+该依赖才以一条有向逻辑 \texttt{sequential} 边公开输出，权重为
+$\sigma(s_{st})$；native trace 同时恢复对应的 \texttt{feeds}/
+\texttt{returns} 边和三节点路径。因此 Path@10 与边指标同时检验候选覆盖、
+结构化选择和依赖解码，而不是脱离检索结果单独评估边分类器。
+
+基于上述计算链，我们在相同的 74,012/2,850/2,851 训练、开发和测试划分
+上运行完整模型与五个变体。w/o graph 将图卷积层数置零，但保留输入投影、
+节点类型嵌入、候选/边预测头、逻辑转移枚举和结构化解码器。w/o edge type
+保留拓扑、relation ID 与边权，但让每层所有 relation ID 共享一套线性消息
+变换。w/o edge weight 只改变 \texttt{feeds} 消息：把每个 source 的两条
+artifact 权重替换为组内均值（本构造下为 0.75/0.75），因而保持端点、
+relation ID、方向和来源总消息质量；非 \texttt{feeds} 边权不变。w/o hard
+negatives 将 successor、predecessor、dense、BM25 与 graph-neighbor 五类
+hard-negative 请求全部置零，重建得到 444,072 个 pair；它只保留正例和
+每正例两个 easy random 请求，完整 edge loss 仍启用。代码中的 w/o edge
+rerank 是 ranking-stage 变体：训练阶段应 alias full pairs/model，继续执行
+带阈值的边选择并保留诊断，但只关闭 target promotion，因此返回原始候选
+logit 顺序。
+
+交付的所有行均使用种子 13。四个训练消融各自在完整 2,850 条开发集上按
+相同 joint objective 选择检查点；w/o edge rerank 按设计应复用完全相同的
+full checkpoint。然而当前结果目录没有满足这一配对条件：full 行使用
+model/checkpoint digest \texttt{7b25aa4a}/\texttt{16126be8}，rerank-off
+行使用另一份独立训练的 full-architecture 模型，digest 为
+\texttt{19930ebd}/\texttt{acc4ae0c}。因此 rerank-off 行只能作为诊断，
+不是纯推理消融，其差异不能归因于 promotion 开关。该批消融与历史主表运行
+还同时在构图、pair/loss、检查点选择和 decoder protocol 上不同，而不只是
+输出密度不同；当前训练消融行可在批内作描述性比较，但不得把它与
+表~\ref{tab:provenance} 的数值差异解释为单一组件变化。
 
 \paragraph{关键指标显示图传播带来跨目标的一致收益。}
-表~\ref{tab:provenance-ablation} 同时覆盖四类互补目标：Recall@2 衡量
+表~\ref{tab:provenance-ablation} 同时覆盖五类互补目标：Recall@2 衡量
 极小预算下的早期排序，Full Support@5 衡量两个相关输出能否共同进入
-上下文，Path@10 与 Edge@10 则衡量依赖结构恢复。完整模型在 Path@10
-和 Edge@10 上分别达到 97.47\% 和 97.26\%，为所有变体最高；在
-Recall@2 和 Full Support@5 上也保持 91.67\% 和 95.79\%。去除图传播
-后，四项指标分别降至 55.19\%、66.85\%、80.50\% 和 79.10\%，说明
-结构收益并不局限于某一个评测口径。表中也完整保留了统一边权和取消困难
-负样本后不超过 0.18 个百分点的局部反向变化，避免只依据单个有利指标
-下结论。
+上下文，Path@10 与 Edge@10 衡量依赖结构召回，Edge Precision@10 与
+Edge F1@10 则衡量依赖边的预测质量而非仅仅召回。在这一稀疏、重视精确度的解码配置下，完整模型在 Full Support@5、Edge
+Precision@10 和 Edge F1@10 上均为所有变体最高，分别达到 96.74\%、
+\textbf{84.70\%} 和 \textbf{87.66\%}。去除图传播后，这三项分别降至
+84.74\%、53.84\% 和 64.34\%，Full Support@5 与 MRR 同时下降 12.00
+和 12.09 个百分点，说明结构收益并不局限于某一个评测口径。在当前协议内，
+Recall@2 不是图传播的主要受益项（完整模型与 w/o graph 仅差 0.83 个百分
+点）；真正拉开差距的是依赖边精确度与完整支持率。由于历史运行同时改变了
+多个协议组件，不能把这一差异仅归因于解码密度。
 
 \begin{table*}[t]
 \centering
 \small
-\setlength{\tabcolsep}{3.5pt}
+\setlength{\tabcolsep}{3pt}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrrr}
+\begin{tabular}{lrrrrrrrrrr}
 \hline
-变体 & R@2 & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 \\
+变体 & R@2 & R@5 & R@10 & FS@5 & FS@10 & MRR & Path@10 & Edge@10 & EdgeP@10 & EdgeF1@10 \\
 \hline
-完整 EPGM R-GCN & 91.67 & 97.70 & 99.54 & 95.79 & 99.16 & 97.72 &
-\textbf{97.47} & \textbf{97.26} \\
-w/o graph & 55.19 & 80.80 & 93.28 & 66.85 & 87.41 & 76.08 & 80.50 & 79.10 \\
-w/o edge type & 84.25 & 95.58 & 98.91 & 91.93 & 97.97 & 96.60 & 96.04 & 95.72 \\
-w/o edge weight & 88.46 & 97.65 & \textbf{99.56} & \textbf{95.97} &
-\textbf{99.26} & 94.07 & 95.97 & 95.26 \\
-w/o hard negatives & \textbf{91.69} & \textbf{97.74} & 99.54 & 95.93 &
-99.19 & \textbf{97.79} & 97.16 & 96.81 \\
+完整 EPGM R-GCN & 57.86 & \textbf{98.09} & 99.58 & \textbf{96.74} & 99.30 & 95.09 &
+90.85 & 90.85 & \textbf{84.70} & \textbf{87.66} \\
+w/o graph & 57.03 & 91.07 & 96.97 & 84.74 & 94.11 & 83.00 & 80.01 & 79.94 &
+53.84 & 64.34 \\
+w/o edge type & 68.84 & 97.04 & 99.37 & 95.12 & 98.91 & 91.86 & 89.23 & 89.20 &
+74.86 & 81.40 \\
+w/o edge weight & 60.01 & 97.84 & \textbf{99.70} & 96.53 & \textbf{99.51} &
+94.55 & 88.50 & 88.46 & 80.34 & 84.21 \\
+w/o hard negatives & 52.53 & 98.07 & 99.61 & 96.70 & 99.33 &
+\textbf{95.74} & 90.67 & 90.67 & 83.39 & 86.88 \\
+w/o edge rerank$^{\dagger}$ & \textbf{88.62} & 97.84 & 99.53 & 96.42 & 99.19 & 94.44 &
+\textbf{91.27} & \textbf{91.27} & 81.88 & 86.32 \\
 \hline
 \end{tabular}%
 }
-\caption{合成 2Wiki 执行溯源基准上的 EPGM R-GCN 组件消融（\%）。}
+\caption{合成 2Wiki 执行溯源基准上的 EPGM R-GCN 组件消融（\%）。
+EdgeP@10 与 EdgeF1@10 分别为 Edge Precision@10 与 Edge F1@10。
+$^{\dagger}$交付的 rerank-off 行与 full 行使用不同的 full-architecture
+checkpoint，因此只作为诊断，不是配对的纯推理消融。}
 \label{tab:provenance-ablation}
 \end{table*}
 
-移除图消息传递造成最大且覆盖所有指标的退化：Recall@2、Full
-Support@5 和 MRR 分别下降 36.48、28.94 和 21.64 个百分点，Path
-Recall@10 与 Edge Recall@10 分别下降 16.98 和 18.17 个百分点。
-按样本计，w/o graph 在 top-5 少完整恢复 825 条轨迹，在 top-10 多留下
-335 条未完整轨迹。由于该变体仍使用同一组冻结文本表示、节点类型嵌入、
-候选 MLP 和依赖边 MLP，这一差距把主要收益定位到图上的邻域信息交换，
-而不是文本编码器或输出端分类器。换言之，三层
-传播使上游证据输出能够通过 feeds/returns 连接影响下游输出，并让查询
-锚点的信息沿调用层级到达候选节点；这正是两个 gold 输出能够被联合前置
-到小预算中的原因。
+移除图消息传递造成最大、最一致的质量退化：相较完整模型，w/o graph
+的 Full Support@5、MRR、Path Recall@10 分别下降 12.00、12.09 和 10.84
+个百分点，Edge Precision@10 与 Edge F1@10 更是分别下降 30.86 和 23.32
+个百分点。按样本计，w/o graph 在 top-5 少完整恢复 342 条轨迹，在
+top-10 多留下 148 条未完整轨迹；而其 Recall@2 与完整模型几乎持平，
+进一步说明在稀疏解码下，图传播的收益集中在完整支持与依赖边质量，而
+非极小预算的首位命中。由于该变体仍使用同一组冻结文本表示、节点类型
+嵌入、候选 MLP 和依赖边 MLP，这一差距把主要收益定位到图上的邻域
+信息交换，而不是文本编码器或输出端分类器。换言之，三层传播使上游证据
+输出能够通过 feeds/returns 连接影响下游输出，并让查询锚点的信息沿调用
+层级到达候选节点；这正是两个 gold 输出能够被联合前置到小预算中的原因。
 
-将关系特定变换改为共享变换也使 Recall@2 和 Full Support@5 分别下降
-7.42 和 3.86 个百分点，路径与边召回分别下降 1.44 和 1.54 个百分点；
-对应地，top-5 完整轨迹减少 110 条，top-10 未完整轨迹由 24 条增加到
-58 条。该变体保留完全相同的邻接关系、传播层数与边权，差异只来自
-$W_r$ 是否按关系区分，因此它比“去掉整张图”更精确地说明了类型化传播
-的独立作用。实验表明，调用层级边和字段数据流边携带的方向与语义并非
-可以由一套无类型变换充分替代；尤其是在早期排序阶段，关系类型有助于
-把结构相邻但功能不同的 Agent、ToolCall 与 ToolOutput 消息区分开来。
+将关系特定变换改为共享变换后，依赖边的预测质量明显下降：Edge
+Precision@10 与 Edge F1@10 分别下降 9.84 和 6.26 个百分点，MRR
+下降 3.23 个百分点，Full Support@5 下降 1.62 个百分点（top-5 完整
+轨迹减少 46 条，top-10 未完整轨迹由 20 条增至 31 条）。值得注意的是，
+该变体的 Recall@2 反而比完整模型高 10.98 个百分点，说明无类型传播会
+抬高部分候选的早期排名，却以牺牲依赖边精确度为代价。该变体保留完全
+相同的邻接关系、传播层数与边权，差异只来自 $W_r$ 是否按关系区分，
+因此它把“类型化传播”的独立作用定位到依赖边的质量：调用层级边和字段
+数据流边携带的方向与语义无法由一套无类型变换充分替代，尤其在区分
+结构相邻但功能不同的 Agent、ToolCall 与 ToolOutput 时。
 
-边权重的证据更为细致。将边权统一后，Full Support@5 和 Full
-Support@10 分别小幅提高 0.18 和 0.11 个百分点，在 2,851 个测试样本
-上只对应多完整覆盖 5 个和 3 个样本；与此同时，MRR、Path Recall@10
-和 Edge Recall@10 分别下降 3.65、1.51 和 2.00 个百分点。因此，当前
-结果可以部分证明边权有助于首个相关输出的排序和依赖恢复，但它对
-top-$k$ 完整支持率的作用在当前划分上接近中性。这种差异与实现机制一致：
-边权直接缩放传播消息，容易改变候选之间的细粒度次序和依赖边分数；只要
-两个 gold 输出仍落在同一个 top-$k$ 集合中，Full Support 就不会随内部
-排序变化。取消困难负样本后，平面排序指标最多提高 0.14 个百分点，而
-路径与边召回分别下降 0.32 和 0.46 个百分点。因而，当前实验更适合将
-困难负样本解释为辅助训练策略：它对结构恢复可能有小幅帮助，但单种子
-结果只显示出较弱且方向不完全一致的独立贡献。
+边权重的证据同样集中在精确度与路径侧。将每个来源的两条
+\texttt{feeds} 置信权重替换为组内均值后，Edge Precision@10、Edge
+F1@10、Path Recall@10 分别下降 4.36、3.45 和 2.35 个百分点，MRR
+下降 0.54 个百分点；与此同时，Full Support@5 仅微降 0.21 个百分点，
+Full Support@10 反而微升 0.21 个百分点（在 2,851 个测试样本上分别
+对应少完整覆盖 6 个与多完整覆盖 6 个）。因此，来源内校准边权主要改善
+依赖边质量、路径恢复与 MRR，而对 top-$k$ 完整支持率的作用在当前划分上
+接近中性。
+这与实现机制一致：边权直接缩放传播消息，容易改变候选之间的细粒度次序
+和依赖边分数；只要两个 gold 输出仍落在同一个 top-$k$ 集合中，Full
+Support 就不会随内部排序变化。取消困难负样本后，各项指标基本持平：
+MRR 微升 0.65 个百分点，Edge Precision@10 与 Edge F1@10 仅下降
+1.31 和 0.78 个百分点，Full Support@5 几乎不变。因而，当前实验更适合
+将困难负样本解释为辅助训练策略：它在当前配置与单种子下只显示出较弱且
+方向不完全一致的独立贡献。
+
+交付的 w/o edge rerank 行相较 full 行 Recall@2 高 30.76 个百分点，Edge
+Precision@10 与 Edge F1@10 低 2.82 和 1.34 个百分点，但这些只能作为
+描述性差异：由于两行使用不同的 full-architecture checkpoint，差异混合了
+checkpoint 波动与关闭 promotion 的干预。严格推理消融必须对同一个 full
+checkpoint 分别启用和关闭 promotion，导出两份逐查询指标后再比较；当前表
+不能确定该权衡的因果方向或大小。
 
 \paragraph{开发集、残余失败与输出密度给出一致的结构证据。}
 表~\ref{tab:provenance-ablation-diagnostics} 将测试百分比进一步分解为
-模型选择行为、完整恢复数量和输出子图密度。Dev FS@5 是各变体在 500
-条开发样本上的最佳 Full Support@5；平均边数是在固定返回 10 个节点时
-模型输出的依赖边数。由于评测器最多保存 50 条失败详情，表中的未完整数
-由完整测试集指标直接换算，而不是由失败文件行数估计。
+模型选择行为、完整恢复数量和输出子图密度。Dev FS@5 是按 joint objective
+在完整 2,850 条开发集上选中 checkpoint 时对应的 Full Support@5，而不是
+独立最大化的 FS@5。平均边数是在固定返回 10 个节点时输出的逻辑输出间边数；
+各变体仍保持稀疏，每查询范围为 1.07--1.48 条。由于评测器最多保存 50 条
+失败详情，表中的未完整数由完整测试集指标直接换算，而不是由失败文件行数
+估计。
 
 \begin{table*}[t]
 \centering
 \small
 \setlength{\tabcolsep}{5pt}
 \caption{EPGM R-GCN 消融的模型选择、完整覆盖与输出密度诊断。Dev
-FS@5 的单位为百分比，其余完整/未完整列的分母为 2,851。}
+FS@5 的单位为百分比，其余完整/未完整列的分母为 2,851。
+$^{\dagger}$该 epoch 与 Dev FS@5 继承自交付的 rerank-off 行所使用的另一份
+full-architecture checkpoint。}
 \label{tab:provenance-ablation-diagnostics}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrr}
 \hline
 变体 & 最佳 epoch & Dev FS@5 & FS@5 完整数 & FS@10 完整数 & FS@10 未完整数 & 平均边数 \\
 \hline
-完整 EPGM R-GCN & 12 & \textbf{97.40} & 2,731 & 2,827 & 24 & 8.91 \\
-w/o graph & 15 & 68.60 & 1,906 & 2,492 & 359 & 8.13 \\
-w/o edge type & 15 & 92.60 & 2,621 & 2,793 & 58 & 8.69 \\
-w/o edge weight & 15 & 97.00 & \textbf{2,736} & \textbf{2,830} & \textbf{21} & 9.15 \\
-w/o hard negatives & 15 & 96.80 & 2,735 & 2,828 & 23 & 9.03 \\
+完整 EPGM R-GCN & 14 & \textbf{96.88} & \textbf{2,758} & 2,831 & 20 & 1.07 \\
+w/o graph & 15 & 85.16 & 2,416 & 2,683 & 168 & 1.48 \\
+w/o edge type & 14 & 94.42 & 2,712 & 2,820 & 31 & 1.19 \\
+w/o edge weight & 13 & 96.32 & 2,752 & \textbf{2,837} & \textbf{14} & 1.10 \\
+w/o hard negatives & 14 & 96.39 & 2,757 & 2,832 & 19 & 1.09 \\
+w/o edge rerank$^{\dagger}$ & $14^{\dagger}$ & $96.18^{\dagger}$ & 2,749 & 2,828 & 23 & 1.11 \\
 \hline
 \end{tabular}%
 }
 \end{table*}
 
-开发集与测试集给出同方向证据。w/o graph 的最佳 Dev FS@5 比完整模型
-低 28.80 个百分点，w/o edge type 低 4.80 个百分点；两者在测试集也
-分别留下 359 和 58 条 top-10 未完整轨迹，而完整模型只留下 24 条。
-完整模型在第 12 个 epoch 达到最佳，其余四个变体都在第 15 个 epoch
-达到各自最佳值，说明这些差距不是因对消融模型使用了更早的检查点造成。
-完整模型的 Dev FS@5 为 97.40\%，比 w/o graph 和 w/o edge type 分别
-高 28.80 和 4.80 个百分点，并且这一排序在独立测试集上保持一致。统一
-边权和取消困难负样本的 Dev FS@5 也分别低 0.40 和 0.60 个百分点，而
-测试集 Full Support 的微小反向变化没有在开发集同步出现，这进一步提示
-零点几个百分点的差异更可能属于划分或随机波动，而不是稳定优势。不过，
-四个消融都在训练上限处达到最佳也意味着，更长训练是否会缩小部分差距
-仍需额外实验确认；当前结果能够比较同一训练预算内的组件贡献，但不能
-把第 15 个 epoch 视为所有变体都已完全收敛。
+full 与四个训练消融均按开发集 joint 分数选择 checkpoint，所选 epoch 为
+14（full）、15（w/o graph）、14（w/o edge type）、13（w/o edge
+weight）和 14（w/o hard negatives）；这些 checkpoint 对应的 Dev FS@5
+排序在测试集上保持一致。带 $\dagger$ 的 rerank-off epoch 与 Dev FS@5
+继承自另一份独立训练的 full-architecture checkpoint，并非关闭 promotion
+后选择，不能作为配对的开发集干预比较。来源均值边权和取消困难负样本的
+Dev FS@5 分别仅比 full 低 0.56 和 0.49 个百分点，而它们在测试集局部
+指标（如 w/o edge weight 的 FS@10）上的小幅反向变化并未在开发集同步
+出现，这进一步提示零点几个百分点的差异更可能属于划分或随机波动，而不是
+稳定优势。不过，多数变体在接近训练上限处才达到最佳，也意味着更长训练
+是否会缩小部分差距仍需额外实验确认；当前结果能够比较同一训练预算内的
+组件贡献，但不能把训练上限视为所有变体都已完全收敛。
 
 \paragraph{残余错误指向第二跳覆盖，而不是无差别扩大子图。}
-完整模型的 24 条残余失败全部得到保存，其中 22 条已经找回两个 gold
-输出中的一个，只缺少另一个；仅 2 条同时遗漏两个输出。因此，完整模型
+完整模型的 20 条残余失败全部得到保存，其中 16 条已经找回两个 gold
+输出中的一个，只缺少另一个；仅 4 条同时遗漏两个输出。因此，完整模型
 剩余错误主要是“近完成但缺一跳”，后续改进应优先提升第二条依赖输出的
 种子覆盖与联合排序，而不是单纯扩大返回子图。由于依赖边只有在两个端点
-都进入 top-10 后才参与解码，这 22 条单端点遗漏也解释了为何候选召回的
+都进入 top-10 后才参与解码，这 16 条单端点遗漏也解释了为何候选召回的
 小幅变化会同时反映到 Path@10 与 Edge@10 上。
 
-输出密度进一步排除了“多输出边即可提高边召回”的替代解释：w/o edge
-weight 和 w/o hard negatives 平均返回 9.15 和 9.03 条边，均多于完整
-模型的 8.91 条，但 Edge Recall@10 反而更低。完整模型以更少的平均边数
-达到更高边召回，说明关系变换和边权主要提高了依赖选择质量，而不是让
-解码器无差别连接更多候选。需要注意的是，当前解码器对每个来源最多保留
-一个后继，这与本合成基准的二跳链结构匹配；在允许一个输出被多个调用消费
-的真实轨迹上，还需要检验多分支解码和边精确率。
+输出密度进一步排除了“多输出边即可提高边召回”的替代解释：w/o graph
+平均返回 1.48 条边，为全部变体最多，却在 Edge Recall@10 与 Edge
+Precision@10 上均为最低（分别 79.94\% 与 53.84\%）；w/o edge weight
+与 w/o hard negatives 平均返回 1.10 和 1.09 条边，也均多于完整
+模型的 1.07 条，但 Edge Recall@10 反而更低。full 以最少平均边数取得
+最高的 Edge Precision 与 Edge F1；其 Edge Recall@10 为 90.85\%，略低于
+诊断性 rerank-off 行的 91.27\%。干净的训练消融仍表明，类型化变换与校准
+边权提高的是依赖选择质量，而不是让解码器无差别连接更多候选。需要注意的
+是，当前解码器对每个来源最多保留一个后继，这与本合成基准的二跳链结构
+匹配；在允许一个输出被多个调用消费的真实轨迹上，还需要检验多分支解码和
+边精确率。
 
-综合主表、组件指标、开发集选择和失败分解，可以得到清晰的组件层级：图
-消息传递是早期排序、完整支持和依赖恢复的主要来源；关系特定变换提供第二
-层稳定增益；边权对 MRR、路径与边恢复具有可观但指标相关的帮助；困难负
-样本在当前配置中贡献较小，更适合作为辅助训练策略。该层级与模型的实际
-计算路径一一对应，也避免把接近满分的总体结果笼统归因于“使用了图”。
-
-\subsection{案例分析 (RQ3)}
-
-\paragraph{关系传播沿依赖链补全了稠密检索遗漏的第二跳。}
-为直观说明结构化溯源如何把“部分命中”转化为“完整命中”，我们分析一条
-由 2WikiMultiHopQA 派生的推理型溯源查询：“Anne Woodville 的公公是谁？”
-（gold 答案为 Edmund Grey, 1st Earl of Kent）。该查询需要两跳依赖：
-首先由 Anne Woodville 经 \texttt{spouse} 关系得到其配偶
-George Grey, 2nd Earl of Kent（第一跳输出），再由该配偶经
-\texttt{father} 关系得到其父亲 Edmund Grey（第二跳输出）。在执行溯源图中，
-这两步分别对应一个 \texttt{ToolOutput} 节点，且第二跳输出通过
-\texttt{feeds}/\texttt{returns} 边依赖于第一跳输出。
-
-Dense 检索在 top-10 中命中了第一跳输出，却遗漏了第二跳输出，因而落入
-\texttt{missing\_full\_support} 失败：它能找到语义上与查询直接相关的配偶
-信息，但无法仅凭文本相似度定位到“配偶的父亲”这一间接依赖结果。
-EPGM R-GCN 在同一查询上恢复了完整依赖对：三层关系传播使第一跳输出的
-表示沿 \texttt{feeds}/\texttt{returns} 边流向第二跳候选，依赖头据此为该逻辑
-转移打出高分，从而把两个 gold 输出共同带入 top-$k$ 并还原出
-\texttt{spouse}$\rightarrow$\texttt{father} 的依赖路径。这与表~\ref{tab:provenance-budget}
-的总体结论一致：结构收益集中在补全依赖集合的第二跳，而不是提升第一个
-相关输出的排序。
-
-\subsection{效率与成本分析}
-
-\paragraph{结构化检索以适度延迟换取大幅提升的完整支持恢复。}
-表~\ref{tab:provenance} 的 ms/query 列同时刻画了各方法的检索开销。
-无训练 EPGM 的平均延迟为 39.04 ms/query，比 FastGraphRAG-style 的
-105.53 ms/query 低 63.0\%，并接近 Dense 的 37.51 ms/query。这说明
-类型化溯源搜索在不引入实体图 PageRank 级别开销的情况下即可完成有界
-路径搜索。可训练的关系传播将 EPGM R-GCN 延迟提高到 87.84 ms/query，
-以额外计算换取完整支持和路径恢复的大幅提升；结合表~\ref{tab:provenance}，
-这一延迟对应 Full Support@5 与 Path Recall@10 相较 Dense-FT 的两位数
-增益，属于质量优先场景下可接受的权衡。BM25 仍以 0.60 ms/query 最快，
-但其完整支持恢复远低于所有稠密与图方法。需要说明的是，Dense-FT 来自
-相同训练、模型选择和测试划分上的独立运行；所有延迟均为实际观测到的
-检索时间，而不是严格控制硬件与缓存后的系统基准，并且不包含数据生成、
-图构造和模型训练。
+综合干净的训练消融、开发集选择和失败分解，可以得到如下组件层级：图消息
+传递是完整支持、依赖召回和边精确率的主要来源；关系特定变换提供第二层稳定
+的依赖边质量收益；来源校准边权对边精确率、路径召回和 MRR 提供中等且指标
+相关的帮助。困难负样本把 pair 数从 444,072 增至 714,245，但单种子效果较弱
+且方向不一致。由于交付的 rerank-off 行没有与 full checkpoint 配对，当前尚
+不能判断推理端 promotion 的独立贡献。该表述遵循真实计算路径和 artifact
+身份，不要求每个消融指标都低于 full。
 
 \subsection{局限性与稳健性}
+\label{subsec:limitations}
 
 现有实验已经可以从受控检索、完整证据恢复和依赖结构重建三个层面，部分
 证明结构化执行溯源记忆的有效性；其证据范围目前主要集中在检索阶段，
 对完整多智能体记忆生命周期只能提供部分支持。第一，合成执行溯源基准
 由带标签的问答证据链确定性转换而来，而不是从异构、自然产生的智能体
-日志中采集。转换过程还利用 supporting-fact 信息，在语义图构造遗漏
-连接时保证 gold transition 仍然可恢复。因此，EPGM R-GCN 的近满分
+日志中采集。转换过程还利用 supporting-fact 信息，把必需依赖写成普通
+semantic head 或 rank-matched branch；若无法构造匹配的非 gold 分支则拒绝
+该样本。因此，EPGM R-GCN 的近满分
 结果直接说明模型能够在受控、标签派生的执行拓扑上恢复相关输出与依赖，
 但对独立构造的真实智能体轨迹泛化能力只能提供有限的间接证据。未来在
 包含工具失败、重试、并行分支、证据修订和跨智能体交接的自然日志上复现
 同一优势，将显著扩展这一结论的适用范围。
 
-第二，所有结果都来自一个固定划分和一个训练随机种子，目前未报告多种子
-方差或 bootstrap 置信区间。去除边权和困难负样本后出现的零点几个百分点
-反向提升，说明这些小效应需要更多重复实验才能确定方向；相对而言，去除
-图传播造成 16.98--36.48 个百分点的跨指标下降，并同时出现在开发集、
-测试集和失败数量中，因而是当前更稳健的结论。第三，当前实验评估检索、
+第二，当前消融结果都来自一个固定划分和一个训练随机种子，目前未报告多种子
+方差或置信区间。交付目录中只有 full 行含逐查询指标，因此当前无法对任何
+变体差异执行预期的 query-paired bootstrap。来源均值边权和取消困难负样本后
+出现的零点几个百分点反向变化，需要更多重复实验才能确定方向；rerank-off
+差异还必须用同一 full checkpoint 重跑，目前不能解释为纯推理效果。相对
+而言，去除图传播造成 10.84--30.86 个百分点的跨指标下降（以完整支持、
+MRR、路径/边召回和边精确率为主），并同时出现在开发集、测试集和失败数量
+中，因而是当前更稳健的结论。第三，当前实验评估检索、
 完整支持和路径恢复，因此可以部分支撑“结构化记忆能够为下游推理提供更
 完整依据”这一主张；对“减少无依据声明”或“提高下游影响追踪准确率”等
 系统级效果仍只能提供间接支持，尚需把检索结果接入真实决策或生成任务。
-路径与边指标目前也以召回率为主，后续加入边精确率、F1 和分支级完整率，
-可以更全面地量化过度预测与多分支恢复。
+本批次已同时报告边精确率与 F1，可见结构组件的收益主要体现在依赖边
+质量而非单纯召回；后续再加入分支级完整率，可更全面地量化过度预测与
+多分支恢复。
 
 第四，w/o graph 只移除了图消息传递，仍保留节点类型嵌入、候选打分器、
 由图结构枚举出的逻辑 transition 以及依赖边预测头，因此它回答的是

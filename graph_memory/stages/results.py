@@ -8,10 +8,12 @@ from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     EvaluationArtifactRef,
     EvidenceGraphArtifactRef,
+    FrozenEmbeddingsArtifactRef,
     ModelArtifactRef,
     PredictionsArtifactRef,
     TrainingPairsArtifactRef,
 )
+from graph_memory.evaluation.contracts import MetricRow, PerTaskMetricRow
 from graph_memory.experiment.config import SplitName
 
 
@@ -39,6 +41,15 @@ class TrainingPairsResult(_StageResult):
     summary: dict[str, JsonValue]
 
 
+class FrozenEmbeddingsResult(_StageResult):
+    stage: Literal["encode"] = "encode"
+    family: Literal["evidence", "provenance"]
+    artifact: FrozenEmbeddingsArtifactRef
+    embedding_dim: int = Field(gt=0)
+    row_count: int = Field(gt=0)
+    task_count: int = Field(gt=0)
+
+
 class ModelResult(_StageResult):
     stage: Literal["train"] = "train"
     method: str = Field(min_length=1)
@@ -59,7 +70,8 @@ class EvaluationResult(_StageResult):
     stage: Literal["evaluate"] = "evaluate"
     method: str = Field(min_length=1)
     artifact: EvaluationArtifactRef
-    metric_rows: tuple[dict[str, JsonValue], ...]
+    metric_rows: tuple[MetricRow, ...]
+    per_task_rows: tuple[PerTaskMetricRow, ...] = ()
     failure_case_count: int = Field(ge=0)
 
 
@@ -74,6 +86,7 @@ __all__ = [
     "BenchmarkResult",
     "EvaluationResult",
     "EvidenceGraphResult",
+    "FrozenEmbeddingsResult",
     "ModelResult",
     "PreparedSplitResult",
     "RankingResult",

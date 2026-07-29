@@ -8,6 +8,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, TypeAlias
 
+from pydantic import BaseModel
+
 JsonDict: TypeAlias = dict[str, Any]
 
 
@@ -20,7 +22,14 @@ def write_json(path: str | Path, data: Any) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="\n") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2, sort_keys=True)
+        json.dump(
+            data,
+            file,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            default=_json_default,
+        )
         file.write("\n")
 
 
@@ -39,7 +48,14 @@ def write_json_atomic(path: str | Path, data: Any) -> None:
             delete=False,
         ) as file:
             temp_path = Path(file.name)
-            json.dump(data, file, ensure_ascii=False, indent=2, sort_keys=True)
+            json.dump(
+                data,
+                file,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+                default=_json_default,
+            )
             file.write("\n")
             file.flush()
             os.fsync(file.fileno())
@@ -61,7 +77,11 @@ def write_csv(path: str | Path, rows: list[Any], fieldnames: list[str]) -> None:
         writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="raise", lineterminator="\n")
         writer.writeheader()
         for row in rows:
-            writer.writerow(row)
+            writer.writerow(
+                row.model_dump(mode="json", by_alias=True)
+                if isinstance(row, BaseModel)
+                else row
+            )
 
 
 def write_jsonl(path: str | Path, records: list[Any]) -> None:
@@ -69,8 +89,21 @@ def write_jsonl(path: str | Path, records: list[Any]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="\n") as file:
         for record in records:
-            file.write(json.dumps(record, ensure_ascii=False, sort_keys=True))
+            file.write(
+                json.dumps(
+                    record,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=_json_default,
+                )
+            )
             file.write("\n")
+
+
+def _json_default(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", by_alias=True)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def merge_config(

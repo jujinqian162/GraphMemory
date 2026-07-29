@@ -1,6 +1,4 @@
 import math
-from dataclasses import replace
-from inspect import Parameter, signature
 from pathlib import Path
 
 import torch
@@ -15,7 +13,6 @@ import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.graph_retriever.inference import CheckpointGraphRetrieverLoader
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     EvidenceRgcnBuildPayload,
@@ -25,7 +22,7 @@ from graph_memory.registry.retrieval import (
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
-from graph_memory.validation import validate_ranked_results
+from graph_memory.retrieval.results import RankedResultBatch
 from tests.rgcn_fixtures import (
     FakeRetriever,
     FakeTextEmbeddingProvider,
@@ -47,11 +44,11 @@ class TinyTrainableRetriever:
 
     def rank_task(self, task_input, *, top_k: int):
         return RetrievalMethodResult(
-            ranked_nodes=[
+            ranked_nodes=(
                 RankedNode(node_id="m0", score=3.0),
                 RankedNode(node_id="m1", score=2.0),
                 RankedNode(node_id="m2", score=1.0),
-            ],
+            ),
         )
 
 
@@ -146,6 +143,7 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
         checkpoint_path,
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        device="cpu",
     )
 
     result = retriever.rank_task(tiny_graph_ranking_request(), top_k=2)
@@ -157,18 +155,30 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     assert all(math.isfinite(node.score) for node in ranked_nodes)
     assert len({node.node_id for node in ranked_nodes}) == len(ranked_nodes)
     assert all(
-        edge["source"] in top_node_ids and edge["target"] in top_node_ids
+        edge.source in top_node_ids and edge.target in top_node_ids
         for edge in retrieved_edges
     )
 
 
-def test_checkpoint_loader_requires_assembled_runtime_providers() -> None:
-    parameters = signature(CheckpointGraphRetrieverLoader.load).parameters
+def test_evidence_checkpoint_uses_explicit_graph_batch_schema(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    write_tiny_checkpoint(checkpoint_path)
 
-    assert parameters["text_embedding_provider"].default is Parameter.empty
-    assert parameters["seed_signal_provider"].default is Parameter.empty
-    assert "graphs" not in parameters
-    assert "dense_encoder" not in parameters
+    checkpoint = load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
+
+    assert checkpoint.payload["schema_version"] == 3
+    training = checkpoint.payload["training_config"]
+    assert "batch_size" not in training
+    assert training["per_device_graph_batch_size"] == 1
+    assert set(training) == {
+        "optimizer_name",
+        "learning_rate",
+        "per_device_graph_batch_size",
+        "max_grad_norm",
+        "random_seed",
+        "pos_weight_enabled",
+        "epochs",
+    }
 
 
 def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:
@@ -179,7 +189,29 @@ def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:
     payload["model_config"]["decoder_config"] = {"hidden_dim": 8}
     torch.save(payload, checkpoint_path)
 
-    with pytest.raises(ValueError, match="Incompatible R-GCN checkpoint schema"):
+    with pytest.raises(ValueError, match="schema_version"):
+        load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
+
+
+def test_evidence_checkpoint_rejects_legacy_batch_size_semantics(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "legacy-batch.pt"
+    write_tiny_checkpoint(checkpoint_path)
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    payload["schema_version"] = 2
+    payload["training_config"] = {
+        "optimizer_name": "AdamW",
+        "learning_rate": 0.01,
+        "batch_size": 128,
+        "max_grad_norm": 1.0,
+        "random_seed": 13,
+        "pos_weight_enabled": False,
+        "epochs": 1,
+    }
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(ValueError, match="batch_size"):
         load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
 
 
@@ -204,12 +236,13 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
         checkpoint_path,
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        device="cpu",
     )
 
     result = retriever.rank_task(tiny_graph_ranking_request(), top_k=3)
     retrieved_edges = result.trace.retrieved_edges
 
-    assert all(edge["edge_type"] != "bridge" for edge in retrieved_edges)
+    assert all(edge.edge_type != "bridge" for edge in retrieved_edges)
 
 
 def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
@@ -219,10 +252,7 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
     write_tiny_checkpoint(checkpoint_path)
 
     definition = Registry.methods.get("dense_rgcn_graph_retriever")
-    assert definition.input_spec.required_artifact.value == "evidence_graph"
-    assert definition.dependencies.model.value == "checkpoint_file"
-    assert definition.seed_method is not None
-    assert definition.seed_method.value == "dense"
+    assert definition.identifier is RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",
         task_inputs=tiny_task_inputs(),
@@ -233,21 +263,25 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    validate_ranked_results(predictions, _ranking_requests(tiny_task_inputs()))
-    assert predictions[0]["method"] == "dense_rgcn_graph_retriever"
-    assert predictions[0]["retrieved_subgraph"]["nodes"] == [
-        ranked_node["node_id"] for ranked_node in predictions[0]["ranked_nodes"][:2]
-    ]
-    assert "metadata" not in predictions[0]
+    RankedResultBatch(
+        results=tuple(predictions),
+        requests=tuple(_ranking_requests(tiny_task_inputs())),
+    )
+    assert predictions[0].method == "dense_rgcn_graph_retriever"
+    assert predictions[0].retrieved_subgraph.nodes == tuple(
+        ranked_node.node_id for ranked_node in predictions[0].ranked_nodes[:2]
+    )
+    assert predictions[0].metadata is None
 
 
 def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
     tmp_path: Path,
 ):
     checkpoint_path = tmp_path / "best.pt"
-    seeded_model_config = replace(
-        tiny_model_config(),
-        method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
+    seeded_model_config = tiny_model_config().model_copy(
+        update={
+            "method_name": RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+        }
     )
     write_tiny_checkpoint(
         checkpoint_path,
@@ -307,4 +341,4 @@ def test_run_retrieval_passes_device_to_trainable_retriever(
 
     assert captured["checkpoint_path"] == checkpoint_path
     assert captured["device"] == "cuda:7"
-    assert predictions[0]["method"] == "dense_rgcn_graph_retriever"
+    assert predictions[0].method == "dense_rgcn_graph_retriever"

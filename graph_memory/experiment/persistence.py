@@ -44,10 +44,6 @@ def as_yaml_object(value: object) -> dict[str, YamlValue]:
     return converted
 
 
-def as_yaml_value(value: object) -> YamlValue:
-    return _yaml_value(value)
-
-
 def _primitive(value: object) -> YamlValue:
     if isinstance(value, BaseModel):
         return _yaml_value(value.model_dump(mode="json", by_alias=True))
@@ -100,6 +96,5 @@ __all__ = [
     "read_yaml",
     "read_yaml_model",
     "as_yaml_object",
-    "as_yaml_value",
     "write_yaml_atomic",
 ]

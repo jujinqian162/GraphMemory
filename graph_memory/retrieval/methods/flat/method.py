@@ -15,4 +15,6 @@ class ScorePipelineMethod:
         _ = top_k
         if not isinstance(request, TextRankingRequest):
             raise TypeError(f"{self.name} requires TextRankingRequest, got {type(request).__name__}.")
-        return RetrievalMethodResult(ranked_nodes=self.retriever.rank(request))
+        return RetrievalMethodResult(
+            ranked_nodes=tuple(self.retriever.rank(request))
+        )

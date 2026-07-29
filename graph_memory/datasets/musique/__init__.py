@@ -24,6 +24,7 @@ from graph_memory.datasets.musique.records import (
     MuSiQueExample,
     MuSiQueLabelRecord,
     MuSiQueParagraph,
+    MuSiQuePreparedSplit,
     MuSiQueRankingRecord,
 )
 
@@ -36,6 +37,7 @@ __all__ = [
     "MuSiQueExample",
     "MuSiQueLabelRecord",
     "MuSiQueParagraph",
+    "MuSiQuePreparedSplit",
     "MuSiQueRankingRecord",
     "MuSiQueToEvidenceEvaluationRequest",
     "MuSiQueToEvidenceGraphBuildRequest",
