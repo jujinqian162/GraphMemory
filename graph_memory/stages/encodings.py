@@ -76,9 +76,7 @@ def materialize_frozen_rgcn_embeddings(
     implementation_version: str,
     sentence_transformer: Any | None = None,
 ) -> FrozenEmbeddingsResult:
-    family: EncodingFamily = (
-        "provenance" if dataset == "twowiki_provenance" else "evidence"
-    )
+    family: EncodingFamily = "provenance" if dataset == "isetrace" else "evidence"
     groups = [
         *_groups_for_split(
             family,
@@ -291,10 +289,14 @@ def _groups_for_split(
     graphs: EvidenceGraphArtifactRef | None,
     encoder: DenseEncoderConfig,
 ) -> list[_TextGroup]:
-    task_inputs = cast(list[object], read_json(artifact_payload_path(prepared, "tasks")))
+    task_inputs = cast(
+        list[object], read_json(artifact_payload_path(prepared, "tasks"))
+    )
     if family == "provenance":
         if graphs is not None:
-            raise ValueError("Provenance frozen encoding does not accept evidence graphs.")
+            raise ValueError(
+                "Provenance frozen encoding does not accept evidence graphs."
+            )
         return [
             _TextGroup(
                 split=split,

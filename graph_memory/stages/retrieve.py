@@ -337,7 +337,7 @@ def _encoder_settings(
 
 
 def _task_family(dataset: DatasetName) -> RetrievalTaskFamily:
-    if dataset == "twowiki_provenance":
+    if dataset == "isetrace":
         return RetrievalTaskFamily.EXECUTION_PROVENANCE
     return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
 

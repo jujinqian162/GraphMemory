@@ -24,13 +24,15 @@ from graph_memory.experiment.config import (
 LOGGER = logging.getLogger("experiment.inputs")
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+HUGGINGFACE_BASE_URL = "https://huggingface.co"
+HUGGINGFACE_MIRROR_BASE_URL = "https://hf-mirror.com"
 
 # dataset config name -> (prepare_dataset registry key, data/<dir> directory).
 _DATASET_REGISTRY_KEYS: dict[DatasetName, tuple[str, str]] = {
     "hotpotqa": ("hotpotqa-v1", "hotpotqa"),
     "twowiki": ("2wiki", "2wiki"),
-    "twowiki_provenance": ("2wiki", "2wiki"),
     "musique": ("musique", "musique"),
+    "isetrace": ("isetrace", "isetrace"),
 }
 
 # local encoder directory (repo-relative) -> Hugging Face repo id.
@@ -59,9 +61,9 @@ def ensure_dataset(
         _resolve(split.source, repository_root)
         for split in config.dataset.splits.values()
     ]
-    if all(source.exists() for source in sources):
-        return
     entry = _DATASET_REGISTRY_KEYS.get(config.dataset.name)
+    if config.dataset.name != "isetrace" and all(source.exists() for source in sources):
+        return
     if entry is None:
         missing = ", ".join(str(s) for s in sources if not s.exists())
         raise FileNotFoundError(
@@ -69,12 +71,18 @@ def ensure_dataset(
             f"place raw files manually. Missing: {missing}"
         )
     registry_key, directory = entry
+    prepare_dataset = _load_prepare_dataset(repository_root)
+    if config.dataset.name == "isetrace" and _registered_files_exist(
+        prepare_dataset,
+        registry_key=registry_key,
+        raw_dir=repository_root / "data" / directory / "raw",
+    ):
+        return
     LOGGER.info(
         "dataset %s raw files missing; downloading via prepare_dataset (%s)",
         config.dataset.name,
         registry_key,
     )
-    prepare_dataset = _load_prepare_dataset(repository_root)
     prepare_dataset.main(
         [
             "--dataset",
@@ -86,6 +94,17 @@ def ensure_dataset(
             "--no_verify",
         ]
     )
+
+
+def _registered_files_exist(
+    prepare_dataset: object,
+    *,
+    registry_key: str,
+    raw_dir: Path,
+) -> bool:
+    registry = getattr(prepare_dataset, "DATASET_REGISTRY")
+    spec = registry[registry_key]
+    return all((raw_dir / item.filename).exists() for item in spec.files)
 
 
 def ensure_encoder_models(
@@ -114,15 +133,24 @@ def _ensure_model(model_name: str, *, repository_root: Path) -> None:
     from huggingface_hub import snapshot_download
 
     LOGGER.info("encoder model %s missing; downloading %s", model_name, repo_id)
-    snapshot_download(repo_id=repo_id, local_dir=str(target))
+    try:
+        snapshot_download(repo_id=repo_id, local_dir=str(target))
+    except Exception:
+        LOGGER.warning(
+            "Hugging Face download failed for %s; retrying once via %s",
+            repo_id,
+            HUGGINGFACE_MIRROR_BASE_URL,
+        )
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=str(target),
+            endpoint=HUGGINGFACE_MIRROR_BASE_URL,
+        )
 
 
 def _collect_model_names(config: ResolvedExperimentConfig) -> set[str]:
     names: set[str] = set()
     _walk_for_models(config.method, names)
-    transform = config.dataset.transform
-    if transform is not None and transform.edge_scorer in {"dense", "hybrid"}:
-        names.add(transform.dense_model)
     return names
 
 
@@ -136,6 +164,16 @@ def _walk_for_models(model: object, names: set[str]) -> None:
     elif isinstance(model, (list, tuple)):
         for value in model:
             _walk_for_models(value, names)
+
+
+def huggingface_mirror_url(url: str) -> str | None:
+    """Return the equivalent mirror URL for an official Hugging Face URL."""
+    if url == HUGGINGFACE_BASE_URL:
+        return HUGGINGFACE_MIRROR_BASE_URL
+    prefix = f"{HUGGINGFACE_BASE_URL}/"
+    if not url.startswith(prefix):
+        return None
+    return f"{HUGGINGFACE_MIRROR_BASE_URL}/{url.removeprefix(prefix)}"
 
 
 def _resolve(path: Path, repository_root: Path) -> Path:
@@ -156,7 +194,9 @@ def _load_prepare_dataset(repository_root: Path):
 
 
 __all__ = [
+    "HUGGINGFACE_MIRROR_BASE_URL",
     "ensure_dataset",
     "ensure_encoder_models",
     "ensure_inputs",
+    "huggingface_mirror_url",
 ]

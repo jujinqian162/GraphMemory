@@ -13,7 +13,6 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
-    DenseEncoderConfig,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
@@ -25,7 +24,6 @@ from graph_memory.experiment.config import (
     ResolvedExperimentConfig,
     RgcnMethodConfig,
     SplitName,
-    TwoWikiProvenanceTransformConfig,
     ranking_config,
 )
 from graph_memory.experiment.output import project_run_output
@@ -44,7 +42,6 @@ from graph_memory.experiment.tasks import (
     train_dense_ft_task,
     train_evidence_rgcn_task,
     train_provenance_rgcn_task,
-    transform_twowiki_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
 from graph_memory.retrieval.methods.epgm import EpgmRetrieverConfig
@@ -110,10 +107,6 @@ def run_experiment(
 
             encoder_source = resolve_encoder_source(method.encoder)
             effective_pairs = method.pairs
-            if config.dataset.name == "twowiki_provenance":
-                effective_pairs = method.pairs.model_copy(
-                    update={"hard_graph_neighbor_per_positive": 0}
-                )
             train_graphs = None
             if effective_pairs.hard_graph_neighbor_per_positive > 0:
                 train_graphs = build_evidence_graphs_task(
@@ -475,8 +468,6 @@ def run_experiment(
 def _resolve_split_sources(
     config: ResolvedExperimentConfig,
 ) -> dict[SplitName, FileSourceRef]:
-    if config.dataset.name == "twowiki_provenance":
-        return _transform_split_sources(config)
     return {split: _direct_split_source(config, split) for split in _SPLIT_NAMES}
 
 
@@ -491,41 +482,6 @@ def _direct_split_source(
     if not isinstance(source, FileSourceRef):
         raise TypeError(f"raw split source must be a file: {source.uri}")
     return source
-
-
-def _transform_split_sources(
-    config: ResolvedExperimentConfig,
-) -> dict[SplitName, FileSourceRef]:
-    transform = config.dataset.transform
-    if transform is None:
-        raise ValueError(
-            "twowiki_provenance requires a resolved transform configuration"
-        )
-    train_source = _direct_split_source(config, "train")
-    dev_source = _direct_split_source(config, "dev")
-    encoder_source = _transform_encoder_source(transform)
-    result = transform_twowiki_task(
-        train_source=train_source,
-        dev_source=dev_source,
-        config=transform,
-        encoder_source=encoder_source,
-        device=config.device,
-        split_seed=config.split_seed,
-    )
-    return {"train": result.train, "dev": result.dev, "test": result.test}
-
-
-def _transform_encoder_source(config: TwoWikiProvenanceTransformConfig):
-    if config.edge_scorer not in {"dense", "hybrid"}:
-        return None
-    return resolve_encoder_source(
-        DenseEncoderConfig(
-            model_name=config.dense_model,
-            query_prefix=config.dense_query_prefix,
-            passage_prefix=config.dense_passage_prefix,
-            batch_size=config.dense_batch_size,
-        )
-    )
 
 
 def _prepare_config(

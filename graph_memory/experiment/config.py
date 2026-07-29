@@ -65,8 +65,8 @@ Device = Annotated[str, BeforeValidator(_device)]
 DatasetName: TypeAlias = Literal[
     "hotpotqa",
     "twowiki",
-    "twowiki_provenance",
     "musique",
+    "isetrace",
 ]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
 EvidenceRgcnVariant: TypeAlias = Literal[
@@ -127,103 +127,10 @@ class DatasetSplitsConfig(ClosedModel):
     test: DatasetSplitConfig
 
 
-ProvenanceEdgeScorer: TypeAlias = Literal["bm25", "dense", "hybrid"]
-
-
-class RankBucketConfig(ClosedModel):
-    lower: PositiveInt
-    upper: PositiveInt | None = None
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> RankBucketConfig:
-        if self.lower < 2:
-            raise ValueError("rank bucket lower bound must be at least 2")
-        if self.upper is not None and self.upper < self.lower:
-            raise ValueError("rank bucket upper bound must be >= lower bound")
-        return self
-
-
-class TwoWikiProvenanceTransformConfig(ClosedModel):
-    edge_scorer: ProvenanceEdgeScorer = "bm25"
-    seed: ScientificInt = 13
-    candidate_cap: PositiveInt = 32
-    dev_fraction: Annotated[ScientificFloat, Field(gt=0.0, lt=1.0)] = 0.5
-    strict: StrictBool = False
-    successors_per_output: Literal[2] = 2
-    hybrid_dense_weight: Annotated[ScientificFloat, Field(ge=0.0, le=1.0)] = 0.5
-    scorer_identity: str = Field(default="provenance_semantic_v3", min_length=1)
-    query_template_version: Literal["question_source_v1"] = "question_source_v1"
-    semantic_temperature: PositiveFloat = 0.1
-    weight_floor: Annotated[ScientificFloat, Field(ge=0.0, lt=1.0)] = 0.5
-    branch_policy_version: str = Field(default="rank_banded_v1", min_length=1)
-    near_rank_bucket: RankBucketConfig = Field(
-        default_factory=lambda: RankBucketConfig(lower=2, upper=4)
-    )
-    mid_rank_bucket: RankBucketConfig = Field(
-        default_factory=lambda: RankBucketConfig(lower=5, upper=8)
-    )
-    tail_rank_bucket: RankBucketConfig = Field(
-        default_factory=lambda: RankBucketConfig(lower=9, upper=None)
-    )
-    dense_model: str = Field(default="models/intfloat-e5-base-v2", min_length=1)
-    dense_query_prefix: str = "query: "
-    dense_passage_prefix: str = "passage: "
-    dense_batch_size: PositiveInt = 64
-    # Performance-only knobs. They intentionally stay OUT of identity() so that
-    # changing parallelism never changes the version tag or invalidates the
-    # Prefect cache: transformed data is byte-identical regardless of them.
-    workers: PositiveInt | None = None
-
-    def identity(self) -> dict[str, JsonValue]:
-        return {
-            "edge_scorer": self.edge_scorer,
-            "seed": self.seed,
-            "candidate_cap": self.candidate_cap,
-            "dev_fraction": self.dev_fraction,
-            "strict": self.strict,
-            "successors_per_output": self.successors_per_output,
-            "hybrid_dense_weight": self.hybrid_dense_weight,
-            "scorer_identity": self.scorer_identity,
-            "query_template_version": self.query_template_version,
-            "semantic_temperature": self.semantic_temperature,
-            "weight_floor": self.weight_floor,
-            "branch_policy_version": self.branch_policy_version,
-            "rank_buckets": {
-                "near": [self.near_rank_bucket.lower, self.near_rank_bucket.upper],
-                "mid": [self.mid_rank_bucket.lower, self.mid_rank_bucket.upper],
-                "tail": [self.tail_rank_bucket.lower, self.tail_rank_bucket.upper],
-            },
-            "dense": (
-                {
-                    "model": self.dense_model,
-                    "query_prefix": self.dense_query_prefix,
-                    "passage_prefix": self.dense_passage_prefix,
-                    "batch_size": self.dense_batch_size,
-                }
-                if self.edge_scorer in {"dense", "hybrid"}
-                else None
-            ),
-        }
-
-
 class DatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool = False
     splits: DatasetSplitsConfig
-    transform: TwoWikiProvenanceTransformConfig | None = None
-
-    @model_validator(mode="after")
-    def validate_transform(self) -> DatasetConfig:
-        if self.name == "twowiki_provenance" and self.transform is None:
-            raise ValueError(
-                "dataset=twowiki_provenance requires a transform configuration block"
-            )
-        if self.name != "twowiki_provenance" and self.transform is not None:
-            raise ValueError(
-                f"dataset={self.name!r} must not define a transform block; "
-                "transform is only valid for twowiki_provenance"
-            )
-        return self
 
 
 class FixedCountPolicy(ClosedModel):
@@ -679,7 +586,6 @@ class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool
     splits: dict[SplitName, ResolvedSplitConfig]
-    transform: TwoWikiProvenanceTransformConfig | None = None
 
 
 class ResolvedTrackingConfig(ClosedModel):
@@ -776,7 +682,6 @@ def resolve_experiment_config(
             name=config.dataset.name,
             strict_invalid_examples=config.dataset.strict_invalid_examples,
             splits=resolved_splits,
-            transform=config.dataset.transform,
         ),
         profile=config.profile.name,
         method=config.method,
@@ -806,7 +711,7 @@ def _check_dataset_method_compatibility(
 
     family = (
         RetrievalTaskFamily.EXECUTION_PROVENANCE
-        if dataset == "twowiki_provenance"
+        if dataset == "isetrace"
         else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     )
     method_id = RetrievalMethodId(method.method)
@@ -863,7 +768,6 @@ __all__ = [
     "ProvenanceRgcnTrainerSettings",
     "ProvenanceRgcnTrainSettings",
     "ProvenanceRgcnStageConfig",
-    "RankBucketConfig",
     "RankingMethodConfig",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",
@@ -878,7 +782,6 @@ __all__ = [
     "SplitName",
     "TrackingConfig",
     "TrainableRankingConfig",
-    "TwoWikiProvenanceTransformConfig",
     "ranking_config",
     "resolve_experiment_config",
     "parse_composed_config",

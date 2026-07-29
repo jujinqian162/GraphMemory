@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from datetime import datetime, timezone
 
+from graph_memory.experiment.inputs import huggingface_mirror_url
 from graph_memory.experiment.persistence import write_yaml_atomic
 
 LOGGER = logging.getLogger("prepare_dataset")
@@ -50,6 +51,7 @@ class PrepareDatasetArgs:
 Downloader = Callable[[str, Path, int | None], None]
 
 SUMMARY_DIR = Path("results") / "debug" / "datasets-prepare"
+ISETRACE_REVISION = "e40e04d41c04e4eb4bae181ebdd41b61c688081b"
 DATASET_REGISTRY: dict[str, DatasetSpec] = {
     "hotpotqa-v1": DatasetSpec(
         dataset="hotpotqa-v1",
@@ -105,6 +107,66 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
                 split="dev",
                 filename="musique_ans_v1.0_dev.jsonl",
                 url="https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/main/musique_ans_v1.0_dev.jsonl",
+            ),
+        ),
+    ),
+    "isetrace": DatasetSpec(
+        dataset="isetrace",
+        display_name="ISETrace",
+        files=(
+            DatasetFile(
+                split="intents",
+                filename="intents/intents.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/intents/intents.jsonl",
+                num_bytes=160_796_777,
+            ),
+            DatasetFile(
+                split="trajectories-00000",
+                filename="trajectories/trajectories-00000.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00000.jsonl",
+                num_bytes=617_089_090,
+            ),
+            DatasetFile(
+                split="trajectories-00001",
+                filename="trajectories/trajectories-00001.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00001.jsonl",
+                num_bytes=619_435_764,
+            ),
+            DatasetFile(
+                split="trajectories-00002",
+                filename="trajectories/trajectories-00002.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00002.jsonl",
+                num_bytes=619_857_574,
+            ),
+            DatasetFile(
+                split="trajectories-00003",
+                filename="trajectories/trajectories-00003.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00003.jsonl",
+                num_bytes=615_912_090,
+            ),
+            DatasetFile(
+                split="trajectories-00004",
+                filename="trajectories/trajectories-00004.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00004.jsonl",
+                num_bytes=608_603_239,
+            ),
+            DatasetFile(
+                split="trajectories-00005",
+                filename="trajectories/trajectories-00005.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00005.jsonl",
+                num_bytes=616_763_123,
+            ),
+            DatasetFile(
+                split="trajectories-00006",
+                filename="trajectories/trajectories-00006.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00006.jsonl",
+                num_bytes=714_528_062,
+            ),
+            DatasetFile(
+                split="trajectories-00007",
+                filename="trajectories/trajectories-00007.jsonl",
+                url=f"https://huggingface.co/datasets/valiere/ISETrace/resolve/{ISETRACE_REVISION}/trajectories/trajectories-00007.jsonl",
+                num_bytes=507_550_125,
             ),
         ),
     ),
@@ -180,7 +242,18 @@ def main(
                 continue
 
             status(f"GET {dataset_file.split}: {dataset_file.url}")
-            download_file(dataset_file.url, destination, dataset_file.num_bytes)
+            try:
+                download_file(dataset_file.url, destination, dataset_file.num_bytes)
+            except Exception:
+                mirror_url = huggingface_mirror_url(dataset_file.url)
+                if mirror_url is None:
+                    raise
+                LOGGER.warning(
+                    "download failed for %s; retrying once via %s",
+                    dataset_file.url,
+                    mirror_url,
+                )
+                download_file(mirror_url, destination, dataset_file.num_bytes)
             if not args.no_verify:
                 verify_file(destination, dataset_file)
             counts["downloaded_files"] += 1

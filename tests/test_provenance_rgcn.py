@@ -9,11 +9,16 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
+from pydantic import JsonValue
 
-from graph_memory.datasets.twowiki_provenance import (
-    TwoWikiProvenanceToEvidenceEvaluationRequest,
-    TwoWikiProvenanceToExecutionProvenanceRankingRequest,
-    convert_twowiki_source_records,
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.graphs.provenance import (
+    ExecutionProvenanceEdge,
+    ExecutionProvenanceGraph,
+    ExecutionProvenanceNode,
+    FieldBinding,
+    ProvenanceEdgeType,
+    ProvenanceNodeType,
 )
 from graph_memory.models.frozen_embeddings import (
     FrozenTaskEmbeddings,
@@ -56,7 +61,11 @@ from graph_memory.registry.retrieval import (
 )
 from graph_memory.retrieval.contracts import ExecutionProvenanceTrace
 from graph_memory.retrieval.contracts import RankedNode
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextCandidate,
+    TextRankingRequest,
+)
 from graph_memory.training_pairs import build_provenance_train_pairs, build_train_pairs
 from graph_memory.training_pairs.config import (
     NegativeSamplingConfig,
@@ -191,9 +200,7 @@ def test_disconnected_union_matches_separate_provenance_forwards() -> None:
     with torch.no_grad():
         batched_output = model(batch)
         split_outputs = split_provenance_output(batch, batched_output)
-        separate_outputs = [
-            model(collate_provenance_tasks([task])) for task in tasks
-        ]
+        separate_outputs = [model(collate_provenance_tasks([task])) for task in tasks]
 
     assert batch.graph_batch.task_node_offsets == [
         0,
@@ -217,8 +224,14 @@ def test_disconnected_union_matches_separate_provenance_forwards() -> None:
         transition_end = batch.transition_offsets[task_index + 1]
         assert bool(
             (
-                (batch.candidate_node_indices[candidate_start:candidate_end] >= node_start)
-                & (batch.candidate_node_indices[candidate_start:candidate_end] < node_end)
+                (
+                    batch.candidate_node_indices[candidate_start:candidate_end]
+                    >= node_start
+                )
+                & (
+                    batch.candidate_node_indices[candidate_start:candidate_end]
+                    < node_end
+                )
             ).all()
         )
         assert torch.equal(
@@ -233,7 +246,9 @@ def test_disconnected_union_matches_separate_provenance_forwards() -> None:
             transition_nodes = batch.transition_node_indices[
                 :, transition_start:transition_end
             ]
-            assert bool(((transition_nodes >= node_start) & (transition_nodes < node_end)).all())
+            assert bool(
+                ((transition_nodes >= node_start) & (transition_nodes < node_end)).all()
+            )
     for task_index, (split, separate) in enumerate(
         zip(split_outputs, separate_outputs, strict=True)
     ):
@@ -265,11 +280,9 @@ def test_disconnected_union_matches_separate_provenance_forwards() -> None:
             atol=1e-6,
         )
         assert {
-            (edge.source, edge.target)
-            for edge in batched_result.trace.retrieved_edges
+            (edge.source, edge.target) for edge in batched_result.trace.retrieved_edges
         } == {
-            (edge.source, edge.target)
-            for edge in separate_result.trace.retrieved_edges
+            (edge.source, edge.target) for edge in separate_result.trace.retrieved_edges
         }
         batched_trace = batched_result.trace.native_trace
         separate_trace = separate_result.trace.native_trace
@@ -454,9 +467,7 @@ def test_training_loss_consumes_only_materialized_candidate_pairs() -> None:
             sample_type="hard_bm25",
         ),
     ]
-    first = compute_provenance_loss(
-        tensor, output, label, pairs, config, training
-    )
+    first = compute_provenance_loss(tensor, output, label, pairs, config, training)
     unpaired_index = next(
         index
         for index, candidate_id in enumerate(tensor.candidate_ids)
@@ -486,9 +497,7 @@ def test_candidate_loss_is_pairwise_over_every_positive_negative_comparison() ->
     tensor = tensorize_provenance_request(
         request, encoder=TinyEncoder(), config=_model_config()
     )
-    logits = torch.tensor(
-        [2.0, 1.0, -1.0, 0.5, -0.5, 0.0], dtype=torch.float32
-    )
+    logits = torch.tensor([2.0, 1.0, -1.0, 0.5, -0.5, 0.0], dtype=torch.float32)
     output = ProvenanceModelOutput(
         node_states=torch.empty((len(request.graph.nodes), 1)),
         candidate_logits=logits,
@@ -561,7 +570,10 @@ def test_structured_reranking_is_bounded_stable_and_can_be_disabled() -> None:
     )
     final_ids = [item.node_id for item in structured.ranked_nodes]
     assert final_ids[:2] == raw_ids[:2]
-    assert final_ids.index(transition.target_id) == final_ids.index(transition.source_id) + 1
+    assert (
+        final_ids.index(transition.target_id)
+        == final_ids.index(transition.source_id) + 1
+    )
     assert sorted(item.score for item in structured.ranked_nodes) == sorted(
         item.score for item in raw
     )
@@ -601,7 +613,9 @@ def test_structured_reranking_records_above_source_noop_and_target_conflict() ->
     by_target: dict[str, list[int]] = {}
     for index, transition in enumerate(tensor.logical_transitions):
         by_target.setdefault(transition.target_id, []).append(index)
-    conflict_indices = next(indices for indices in by_target.values() if len(indices) >= 2)
+    conflict_indices = next(
+        indices for indices in by_target.values() if len(indices) >= 2
+    )
     first = tensor.logical_transitions[conflict_indices[0]]
     second = tensor.logical_transitions[conflict_indices[1]]
     remaining = [
@@ -629,16 +643,21 @@ def test_structured_reranking_records_above_source_noop_and_target_conflict() ->
     assert [item.node_id for item in result.ranked_nodes] == raw_ids
     assert any(trace.decision == "already_above_source" for trace in result.traces)
     assert any(trace.decision == "target_conflict" for trace in result.traces)
-    assert sum(
-        transition.target_id == first.target_id
-        for transition, _score in result.selected_transitions
-    ) == 1
+    assert (
+        sum(
+            transition.target_id == first.target_id
+            for transition, _score in result.selected_transitions
+        )
+        == 1
+    )
 
 
 def test_provenance_pair_build_uses_real_bm25_and_dense_samplers() -> None:
     request, label = _request_and_label()
     text_request = TextRankingRequest(
-        task_id=request.task_id, query_text=request.query_text, candidates=request.candidates
+        task_id=request.task_id,
+        query_text=request.query_text,
+        candidates=request.candidates,
     )
 
     result = build_train_pairs(
@@ -668,7 +687,9 @@ def test_provenance_pair_build_uses_real_bm25_and_dense_samplers() -> None:
 def test_provenance_native_pairs_are_unique_and_use_hardness_precedence() -> None:
     request, label = _request_and_label()
     text_request = TextRankingRequest(
-        task_id=request.task_id, query_text=request.query_text, candidates=request.candidates
+        task_id=request.task_id,
+        query_text=request.query_text,
+        candidates=request.candidates,
     )
     task = ProvenanceTrainPairBuildTask(
         text_request=text_request,
@@ -694,12 +715,8 @@ def test_provenance_native_pairs_are_unique_and_use_hardness_precedence() -> Non
 
     negatives = [pair for pair in result.pairs if pair.label == 0]
     assert len({pair.node_id for pair in negatives}) == len(negatives)
-    assert "hard_provenance_successor" in {
-        pair.sample_type for pair in negatives
-    }
-    assert "hard_provenance_predecessor" in {
-        pair.sample_type for pair in negatives
-    }
+    assert "hard_provenance_successor" in {pair.sample_type for pair in negatives}
+    assert "hard_provenance_predecessor" in {pair.sample_type for pair in negatives}
     requested_counts = result.summary.requested_negative_count_by_type
     assert requested_counts == {
         "easy_random": 4,
@@ -732,9 +749,9 @@ def test_provenance_native_pairs_are_unique_and_use_hardness_precedence() -> Non
             hard_provenance_predecessor_per_positive=0,
         ),
     )
-    assert {
-        pair.sample_type for pair in easy_only.pairs if pair.label == 0
-    } == {"easy_random"}
+    assert {pair.sample_type for pair in easy_only.pairs if pair.label == 0} == {
+        "easy_random"
+    }
 
 
 def test_checkpoint_family_round_trip_and_rejection(
@@ -762,10 +779,7 @@ def test_checkpoint_family_round_trip_and_rejection(
     assert loaded.model_config.message_transform_type == "typed"
     assert loaded.model_config.edge_weight_policy == "artifact"
     assert loaded.payload["schema_version"] == 4
-    assert (
-        loaded.payload["candidate_loss_protocol"]
-        == "provenance-candidate-loss-v2"
-    )
+    assert loaded.payload["candidate_loss_protocol"] == "provenance-candidate-loss-v2"
     assert loaded.payload["batch_semantics"] == "disconnected_union_task_graphs"
     assert "batch_size" not in loaded.payload["training_config"]
 
@@ -775,9 +789,7 @@ def test_checkpoint_family_round_trip_and_rejection(
     legacy_batch_checkpoint = tmp_path / "legacy-batch-v3.pt"
     torch.save(legacy_batch_payload, legacy_batch_checkpoint)
     with pytest.raises(ValueError, match="schema_version"):
-        load_provenance_rgcn_checkpoint(
-            legacy_batch_checkpoint, map_location="cpu"
-        )
+        load_provenance_rgcn_checkpoint(legacy_batch_checkpoint, map_location="cpu")
 
     legacy_payload = deepcopy(payload)
     for field_name in (
@@ -804,9 +816,7 @@ def test_checkpoint_family_round_trip_and_rejection(
     provenance_v2_checkpoint = tmp_path / "provenance-v2.pt"
     torch.save(provenance_v2, provenance_v2_checkpoint)
     with pytest.raises(ValueError, match="schema_version"):
-        load_provenance_rgcn_checkpoint(
-            provenance_v2_checkpoint, map_location="cpu"
-        )
+        load_provenance_rgcn_checkpoint(provenance_v2_checkpoint, map_location="cpu")
 
 
 def test_joint_dev_selection_uses_declared_components_and_earlier_ties() -> None:
@@ -844,7 +854,9 @@ def test_minimal_train_and_inference_return_logical_paths() -> None:
         encoder=TinyEncoder(),
         device="cpu",
     )
-    retriever = ExecutionProvenanceRgcnRetriever(result.model, TinyEncoder(), config, "cpu")
+    retriever = ExecutionProvenanceRgcnRetriever(
+        result.model, TinyEncoder(), config, "cpu"
+    )
 
     prediction = retriever.rank_task(request, top_k=len(request.candidates))
 
@@ -886,9 +898,7 @@ def test_provenance_training_accepts_precomputed_frozen_embeddings() -> None:
         )
         for node in request.graph.nodes
     ]
-    values = torch.from_numpy(
-        np.asarray(TinyEncoder().encode(texts), dtype=np.float32)
-    )
+    values = torch.from_numpy(np.asarray(TinyEncoder().encode(texts), dtype=np.float32))
     frozen = FrozenTaskEmbeddings(
         task_id=request.task_id,
         node_ids_digest=node_ids_digest(node_ids),
@@ -914,12 +924,8 @@ def test_provenance_training_accepts_precomputed_frozen_embeddings() -> None:
 
 def test_provenance_tail_graph_batch_produces_its_own_optimizer_step() -> None:
     request, label = _request_and_label()
-    requests = [
-        _retask_request(request, f"rgcn-tail-{index}") for index in range(3)
-    ]
-    labels = [
-        label.model_copy(update={"task_id": item.task_id}) for item in requests
-    ]
+    requests = [_retask_request(request, f"rgcn-tail-{index}") for index in range(3)]
+    labels = [label.model_copy(update={"task_id": item.task_id}) for item in requests]
     pairs = [
         pair
         for item, item_label in zip(requests, labels, strict=True)
@@ -993,16 +999,112 @@ def _retask_request(request, task_id: str):
 
 
 def _request_and_label():
-    raw = convert_twowiki_source_records(
-        [_source_example()], candidate_cap=6, seed=13, strict=True
-    ).records[0]
-    request = TwoWikiProvenanceToExecutionProvenanceRankingRequest().project(
-        raw.ranking
+    task_id = "provenance-rgcn-unit"
+    output_ids = tuple(f"output-{index}" for index in range(6))
+    call_ids = tuple(f"call-{index}" for index in range(6))
+    output_texts = (
+        "Alpha was born in Bridge City.",
+        "Bridge City is located in Country Z.",
+        "Wrong evidence about a river.",
+        "Wrong evidence mentions Alpha.",
+        "Alpha is an artist.",
+        "Wrong country evidence.",
     )
-    label = (
-        TwoWikiProvenanceToEvidenceEvaluationRequest()
-        .project(predictions=[], labels=[raw.label], graphs=[])
-        .labels[0]
+    nodes = [
+        ExecutionProvenanceNode(
+            node_id="task",
+            node_type=ProvenanceNodeType.TASK,
+            text="In which country is the birthplace of Alpha located?",
+        ),
+        ExecutionProvenanceNode(
+            node_id="agent",
+            node_type=ProvenanceNodeType.AGENT,
+            text="research agent",
+        ),
+    ]
+    for index, (call_id, output_id) in enumerate(
+        zip(call_ids, output_ids, strict=True)
+    ):
+        call_metadata: dict[str, JsonValue] = {"input_parameters": ["context"]}
+        output_metadata: dict[str, JsonValue] = {
+            "output_field_hashes": {"evidence": f"evidence-hash-{index}"}
+        }
+        nodes.extend(
+            (
+                ExecutionProvenanceNode(
+                    node_id=call_id,
+                    node_type=ProvenanceNodeType.TOOL_CALL,
+                    text=f"retrieve evidence {index}",
+                    metadata=call_metadata,
+                ),
+                ExecutionProvenanceNode(
+                    node_id=output_id,
+                    node_type=ProvenanceNodeType.TOOL_OUTPUT,
+                    text=output_texts[index],
+                    metadata=output_metadata,
+                ),
+            )
+        )
+    edges = [
+        ExecutionProvenanceEdge(
+            source="task",
+            target="agent",
+            edge_type=ProvenanceEdgeType.CONTAINS,
+        )
+    ]
+    for call_id, output_id in zip(call_ids, output_ids, strict=True):
+        edges.extend(
+            (
+                ExecutionProvenanceEdge(
+                    source="agent",
+                    target=call_id,
+                    edge_type=ProvenanceEdgeType.INVOKES,
+                ),
+                ExecutionProvenanceEdge(
+                    source=call_id,
+                    target=output_id,
+                    edge_type=ProvenanceEdgeType.RETURNS,
+                ),
+            )
+        )
+    for source_index, output_id in enumerate(output_ids):
+        for offset, weight in ((1, 1.0), (2, 0.5)):
+            target_index = (source_index + offset) % len(call_ids)
+            edges.append(
+                ExecutionProvenanceEdge(
+                    source=output_id,
+                    target=call_ids[target_index],
+                    edge_type=ProvenanceEdgeType.FEEDS,
+                    binding=FieldBinding(
+                        output_field="evidence",
+                        input_parameter="context",
+                        binding_value_hash=f"evidence-hash-{source_index}",
+                        binding_kind="semantic_reference",
+                    ),
+                    weight=weight,
+                )
+            )
+    graph = ExecutionProvenanceGraph(
+        task_id=task_id,
+        nodes=tuple(nodes),
+        edges=tuple(edges),
+    )
+    request = ExecutionProvenanceRankingRequest(
+        task_id=task_id,
+        query_text="In which country is the birthplace of Alpha located?",
+        candidates=tuple(
+            TextCandidate(
+                item_id=output_id, text=graph.node(output_id).text, metadata={}
+            )
+            for output_id in output_ids
+        ),
+        graph=graph,
+    )
+    label = EvidenceLabel(
+        task_id=task_id,
+        gold_answer="Country Z",
+        gold_evidence_item_ids=output_ids[:2],
+        gold_dependency_edges=((output_ids[0], output_ids[1]),),
     )
     return request, label
 
@@ -1043,34 +1145,7 @@ def _train_pairs(request, label) -> list[TrainPairRecord]:
             task_id=request.task_id,
             node_id=candidate.item_id,
             label=1 if candidate.item_id in gold_ids else 0,
-            sample_type=(
-                "positive" if candidate.item_id in gold_ids else "hard_dense"
-            ),
+            sample_type=("positive" if candidate.item_id in gold_ids else "hard_dense"),
         )
         for candidate in request.candidates
     ]
-
-
-def _source_example() -> dict[str, object]:
-    return {
-        "_id": "rgcn",
-        "type": "compositional",
-        "question": "In which country is the birthplace of Alpha located?",
-        "context": [
-            ["Alpha", ["Alpha was born in Bridge City.", "Alpha is an artist."]],
-            [
-                "Bridge City",
-                ["Bridge City is located in Country Z.", "It has a river."],
-            ],
-            ["Wrong One", ["Wrong One is located elsewhere."]],
-            ["Wrong Two", ["Wrong Two mentions Alpha but not the answer."]],
-        ],
-        "supporting_facts": [["Alpha", 0], ["Bridge City", 0]],
-        "evidences": [
-            ["Alpha", "birth place", "Bridge City"],
-            ["Bridge City", "country", "Country Z"],
-        ],
-        "evidences_id": [],
-        "answer_id": "Country Z",
-        "answer": "Country Z",
-    }

@@ -27,12 +27,6 @@ Default sketch:
 
 No positive multi-candidate connection ⇒ ranking equals Dense.
 
-```powershell
-uv run python experiment/run.py `
-  name=epgm_default dataset=twowiki_provenance profile=provenance_full device=cuda:0 `
-  method=execution_provenance_retriever
-
-uv run python scripts/run_epgm_provenance.py --epgm-variant ppr_steiner --device cuda:0 --output-dir runs/epgm_rq3
-```
+The previous synthetic 2Wiki provenance adapter has been removed. This method becomes runnable again after the ISETrace adapter supplies native execution-provenance requests.
 
 Variant + frozen behavior fingerprint enter Prefect ranking identity and `graph_memory.variant` tags.

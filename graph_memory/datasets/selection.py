@@ -32,15 +32,6 @@ from graph_memory.datasets.twowiki.records import (
     TwoWikiLabelRecord,
     TwoWikiRankingRecord,
 )
-from graph_memory.datasets.twowiki_provenance.projectors import (
-    TwoWikiProvenanceToEvidenceEvaluationRequest,
-    TwoWikiProvenanceToExecutionProvenanceRankingRequest,
-    TwoWikiProvenanceToTextRankingRequest,
-)
-from graph_memory.datasets.twowiki_provenance.records import (
-    TwoWikiProvenanceLabelRecord,
-    TwoWikiProvenanceRankingRecord,
-)
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.requests import EvidenceGraphBuildRequest
@@ -53,28 +44,20 @@ from graph_memory.retrieval.results import RankedResult
 DatasetId = Literal[
     "hotpotqa",
     "twowiki",
-    "twowiki_provenance",
     "musique",
+    "isetrace",
 ]
 DatasetRankingRecord: TypeAlias = (
-    HotpotQARankingRecord
-    | TwoWikiRankingRecord
-    | TwoWikiProvenanceRankingRecord
-    | MuSiQueRankingRecord
+    HotpotQARankingRecord | TwoWikiRankingRecord | MuSiQueRankingRecord
 )
 DatasetLabelRecord: TypeAlias = (
-    HotpotQALabelRecord
-    | TwoWikiLabelRecord
-    | TwoWikiProvenanceLabelRecord
-    | MuSiQueLabelRecord
+    HotpotQALabelRecord | TwoWikiLabelRecord | MuSiQueLabelRecord
 )
 
 _HOTPOT_RANKINGS = TypeAdapter(list[HotpotQARankingRecord])
 _HOTPOT_LABELS = TypeAdapter(list[HotpotQALabelRecord])
 _TWOWIKI_RANKINGS = TypeAdapter(list[TwoWikiRankingRecord])
 _TWOWIKI_LABELS = TypeAdapter(list[TwoWikiLabelRecord])
-_PROVENANCE_RANKINGS = TypeAdapter(list[TwoWikiProvenanceRankingRecord])
-_PROVENANCE_LABELS = TypeAdapter(list[TwoWikiProvenanceLabelRecord])
 _MUSIQUE_RANKINGS = TypeAdapter(list[MuSiQueRankingRecord])
 _MUSIQUE_LABELS = TypeAdapter(list[MuSiQueLabelRecord])
 
@@ -86,8 +69,6 @@ def ranking_records_for_dataset(
         return list(_HOTPOT_RANKINGS.validate_python(records))
     if dataset == "twowiki":
         return list(_TWOWIKI_RANKINGS.validate_python(records))
-    if dataset == "twowiki_provenance":
-        return list(_PROVENANCE_RANKINGS.validate_python(records))
     if dataset == "musique":
         return list(_MUSIQUE_RANKINGS.validate_python(records))
     _unsupported_dataset(dataset)
@@ -100,8 +81,6 @@ def label_records_for_dataset(
         return list(_HOTPOT_LABELS.validate_python(labels))
     if dataset == "twowiki":
         return list(_TWOWIKI_LABELS.validate_python(labels))
-    if dataset == "twowiki_provenance":
-        return list(_PROVENANCE_LABELS.validate_python(labels))
     if dataset == "musique":
         return list(_MUSIQUE_LABELS.validate_python(labels))
     _unsupported_dataset(dataset)
@@ -116,9 +95,6 @@ def text_ranking_requests_for_dataset(
         return [projector.project(record) for record in validated]
     if dataset == "twowiki":
         projector = TwoWikiToTextRankingRequest()
-        return [projector.project(record) for record in validated]
-    if dataset == "twowiki_provenance":
-        projector = TwoWikiProvenanceToTextRankingRequest()
         return [projector.project(record) for record in validated]
     if dataset == "musique":
         projector = MuSiQueToTextRankingRequest()
@@ -139,10 +115,6 @@ def evidence_graph_build_requests_for_dataset(
     if dataset == "musique":
         projector = MuSiQueToEvidenceGraphBuildRequest()
         return [projector.project(record) for record in validated]
-    if dataset == "twowiki_provenance":
-        raise ValueError(
-            f"dataset={dataset!r} does not provide EvidenceGraph build requests."
-        )
     _unsupported_dataset(dataset)
 
 
@@ -150,16 +122,11 @@ def execution_provenance_requests_for_dataset(
     dataset: DatasetId,
     records: Sequence[object],
 ) -> list[ExecutionProvenanceRankingRequest]:
-    if dataset != "twowiki_provenance":
-        raise ValueError(
-            "Execution-provenance retrieval requires a dataset-owned native request; "
-            f"dataset={dataset!r} does not provide one."
-        )
-    projector = TwoWikiProvenanceToExecutionProvenanceRankingRequest()
-    return [
-        projector.project(record)
-        for record in _PROVENANCE_RANKINGS.validate_python(records)
-    ]
+    del records
+    raise ValueError(
+        "Execution-provenance retrieval requires a dataset-owned native request; "
+        f"dataset={dataset!r} does not provide one."
+    )
 
 
 def evidence_evaluation_request_for_dataset(
@@ -180,12 +147,6 @@ def evidence_evaluation_request_for_dataset(
         return TwoWikiToEvidenceEvaluationRequest().project(
             predictions=predictions,
             labels=_TWOWIKI_LABELS.validate_python(validated_labels),
-            graphs=graphs,
-        )
-    if dataset == "twowiki_provenance":
-        return TwoWikiProvenanceToEvidenceEvaluationRequest().project(
-            predictions=predictions,
-            labels=_PROVENANCE_LABELS.validate_python(validated_labels),
             graphs=graphs,
         )
     if dataset == "musique":

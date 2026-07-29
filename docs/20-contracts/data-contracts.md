@@ -17,9 +17,4 @@ EvidenceGraph construction uses input-visible question/candidate fields only. La
 
 `ExecutionProvenanceGraph` is source-native. Core node types: Task, Agent, ToolCall, ToolOutput, Answer. Core edges: `invokes`, `returns`, `feeds` (requires field binding), `grounds`; `precedes` is chronology only.
 
-The only concrete dataset is synthetic `twowiki_provenance`. Each raw record splits into:
-
-- **ranking** — question, ToolOutput candidates, typed graph (no gold flags)
-- **label** — answer, ordered gold output IDs, contracted dependency edge
-
-Transform runs in-flow (`stages.transform` / `transform_twowiki_task`) before prepare. Version tag `v{schema_version}-{digest}` encodes schema, transform params, and encoder identity. Standard `twowiki` remains an evidence dataset and is unchanged.
+The synthetic 2Wiki provenance adapter and its in-flow transform have been removed. ISETrace is the next source dataset; raw download provisioning exists, while its canonical trajectory, graph, query, and label contracts are introduced in subsequent migration stages. Standard `twowiki` remains an evidence dataset and is unchanged.

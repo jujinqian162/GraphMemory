@@ -7,7 +7,7 @@ Graph structure should help recover complete evidence sets or execution paths be
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence retrieval | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Execution provenance | `twowiki_provenance` (synthetic) | BM25, Dense, Dense-FT, GraphRAG, EPGM, Provenance R-GCN |
+| Execution provenance | ISETrace (adapter in progress) | EPGM, Provenance R-GCN |
 
 Domains do not project into each other.
 

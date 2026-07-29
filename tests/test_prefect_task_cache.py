@@ -38,10 +38,7 @@ class PairInputsCaptured(Exception):
 
 @pytest.mark.parametrize(
     ("dataset", "expects_graph", "expected_graph_neighbors"),
-    (
-        ("twowiki_provenance", False, 0),
-        ("hotpotqa", True, 1),
-    ),
+    (("hotpotqa", True, 1),),
 )
 def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch,

@@ -30,9 +30,6 @@ from graph_memory.experiment.artifacts import (
     identify_external_source,
     identify_immutable_revision,
 )
-from graph_memory.datasets.twowiki_provenance import (
-    TWOWIKI_PROVENANCE_SCHEMA_VERSION,
-)
 from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
     DatasetName,
@@ -45,7 +42,6 @@ from graph_memory.experiment.config import (
     RankingMethodConfig,
     RgcnTrainStageConfig,
     SplitName,
-    TwoWikiProvenanceTransformConfig,
 )
 from graph_memory.io import read_json
 from graph_memory.stages.encodings import materialize_frozen_rgcn_embeddings
@@ -69,19 +65,10 @@ from graph_memory.stages.results import (
     TrainingPairsResult,
 )
 from graph_memory.stages.retrieve import materialize_rankings, run_retrieve_stage
-from graph_memory.stages.transform import (
-    TwoWikiProvenanceTransformResult,
-    materialize_transform_twowiki,
-)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_ROOT = REPOSITORY_ROOT / "data" / "processed"
-TWOWIKI_PROVENANCE_RAW_ROOT = (
-    REPOSITORY_ROOT / "data" / "twowiki_provenance" / "raw"
-)
-
-
 SCIENTIFIC_CACHE_POLICY = ScientificInputs() + TASK_SOURCE
 SCIENTIFIC_RESULT_STORAGE = PROCESSED_ROOT / "prefect" / "results"
 
@@ -98,42 +85,6 @@ def prefect_storage_settings(*, refresh_cache: bool):
 
 def processed_store() -> ProcessedAssetStore:
     return ProcessedAssetStore(PROCESSED_ROOT)
-
-
-@task(
-    name="transform-twowiki",
-    persist_result=True,
-    cache_policy=SCIENTIFIC_CACHE_POLICY,
-)
-def transform_twowiki_task(
-    train_source: FileSourceRef,
-    dev_source: FileSourceRef,
-    config: TwoWikiProvenanceTransformConfig,
-    encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef | None,
-    device: str,
-    split_seed: int,
-    schema_version: int = TWOWIKI_PROVENANCE_SCHEMA_VERSION,
-) -> TwoWikiProvenanceTransformResult:
-    get_run_logger().info(
-        "transform twowiki_provenance | edge_scorer=%s", config.edge_scorer
-    )
-    if encoder_source is None:
-        encoder_digest = None
-    elif isinstance(encoder_source, RevisionSourceRef):
-        encoder_digest = f"{encoder_source.uri}@{encoder_source.revision}"
-    else:
-        encoder_digest = encoder_source.digest
-    return materialize_transform_twowiki(
-        train_source=train_source,
-        dev_source=dev_source,
-        config=config,
-        schema_version=schema_version,
-        output_root=TWOWIKI_PROVENANCE_RAW_ROOT,
-        repository_root=REPOSITORY_ROOT,
-        encoder_digest=encoder_digest,
-        device=device,
-        split_seed=split_seed,
-    )
 
 
 @task(
@@ -177,9 +128,7 @@ def build_evidence_graphs_task(
     graph: GraphBuildConfig,
     implementation_version: str = "evidence-graphs-v1",
 ) -> EvidenceGraphResult:
-    get_run_logger().info(
-        "build evidence graphs | dataset=%s split=%s", dataset, split
-    )
+    get_run_logger().info("build evidence graphs | dataset=%s split=%s", dataset, split)
     return materialize_evidence_graphs(
         processed_store(),
         dataset=dataset,
@@ -305,7 +254,9 @@ def train_evidence_rgcn_task(
     implementation_version: str = "evidence-rgcn-train-v2-preencoded",
 ) -> ModelResult:
     get_run_logger().info(
-        "train evidence-rgcn | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
+        "train evidence-rgcn | dataset=%s epochs=%s",
+        dataset,
+        config.train.trainer.epochs,
     )
     return materialize_evidence_rgcn_model(
         processed_store(),
@@ -339,7 +290,9 @@ def train_provenance_rgcn_task(
     implementation_version: str = "provenance-rgcn-train-v2-preencoded",
 ) -> ModelResult:
     get_run_logger().info(
-        "train provenance-rgcn | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
+        "train provenance-rgcn | dataset=%s epochs=%s",
+        dataset,
+        config.train.trainer.epochs,
     )
     return materialize_provenance_rgcn_model(
         processed_store(),
@@ -443,9 +396,7 @@ def benchmark_retrieval_task(
     graph_values = (
         cast(
             list[EvidenceGraph],
-            read_json(
-                artifact_payload_path(evidence_graphs, "graphs")
-            ),
+            read_json(artifact_payload_path(evidence_graphs, "graphs")),
         )
         if evidence_graphs is not None
         else []
@@ -517,5 +468,4 @@ __all__ = [
     "train_dense_ft_task",
     "train_evidence_rgcn_task",
     "train_provenance_rgcn_task",
-    "transform_twowiki_task",
 ]

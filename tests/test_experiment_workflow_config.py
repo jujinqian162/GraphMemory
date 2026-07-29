@@ -31,20 +31,6 @@ def _compose(*overrides: str):
         )
 
 
-@pytest.mark.parametrize(
-    "method",
-    ("execution_provenance_retriever", "execution_provenance_rgcn_retriever"),
-)
-def test_provenance_method_configs_compose_for_provenance_dataset(method: str) -> None:
-    config = parse_composed_config(
-        _compose("dataset=twowiki_provenance", f"method={method}")
-    )
-    resolved = resolve_experiment_config(config, repository_root=ROOT)
-
-    assert resolved.method.method == method
-    assert resolved.dataset.name == "twowiki_provenance"
-
-
 def test_frozen_encoding_config_enables_pytorch_gpu_pool() -> None:
     config = parse_composed_config(
         _compose(
@@ -65,7 +51,6 @@ def test_rgcn_profiles_define_true_graph_batches() -> None:
     provenance = parse_composed_config(
         _compose(
             "profile=provenance_full",
-            "dataset=twowiki_provenance",
             "method=execution_provenance_rgcn_retriever",
         )
     )
@@ -78,9 +63,7 @@ def test_rgcn_profiles_define_true_graph_batches() -> None:
 
 def test_dense_ft_seed_config_is_the_canonical_public_dense_ft_stage() -> None:
     dense_ft = parse_composed_config(_compose("method=dense_ft"))
-    composite = parse_composed_config(
-        _compose("method=dense_ft_rgcn_graph_retriever")
-    )
+    composite = parse_composed_config(_compose("method=dense_ft_rgcn_graph_retriever"))
 
     assert isinstance(dense_ft.method, DenseFinetuneMethodConfig)
     assert isinstance(composite.method, DenseFtRgcnMethodConfig)
@@ -172,15 +155,11 @@ def test_model_only_variant_reuses_pair_contract_but_hard_negative_variant_does_
 
 
 def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
-    base = ("dataset=twowiki_provenance", "method=execution_provenance_rgcn_retriever")
+    base = ("method=execution_provenance_rgcn_retriever",)
     full = parse_composed_config(_compose(*base))
     wo_graph = parse_composed_config(_compose(*base, "method.variant=wo_graph"))
-    wo_hard = parse_composed_config(
-        _compose(*base, "method.variant=wo_hard_negatives")
-    )
-    wo_rerank = parse_composed_config(
-        _compose(*base, "method.variant=wo_edge_rerank")
-    )
+    wo_hard = parse_composed_config(_compose(*base, "method.variant=wo_hard_negatives"))
+    wo_rerank = parse_composed_config(_compose(*base, "method.variant=wo_edge_rerank"))
 
     assert isinstance(full.method, ExecutionProvenanceRgcnMethodConfig)
     assert isinstance(wo_graph.method, ExecutionProvenanceRgcnMethodConfig)
@@ -190,15 +169,15 @@ def test_provenance_variant_lifecycle_boundaries_are_explicit() -> None:
     assert full.method.effective().pairs == wo_rerank.method.effective().pairs
     assert full.method.effective().pairs != wo_hard.method.effective().pairs
     assert wo_hard.method.effective().pairs.hard_provenance_successor_per_positive == 0
-    assert wo_hard.method.effective().pairs.hard_provenance_predecessor_per_positive == 0
+    assert (
+        wo_hard.method.effective().pairs.hard_provenance_predecessor_per_positive == 0
+    )
     assert full.method.train_stage() == wo_rerank.method.train_stage()
     assert full.method.train_stage() != wo_graph.method.train_stage()
 
     variants = inspect_catalog("variants", repository_root=ROOT)
     assert isinstance(variants, dict)
-    assert variants[
-        RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER
-    ] == [
+    assert variants[RetrievalMethodId.EXECUTION_PROVENANCE_RGCN_RETRIEVER] == [
         "full_rgcn",
         "wo_graph",
         "wo_edge_type",

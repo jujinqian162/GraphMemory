@@ -10,10 +10,6 @@ uv run python experiment/run.py name=hotpot_bm25 dataset=hotpotqa profile=quick 
 uv run python experiment/run.py `
   name=hotpot_rgcn dataset=hotpotqa profile=smoke device=cpu `
   method=dense_rgcn_graph_retriever method.variant=full_rgcn
-
-uv run python experiment/run.py `
-  name=provenance_rgcn dataset=twowiki_provenance profile=smoke device=cpu `
-  method=execution_provenance_rgcn_retriever method.variant=wo_graph
 ```
 
 `cache.refresh=true` forces every reusable Task to re-execute; it is not part of scientific cache identity.
@@ -33,7 +29,7 @@ uv run python experiment/run.py name=rgcn_wo_graph dataset=hotpotqa profile=quic
 uv run python experiment/run.py name=rgcn_multi_encode dataset=hotpotqa profile=quick device=cuda:0 encoding.enable_gpupool=true method=dense_rgcn_graph_retriever
 ```
 
-Evidence and provenance R-GCN jobs persist train/dev float32 embeddings as a
+R-GCN jobs persist train/dev float32 embeddings as a
 separate Prefect Task under `data/processed/frozen_embeddings/`. The
 `encoding.enable_gpupool` flag and `encoding.chunk_size` control only runtime
 placement and streaming. With the flag enabled, all CUDA devices reported by

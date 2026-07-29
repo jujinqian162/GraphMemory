@@ -5,9 +5,9 @@ Two retrieval domains, no cross-projection:
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Provenance | `twowiki_provenance` (synthetic) | BM25, Dense, Dense-FT, GraphRAG, EPGM, Provenance R-GCN |
+| Provenance | ISETrace (adapter in progress) | EPGM, Provenance R-GCN |
 
-`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private entity graph. `ExecutionProvenanceGraph` is native request input for EPGM and Provenance R-GCN. Design: [`docs/30-design/architecture.md`](docs/30-design/architecture.md). Provenance runbook: [`docs/40-operations/twowiki-provenance.md`](docs/40-operations/twowiki-provenance.md).
+`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private entity graph. `ExecutionProvenanceGraph` is native request input for EPGM and Provenance R-GCN. Design: [`docs/30-design/architecture.md`](docs/30-design/architecture.md).
 
 ## Quick start
 

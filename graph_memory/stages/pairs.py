@@ -71,11 +71,9 @@ def build_training_pair_data(
         encoder_source=encoder_source,
         device=config.device,
     )
-    if dataset == "twowiki_provenance":
+    if dataset == "isetrace":
         if not isinstance(config.sampling, ProvenancePairSamplingConfig):
-            raise ValueError(
-                "twowiki_provenance requires provenance pair sampling config."
-            )
+            raise ValueError("isetrace requires provenance pair sampling config.")
         result = build_provenance_train_pairs(
             _provenance_pair_tasks(dataset, tasks, labels),
             config.sampling,
@@ -128,10 +126,7 @@ def materialize_training_pairs(
     ) as publisher:
         write_json(
             publisher.workspace / "pairs.json",
-            [
-                pair.model_dump(mode="json", exclude_none=True)
-                for pair in pairs
-            ],
+            [pair.model_dump(mode="json", exclude_none=True) for pair in pairs],
         )
         write_json(publisher.workspace / "summary.json", summary)
         artifact = publisher.publish(

@@ -34,11 +34,6 @@ from graph_memory.datasets.twowiki import (
     parse_twowiki_example,
     parse_twowiki_examples,
 )
-from graph_memory.datasets.twowiki_provenance import (
-    TwoWikiProvenancePreparedSplit,
-    TwoWikiProvenanceRawRecord,
-    parse_twowiki_provenance_record,
-)
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPublisher,
@@ -86,14 +81,6 @@ def prepare_split(
         )
     if dataset == "musique":
         return _prepare_musique(
-            source,
-            count=count,
-            seed=seed,
-            offset=offset,
-            strict=strict_invalid_examples,
-        )
-    if dataset == "twowiki_provenance":
-        return _prepare_twowiki_provenance(
             source,
             count=count,
             seed=seed,
@@ -280,52 +267,6 @@ def _prepare_musique(
 def _validate_musique_raw(value: object, index: int) -> None:
     # Filter-only: full ranking/label contracts run once after batch convert.
     convert_musique_example(parse_musique_example(value, record_index=index))
-
-
-def _prepare_twowiki_provenance(
-    source: Path, *, count: int | None, seed: int, offset: int, strict: bool
-) -> PreparedSplitData:
-    raw = read_json(source)
-    if not isinstance(raw, list):
-        raise ValueError("2Wiki provenance raw input must be a JSON list.")
-    valid: list[TwoWikiProvenanceRawRecord] = []
-    invalid: Counter[str] = Counter()
-    seen_task_ids: set[str] = set()
-    for index, value in enumerate(raw):
-        try:
-            record = parse_twowiki_provenance_record(value, record_index=index)
-            task_id = record.ranking.task_id
-            if task_id in seen_task_ids:
-                raise ValueError(f"duplicate task_id={task_id}")
-        except ValueError as error:
-            if strict:
-                raise ValueError(
-                    f"Invalid 2Wiki provenance raw example index={index}: {error}"
-                ) from error
-            invalid[str(error)] += 1
-            continue
-        seen_task_ids.add(task_id)
-        valid.append(record)
-    selected = sample_split(valid, count=count, seed=seed, offset=offset)
-    split_model = TwoWikiProvenancePreparedSplit(records=tuple(selected))
-    tasks = [record.ranking for record in split_model.records]
-    labels = [record.label for record in split_model.records]
-    counts: dict[str, JsonValue] = {
-        "raw_examples": len(raw),
-        "valid_examples": len(valid),
-        "invalid_examples_dropped": len(raw) - len(valid),
-        "invalid_example_reasons": dict(invalid),
-        "selected_examples": len(selected),
-        "task_inputs": len(tasks),
-        "task_labels": len(labels),
-        "path_supported_tasks": len(labels),
-    }
-    return PreparedSplitData(
-        task_inputs=cast(list[object], tasks),
-        task_labels=cast(list[object], labels),
-        combined=cast(list[object], list(split_model.records)),
-        counts=counts,
-    )
 
 
 def _valid_records(
