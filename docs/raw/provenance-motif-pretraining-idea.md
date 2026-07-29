@@ -1,6 +1,6 @@
 # 基于真实 Agent 轨迹的 Provenance Motif 自监督训练设想
 
-> 状态：Idea 记录，尚非最终实验设计。
+> 状态：M1/M2 的 canonical trajectory、query-independent graph、motif 与模板 query library 已实现；训练、自然 query 测试与实验集成尚未实现。正式边界见 `openspec/changes/add-isetrace-trajectory-provenance-motifs/`。
 
 ## 核心思路
 

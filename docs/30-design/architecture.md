@@ -14,7 +14,9 @@ dataset adapter
 graph_memory/
   contracts/          low-level scalar/model primitives and shared IDs
   datasets/           dataset-owned Pydantic records and projectors
-  graphs/             evidence contracts and construction
+  trajectories/       dataset-neutral ordered Agent execution events
+  graphs/             evidence plus query-independent provenance graphs
+  query_synthesis/    motif specs and leakage-safe query verbalization
   embeddings/         frozen dense encoders
   retrieval/          requests, flat and GraphRAG methods
   models/             dense_finetune, graph_retriever (evidence R-GCN)
@@ -28,8 +30,10 @@ graph_memory/
 
 ## Ownership rules
 
-- `datasets/` owns closed Pydantic source/prepared records and projects them into consumer-specific requests; it does not invent cross-domain graphs.
-- `graphs/contracts.py` owns the closed `EvidenceGraph` model.
+- `datasets/` owns closed Pydantic source/prepared records and dataset adapters; it does not own cross-dataset canonical trajectory semantics.
+- `trajectories/` owns canonical ordered message/tool event contracts and stable source-span anchors.
+- `graphs/contracts.py` owns the closed `EvidenceGraph` model; `graphs/provenance/` owns the separate query-independent provenance graph and its deterministic builder.
+- `query_synthesis/provenance/` owns motif supervision, query-intent labels, the versioned template catalog, and safe-slot verbalization. None of those labels enter graph construction.
 - `retrieval/requests/` owns the closed request union; `retrieval/results.py` owns ranked results and request/result aggregates.
 - GraphRAG owns its entity graph end-to-end; Registry may assemble mentions before the method runs.
 - `models/graph_retriever/` owns the evidence R-GCN train/infer implementation.
@@ -48,8 +52,9 @@ Project-owned JSON is validated immediately at the consuming stage boundary with
 
 1. **EvidenceGraph** — question/evidence nodes and evidence relations; required only by the two evidence R-GCN methods.
 2. **GraphRAG entity graph** — rebuilt from candidates inside the method; never an `EvidenceGraph` artifact.
+3. **ProvenanceGraph** — one query-independent execution graph per canonical trajectory. The v1 core contains `execution.tool_call`, `execution.tool_output`, and `resource.artifact`; future namespaced semantic annotation kinds are representable through source spans but are not emitted by the core builder.
 
-The legacy `ExecutionProvenanceGraph` was removed. A replacement must be trajectory-native and query-independent; no compatibility alias should translate ISETrace into the deleted Task/Answer/weighted-edge schema.
+`ProvenanceGraph` is currently a domain artifact only. It is not an `EvidenceGraph`, has no query node or edge weights, and is not yet connected to Registry, Hydra, Prefect, retrieval, training, or evaluation. No compatibility alias translates ISETrace into the deleted Task/Answer schema.
 
 ## Runtime boundary
 

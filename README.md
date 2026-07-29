@@ -5,9 +5,9 @@ Two retrieval domains, no cross-projection:
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Provenance | ISETrace (raw download only) | redesign pending |
+| Provenance | ISETrace (canonical/graph/motif library only) | experiment integration pending |
 
-`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private entity graph. The legacy execution-provenance contracts and methods have been removed; a new ISETrace adapter will define its own trajectory-native contracts. Design: [`docs/30-design/architecture.md`](docs/30-design/architecture.md).
+`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private entity graph. ISETrace can now be adapted into canonical ordered trajectories, query-independent provenance graphs, and diverse schema-derived pseudo queries, but it is not yet registered as an experiment dataset and has no new retrieval model. Design: [`docs/30-design/architecture.md`](docs/30-design/architecture.md).
 
 ## Quick start
 
