@@ -19,6 +19,8 @@ from graph_memory.registry.retrieval import (
     FlatRetrievalBuildPayload,
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
+    ProvenancePathBuildPayload,
+    ProvenancePathRetrievalSettings,
     RetrievalBuilderSpec,
     RetrievalMethodId,
     RetrievalProvenance,
@@ -42,6 +44,7 @@ from graph_memory.retrieval.methods.graphrag.sentence_resolver import (
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
     EvidenceGraphRankingRequest,
+    ProvenancePathRequest,
     TextRankingRequest,
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
@@ -77,6 +80,13 @@ def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegist
                 GraphRAGBuildPayload,
                 lambda settings, deps: _build_graphrag(
                     cast(GraphRAGRetrievalSettings, settings), deps
+                ),
+            ),
+            ProvenancePathRetrievalSettings: RetrievalBuilderSpec(
+                ProvenancePathRetrievalSettings,
+                ProvenancePathBuildPayload,
+                lambda settings, deps: _build_provenance_path(
+                    cast(ProvenancePathRetrievalSettings, settings), deps
                 ),
             ),
             EvidenceRgcnRetrievalSettings: RetrievalBuilderSpec(
@@ -245,6 +255,57 @@ def _build_graphrag(
             )
             for request in build_payload.text_requests
         ],
+    )
+
+
+def _build_provenance_path(
+    settings: ProvenancePathRetrievalSettings,
+    payload: object,
+) -> BuiltRetrievalMethod:
+    from graph_memory.retrieval.methods.provenance_path import ProvenancePathMethod
+
+    build_payload = cast(ProvenancePathBuildPayload, payload)
+    dense_ranker = _build_dense_ranker(
+        settings.encoder,
+        build_payload.dense_encoder,
+        device=settings.device,
+    )
+    graph_by_id = {graph.graph_id: graph for graph in build_payload.provenance_graphs}
+    if len(graph_by_id) != len(build_payload.provenance_graphs):
+        raise ValueError("provenance path graph IDs must be unique")
+    request_ids = {request.task_id for request in build_payload.text_requests}
+    if set(build_payload.graph_ids_by_task_id) != request_ids:
+        raise ValueError("provenance path task-to-graph bindings must cover requests")
+    execution_tasks: list[RetrievalExecutionTask] = []
+    for request in build_payload.text_requests:
+        graph_id = build_payload.graph_ids_by_task_id[request.task_id]
+        try:
+            graph = graph_by_id[graph_id]
+        except KeyError as error:
+            raise ValueError(
+                f"provenance path task={request.task_id} references "
+                f"missing graph={graph_id}"
+            ) from error
+        execution_tasks.append(
+            RetrievalExecutionTask(
+                text_request=request,
+                method_request=ProvenancePathRequest(
+                    task_id=request.task_id,
+                    query_text=request.query_text,
+                    candidates=request.candidates,
+                    graph=graph,
+                ),
+            )
+        )
+    return _built(
+        ProvenancePathMethod(
+            dense_ranker=dense_ranker,
+            config=settings.config,
+        ),
+        method=settings.method,
+        device=settings.device,
+        encoder=settings.encoder,
+        execution_tasks=execution_tasks,
     )
 
 

@@ -9,7 +9,9 @@ from typing import cast
 from pydantic import JsonValue, TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.retrieval.results import RankedResult
+from graph_memory.datasets.isetrace.benchmark_records import ISETraceRankingRecord
 from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.embeddings import SentenceEncoder
 from graph_memory.experiment.artifacts import (
@@ -31,6 +33,7 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     DenseMethodConfig,
     GraphRAGMethodConfig,
+    ProvenancePathMethodConfig,
     RankingMethodConfig,
     TrainableRankingConfig,
 )
@@ -46,6 +49,8 @@ from graph_memory.registry.retrieval import (
     FlatRetrievalBuildPayload,
     GraphRAGBuildPayload,
     GraphRAGRetrievalSettings,
+    ProvenancePathBuildPayload,
+    ProvenancePathRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
     RetrievalTaskFamily,
@@ -57,6 +62,8 @@ from graph_memory.stages.results import RankingResult
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
+PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
+ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
 
 
 @dataclass(frozen=True)
@@ -76,8 +83,15 @@ def run_retrieve_stage(
     encoder_source: EncoderSourceRef | None,
     device: str,
     dense_encoder: SentenceEncoder | None = None,
+    provenance_graphs: list[ProvenanceGraph] | None = None,
 ) -> RetrieveStageResult:
-    text_requests = text_ranking_requests_for_dataset(dataset, task_inputs)
+    text_requests = text_ranking_requests_for_dataset(
+        dataset,
+        task_inputs,
+        isetrace_representation=(
+            "provenance" if isinstance(method, ProvenancePathMethodConfig) else "flat"
+        ),
+    )
     settings = _retrieval_settings(
         method,
         top_k=top_k,
@@ -92,6 +106,8 @@ def run_retrieve_stage(
             dataset=dataset,
             text_requests=text_requests,
             evidence_graphs=evidence_graphs or [],
+            provenance_graphs=provenance_graphs or [],
+            task_inputs=task_inputs,
             dense_encoder=dense_encoder,
         ),
     )
@@ -125,6 +141,13 @@ def materialize_rankings(
         if evidence_graphs is not None
         else []
     )
+    provenance_graph_values = (
+        PROVENANCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(prepared, "provenance_graphs"))
+        )
+        if isinstance(method, ProvenancePathMethodConfig)
+        else []
+    )
     started = time.perf_counter()
     result = run_retrieve_stage(
         method,
@@ -132,6 +155,7 @@ def materialize_rankings(
         top_k=top_k,
         task_inputs=task_inputs,
         evidence_graphs=graph_values,
+        provenance_graphs=provenance_graph_values,
         model=model,
         encoder_source=encoder_source,
         device=device,
@@ -190,6 +214,8 @@ def _build_payload(
     dataset: DatasetName,
     text_requests: list[TextRankingRequest],
     evidence_graphs: list[EvidenceGraph],
+    provenance_graphs: list[ProvenanceGraph],
+    task_inputs: Sequence[object],
     dense_encoder: SentenceEncoder | None,
 ) -> object:
     if isinstance(method, (Bm25MethodConfig, DenseMethodConfig)) or (
@@ -204,6 +230,16 @@ def _build_payload(
         return GraphRAGBuildPayload(
             text_requests=text_requests,
             task_family=_task_family(dataset),
+            dense_encoder=dense_encoder,
+        )
+    if isinstance(method, ProvenancePathMethodConfig):
+        records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
+        return ProvenancePathBuildPayload(
+            text_requests=text_requests,
+            provenance_graphs=provenance_graphs,
+            graph_ids_by_task_id={
+                record.task_id: record.graph_id for record in records
+            },
             dense_encoder=dense_encoder,
         )
     if isinstance(method, TrainableRankingConfig) and method.method in {
@@ -239,6 +275,13 @@ def _retrieval_settings(
             top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
             config=method,
+            device=device,
+        )
+    if isinstance(method, ProvenancePathMethodConfig):
+        return ProvenancePathRetrievalSettings(
+            top_k=top_k,
+            encoder=_encoder_settings(method.encoder, encoder_source),
+            config=method.retrieval_config(),
             device=device,
         )
     if isinstance(method, TrainableRankingConfig):
@@ -287,7 +330,8 @@ def _encoder_settings(
 
 
 def _task_family(dataset: DatasetName) -> RetrievalTaskFamily:
-    del dataset
+    if dataset == "isetrace":
+        return RetrievalTaskFamily.EXECUTION_PROVENANCE
     return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
 
 

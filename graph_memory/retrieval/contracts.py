@@ -52,7 +52,7 @@ class CandidateEdgeTrace(DomainModel):
 class GraphRAGBridgeTrace(DomainModel):
     bridge: GraphRAGCandidateBridge
     accepted: StrictBool
-    rejection_reason: NonEmptyStr | None
+    rejection_reason: NonEmptyStr | None = None
     original_partner_rank: PositiveInt
     final_partner_rank: PositiveInt
 
@@ -68,6 +68,104 @@ class GraphRAGBridgeTrace(DomainModel):
 class _NativeTraceModel(DomainModel):
     def validate_candidate_context(self, valid_candidate_ids: frozenset[str]) -> None:
         del valid_candidate_ids
+
+
+class ProvenanceGraphEdgeTrace(DomainModel):
+    edge_id: NonEmptyStr
+    source_node_id: NonEmptyStr
+    target_node_id: NonEmptyStr
+    relation: NonEmptyStr
+
+    @model_validator(mode="after")
+    def _validate_edge(self) -> "ProvenanceGraphEdgeTrace":
+        if self.source_node_id == self.target_node_id:
+            raise ValueError("provenance graph edge cannot be a self edge")
+        return self
+
+
+class ProvenancePathProposalTrace(DomainModel):
+    anchor_candidate_id: NonEmptyStr
+    partner_candidate_id: NonEmptyStr
+    path_node_ids: tuple[NonEmptyStr, ...] = Field(min_length=2)
+    path_relations: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    path_edge_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    traversed_reverse: tuple[StrictBool, ...] = Field(min_length=1)
+    accepted: StrictBool
+    rejection_reason: NonEmptyStr | None = None
+    original_anchor_rank: PositiveInt
+    original_partner_rank: PositiveInt
+    final_partner_rank: PositiveInt
+
+    @model_validator(mode="after")
+    def _validate_proposal(self) -> "ProvenancePathProposalTrace":
+        if self.anchor_candidate_id == self.partner_candidate_id:
+            raise ValueError("provenance proposal endpoints must differ")
+        if self.path_node_ids[0] != self.anchor_candidate_id:
+            raise ValueError("provenance proposal path must start at its anchor")
+        if self.path_node_ids[-1] != self.partner_candidate_id:
+            raise ValueError("provenance proposal path must end at its partner")
+        expected_hops = len(self.path_node_ids) - 1
+        if len(self.path_relations) != expected_hops:
+            raise ValueError("provenance proposal relation count must match path")
+        if len(self.path_edge_ids) != expected_hops:
+            raise ValueError("provenance proposal edge count must match path")
+        if len(self.traversed_reverse) != expected_hops:
+            raise ValueError("provenance proposal direction count must match path")
+        if self.accepted == (self.rejection_reason is not None):
+            raise ValueError("provenance proposal outcome is inconsistent")
+        return self
+
+
+class ProvenancePathTrace(_NativeTraceModel):
+    dense_ranks: tuple[DenseRankTrace, ...]
+    seed_candidate_ids: tuple[NonEmptyStr, ...]
+    graph_edges: tuple[ProvenanceGraphEdgeTrace, ...]
+    proposals: tuple[ProvenancePathProposalTrace, ...]
+    protected_prefix: tuple[NonEmptyStr, ...]
+    emitted_edges: tuple[CandidateEdgeTrace, ...]
+    seed_top_s: PositiveInt
+    max_path_hops: PositiveInt
+    max_partners_per_anchor: PositiveInt
+    max_expansions: PositiveInt
+    exact_dense_fallback: StrictBool
+    trace_kind: Literal["provenance_path"] = "provenance_path"
+
+    @model_validator(mode="after")
+    def _validate_trace(self) -> "ProvenancePathTrace":
+        _require_unique_dense_ranks(self.dense_ranks)
+        _require_unique(self.seed_candidate_ids, "seed_candidate_ids")
+        _require_unique(self.protected_prefix, "protected_prefix")
+        accepted = any(proposal.accepted for proposal in self.proposals)
+        if self.exact_dense_fallback == accepted:
+            raise ValueError("provenance path fallback state is inconsistent")
+        edge_keys = [
+            (edge.source, edge.target, edge.edge_type)
+            for edge in self.emitted_edges
+        ]
+        if len(edge_keys) != len(set(edge_keys)):
+            raise ValueError("provenance path emitted edges must be unique")
+        return self
+
+    def validate_candidate_context(self, valid_candidate_ids: frozenset[str]) -> None:
+        referenced = {
+            *(rank.node_id for rank in self.dense_ranks),
+            *self.seed_candidate_ids,
+            *self.protected_prefix,
+            *(
+                candidate_id
+                for proposal in self.proposals
+                for candidate_id in (
+                    proposal.anchor_candidate_id,
+                    proposal.partner_candidate_id,
+                )
+            ),
+            *(
+                endpoint
+                for edge in self.emitted_edges
+                for endpoint in (edge.source, edge.target)
+            ),
+        }
+        _require_candidate_subset(referenced, valid_candidate_ids, "provenance path trace")
 
 
 class EntityRelationTrace(DomainModel):
@@ -191,7 +289,7 @@ class GraphRAGTrace(_NativeTraceModel):
 
 
 NativeRetrievalTrace: TypeAlias = Annotated[
-    EntitySearchTrace | GraphRAGTrace,
+    EntitySearchTrace | GraphRAGTrace | ProvenancePathTrace,
     Field(discriminator="trace_kind"),
 ]
 

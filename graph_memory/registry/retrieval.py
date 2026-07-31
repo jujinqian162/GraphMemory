@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.compat import StrEnum
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
+from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
 from graph_memory.retrieval.requests import TextRankingRequest
 
 if TYPE_CHECKING:
@@ -58,6 +60,17 @@ class GraphRAGRetrievalSettings:
 
 
 @dataclass(frozen=True)
+class ProvenancePathRetrievalSettings:
+    top_k: int
+    encoder: DenseEncoderSettings
+    device: str
+    config: ProvenancePathConfig = ProvenancePathConfig()
+    method: Literal[RetrievalMethodId.PROVENANCE_PATH] = (
+        RetrievalMethodId.PROVENANCE_PATH
+    )
+
+
+@dataclass(frozen=True)
 class SeedRetrievalSettings:
     method: Literal[RetrievalMethodId.BM25, RetrievalMethodId.DENSE]
     device: str | None
@@ -88,6 +101,7 @@ RetrievalJobSettings: TypeAlias = (
     | DenseRetrievalSettings
     | DenseFinetunedRetrievalSettings
     | GraphRAGRetrievalSettings
+    | ProvenancePathRetrievalSettings
     | EvidenceRgcnRetrievalSettings
 )
 
@@ -123,6 +137,17 @@ class FlatRetrievalBuildPayload:
 class GraphRAGBuildPayload:
     text_requests: list[TextRankingRequest]
     task_family: RetrievalTaskFamily = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    dense_encoder: "SentenceEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class ProvenancePathBuildPayload:
+    text_requests: list[TextRankingRequest]
+    provenance_graphs: list[ProvenanceGraph]
+    graph_ids_by_task_id: Mapping[str, str]
+    task_family: Literal[RetrievalTaskFamily.EXECUTION_PROVENANCE] = (
+        RetrievalTaskFamily.EXECUTION_PROVENANCE
+    )
     dense_encoder: "SentenceEncoder | None" = None
 
 
@@ -180,7 +205,14 @@ class RetrievalRegistry:
 
 
 def _payload_family(payload: object) -> RetrievalTaskFamily:
-    if isinstance(payload, (FlatRetrievalBuildPayload, GraphRAGBuildPayload)):
+    if isinstance(
+        payload,
+        (
+            FlatRetrievalBuildPayload,
+            GraphRAGBuildPayload,
+            ProvenancePathBuildPayload,
+        ),
+    ):
         return payload.task_family
     if isinstance(payload, EvidenceRgcnBuildPayload):
         return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
@@ -198,6 +230,8 @@ __all__ = [
     "FlatRetrievalBuildPayload",
     "GraphRAGBuildPayload",
     "GraphRAGRetrievalSettings",
+    "ProvenancePathBuildPayload",
+    "ProvenancePathRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

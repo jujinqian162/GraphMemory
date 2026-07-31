@@ -89,6 +89,7 @@ class GraphRAGMethod:
             max_document_frequency_ratio=(
                 self.config.max_entity_document_frequency_ratio
             ),
+            max_groups_per_anchor=self.config.max_entity_groups_per_anchor,
         )
         assert self.sentence_resolver is not None
         resolver_evidence = self.sentence_resolver.resolve_many(
@@ -196,6 +197,7 @@ def _resolution_inputs(
     *,
     anchor_ids: tuple[str, ...],
     max_document_frequency_ratio: float,
+    max_groups_per_anchor: int,
 ) -> tuple[SentenceResolutionInput, ...]:
     groups_by_entity = {
         group.entity_id: group for group in request.knowledge_graph.title_groups
@@ -204,16 +206,33 @@ def _resolution_inputs(
     for mention in request.knowledge_graph.mentions:
         if mention.mention_type == "MENTIONS" and mention.alias_confidence > 0.0:
             body_entities_by_candidate[mention.candidate_id].add(mention.entity_id)
+    mention_confidence = {
+        (mention.candidate_id, mention.entity_id): mention.mention_confidence
+        for mention in request.knowledge_graph.mentions
+        if mention.mention_type == "MENTIONS"
+    }
     result: list[SentenceResolutionInput] = []
     for anchor_id in anchor_ids:
-        for entity_id in sorted(body_entities_by_candidate.get(anchor_id, set())):
+        eligible = []
+        for entity_id in body_entities_by_candidate.get(anchor_id, set()):
             group = groups_by_entity.get(entity_id)
             if (
                 group is None
                 or group.document_frequency_ratio > max_document_frequency_ratio
             ):
                 continue
-            result.append(SentenceResolutionInput(anchor_id, group))
+            eligible.append(group)
+        eligible.sort(
+            key=lambda group: (
+                -mention_confidence.get((anchor_id, group.entity_id), 0.0),
+                group.document_frequency_ratio,
+                group.entity_id,
+            )
+        )
+        result.extend(
+            SentenceResolutionInput(anchor_id, group)
+            for group in eligible[:max_groups_per_anchor]
+        )
     return tuple(result)
 
 
@@ -238,6 +257,8 @@ def _candidate_bridges(
         )
         target_mention = mentions_by_key.get(
             (target_id, evidence.entity_id, "TITLE_ENTITY")
+        ) or mentions_by_key.get(
+            (target_id, evidence.entity_id, "MENTIONS")
         )
         if source_mention is None or target_mention is None:
             continue
@@ -259,7 +280,11 @@ def _candidate_bridges(
                 confidence=confidence,
                 resolver_score=evidence.top1_score,
                 resolver_margin=evidence.score_margin,
-                construction_reason="body_mention_to_resolved_title_entity",
+                construction_reason=(
+                    "body_mention_to_resolved_title_entity"
+                    if target_mention.mention_type == "TITLE_ENTITY"
+                    else "shared_text_entity_to_resolved_candidate"
+                ),
             )
         )
     return tuple(

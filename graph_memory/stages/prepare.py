@@ -17,6 +17,10 @@ from graph_memory.datasets.hotpotqa import (
     parse_hotpotqa_example,
     parse_hotpotqa_examples,
 )
+from graph_memory.datasets.isetrace import (
+    combined_isetrace_records,
+    prepare_isetrace_benchmark,
+)
 from graph_memory.datasets.musique import (
     MuSiQuePreparedSplit,
     combined_musique_records,
@@ -41,9 +45,16 @@ from graph_memory.experiment.artifacts import (
     FileSourceRef,
     ProcessedAssetStore,
 )
-from graph_memory.experiment.config import DatasetName, SplitName
+from graph_memory.experiment.config import (
+    DatasetName,
+    ISETraceChunkingConfig,
+    ISETraceLabelPolicy,
+    ISETraceReviewPolicy,
+    SplitName,
+)
 from graph_memory.io import read_json, write_json
 from graph_memory.stages.results import PreparedSplitResult
+from graph_memory.text.chunking import TokenChunkingConfig
 
 
 @dataclass(frozen=True)
@@ -52,6 +63,7 @@ class PreparedSplitData:
     task_labels: list[object]
     combined: list[object]
     counts: dict[str, JsonValue]
+    provenance_graphs: list[object] | None = None
 
 
 def prepare_split(
@@ -62,6 +74,11 @@ def prepare_split(
     seed: int,
     offset: int,
     strict_invalid_examples: bool,
+    trajectory_source: Path | None = None,
+    source_revision: str | None = None,
+    review_policy: ISETraceReviewPolicy = "accepted_only",
+    label_policy: ISETraceLabelPolicy = "support",
+    chunking: ISETraceChunkingConfig | None = None,
 ) -> PreparedSplitData:
     if dataset == "hotpotqa":
         return _prepare_hotpotqa(
@@ -87,6 +104,23 @@ def prepare_split(
             offset=offset,
             strict=strict_invalid_examples,
         )
+    if dataset == "isetrace":
+        if trajectory_source is None or source_revision is None or chunking is None:
+            raise ValueError(
+                "isetrace preparation requires trajectory_source, source_revision, and chunking"
+            )
+        return _prepare_isetrace(
+            source,
+            trajectory_source=trajectory_source,
+            source_revision=source_revision,
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict=strict_invalid_examples,
+            review_policy=review_policy,
+            label_policy=label_policy,
+            chunking=chunking,
+        )
     raise ValueError(f"unsupported dataset={dataset!r}")
 
 
@@ -96,10 +130,15 @@ def materialize_prepared_split(
     dataset: DatasetName,
     split: SplitName,
     source: FileSourceRef,
+    trajectory_source: FileSourceRef | None = None,
     count: int | None,
     seed: int,
     offset: int,
     strict_invalid_examples: bool,
+    source_revision: str | None = None,
+    review_policy: ISETraceReviewPolicy = "accepted_only",
+    label_policy: ISETraceLabelPolicy = "support",
+    chunking: ISETraceChunkingConfig | None = None,
     implementation_version: str,
 ) -> PreparedSplitResult:
     prepared = prepare_split(
@@ -109,6 +148,13 @@ def materialize_prepared_split(
         seed=seed,
         offset=offset,
         strict_invalid_examples=strict_invalid_examples,
+        trajectory_source=(
+            None if trajectory_source is None else Path(trajectory_source.uri)
+        ),
+        source_revision=source_revision,
+        review_policy=review_policy,
+        label_policy=label_policy,
+        chunking=chunking,
     )
     with ArtifactPublisher(
         store,
@@ -120,6 +166,15 @@ def materialize_prepared_split(
             "dataset": dataset,
             "split": split,
             "source_digest": source.digest,
+            "trajectory_source_digest": (
+                None if trajectory_source is None else trajectory_source.digest
+            ),
+            "source_revision": source_revision,
+            "review_policy": review_policy,
+            "label_policy": label_policy,
+            "chunking": (
+                None if chunking is None else chunking.model_dump(mode="json")
+            ),
             "implementation_version": implementation_version,
         },
     ) as publisher:
@@ -136,18 +191,32 @@ def materialize_prepared_split(
             [_json_record(record) for record in prepared.combined],
         )
         write_json(publisher.workspace / "counts.json", prepared.counts)
+        payloads = {
+            "tasks": "tasks.json",
+            "labels": "labels.json",
+            "combined": "combined.json",
+            "counts": "counts.json",
+        }
+        if prepared.provenance_graphs is not None:
+            write_json(
+                publisher.workspace / "provenance_graphs.json",
+                [_json_record(graph) for graph in prepared.provenance_graphs],
+            )
+            payloads["provenance_graphs"] = "provenance_graphs.json"
         artifact = publisher.publish(
-            {
-                "tasks": "tasks.json",
-                "labels": "labels.json",
-                "combined": "combined.json",
-                "counts": "counts.json",
-            },
+            payloads,
             shape={
                 "tasks": len(prepared.task_inputs),
                 "labels": len(prepared.task_labels),
             },
-            metadata={"split": split},
+            metadata={
+                "split": split,
+                "review_policy": review_policy,
+                "label_policy": label_policy,
+                "chunking": (
+                    None if chunking is None else chunking.model_dump(mode="json")
+                ),
+            },
         )
     assert isinstance(artifact, DatasetArtifactRef)
     return PreparedSplitResult(
@@ -267,6 +336,52 @@ def _prepare_musique(
 def _validate_musique_raw(value: object, index: int) -> None:
     # Filter-only: full ranking/label contracts run once after batch convert.
     convert_musique_example(parse_musique_example(value, record_index=index))
+
+
+def _prepare_isetrace(
+    source: Path,
+    *,
+    trajectory_source: Path,
+    source_revision: str,
+    count: int | None,
+    seed: int,
+    offset: int,
+    strict: bool,
+    review_policy: ISETraceReviewPolicy,
+    label_policy: ISETraceLabelPolicy,
+    chunking: ISETraceChunkingConfig,
+) -> PreparedSplitData:
+    benchmark, summary = prepare_isetrace_benchmark(
+        source,
+        trajectory_source,
+        source_revision=source_revision,
+        count=count,
+        seed=seed,
+        offset=offset,
+        strict=strict,
+        review_policy=review_policy,
+        label_policy=label_policy,
+        chunking=TokenChunkingConfig(
+            tokenizer_name=chunking.tokenizer_name,
+            max_tokens=chunking.max_tokens,
+            overlap_tokens=chunking.overlap_tokens,
+            reserved_tokens=chunking.reserved_tokens,
+        ),
+    )
+    rankings = list(benchmark.rankings)
+    labels = list(benchmark.labels)
+    combined = combined_isetrace_records(benchmark.rankings, benchmark.labels)
+    counts = cast(dict[str, JsonValue], summary.to_dict())
+    counts["parsed_examples"] = len(rankings)
+    counts["task_inputs"] = len(rankings)
+    counts["task_labels"] = len(labels)
+    return PreparedSplitData(
+        task_inputs=cast(list[object], rankings),
+        task_labels=cast(list[object], labels),
+        combined=cast(list[object], combined),
+        counts=counts,
+        provenance_graphs=cast(list[object], list(benchmark.provenance_graphs)),
+    )
 
 
 def _valid_records(

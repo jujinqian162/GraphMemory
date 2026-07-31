@@ -10,4 +10,5 @@ sentence_resolver: frozen_dense
 min_sentence_score_margin: 0.02
 min_bridge_confidence: 0.2
 max_partners_per_anchor: 1
+max_entity_groups_per_anchor: 8
 preserve_dense_top_n: 2

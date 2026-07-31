@@ -26,6 +26,7 @@ from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
 from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.registry.retrieval import RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
+from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
 
 
 def _scientific_int(value: object) -> int:
@@ -61,7 +62,10 @@ DatasetName: TypeAlias = Literal[
     "hotpotqa",
     "twowiki",
     "musique",
+    "isetrace",
 ]
+ISETraceReviewPolicy: TypeAlias = Literal["allow_unreviewed", "accepted_only"]
+ISETraceLabelPolicy: TypeAlias = Literal["answer_only", "support", "intent_aware"]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
 EvidenceRgcnVariant: TypeAlias = Literal[
     "full_rgcn",
@@ -106,15 +110,57 @@ DatasetSplitConfig: TypeAlias = RawDatasetSplitConfig
 
 
 class DatasetSplitsConfig(ClosedModel):
-    train: DatasetSplitConfig
-    dev: DatasetSplitConfig
+    train: DatasetSplitConfig | None = None
+    dev: DatasetSplitConfig | None = None
     test: DatasetSplitConfig
+
+
+class ISETraceChunkingConfig(ClosedModel):
+    tokenizer_name: str = Field(min_length=1)
+    max_tokens: PositiveInt = 512
+    overlap_tokens: NonNegativeInt = 64
+    reserved_tokens: NonNegativeInt = 0
+
+    @model_validator(mode="after")
+    def _validate_overlap(self) -> "ISETraceChunkingConfig":
+        content_tokens = self.max_tokens - self.reserved_tokens
+        if content_tokens <= 0:
+            raise ValueError("chunk reserved_tokens must be smaller than max_tokens")
+        if self.overlap_tokens >= content_tokens:
+            raise ValueError(
+                "chunk overlap_tokens must be smaller than the content token budget"
+            )
+        return self
 
 
 class DatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool = False
+    trajectory_source: Path | None = None
+    source_revision: str | None = Field(default=None, min_length=1)
+    review_policy: ISETraceReviewPolicy = "accepted_only"
+    label_policy: ISETraceLabelPolicy = "support"
+    chunking: ISETraceChunkingConfig | None = None
     splits: DatasetSplitsConfig
+
+    @model_validator(mode="after")
+    def _validate_dataset_sources(self) -> "DatasetConfig":
+        if self.name == "isetrace":
+            if self.trajectory_source is None or self.source_revision is None:
+                raise ValueError(
+                    "isetrace requires trajectory_source and source_revision"
+                )
+            if self.chunking is None:
+                raise ValueError("isetrace requires chunking settings")
+        elif (
+            self.trajectory_source is not None
+            or self.source_revision is not None
+            or self.chunking is not None
+        ):
+            raise ValueError(
+                "trajectory_source/source_revision/chunking are reserved for isetrace"
+            )
+        return self
 
 
 class FixedCountPolicy(ClosedModel):
@@ -189,6 +235,25 @@ class DenseMethodConfig(ClosedModel):
 class GraphRAGMethodConfig(GraphRAGConfig):
     method: Literal["graphrag"]
     encoder: DenseEncoderConfig
+
+
+class ProvenancePathMethodConfig(ClosedModel):
+    method: Literal["provenance_path"]
+    encoder: DenseEncoderConfig
+    seed_top_s: PositiveInt = 5
+    max_path_hops: PositiveInt = 6
+    max_partners_per_anchor: PositiveInt = 3
+    max_expansions: PositiveInt = 256
+    preserve_dense_top_n: NonNegativeInt = 2
+
+    def retrieval_config(self) -> ProvenancePathConfig:
+        return ProvenancePathConfig(
+            seed_top_s=self.seed_top_s,
+            max_path_hops=self.max_path_hops,
+            max_partners_per_anchor=self.max_partners_per_anchor,
+            max_expansions=self.max_expansions,
+            preserve_dense_top_n=self.preserve_dense_top_n,
+        )
 
 
 class PairSamplingConfig(NegativeSamplingConfig):
@@ -343,6 +408,7 @@ MethodConfig: TypeAlias = Annotated[
         Bm25MethodConfig,
         DenseMethodConfig,
         GraphRAGMethodConfig,
+        ProvenancePathMethodConfig,
         RgcnMethodConfig,
         DenseFinetuneMethodConfig,
         DenseFtRgcnMethodConfig,
@@ -365,6 +431,7 @@ RankingMethodConfig: TypeAlias = Annotated[
         Bm25MethodConfig,
         DenseMethodConfig,
         GraphRAGMethodConfig,
+        ProvenancePathMethodConfig,
         TrainableRankingConfig,
     ],
     Field(discriminator="method"),
@@ -378,6 +445,7 @@ def ranking_config(method: MethodConfig) -> RankingMethodConfig:
             Bm25MethodConfig,
             DenseMethodConfig,
             GraphRAGMethodConfig,
+            ProvenancePathMethodConfig,
         ),
     ):
         return method
@@ -407,6 +475,10 @@ class PrepareSplitConfig(ClosedModel):
     offset: NonNegativeInt
     seed: ScientificInt
     strict_invalid_examples: StrictBool
+    source_revision: str | None = Field(default=None, min_length=1)
+    review_policy: ISETraceReviewPolicy = "accepted_only"
+    label_policy: ISETraceLabelPolicy = "support"
+    chunking: ISETraceChunkingConfig | None = None
 
 
 class CacheConfig(ClosedModel):
@@ -467,6 +539,11 @@ ResolvedSplitConfig: TypeAlias = ResolvedRawSplitConfig
 class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool
+    trajectory_source: Path | None = None
+    source_revision: str | None = None
+    review_policy: ISETraceReviewPolicy = "accepted_only"
+    label_policy: ISETraceLabelPolicy = "support"
+    chunking: ISETraceChunkingConfig | None = None
     splits: dict[SplitName, ResolvedSplitConfig]
 
 
@@ -532,6 +609,8 @@ def resolve_experiment_config(
     resolved_splits: dict[SplitName, ResolvedSplitConfig] = {}
     for split_name in split_names:
         dataset_split = getattr(config.dataset.splits, split_name)
+        if dataset_split is None:
+            continue
         policy = getattr(config.profile.splits, split_name)
         if isinstance(policy, FixedCountPolicy):
             count: int | None = policy.count
@@ -558,11 +637,21 @@ def resolve_experiment_config(
         )
 
     _check_dataset_method_compatibility(config.dataset.name, config.method)
+    _require_method_splits(config.method, resolved_splits)
     return ResolvedExperimentConfig(
         name=config.name,
         dataset=ResolvedDatasetConfig(
             name=config.dataset.name,
             strict_invalid_examples=config.dataset.strict_invalid_examples,
+            trajectory_source=(
+                None
+                if config.dataset.trajectory_source is None
+                else _absolute_path(root, config.dataset.trajectory_source)
+            ),
+            source_revision=config.dataset.source_revision,
+            review_policy=config.dataset.review_policy,
+            label_policy=config.dataset.label_policy,
+            chunking=config.dataset.chunking,
             splits=resolved_splits,
         ),
         profile=config.profile.name,
@@ -591,13 +680,38 @@ def _check_dataset_method_compatibility(
     from graph_memory.registry import Registry
     from graph_memory.registry.retrieval import RetrievalTaskFamily
 
-    family = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    family = (
+        RetrievalTaskFamily.EXECUTION_PROVENANCE
+        if dataset == "isetrace"
+        else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    )
     method_id = RetrievalMethodId(method.method)
     supported = Registry.methods.get(method_id).supported_families
     if family not in supported:
         raise ValueError(
             f"dataset={dataset!r} uses family={family.value!r}, but "
             f"method={method_id.value!r} does not support that family."
+        )
+
+
+def _require_method_splits(
+    method: MethodConfig,
+    splits: dict[SplitName, ResolvedSplitConfig],
+) -> None:
+    required: set[SplitName] = {"test"}
+    if isinstance(
+        method,
+        (
+            DenseFinetuneMethodConfig,
+            RgcnMethodConfig,
+            DenseFtRgcnMethodConfig,
+        ),
+    ):
+        required.update({"train", "dev"})
+    missing = sorted(required - set(splits))
+    if missing:
+        raise ValueError(
+            f"method={method.method!r} requires dataset splits={missing}"
         )
 
 
@@ -629,6 +743,8 @@ __all__ = [
     "FixedCountPolicy",
     "GraphBuildConfig",
     "GraphRAGMethodConfig",
+    "ISETraceLabelPolicy",
+    "ISETraceReviewPolicy",
     "MethodConfig",
     "ModelSelectionConfig",
     "NonNegativeFloat",
@@ -638,6 +754,7 @@ __all__ = [
     "PositiveFloat",
     "PositiveInt",
     "ProfileConfig",
+    "ProvenancePathMethodConfig",
     "PrepareSplitConfig",
     "RankingMethodConfig",
     "ResolvedExperimentConfig",

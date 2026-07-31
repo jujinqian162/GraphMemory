@@ -106,6 +106,12 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
                     recall_at_10=0.75,
                     evidence_f1_at_5=0.0,
                     evidence_f1_at_10=0.0,
+                    evidence_density_at_5=0.25,
+                    evidence_density_at_10=0.2,
+                    coverage_at_2048_tokens=0.8,
+                    span_f1_at_2048_tokens=0.4,
+                    evidence_density_at_2048_tokens=0.3,
+                    full_support_at_2048_tokens=0.6,
                     full_support_at_5=0.0,
                     full_support_at_10=0.0,
                     mrr=0.5,
@@ -146,6 +152,12 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
     assert tags["graph_memory.prefect_flow_run_id"] == "prefect-flow-123"
     assert metrics["final.recall_at_10"] == 0.75
     assert metrics["final.mrr"] == 0.5
+    assert metrics["final.evidence_density_at_5"] == 0.25
+    assert metrics["final.evidence_density_at_10"] == 0.2
+    assert metrics["final.coverage_at_2048_tokens"] == 0.8
+    assert metrics["final.span_f1_at_2048_tokens"] == 0.4
+    assert metrics["final.evidence_density_at_2048_tokens"] == 0.3
+    assert metrics["final.full_support_at_2048_tokens"] == 0.6
     assert "final.retrieval_latency_ms_per_query" not in metrics
     assert {path for _, path in captured["log_dict"]} == {"assets/manifest.json"}
     assert captured["log_artifacts"] == [str(run_output)]

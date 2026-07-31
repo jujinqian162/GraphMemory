@@ -17,18 +17,25 @@ EvidenceGraph construction uses input-visible question/candidate fields only. La
 
 The synthetic 2Wiki provenance adapter, its transform, and the legacy shared execution-provenance contracts have been removed. Standard `twowiki` remains an evidence dataset and is unchanged.
 
-ISETrace now has a domain-library path, deliberately outside the experiment workflow:
+ISETrace has a domain-library path plus a test-only non-training experiment adapter:
 
 ```text
 ISETrace JSONL
   -> CanonicalTrajectory
   -> ProvenanceGraph
   -> MotifSpec
-  -> SyntheticQueryRecord + SyntheticQueryLabel
+  -> ProvenanceQueryRecord + ProvenanceQueryLabel
+  -> TemplateGenerationProvenance | LlmGenerationProvenance
+  -> ISETraceRankingRecord + ISETraceLabelRecord
+  -> BM25 / Dense / GraphRAG / provenance_path
 ```
 
 `graph_memory.datasets.isetrace` owns strict raw records, streaming parsing, deterministic adaptation, and compact ingestion counters. `graph_memory.trajectories` owns dataset-neutral ordered message/tool events. Source `success` is preserved only as `source_reported_success`; it is not an authoritative failure/retry label.
 
 `ProvenanceGraph` is one immutable graph per trajectory. It contains no query, answer, motif, support label, or edge weight. The v1 core builder emits tool-call, tool-output, and artifact nodes with native/deterministic returns, temporal, exact-feed, read, and write relations. Kinds and relations are namespaced, and nodes retain canonical source spans so future annotators can add `semantic.claim` or `semantic.decision` layers without mutating source events or pretending those fields were native.
 
-Motif and query artifacts remain separate from the graph. A motif can expose multiple query intents with intent-specific answer/support IDs; the verbalizer receives only explicitly safe slots. The versioned v1 catalog contains six templates across six writing styles for every supported motif/query-intent pair. ISETrace remains absent from Hydra dataset choices and Prefect stages until a later change defines fixed split artifacts, retrieval requests, model inputs, evaluation, and natural-query validation.
+Motif and query artifacts remain separate from the graph. A motif can expose multiple query intents with intent-specific answer/support IDs; the deterministic verbalizer receives only explicitly safe slots. Query text and gold labels use generator-neutral `ProvenanceQueryRecord` and `ProvenanceQueryLabel` contracts. Template/LLM identities are stored separately as a discriminated generation-provenance record, so wording provenance never changes motif-derived gold labels.
+
+The versioned v1 catalog contains six templates across six writing styles for every supported motif/query-intent pair. The temporary `scripts/generate_isetrace_llm_queries.py` utility can author provisional LLM query text over the same motifs, but its records remain explicitly `llm_generated` and `unreviewed`; see [`../40-operations/isetrace-query-authoring.md`](../40-operations/isetrace-query-authoring.md).
+
+The non-training adapter independently content-addresses the query JSONL and pinned trajectory JSONL. It materializes ToolOutput-only candidate tasks, labels under an explicit review/label policy, and unique physical provenance graphs. An output-only logical dependency projection collapses `data.feeds` and explicit artifact write/read lifecycles for shared evaluation. BM25, Dense, and GraphRAG receive only text requests; `provenance_path` alone receives the physical graph. The current 100-query configuration is pilot-only and permits unreviewed records explicitly; see [`../40-operations/isetrace-nontrain-retrieval.md`](../40-operations/isetrace-nontrain-retrieval.md).

@@ -1,0 +1,11 @@
+method: provenance_path
+encoder:
+  model_name: models/intfloat-e5-base-v2
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+  batch_size: 64
+seed_top_s: 5
+max_path_hops: 6
+max_partners_per_anchor: 3
+max_expansions: 256
+preserve_dense_top_n: 2

@@ -12,7 +12,15 @@ JsonArray: TypeAlias = Sequence["JsonValue"]
 JsonValue: TypeAlias = str | int | float | bool | None | JsonArray | JsonObject
 
 NodeType = Literal["question", "graph_item"]
-EdgeType = Literal["sequential", "query_overlap", "entity_overlap", "bridge", "bridge_to", "feeds"]
+EdgeType = Literal[
+    "sequential",
+    "query_overlap",
+    "entity_overlap",
+    "bridge",
+    "bridge_to",
+    "feeds",
+    "provenance_path",
+]
 TrainPairSampleType = Literal[
     "positive",
     "easy_random",

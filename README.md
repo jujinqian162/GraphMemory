@@ -5,15 +5,16 @@ Two retrieval domains, no cross-projection:
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Provenance | ISETrace (canonical/graph/motif library only) | experiment integration pending |
+| Provenance | ISETrace natural-query pilot | BM25, Dense, GraphRAG, provenance path (all non-training) |
 
-`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private entity graph. ISETrace can now be adapted into canonical ordered trajectories, query-independent provenance graphs, and diverse schema-derived pseudo queries, but it is not yet registered as an experiment dataset and has no new retrieval model. Design: [`docs/30-design/architecture.md`](docs/30-design/architecture.md).
+`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private text-derived entity graph. ISETrace provides canonical ordered trajectories, query-independent provenance graphs, schema-derived queries, and a test-only non-training workflow. BM25, Dense, and GraphRAG receive identical ToolOutput text candidates; `provenance_path` alone consumes the native graph and completes bounded logical dependencies without training. The committed 100-query config explicitly permits unreviewed records for engineering pilot runs and is not formal paper gold. See [`docs/40-operations/isetrace-nontrain-retrieval.md`](docs/40-operations/isetrace-nontrain-retrieval.md), [`docs/40-operations/isetrace-split.md`](docs/40-operations/isetrace-split.md), and [`docs/40-operations/isetrace-query-authoring.md`](docs/40-operations/isetrace-query-authoring.md).
 
 ## Quick start
 
 ```powershell
 uv run pytest -q
 uv run python experiment/run.py name=quick_bm25 profile=quick method=bm25
+uv run python experiment/run.py name=isetrace_bm25 dataset=isetrace profile=smoke method=bm25 device=cpu
 uv run python experiment/inspect.py kind=methods
 ```
 

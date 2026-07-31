@@ -13,11 +13,14 @@ from graph_memory.graphs.contracts import GraphEdge
 from graph_memory.retrieval.contracts import NativeRetrievalTrace
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.trajectories import SourceSpan
 
 
 class RankedNodeRecord(DomainModel):
     node_id: NonEmptyStr
     score: FiniteFloat
+    source_spans: tuple[SourceSpan, ...] = ()
+    token_count: NonNegativeInt = 0
 
 
 class RetrievedSubgraph(DomainModel):

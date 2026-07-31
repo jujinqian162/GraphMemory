@@ -65,6 +65,7 @@ class EvidenceMetricSuite:
         path_metrics_supported = any(
             label.gold_dependency_edges for label in request.labels
         )
+        query_connectivity_supported = _query_connectivity_supported(request.graphs)
         path_recall_values: list[float] = []
         edge_true_positive_count = 0
         predicted_edge_count = 0
@@ -109,6 +110,8 @@ class EvidenceMetricSuite:
                     "Evidence F1@10": evidence_f1_at(
                         ranked_node_ids, gold_nodes, 10
                     ),
+                    "Evidence Density@5": "N/A",
+                    "Evidence Density@10": "N/A",
                     "Full Support@5": full_support_at(
                         ranked_node_ids, gold_nodes, 5
                     ),
@@ -151,13 +154,16 @@ class EvidenceMetricSuite:
             per_task_rows.append(
                 PerTaskMetricRow(
                     task_id=task_id,
+                    query_intent=label.query_intent,
+                    motif_type=label.motif_type,
+                    review_status=label.review_status,
                     **task_row.model_dump(mode="python"),
                 )
             )
 
         aggregate: dict[str, object] = {
             "Method": method,
-            "Evaluation Schema": "evidence_v3",
+            "Evaluation Schema": _evaluation_schema(request.graphs),
             "Path Recall@10": _mean_optional(path_recall_values),
             "Edge Recall@10": "N/A",
             "Edge Precision@10": "N/A",
@@ -170,8 +176,11 @@ class EvidenceMetricSuite:
         ]
         for column in TaskMetricRow.model_fields:
             alias = TaskMetricRow.model_fields[column].serialization_alias or column
-            aggregate[alias] = _mean(
-                float(row[alias]) for row in task_alias_rows
+            values = [row[alias] for row in task_alias_rows]
+            aggregate[alias] = (
+                "N/A"
+                if any(value == "N/A" for value in values)
+                else _mean(float(value) for value in values)
             )
         if path_metrics_supported:
             edge_precision = (
@@ -194,6 +203,8 @@ class EvidenceMetricSuite:
             aggregate["Connected Evidence Recall@10"] = "N/A"
             aggregate["Query-Evidence Connectivity@10"] = "N/A"
             aggregate["Memory Size"] = "N/A"
+        elif not query_connectivity_supported:
+            aggregate["Query-Evidence Connectivity@10"] = "N/A"
         return [MetricRow.model_validate(aggregate)], per_task_rows
 
     def build_failure_cases(
@@ -257,6 +268,28 @@ def _validate_gold_nodes_exist(
         raise ValueError(
             f"task_id={task_id} gold nodes missing from graph: {missing}"
         )
+
+
+def _evaluation_schema(graphs: tuple[EvidenceGraph, ...]) -> str:
+    schemas = {
+        value
+        for graph in graphs
+        if isinstance(
+            (value := (graph.metadata or {}).get("evaluation_schema")), str
+        )
+    }
+    if not schemas:
+        return "evidence_v3"
+    if len(schemas) != 1:
+        raise ValueError(f"mixed graph evaluation schemas={sorted(schemas)}")
+    return next(iter(schemas))
+
+
+def _query_connectivity_supported(graphs: tuple[EvidenceGraph, ...]) -> bool:
+    return all(
+        (graph.metadata or {}).get("query_edges_supported", True) is not False
+        for graph in graphs
+    )
 
 
 def _memory_node_count(graph: EvidenceGraph) -> int:

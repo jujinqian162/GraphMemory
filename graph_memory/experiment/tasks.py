@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from prefect import task
+from pydantic import TypeAdapter
 from prefect.cache_policies import TASK_SOURCE
 from prefect.logging import get_run_logger
 from prefect.settings import (
@@ -15,6 +16,7 @@ from prefect.settings import (
 )
 
 from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     DirectorySourceRef,
@@ -38,6 +40,7 @@ from graph_memory.experiment.config import (
     GraphBuildConfig,
     PairBuildConfig,
     PrepareSplitConfig,
+    ProvenancePathMethodConfig,
     RankingMethodConfig,
     RgcnTrainStageConfig,
     SplitName,
@@ -67,6 +70,7 @@ from graph_memory.stages.retrieve import materialize_rankings, run_retrieve_stag
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_ROOT = REPOSITORY_ROOT / "data" / "processed"
+_PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
 SCIENTIFIC_CACHE_POLICY = ScientificInputs() + TASK_SOURCE
 SCIENTIFIC_RESULT_STORAGE = PROCESSED_ROOT / "prefect" / "results"
 
@@ -93,7 +97,8 @@ def processed_store() -> ProcessedAssetStore:
 def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
-    implementation_version: str = "prepare-v1",
+    trajectory_source: FileSourceRef | None = None,
+    implementation_version: str = "prepare-v2-isetrace",
 ) -> PreparedSplitResult:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",
@@ -106,10 +111,15 @@ def prepare_split_task(
         dataset=config.dataset,
         split=config.split,
         source=source,
+        trajectory_source=trajectory_source,
         count=config.count,
         seed=config.seed,
         offset=config.offset,
         strict_invalid_examples=config.strict_invalid_examples,
+        source_revision=config.source_revision,
+        review_policy=config.review_policy,
+        label_policy=config.label_policy,
+        chunking=config.chunking,
         implementation_version=implementation_version,
     )
 
@@ -124,7 +134,7 @@ def build_evidence_graphs_task(
     dataset: DatasetName,
     split: SplitName,
     graph: GraphBuildConfig,
-    implementation_version: str = "evidence-graphs-v1",
+    implementation_version: str = "evidence-graphs-v2-isetrace",
 ) -> EvidenceGraphResult:
     get_run_logger().info("build evidence graphs | dataset=%s split=%s", dataset, split)
     return materialize_evidence_graphs(
@@ -321,7 +331,7 @@ def evaluate_rankings_task(
     dataset: DatasetName,
     top_k: int,
     failure_case_limit: int,
-    implementation_version: str = "evaluation-v1",
+    implementation_version: str = "evaluation-v2-isetrace",
 ) -> EvaluationResult:
     get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(
@@ -367,6 +377,13 @@ def benchmark_retrieval_task(
         if evidence_graphs is not None
         else []
     )
+    provenance_graph_values = (
+        _PROVENANCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(prepared, "provenance_graphs"))
+        )
+        if isinstance(method, ProvenancePathMethodConfig)
+        else []
+    )
     durations: list[float] = []
     for index in range(warmup + repetitions):
         started = time.perf_counter()
@@ -376,6 +393,7 @@ def benchmark_retrieval_task(
             top_k=top_k,
             task_inputs=task_inputs,
             evidence_graphs=graph_values,
+            provenance_graphs=provenance_graph_values,
             model=model,
             encoder_source=encoder_source,
             device=device,

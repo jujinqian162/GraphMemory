@@ -7,6 +7,7 @@ from graph_memory.registry.retrieval import RetrievalMethodId, RetrievalTaskFami
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
     GraphRAGRequest,
+    ProvenancePathRequest,
     TextRankingRequest,
 )
 
@@ -78,12 +79,17 @@ def build_method_registry() -> MethodRegistry:
         MethodDefinition(
             RetrievalMethodId.DENSE_FT,
             TextRankingRequest,
-            shared,
+            evidence,
         ),
         MethodDefinition(
             RetrievalMethodId.GRAPHRAG,
             GraphRAGRequest,
             shared,
+        ),
+        MethodDefinition(
+            RetrievalMethodId.PROVENANCE_PATH,
+            ProvenancePathRequest,
+            provenance,
         ),
         MethodDefinition(
             RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER,

@@ -40,12 +40,13 @@ def build_evidence_graph_data(
         domain_config,
         progress_desc=f"build evidence graphs ({dataset})",
     )
+    expected_item_ids_by_task_id = {
+        request.task_id: frozenset(node.node_id for node in request.nodes)
+        for request in requests
+    }
     EvidenceGraphBatch(
         graphs=tuple(graphs),
-        expected_item_ids_by_task_id={
-            request.task_id: frozenset(node.node_id for node in request.nodes)
-            for request in requests
-        },
+        expected_item_ids_by_task_id=expected_item_ids_by_task_id,
     )
     statistics = graph_statistics(
         graphs,

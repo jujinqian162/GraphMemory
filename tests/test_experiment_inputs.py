@@ -78,6 +78,57 @@ def test_prepare_dataset_retries_huggingface_download_once_via_mirror(
     assert (tmp_path / "data/example/raw/nested/train.jsonl").exists()
 
 
+def test_prepare_dataset_can_use_huggingface_mirror_directly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_url = "https://huggingface.co/datasets/example/data/resolve/rev/train.jsonl"
+    spec = prepare_dataset.DatasetSpec(
+        dataset="example",
+        display_name="Example",
+        files=(
+            prepare_dataset.DatasetFile(
+                split="train",
+                filename="train.jsonl",
+                url=source_url,
+            ),
+        ),
+    )
+    observed_urls: list[str] = []
+
+    def download(url: str, destination: Path, _size: int | None) -> None:
+        observed_urls.append(url)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        prepare_dataset,
+        "SUMMARY_DIR",
+        tmp_path / "summaries",
+    )
+
+    result = prepare_dataset.main(
+        [
+            "--dataset",
+            "example",
+            "--name",
+            "example",
+            "--data_dir",
+            str(tmp_path / "data"),
+            "--no_verify",
+            "--mirror",
+        ],
+        registry={"example": spec},
+        downloader=download,
+        show_progress=False,
+    )
+
+    assert result == 0
+    assert observed_urls == [
+        "https://hf-mirror.com/datasets/example/data/resolve/rev/train.jsonl"
+    ]
+
+
 def test_prepare_dataset_does_not_mirror_non_huggingface_downloads(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

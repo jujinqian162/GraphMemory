@@ -1,0 +1,19 @@
+name: isetrace
+strict_invalid_examples: true
+trajectory_source: data/isetrace/splits/v1/test.trajectories.jsonl
+source_revision: e40e04d41c04e4eb4bae181ebdd41b61c688081b
+# Pilot-only settings. Formal paper runs must use a manually reviewed query file
+# with review_policy=accepted_only.
+review_policy: allow_unreviewed
+label_policy: intent_aware
+chunking:
+  tokenizer_name: models/intfloat-e5-base-v2
+  # 512 total encoder tokens, reserving room for E5 prefix/special tokens.
+  max_tokens: 512
+  reserved_tokens: 8
+  overlap_tokens: 64
+splits:
+  test:
+    kind: raw
+    source: data/isetrace/query-authoring/test-span-pilot-v5.jsonl
+    offset: 0

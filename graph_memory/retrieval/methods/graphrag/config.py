@@ -21,6 +21,7 @@ class GraphRAGConfig(DomainModel):
     min_sentence_score_margin: NonNegativeFiniteFloat = 0.02
     min_bridge_confidence: NonNegativeFiniteFloat = 0.2
     max_partners_per_anchor: Literal[1] = 1
+    max_entity_groups_per_anchor: PositiveInt = 8
     preserve_dense_top_n: NonNegativeInt = 2
 
 

@@ -19,24 +19,48 @@ NamespacedIdentifier = Annotated[
 
 TOOL_CALL_NODE = "execution.tool_call"
 TOOL_OUTPUT_NODE = "execution.tool_output"
+ARGUMENT_CHUNK_NODE = "content.tool_argument"
+OUTPUT_CHUNK_NODE = "content.tool_output"
 ARTIFACT_NODE = "resource.artifact"
 
 RETURNS_EDGE = "execution.returns"
+HAS_ARGUMENT_EDGE = "execution.has_argument"
+HAS_CONTENT_EDGE = "execution.has_content"
 PRECEDES_EDGE = "temporal.precedes"
 FEEDS_EDGE = "data.feeds"
 READS_EDGE = "resource.reads"
 WRITES_EDGE = "resource.writes"
+NEXT_CHUNK_EDGE = "content.next"
 
-CORE_NODE_KINDS = frozenset({TOOL_CALL_NODE, TOOL_OUTPUT_NODE, ARTIFACT_NODE})
-CORE_RELATIONS = frozenset(
-    {RETURNS_EDGE, PRECEDES_EDGE, FEEDS_EDGE, READS_EDGE, WRITES_EDGE}
+CORE_NODE_KINDS = frozenset(
+    {
+        TOOL_CALL_NODE,
+        TOOL_OUTPUT_NODE,
+        ARGUMENT_CHUNK_NODE,
+        OUTPUT_CHUNK_NODE,
+        ARTIFACT_NODE,
+    }
 )
-_CORE_NODE_NAMESPACES = frozenset({"execution", "resource"})
+CORE_RELATIONS = frozenset(
+    {
+        RETURNS_EDGE,
+        HAS_ARGUMENT_EDGE,
+        HAS_CONTENT_EDGE,
+        PRECEDES_EDGE,
+        FEEDS_EDGE,
+        READS_EDGE,
+        WRITES_EDGE,
+        NEXT_CHUNK_EDGE,
+    }
+)
+_CORE_NODE_NAMESPACES = frozenset({"execution", "content", "resource"})
 _CORE_RELATION_NAMESPACES = frozenset(
-    {"execution", "temporal", "data", "resource"}
+    {"execution", "content", "temporal", "data", "resource"}
 )
 _CORE_ENDPOINTS = {
     RETURNS_EDGE: (TOOL_CALL_NODE, TOOL_OUTPUT_NODE),
+    HAS_ARGUMENT_EDGE: (TOOL_CALL_NODE, ARGUMENT_CHUNK_NODE),
+    HAS_CONTENT_EDGE: (TOOL_OUTPUT_NODE, OUTPUT_CHUNK_NODE),
     PRECEDES_EDGE: (TOOL_CALL_NODE, TOOL_CALL_NODE),
     FEEDS_EDGE: (TOOL_OUTPUT_NODE, TOOL_CALL_NODE),
     READS_EDGE: (TOOL_CALL_NODE, ARTIFACT_NODE),
@@ -98,6 +122,19 @@ class ProvenanceGraph(DomainModel):
             ):
                 raise ValueError(f"unsupported core relation: {edge.relation}")
             expected = _CORE_ENDPOINTS.get(edge.relation)
+            if edge.relation == NEXT_CHUNK_EDGE:
+                observed = (
+                    node_by_id[edge.source].kind,
+                    node_by_id[edge.target].kind,
+                )
+                if observed not in {
+                    (ARGUMENT_CHUNK_NODE, ARGUMENT_CHUNK_NODE),
+                    (OUTPUT_CHUNK_NODE, OUTPUT_CHUNK_NODE),
+                }:
+                    raise ValueError(
+                        f"relation={NEXT_CHUNK_EDGE} requires homogeneous content chunks, got={observed}"
+                    )
+                continue
             if expected is not None:
                 observed = (
                     node_by_id[edge.source].kind,
@@ -128,11 +165,16 @@ class ProvenanceGraph(DomainModel):
 
 
 __all__ = [
+    "ARGUMENT_CHUNK_NODE",
     "ARTIFACT_NODE",
     "CORE_NODE_KINDS",
     "CORE_RELATIONS",
     "FEEDS_EDGE",
+    "HAS_ARGUMENT_EDGE",
+    "HAS_CONTENT_EDGE",
     "NamespacedIdentifier",
+    "NEXT_CHUNK_EDGE",
+    "OUTPUT_CHUNK_NODE",
     "PRECEDES_EDGE",
     "ProvenanceEdge",
     "ProvenanceGraph",

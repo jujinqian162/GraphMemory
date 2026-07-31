@@ -18,6 +18,7 @@ from graph_memory.experiment.config import (
     DenseMethodConfig,
     GraphRAGMethodConfig,
     PairBuildConfig,
+    ProvenancePathMethodConfig,
     PrepareSplitConfig,
     ResolvedExperimentConfig,
     RgcnMethodConfig,
@@ -62,6 +63,7 @@ def run_experiment(
     model: ModelResult | None = None
     dependency_models: tuple[ModelResult, ...] = ()
     ranking_graphs: EvidenceGraphArtifactRef | None = None
+    evaluation_graphs: EvidenceGraphArtifactRef | None = None
     ranking_encoder = None
     assets: list[ArtifactRef] = []
 
@@ -75,11 +77,13 @@ def run_experiment(
                 Bm25MethodConfig,
                 DenseMethodConfig,
                 GraphRAGMethodConfig,
+                ProvenancePathMethodConfig,
             ),
         ):
             test = prepare_split_task(
                 source=split_sources["test"],
                 config=_prepare_config(config, "test"),
+                trajectory_source=_trajectory_source(config),
             )
             assets.append(test.artifact)
             if not isinstance(method, Bm25MethodConfig):
@@ -341,12 +345,12 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
-            implementation_version="ranking-v2-device-aware",
+            implementation_version="ranking-v3-isetrace-provenance",
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking.artifact,
             prepared=test.artifact,
-            evidence_graphs=ranking_graphs,
+            evidence_graphs=evaluation_graphs or ranking_graphs,
             dataset=config.dataset.name,
             top_k=config.top_k,
             failure_case_limit=config.evaluation.failure_case_limit,
@@ -397,7 +401,11 @@ def run_experiment(
 def _resolve_split_sources(
     config: ResolvedExperimentConfig,
 ) -> dict[SplitName, FileSourceRef]:
-    return {split: _direct_split_source(config, split) for split in _SPLIT_NAMES}
+    return {
+        split: _direct_split_source(config, split)
+        for split in _SPLIT_NAMES
+        if split in config.dataset.splits
+    }
 
 
 def _direct_split_source(
@@ -410,6 +418,21 @@ def _direct_split_source(
     )
     if not isinstance(source, FileSourceRef):
         raise TypeError(f"raw split source must be a file: {source.uri}")
+    return source
+
+
+def _trajectory_source(
+    config: ResolvedExperimentConfig,
+) -> FileSourceRef | None:
+    source_path = config.dataset.trajectory_source
+    if source_path is None:
+        return None
+    source = identify_external_source(
+        source_path,
+        repository_root=REPOSITORY_ROOT,
+    )
+    if not isinstance(source, FileSourceRef):
+        raise TypeError(f"trajectory source must be a file: {source.uri}")
     return source
 
 
@@ -430,6 +453,10 @@ def _prepare_config(
         offset=split_config.offset,
         seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
+        source_revision=config.dataset.source_revision,
+        review_policy=config.dataset.review_policy,
+        label_policy=config.dataset.label_policy,
+        chunking=config.dataset.chunking,
     )
 
 

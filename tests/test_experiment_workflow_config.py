@@ -10,8 +10,10 @@ from pydantic import ValidationError
 from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
+    ProvenancePathMethodConfig,
     RgcnMethodConfig,
     parse_composed_config,
+    resolve_experiment_config,
 )
 
 
@@ -24,6 +26,29 @@ def _compose(*overrides: str):
             config_name="config",
             overrides=["name=config-test", "profile=smoke", "device=cpu", *overrides],
         )
+
+
+def test_isetrace_nontrain_config_is_test_only_execution_provenance() -> None:
+    composed = parse_composed_config(
+        _compose("dataset=isetrace", "profile=full", "method=provenance_path")
+    )
+    resolved = resolve_experiment_config(composed, repository_root=ROOT)
+
+    assert isinstance(resolved.method, ProvenancePathMethodConfig)
+    assert set(resolved.dataset.splits) == {"test"}
+    assert resolved.dataset.splits["test"].count is None
+    assert resolved.dataset.review_policy == "allow_unreviewed"
+    assert resolved.dataset.label_policy == "intent_aware"
+    assert resolved.dataset.source_revision
+
+
+def test_isetrace_rejects_evidence_only_trainable_method() -> None:
+    composed = parse_composed_config(
+        _compose("dataset=isetrace", "method=dense_rgcn_graph_retriever")
+    )
+
+    with pytest.raises(ValueError, match="does not support"):
+        resolve_experiment_config(composed, repository_root=ROOT)
 
 
 def test_frozen_encoding_config_enables_pytorch_gpu_pool() -> None:

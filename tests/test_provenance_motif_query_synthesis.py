@@ -9,8 +9,8 @@ from graph_memory.datasets.isetrace import adapt_isetrace_record, parse_isetrace
 from graph_memory.graphs.provenance import build_provenance_graph
 from graph_memory.query_synthesis.provenance import (
     DEFAULT_TEMPLATE_CATALOG,
+    ProvenanceQueryExample,
     QueryTemplate,
-    SyntheticQueryExample,
     extract_motifs,
     verbalize_all_templates,
     verbalize_motif,
@@ -96,7 +96,7 @@ def test_one_motif_supports_multiple_intents_and_wordings_without_graph_mutation
     all_forms = verbalize_all_templates(motif, "upstream_source", seed=7)
     assert len(all_forms) >= 6
     assert len({item.query.query_text for item in all_forms}) == len(all_forms)
-    assert len({item.label.style_tags for item in all_forms}) >= 3
+    assert len({item.generation.style_tags for item in all_forms}) >= 3
     assert graph.fingerprint() == graph_fingerprint
 
 
@@ -108,7 +108,7 @@ def test_verbalization_is_deterministic_and_rejects_internal_id_leakage() -> Non
     assert first == second
 
     with pytest.raises(ValidationError, match="leaks an internal"):
-        _ = SyntheticQueryExample(
+        _ = ProvenanceQueryExample(
             query=first.query.model_copy(
                 update={
                     "query_text": (
@@ -119,4 +119,5 @@ def test_verbalization_is_deterministic_and_rejects_internal_id_leakage() -> Non
                 }
             ),
             label=first.label,
+            generation=first.generation,
         )

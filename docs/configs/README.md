@@ -12,6 +12,8 @@ Root: `configs/config.yaml`.
 
 Each job composes exactly one `method`. R-GCN configs expose one `method.variant` (default `full_rgcn`). List-valued variants are rejected.
 
+Non-training datasets may configure only a test split. Trainable methods fail fast unless train/dev/test are all available. `dataset/isetrace.yaml` additionally pins the trajectory source revision and declares explicit `review_policy` and `label_policy`; its committed `allow_unreviewed` setting is pilot-only.
+
 ```powershell
 uv run python experiment/inspect.py kind=configs
 uv run python experiment/inspect.py kind=methods

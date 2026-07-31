@@ -3,7 +3,7 @@ from __future__ import annotations
 from graph_memory.graphs.contracts import GraphEdge
 from graph_memory.retrieval.contracts import NativeRetrievalTrace, RankedNode
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 from graph_memory.retrieval.results import (
     RankedNodeRecord,
     RankedResult,
@@ -26,11 +26,19 @@ def assemble_ranked_result(
     top_node_ids = tuple(
         ranked_node.node_id for ranked_node in ranked_nodes[:top_k]
     )
+    candidate_by_id = {
+        candidate.item_id: candidate for candidate in text_request.candidates
+    }
     return RankedResult(
         task_id=text_request.task_id,
         method=RetrievalMethodId(method),
         ranked_nodes=tuple(
-            RankedNodeRecord(node_id=item.node_id, score=item.score)
+            RankedNodeRecord(
+                node_id=item.node_id,
+                score=item.score,
+                source_spans=candidate_by_id[item.node_id].source_spans,
+                token_count=_candidate_token_count(candidate_by_id[item.node_id]),
+            )
             for item in ranked_nodes
         ),
         retrieved_subgraph=RetrievedSubgraph(
@@ -45,6 +53,13 @@ def assemble_ranked_result(
             else None
         ),
     )
+
+
+def _candidate_token_count(candidate: TextCandidate) -> int:
+    value = candidate.metadata.get("token_count")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return len(content_tokens(candidate.text))
 
 
 def _approx_input_tokens(text_request: TextRankingRequest) -> int:

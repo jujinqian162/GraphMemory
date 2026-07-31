@@ -4,15 +4,20 @@ import hashlib
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, cast
 
 from pydantic import JsonValue
 
 from graph_memory.graphs.provenance.contracts import (
+    ARGUMENT_CHUNK_NODE,
     ARTIFACT_NODE,
     FEEDS_EDGE,
+    HAS_ARGUMENT_EDGE,
+    HAS_CONTENT_EDGE,
+    NEXT_CHUNK_EDGE,
+    OUTPUT_CHUNK_NODE,
     PRECEDES_EDGE,
     READS_EDGE,
     RETURNS_EDGE,
@@ -23,13 +28,15 @@ from graph_memory.graphs.provenance.contracts import (
     ProvenanceGraph,
     ProvenanceNode,
 )
+from graph_memory.text.chunking import TokenChunk
 from graph_memory.trajectories import (
     CanonicalTrajectory,
     SourceSpan,
     ToolCallEvent,
 )
 
-BUILDER_VERSION = "provenance-core-v1"
+BUILDER_VERSION = "provenance-core-v2-content-units"
+ContentChunker = Callable[[str], tuple[TokenChunk, ...]]
 _TYPED_TOKEN_PATTERN = "".join(
     (
         r"https?://[^\s\]\[\)\}\>\"']+",
@@ -110,16 +117,65 @@ def _output_node_id(call_id: str) -> str:
     return f"output:{call_id}"
 
 
+def _argument_chunk_node_id(call_id: str, index: int) -> str:
+    return f"argument:{call_id}:chunk:{index}"
+
+
+def _output_chunk_node_id(call_id: str, index: int) -> str:
+    return f"output-content:{call_id}:chunk:{index}"
+
+
 def _artifact_node_id(kind: str, value: str) -> str:
     return f"artifact:{kind}:{_short_hash(value)}"
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+def _source_span(
+    event_id: str,
+    *,
+    json_pointer: str | None = None,
+    char_start: int | None = None,
+    char_end: int | None = None,
+) -> SourceSpan:
+    return SourceSpan(
+        event_id=event_id,
+        json_pointer=json_pointer,
+        char_start=char_start,
+        char_end=char_end,
+    )
 
 
-def _source_span(event_id: str, *, json_pointer: str | None = None) -> SourceSpan:
-    return SourceSpan(event_id=event_id, json_pointer=json_pointer)
+def _whole_text_chunker(text: str) -> tuple[TokenChunk, ...]:
+    if not text:
+        return ()
+    return (
+        TokenChunk(
+            text=text,
+            char_start=0,
+            char_end=len(text),
+            token_count=0,
+        ),
+    )
+
+
+def _append_next_chunk_edges(
+    edges: list[ProvenanceEdge],
+    node_ids: list[str],
+    *,
+    event_id: str,
+    extractor: str,
+) -> None:
+    for source, target in zip(node_ids, node_ids[1:], strict=False):
+        edges.append(
+            ProvenanceEdge(
+                edge_id=_edge_id(NEXT_CHUNK_EDGE, source, target),
+                relation=NEXT_CHUNK_EDGE,
+                source=source,
+                target=target,
+                derivation="deterministic",
+                extractor=extractor,
+                source_spans=(_source_span(event_id),),
+            )
+        )
 
 
 def _iter_string_leaves(value: object) -> Iterable[str]:
@@ -173,8 +229,10 @@ def build_provenance_graph(
     trajectory: CanonicalTrajectory,
     *,
     artifact_extractors: tuple[ArtifactAccessExtractor, ...] | None = None,
+    content_chunker: ContentChunker | None = None,
 ) -> ProvenanceGraph:
     extractors = artifact_extractors or (ExplicitArtifactAccessExtractor(),)
+    chunk_content = content_chunker or _whole_text_chunker
     calls = list(trajectory.tool_calls)
     outputs = list(trajectory.tool_outputs)
     call_by_id = {call.call_id: call for call in calls}
@@ -183,31 +241,76 @@ def build_provenance_graph(
     nodes: list[ProvenanceNode] = []
     edges: list[ProvenanceEdge] = []
     for call in calls:
-        arguments_text = _canonical_json(call.arguments)
+        call_node_id = _call_node_id(call.call_id)
+        output_node_id = _output_node_id(call.call_id)
         nodes.append(
             ProvenanceNode(
-                node_id=_call_node_id(call.call_id),
+                node_id=call_node_id,
                 kind=TOOL_CALL_NODE,
-                text=f"tool={call.tool_name}\narguments={arguments_text}",
+                text=f"tool={call.tool_name}",
                 source_spans=(_source_span(call.event_id),),
-                attributes={
-                    "call_id": call.call_id,
-                    "tool_name": call.tool_name,
-                    "arguments": call.arguments,
-                    "message_index": call.position.message_index,
-                    "sub_index": call.position.sub_index,
-                },
+                attributes=cast(
+                    dict[str, JsonValue],
+                    {
+                        "call_id": call.call_id,
+                        "tool_name": call.tool_name,
+                        "argument_keys": sorted(call.arguments),
+                        "message_index": call.position.message_index,
+                        "sub_index": call.position.sub_index,
+                    },
+                ),
             )
         )
+        argument_node_ids: list[str] = []
+        for index, chunk in enumerate(chunk_content(call.raw_arguments)):
+            argument_node_id = _argument_chunk_node_id(call.call_id, index)
+            argument_node_ids.append(argument_node_id)
+            span = _source_span(
+                call.event_id,
+                json_pointer="/raw_arguments",
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+            )
+            nodes.append(
+                ProvenanceNode(
+                    node_id=argument_node_id,
+                    kind=ARGUMENT_CHUNK_NODE,
+                    text=chunk.text,
+                    source_spans=(span,),
+                    attributes={
+                        "call_id": call.call_id,
+                        "tool_name": call.tool_name,
+                        "chunk_index": index,
+                        "token_count": chunk.token_count,
+                        "message_index": call.position.message_index,
+                        "sub_index": call.position.sub_index,
+                    },
+                )
+            )
+            edges.append(
+                ProvenanceEdge(
+                    edge_id=_edge_id(HAS_ARGUMENT_EDGE, call_node_id, argument_node_id),
+                    relation=HAS_ARGUMENT_EDGE,
+                    source=call_node_id,
+                    target=argument_node_id,
+                    derivation="native",
+                    extractor="tool_call_arguments",
+                    source_spans=(span,),
+                )
+            )
+        _append_next_chunk_edges(
+            edges,
+            argument_node_ids,
+            event_id=call.event_id,
+            extractor="argument_chunk_order",
+        )
+
         output = output_by_call_id[call.call_id]
         nodes.append(
             ProvenanceNode(
-                node_id=_output_node_id(call.call_id),
+                node_id=output_node_id,
                 kind=TOOL_OUTPUT_NODE,
-                text=(
-                    f"tool={call.tool_name}\narguments={arguments_text}\n"
-                    f"output={output.content}"
-                ),
+                text=f"tool_output={output.tool_name}",
                 source_spans=(_source_span(output.event_id),),
                 attributes={
                     "call_id": call.call_id,
@@ -218,16 +321,55 @@ def build_provenance_graph(
                 },
             )
         )
+        output_chunk_node_ids: list[str] = []
+        for index, chunk in enumerate(chunk_content(output.content)):
+            output_chunk_node_id = _output_chunk_node_id(call.call_id, index)
+            output_chunk_node_ids.append(output_chunk_node_id)
+            span = _source_span(
+                output.event_id,
+                json_pointer="/content",
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+            )
+            nodes.append(
+                ProvenanceNode(
+                    node_id=output_chunk_node_id,
+                    kind=OUTPUT_CHUNK_NODE,
+                    text=chunk.text,
+                    source_spans=(span,),
+                    attributes={
+                        "call_id": call.call_id,
+                        "tool_name": call.tool_name,
+                        "chunk_index": index,
+                        "token_count": chunk.token_count,
+                        "message_index": output.position.message_index,
+                        "sub_index": output.position.sub_index,
+                    },
+                )
+            )
+            edges.append(
+                ProvenanceEdge(
+                    edge_id=_edge_id(HAS_CONTENT_EDGE, output_node_id, output_chunk_node_id),
+                    relation=HAS_CONTENT_EDGE,
+                    source=output_node_id,
+                    target=output_chunk_node_id,
+                    derivation="native",
+                    extractor="tool_output_content",
+                    source_spans=(span,),
+                )
+            )
+        _append_next_chunk_edges(
+            edges,
+            output_chunk_node_ids,
+            event_id=output.event_id,
+            extractor="output_chunk_order",
+        )
         edges.append(
             ProvenanceEdge(
-                edge_id=_edge_id(
-                    RETURNS_EDGE,
-                    _call_node_id(call.call_id),
-                    _output_node_id(call.call_id),
-                ),
+                edge_id=_edge_id(RETURNS_EDGE, call_node_id, output_node_id),
                 relation=RETURNS_EDGE,
-                source=_call_node_id(call.call_id),
-                target=_output_node_id(call.call_id),
+                source=call_node_id,
+                target=output_node_id,
                 derivation="native",
                 extractor="tool_call_id",
                 source_spans=(

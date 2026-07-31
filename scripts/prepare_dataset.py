@@ -46,6 +46,7 @@ class PrepareDatasetArgs:
     data_dir: str
     force: bool
     no_verify: bool
+    mirror: bool
 
 
 Downloader = Callable[[str, Path, int | None], None]
@@ -199,6 +200,7 @@ def main(
         "raw_dir": str(raw_dir),
         "force": args.force,
         "verify_checksum": not args.no_verify,
+        "mirror": args.mirror,
     }
     inputs = {
         "dataset": args.dataset,
@@ -241,12 +243,17 @@ def main(
                 status(f"OK skip {dataset_file.split}: {destination}")
                 continue
 
-            status(f"GET {dataset_file.split}: {dataset_file.url}")
+            mirror_url = huggingface_mirror_url(dataset_file.url)
+            active_url = (
+                mirror_url
+                if args.mirror and mirror_url is not None
+                else dataset_file.url
+            )
+            status(f"GET {dataset_file.split}: {active_url}")
             try:
-                download_file(dataset_file.url, destination, dataset_file.num_bytes)
+                download_file(active_url, destination, dataset_file.num_bytes)
             except Exception:
-                mirror_url = huggingface_mirror_url(dataset_file.url)
-                if mirror_url is None:
+                if args.mirror or mirror_url is None:
                     raise
                 LOGGER.warning(
                     "download failed for %s; retrying once via %s",
@@ -408,6 +415,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no_verify", action="store_true", help="Skip size and SHA-256 verification."
     )
+    parser.add_argument(
+        "--mirror",
+        action="store_true",
+        help="Use the configured Hugging Face mirror directly for Hugging Face URLs.",
+    )
     return parser
 
 
@@ -419,6 +431,7 @@ def parse_args(argv: Sequence[str] | None = None) -> PrepareDatasetArgs:
         data_dir=namespace.data_dir,
         force=namespace.force,
         no_verify=namespace.no_verify,
+        mirror=namespace.mirror,
     )
 
 

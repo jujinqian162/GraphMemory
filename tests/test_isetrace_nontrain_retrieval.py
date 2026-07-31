@@ -1,0 +1,804 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Sequence
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from graph_memory.datasets.isetrace import (
+    adapt_isetrace_record,
+    parse_isetrace_record,
+    prepare_isetrace_benchmark,
+)
+from graph_memory.datasets.isetrace.retrieval_views import (
+    flat_trajectory_candidates,
+    provenance_unit_candidates,
+)
+from graph_memory.evaluation.span_metrics import (
+    span_metrics_at,
+    span_metrics_under_token_budget,
+)
+from graph_memory.graphs.provenance import (
+    ARGUMENT_CHUNK_NODE,
+    FEEDS_EDGE,
+    HAS_CONTENT_EDGE,
+    OUTPUT_CHUNK_NODE,
+    RETURNS_EDGE,
+    TOOL_CALL_NODE,
+    TOOL_OUTPUT_NODE,
+    ProvenanceEdge,
+    ProvenanceGraph,
+    ProvenanceNode,
+    build_provenance_graph,
+    logical_output_dependencies,
+    output_content,
+    output_source_spans,
+)
+from graph_memory.query_synthesis.provenance import extract_motifs
+from graph_memory.query_synthesis.provenance.contracts import (
+    LlmGenerationProvenance,
+    ProvenanceQueryExample,
+    ProvenanceQueryLabel,
+    ProvenanceQueryRecord,
+    QueryIntent,
+)
+from graph_memory.retrieval.contracts import GraphRAGTrace, ProvenancePathTrace
+from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
+from graph_memory.retrieval.methods.graphrag import (
+    GraphRAGConfig,
+    GraphRAGMethod,
+    build_graphrag_request,
+)
+from graph_memory.retrieval.methods.graphrag.sentence_resolver import (
+    GraphRAGSentenceResolver,
+)
+from graph_memory.retrieval.methods.provenance_path import (
+    ProvenancePathConfig,
+    ProvenancePathMethod,
+)
+from graph_memory.experiment.config import (
+    Bm25MethodConfig,
+    DenseEncoderConfig,
+    DenseMethodConfig,
+    GraphRAGMethodConfig,
+    ProvenancePathMethodConfig,
+)
+from graph_memory.retrieval.requests import (
+    ProvenancePathRequest,
+    TextCandidate,
+    TextRankingRequest,
+)
+from graph_memory.retrieval.results import RankedNodeRecord
+from graph_memory.stages.evaluate import run_evaluate_stage
+from graph_memory.stages.retrieve import run_retrieve_stage
+from graph_memory.text.chunking import TokenChunkingConfig, token_chunks
+from graph_memory.trajectories import SourceSpan
+from tests.isetrace_fixtures import (
+    isetrace_record,
+    set_call_arguments,
+    set_tool_output_content,
+)
+
+
+class CharacterOffsetTokenizer:
+    is_fast = True
+
+    def __call__(
+        self,
+        text: str,
+        *,
+        add_special_tokens: bool,
+        return_offsets_mapping: bool,
+        truncation: bool,
+    ) -> dict[str, object]:
+        del add_special_tokens, return_offsets_mapping, truncation
+        return {"offset_mapping": [(index, index + 1) for index in range(len(text))]}
+
+
+_TEST_CHUNKING = TokenChunkingConfig(
+    tokenizer_name="test-character-tokenizer",
+    max_tokens=512,
+    overlap_tokens=64,
+)
+
+
+def _test_content_chunks(text: str):
+    return token_chunks(
+        text,
+        tokenizer=CharacterOffsetTokenizer(),
+        max_tokens=_TEST_CHUNKING.max_tokens,
+        overlap_tokens=_TEST_CHUNKING.overlap_tokens,
+    )
+
+
+class KeywordEncoder:
+    vocabulary = ("target", "source", "shared", "other")
+
+    def encode(
+        self,
+        texts: Sequence[str],
+        batch_size: int = 64,
+        normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
+    ) -> object:
+        del batch_size, show_progress_bar
+        rows: list[np.ndarray] = []
+        for text in texts:
+            lowered = text.casefold()
+            vector = np.asarray(
+                [float(lowered.count(token)) for token in self.vocabulary],
+                dtype=np.float32,
+            )
+            norm = float(np.linalg.norm(vector))
+            rows.append(vector / norm if normalize_embeddings and norm else vector)
+        return np.asarray(rows, dtype=np.float32)
+
+
+def _llm_example(
+    graph: ProvenanceGraph, *, intent: QueryIntent
+) -> ProvenanceQueryExample:
+    motif = next(
+        item for item in extract_motifs(graph) if item.motif_type == "artifact_lifecycle"
+    )
+    target = motif.target_for(intent)
+    query_id = f"query:{intent}"
+
+    def spans_for(output_ids: tuple[str, ...]) -> tuple[SourceSpan, ...]:
+        return tuple(
+            SourceSpan(
+                event_id=graph.node_by_id[output_id].source_spans[0].event_id,
+                json_pointer="/content",
+                char_start=0,
+                char_end=len(output_content(graph, output_id)),
+            )
+            for output_id in output_ids
+        )
+
+    return ProvenanceQueryExample(
+        query=ProvenanceQueryRecord(
+            query_id=query_id,
+            graph_id=graph.graph_id,
+            query_text=(
+                "Which outputs formed the report lifecycle?"
+                if intent == "complete_chain"
+                else "Which output originally created the report?"
+            ),
+        ),
+        label=ProvenanceQueryLabel(
+            query_id=query_id,
+            motif_id=motif.motif_id,
+            motif_type=motif.motif_type,
+            query_intent=target.query_intent,
+            answer_output_ids=target.answer_output_ids,
+            support_output_ids=target.support_output_ids,
+            answer_evidence_spans=spans_for(target.answer_output_ids),
+            support_evidence_spans=spans_for(target.support_output_ids),
+            dependencies=motif.dependencies,
+        ),
+        generation=LlmGenerationProvenance(
+            requested_model_id="test-model",
+            reported_model_id="test-model",
+            prompt_version="test-v1",
+            authoring_attempt=1,
+            request_digest="request-digest",
+            style_tags=("direct",),
+            reference_answer="The write output created the report before the read output used it.",
+            requested_prompt_cache_key="cache-key",
+            human_review_status="unreviewed",
+        ),
+    )
+
+
+def _assert_exact_source_coverage(
+    candidates: Sequence[TextCandidate],
+    *,
+    event_id: str,
+    json_pointer: str,
+    expected_length: int,
+) -> None:
+    intervals = sorted(
+        (span.char_start, span.char_end)
+        for candidate in candidates
+        for span in candidate.source_spans
+        if span.event_id == event_id and span.json_pointer == json_pointer
+    )
+    assert intervals
+    cursor = 0
+    for start, end in intervals:
+        assert start is not None and end is not None
+        assert start <= cursor
+        cursor = max(cursor, end)
+    assert cursor == expected_length
+
+
+def test_long_content_is_losslessly_covered_by_both_retrieval_views() -> None:
+    raw = isetrace_record()
+    raw_arguments = json.dumps({"payload": "A" * 1300})
+    output_text = "B" * 1500
+    set_call_arguments(raw, message_index=2, call_index=0, value=raw_arguments)
+    set_tool_output_content(raw, message_index=3, value=output_text)
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    tokenizer = CharacterOffsetTokenizer()
+
+    def chunk_content(text: str):
+        return token_chunks(
+            text,
+            tokenizer=tokenizer,
+            max_tokens=64,
+            overlap_tokens=8,
+        )
+
+    graph = build_provenance_graph(trajectory, content_chunker=chunk_content)
+    flat = flat_trajectory_candidates(
+        trajectory,
+        tokenizer=tokenizer,
+        max_tokens=64,
+        overlap_tokens=8,
+    )
+    provenance = provenance_unit_candidates(graph)
+    call = trajectory.tool_calls[0]
+    output = next(item for item in trajectory.tool_outputs if item.call_id == call.call_id)
+
+    for candidates in (flat, provenance):
+        _assert_exact_source_coverage(
+            candidates,
+            event_id=call.event_id,
+            json_pointer="/raw_arguments",
+            expected_length=len(raw_arguments),
+        )
+        _assert_exact_source_coverage(
+            candidates,
+            event_id=output.event_id,
+            json_pointer="/content",
+            expected_length=len(output_text),
+        )
+    assert output_content(graph, "output:c1") == output_text
+    assert output_source_spans(graph, ("output:c1",)) == (
+        SourceSpan(
+            event_id=output.event_id,
+            json_pointer="/content",
+            char_start=0,
+            char_end=len(output_text),
+        ),
+    )
+    assert len(
+        [node for node in graph.nodes if node.kind == ARGUMENT_CHUNK_NODE]
+    ) > 1
+    assert graph.node_by_id["call:c1"].text == "tool=write"
+    assert graph.node_by_id["output:c1"].text == "tool_output=write"
+
+
+def test_legacy_output_id_only_queries_are_rejected(tmp_path: Path) -> None:
+    raw = isetrace_record()
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    graph = build_provenance_graph(trajectory, content_chunker=_test_content_chunks)
+    payload = _llm_example(graph, intent="artifact_origin").model_dump(mode="json")
+    label = payload["label"]
+    assert isinstance(label, dict)
+    label.pop("answer_evidence_spans")
+    label.pop("support_evidence_spans")
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    query_path = tmp_path / "legacy-queries.jsonl"
+    query_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="output-ID fallback is forbidden"):
+        prepare_isetrace_benchmark(
+            query_path,
+            trajectory_path,
+            source_revision="fixture-revision",
+            count=None,
+            seed=13,
+            offset=0,
+            strict=True,
+            review_policy="allow_unreviewed",
+            label_policy="intent_aware",
+            chunking=_TEST_CHUNKING,
+            tokenizer=CharacterOffsetTokenizer(),
+        )
+
+
+def test_span_density_charges_duplicate_context_and_respects_token_budget() -> None:
+    gold = (
+        SourceSpan(
+            event_id="event:1",
+            json_pointer="/content",
+            char_start=0,
+            char_end=10,
+        ),
+    )
+    ranked = (
+        RankedNodeRecord(
+            node_id="chunk:1",
+            score=1.0,
+            source_spans=gold,
+            token_count=10,
+        ),
+        RankedNodeRecord(
+            node_id="chunk:2",
+            score=0.5,
+            source_spans=gold,
+            token_count=10,
+        ),
+    )
+
+    assert span_metrics_at(ranked, gold, 1).density == 1.0
+    assert span_metrics_at(ranked, gold, 2).density == 0.5
+    assert span_metrics_under_token_budget(ranked, gold, 10).density == 1.0
+    assert span_metrics_under_token_budget(ranked, gold, 20).density == 0.5
+
+
+def test_isetrace_benchmark_reuses_query_independent_graph_and_intent_labels(
+    tmp_path: Path,
+) -> None:
+    raw = isetrace_record()
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    graph = build_provenance_graph(
+        trajectory,
+        content_chunker=_test_content_chunks,
+    )
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    examples = [
+        _llm_example(graph, intent="complete_chain"),
+        _llm_example(graph, intent="artifact_origin"),
+    ]
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(
+        "".join(example.model_dump_json() + "\n" for example in examples),
+        encoding="utf-8",
+    )
+
+    benchmark, summary = prepare_isetrace_benchmark(
+        query_path,
+        trajectory_path,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=True,
+        review_policy="allow_unreviewed",
+        label_policy="intent_aware",
+        chunking=_TEST_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+    )
+
+    assert len(benchmark.rankings) == 2
+    assert len(benchmark.provenance_graphs) == 1
+    assert (
+        benchmark.provenance_graphs[0].fingerprint() == graph.fingerprint()
+    )
+    assert (
+        benchmark.rankings[0].flat_candidates
+        == benchmark.rankings[1].flat_candidates
+    )
+    assert (
+        benchmark.rankings[0].provenance_candidates
+        == benchmark.rankings[1].provenance_candidates
+    )
+    labels = {label.query_intent: label for label in benchmark.labels}
+    assert len(labels["complete_chain"].gold_evidence_output_ids) == 2
+    assert labels["complete_chain"].gold_dependency_edges
+    assert len(labels["artifact_origin"].gold_evidence_output_ids) == 1
+    assert labels["artifact_origin"].gold_dependency_edges == ()
+    assert summary["unique_graphs"] == 1
+
+    with pytest.raises(ValueError, match="admitted no query records"):
+        prepare_isetrace_benchmark(
+            query_path,
+            trajectory_path,
+            source_revision="fixture-revision",
+            count=None,
+            seed=13,
+            offset=0,
+            strict=True,
+            review_policy="accepted_only",
+            label_policy="intent_aware",
+            chunking=_TEST_CHUNKING,
+            tokenizer=CharacterOffsetTokenizer(),
+        )
+
+    unknown_graph_example = examples[0].model_copy(
+        update={
+            "query": examples[0].query.model_copy(
+                update={"graph_id": "missing-graph"}
+            )
+        }
+    )
+    unknown_path = tmp_path / "unknown-graph-query.jsonl"
+    unknown_path.write_text(
+        unknown_graph_example.model_dump_json() + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="missing graph IDs"):
+        prepare_isetrace_benchmark(
+            unknown_path,
+            trajectory_path,
+            source_revision="fixture-revision",
+            count=None,
+            seed=13,
+            offset=0,
+            strict=True,
+            review_policy="allow_unreviewed",
+            label_policy="intent_aware",
+            chunking=_TEST_CHUNKING,
+            tokenizer=CharacterOffsetTokenizer(),
+        )
+
+
+def test_logical_dependencies_include_feeds_and_artifact_flow() -> None:
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(isetrace_record()), source_revision="fixture-revision"
+    )
+    dependencies = logical_output_dependencies(build_provenance_graph(trajectory))
+    observed = {
+        (item.source_output_id, item.target_output_id, item.relation)
+        for item in dependencies
+    }
+
+    assert ("output:c1", "output:c2", "resource.flow") in observed
+    assert ("output:c2", "output:c3", "data.feeds") in observed
+
+
+def _execution_graph(
+    *,
+    graph_id: str,
+    texts: dict[str, str],
+    feed_pairs: tuple[tuple[str, str], ...],
+) -> ProvenanceGraph:
+    nodes: list[ProvenanceNode] = []
+    edges: list[ProvenanceEdge] = []
+    call_ids = tuple(texts)
+    for index, call_id in enumerate(call_ids):
+        call_event = f"call-event:{call_id}"
+        output_event = f"output-event:{call_id}"
+        content_id = f"output-content:{call_id}:chunk:0"
+        nodes.extend(
+            (
+                ProvenanceNode(
+                    node_id=f"call:{call_id}",
+                    kind=TOOL_CALL_NODE,
+                    text="tool=exec",
+                    source_spans=(SourceSpan(event_id=call_event),),
+                    attributes={"tool_name": "exec", "message_index": index * 2},
+                ),
+                ProvenanceNode(
+                    node_id=f"output:{call_id}",
+                    kind=TOOL_OUTPUT_NODE,
+                    text="tool_output=exec",
+                    source_spans=(SourceSpan(event_id=output_event),),
+                    attributes={"tool_name": "exec", "message_index": index * 2 + 1},
+                ),
+                ProvenanceNode(
+                    node_id=content_id,
+                    kind=OUTPUT_CHUNK_NODE,
+                    text=texts[call_id],
+                    source_spans=(
+                        SourceSpan(
+                            event_id=output_event,
+                            json_pointer="/content",
+                            char_start=0,
+                            char_end=len(texts[call_id]),
+                        ),
+                    ),
+                    attributes={"tool_name": "exec", "chunk_index": 0},
+                ),
+            )
+        )
+        edges.extend(
+            (
+                ProvenanceEdge(
+                    edge_id=f"return:{call_id}",
+                    relation=RETURNS_EDGE,
+                    source=f"call:{call_id}",
+                    target=f"output:{call_id}",
+                    derivation="native",
+                    extractor="fixture",
+                ),
+                ProvenanceEdge(
+                    edge_id=f"content:{call_id}",
+                    relation=HAS_CONTENT_EDGE,
+                    source=f"output:{call_id}",
+                    target=content_id,
+                    derivation="native",
+                    extractor="fixture",
+                ),
+            )
+        )
+    for source, target in feed_pairs:
+        edges.append(
+            ProvenanceEdge(
+                edge_id=f"feed:{source}:{target}",
+                relation=FEEDS_EDGE,
+                source=f"output:{source}",
+                target=f"call:{target}",
+                derivation="deterministic",
+                extractor="fixture",
+            )
+        )
+    return ProvenanceGraph(
+        graph_id=graph_id,
+        trajectory_fingerprint=("a" if graph_id == "path-graph" else "b") * 64,
+        nodes=tuple(nodes),
+        edges=tuple(edges),
+    )
+
+
+def _path_graph(*, include_feed: bool) -> ProvenanceGraph:
+    return _execution_graph(
+        graph_id="path-graph",
+        texts={"c0": "other", "c1": "source", "c2": "target"},
+        feed_pairs=(("c1", "c2"),) if include_feed else (),
+    )
+
+
+def _multihop_graph() -> ProvenanceGraph:
+    return _execution_graph(
+        graph_id="multi-path-graph",
+        texts={"c0": "other", "c1": "source", "c2": "middle", "c3": "target"},
+        feed_pairs=(("c1", "c2"), ("c2", "c3")),
+    )
+
+
+def _path_request(graph: ProvenanceGraph) -> ProvenancePathRequest:
+    return ProvenancePathRequest(
+        task_id="q1",
+        query_text="target",
+        candidates=tuple(
+            TextCandidate(
+                item_id=node.node_id,
+                text=node.text,
+                metadata={"graph_id": graph.graph_id},
+                source_spans=node.source_spans,
+            )
+            for node in graph.nodes
+            if node.kind == OUTPUT_CHUNK_NODE
+        ),
+        graph=graph,
+    )
+
+
+def _dense_ranker() -> DenseTaskRetriever:
+    return DenseTaskRetriever(
+        model_name="keyword",
+        query_prefix="",
+        passage_prefix="",
+        encoder=KeywordEncoder(),
+        device="cpu",
+    )
+
+
+def test_provenance_path_promotes_reverse_dependency_and_emits_stored_direction() -> None:
+    method = ProvenancePathMethod(
+        dense_ranker=_dense_ranker(),
+        config=ProvenancePathConfig(
+            seed_top_s=1,
+            max_path_hops=4,
+            max_partners_per_anchor=1,
+            max_expansions=16,
+            preserve_dense_top_n=1,
+        ),
+    )
+
+    result = method.rank_task(_path_request(_path_graph(include_feed=True)), top_k=2)
+
+    assert [node.node_id for node in result.ranked_nodes] == [
+        "output-content:c2:chunk:0",
+        "output-content:c1:chunk:0",
+        "output-content:c0:chunk:0",
+    ]
+    assert [(edge.source, edge.target) for edge in result.trace.retrieved_edges] == [
+        ("output-content:c2:chunk:0", "output-content:c1:chunk:0")
+    ]
+    trace = result.trace.native_trace
+    assert isinstance(trace, ProvenancePathTrace)
+    assert trace.exact_dense_fallback is False
+    accepted = next(proposal for proposal in trace.proposals if proposal.accepted)
+    assert accepted.traversed_reverse == (True, True, True, False)
+    ProvenancePathTrace.model_validate(
+        trace.model_dump(mode="json", exclude_none=True)
+    )
+
+
+def test_provenance_path_completes_bounded_multihop_chain() -> None:
+    method = ProvenancePathMethod(
+        dense_ranker=_dense_ranker(),
+        config=ProvenancePathConfig(
+            seed_top_s=1,
+            max_path_hops=8,
+            max_partners_per_anchor=2,
+            max_expansions=16,
+            preserve_dense_top_n=1,
+        ),
+    )
+
+    result = method.rank_task(_path_request(_multihop_graph()), top_k=3)
+
+    assert [node.node_id for node in result.ranked_nodes[:3]] == [
+        "output-content:c3:chunk:0",
+        "output-content:c2:chunk:0",
+        "output-content:c1:chunk:0",
+    ]
+    assert {
+        (edge.source, edge.target) for edge in result.trace.retrieved_edges
+    } == {
+        ("output-content:c3:chunk:0", "output-content:c2:chunk:0"),
+        ("output-content:c3:chunk:0", "output-content:c1:chunk:0"),
+    }
+
+
+def test_provenance_path_is_exact_dense_without_logical_dependency() -> None:
+    graph = _path_graph(include_feed=False)
+    request = _path_request(graph)
+    dense = _dense_ranker().rank(
+        TextRankingRequest(
+            task_id=request.task_id,
+            query_text=request.query_text,
+            candidates=request.candidates,
+        )
+    )
+    method = ProvenancePathMethod(
+        dense_ranker=_dense_ranker(),
+        config=ProvenancePathConfig(preserve_dense_top_n=1),
+    )
+
+    result = method.rank_task(request, top_k=2)
+
+    assert result.ranked_nodes == tuple(dense)
+    assert result.trace.retrieved_edges == ()
+    assert isinstance(result.trace.native_trace, ProvenancePathTrace)
+    assert result.trace.native_trace.exact_dense_fallback is True
+
+
+def test_nontrain_stages_run_aligned_isetrace_requests(
+    tmp_path: Path,
+) -> None:
+    raw = isetrace_record()
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    graph = build_provenance_graph(
+        trajectory,
+        content_chunker=_test_content_chunks,
+    )
+    trajectory_path = tmp_path / "stage-trajectories.jsonl"
+    trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    query_path = tmp_path / "stage-queries.jsonl"
+    query_path.write_text(
+        _llm_example(graph, intent="complete_chain").model_dump_json() + "\n",
+        encoding="utf-8",
+    )
+    benchmark, _summary = prepare_isetrace_benchmark(
+        query_path,
+        trajectory_path,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=True,
+        review_policy="allow_unreviewed",
+        label_policy="intent_aware",
+        chunking=_TEST_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+    )
+    encoder_config = DenseEncoderConfig(
+        model_name="keyword", query_prefix="", passage_prefix="", batch_size=8
+    )
+    methods = (
+        Bm25MethodConfig(method="bm25"),
+        DenseMethodConfig(method="dense", encoder=encoder_config),
+        GraphRAGMethodConfig(
+            method="graphrag",
+            encoder=encoder_config,
+            seed_top_s=2,
+            max_entity_document_frequency_ratio=1.0,
+            min_sentence_score_margin=0.0,
+            min_bridge_confidence=0.0,
+            max_partners_per_anchor=1,
+            preserve_dense_top_n=1,
+        ),
+        ProvenancePathMethodConfig(
+            method="provenance_path",
+            encoder=encoder_config,
+            preserve_dense_top_n=1,
+        ),
+    )
+    task_inputs = [item.model_dump(mode="json") for item in benchmark.rankings]
+    labels: list[object] = [
+        item.model_dump(mode="json") for item in benchmark.labels
+    ]
+    for method in methods:
+        result = run_retrieve_stage(
+            method,
+            dataset="isetrace",
+            top_k=3,
+            task_inputs=task_inputs,
+            evidence_graphs=None,
+            provenance_graphs=list(benchmark.provenance_graphs),
+            model=None,
+            encoder_source=None,
+            device="cpu",
+            dense_encoder=(None if isinstance(method, Bm25MethodConfig) else KeywordEncoder()),
+        )
+        assert len(result.predictions) == 1
+        expected_candidates = (
+            benchmark.rankings[0].provenance_candidates
+            if isinstance(method, ProvenancePathMethodConfig)
+            else benchmark.rankings[0].flat_candidates
+        )
+        assert len(result.predictions[0].ranked_nodes) == len(expected_candidates)
+        evaluation = run_evaluate_stage(
+            dataset="isetrace",
+            top_k=3,
+            failure_case_limit=10,
+            predictions=result.predictions,
+            labels=labels,
+            graphs=[],
+        )
+        assert (
+            evaluation.metric_rows[0].evaluation_schema
+            == "execution_provenance_span_v2"
+        )
+        assert evaluation.metric_rows[0].evidence_density_at_10 != "N/A"
+        assert evaluation.metric_rows[0].coverage_at_2048_tokens != "N/A"
+        assert evaluation.metric_rows[0].full_support_at_2048_tokens != "N/A"
+        assert evaluation.metric_rows[0].connected_evidence_recall_at_10 != "N/A"
+        assert evaluation.metric_rows[0].path_recall_at_10 != "N/A"
+        assert evaluation.metric_rows[0].edge_recall_at_10 != "N/A"
+
+
+def test_graphrag_builds_title_free_shared_entity_bridge() -> None:
+    request = TextRankingRequest(
+        task_id="g1",
+        query_text="target",
+        candidates=(
+            TextCandidate(
+                item_id="a",
+                text="target references /workspace/shared/report.md",
+                metadata={},
+            ),
+            TextCandidate(item_id="b", text="other", metadata={}),
+            TextCandidate(
+                item_id="z",
+                text="source at /workspace/shared/report.md",
+                metadata={},
+            ),
+        ),
+    )
+    config = GraphRAGConfig(
+        seed_top_s=1,
+        max_entity_document_frequency_ratio=1.0,
+        min_sentence_score_margin=0.0,
+        min_bridge_confidence=0.0,
+        max_partners_per_anchor=1,
+        preserve_dense_top_n=1,
+    )
+    dense = _dense_ranker()
+    method = GraphRAGMethod(
+        dense_ranker=dense,
+        config=config,
+        sentence_resolver=GraphRAGSentenceResolver(
+            encoder=dense.encoder,
+            query_prefix="",
+            passage_prefix="",
+            batch_size=8,
+            min_score_margin=0.0,
+        ),
+    )
+
+    result = method.rank_task(build_graphrag_request(request, config), top_k=2)
+
+    assert [node.node_id for node in result.ranked_nodes] == ["a", "z", "b"]
+    assert len(result.trace.retrieved_edges) == 1
+    assert isinstance(result.trace.native_trace, GraphRAGTrace)
+    assert result.trace.native_trace.exact_dense_fallback is False
+    GraphRAGTrace.model_validate(
+        result.trace.native_trace.model_dump(mode="json", exclude_none=True)
+    )

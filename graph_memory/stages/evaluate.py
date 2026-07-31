@@ -10,6 +10,8 @@ from graph_memory.evaluation.contracts import FailureCase, MetricRow, PerTaskMet
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
 from graph_memory.evaluation.suites import evidence_metric_suite
+from graph_memory.evaluation.span_suite import SpanEvidenceMetricSuite
+from graph_memory.evaluation.requests import SpanEvidenceEvaluationRequest
 from graph_memory.evaluation.tables import WIDE_METRIC_COLUMNS
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
@@ -52,13 +54,22 @@ def run_evaluate_stage(
         labels=labels,
         graphs=graphs,
     )
-    suite = evidence_metric_suite()
-    metric_rows, per_task_rows = suite.evaluate_with_per_task(request)
-    failure_cases = suite.build_failure_cases(
-        request,
-        top_k=top_k,
-        limit=failure_case_limit,
-    )
+    if isinstance(request, SpanEvidenceEvaluationRequest):
+        span_suite = SpanEvidenceMetricSuite()
+        metric_rows, per_task_rows = span_suite.evaluate_with_per_task(request)
+        failure_cases = span_suite.build_failure_cases(
+            request,
+            top_k=top_k,
+            limit=failure_case_limit,
+        )
+    else:
+        node_suite = evidence_metric_suite()
+        metric_rows, per_task_rows = node_suite.evaluate_with_per_task(request)
+        failure_cases = node_suite.build_failure_cases(
+            request,
+            top_k=top_k,
+            limit=failure_case_limit,
+        )
     return EvaluateStageResult(
         metric_rows=metric_rows,
         failure_cases=failure_cases,

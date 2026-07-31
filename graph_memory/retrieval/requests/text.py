@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol
 from pydantic import model_validator
 
 from graph_memory.contracts.model import DomainModel, NonEmptyStr
+from graph_memory.trajectories import SourceSpan
 
 if TYPE_CHECKING:
     from graph_memory.embeddings.contracts import SentenceEncoder
@@ -31,6 +32,7 @@ class TextCandidate(DomainModel):
     item_id: NonEmptyStr
     text: str
     metadata: dict[str, JsonScalar]
+    source_spans: tuple[SourceSpan, ...] = ()
 
 
 class TextRankingRequest(DomainModel):

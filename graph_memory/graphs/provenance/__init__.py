@@ -4,11 +4,20 @@ from graph_memory.graphs.provenance.builder import (
     ExplicitArtifactAccessExtractor,
     build_provenance_graph,
 )
+from graph_memory.graphs.provenance.content import (
+    output_content,
+    output_source_spans,
+)
 from graph_memory.graphs.provenance.contracts import (
+    ARGUMENT_CHUNK_NODE,
     ARTIFACT_NODE,
     CORE_NODE_KINDS,
     CORE_RELATIONS,
     FEEDS_EDGE,
+    HAS_ARGUMENT_EDGE,
+    HAS_CONTENT_EDGE,
+    NEXT_CHUNK_EDGE,
+    OUTPUT_CHUNK_NODE,
     PRECEDES_EDGE,
     READS_EDGE,
     RETURNS_EDGE,
@@ -19,14 +28,25 @@ from graph_memory.graphs.provenance.contracts import (
     ProvenanceGraph,
     ProvenanceNode,
 )
+from graph_memory.graphs.provenance.dependencies import (
+    RESOURCE_FLOW_RELATION,
+    OutputDependency,
+    logical_output_dependencies,
+)
 
 __all__ = [
+    "ARGUMENT_CHUNK_NODE",
     "ARTIFACT_NODE",
     "CORE_NODE_KINDS",
     "CORE_RELATIONS",
     "FEEDS_EDGE",
+    "HAS_ARGUMENT_EDGE",
+    "HAS_CONTENT_EDGE",
+    "NEXT_CHUNK_EDGE",
+    "OUTPUT_CHUNK_NODE",
     "PRECEDES_EDGE",
     "READS_EDGE",
+    "RESOURCE_FLOW_RELATION",
     "RETURNS_EDGE",
     "TOOL_CALL_NODE",
     "TOOL_OUTPUT_NODE",
@@ -34,8 +54,12 @@ __all__ = [
     "ArtifactAccess",
     "ArtifactAccessExtractor",
     "ExplicitArtifactAccessExtractor",
+    "OutputDependency",
     "ProvenanceEdge",
     "ProvenanceGraph",
     "ProvenanceNode",
     "build_provenance_graph",
+    "logical_output_dependencies",
+    "output_content",
+    "output_source_spans",
 ]

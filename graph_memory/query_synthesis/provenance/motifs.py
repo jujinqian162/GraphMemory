@@ -4,7 +4,6 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import cast
 
 from pydantic import JsonValue
 
@@ -12,17 +11,21 @@ from graph_memory.graphs.provenance import (
     ARTIFACT_NODE,
     FEEDS_EDGE,
     READS_EDGE,
+    RESOURCE_FLOW_RELATION,
     RETURNS_EDGE,
     TOOL_CALL_NODE,
     TOOL_OUTPUT_NODE,
     WRITES_EDGE,
     ProvenanceGraph,
     ProvenanceNode,
+    logical_output_dependencies,
+    output_source_spans,
 )
 from graph_memory.query_synthesis.provenance.contracts import (
     LogicalDependency,
     MotifQueryTarget,
     MotifSpec,
+    QueryIntent,
 )
 
 
@@ -51,31 +54,36 @@ def _tool_name(node: ProvenanceNode) -> str:
     return value if isinstance(value, str) else "tool"
 
 
-def _position(node: ProvenanceNode) -> tuple[int, int]:
-    attributes = _attributes(node)
-    message_index = attributes.get("message_index")
-    sub_index = attributes.get("sub_index")
-    return (
-        message_index if isinstance(message_index, int) else 0,
-        sub_index if isinstance(sub_index, int) else 0,
-    )
-
-
 def _argument_context(node: ProvenanceNode) -> str:
-    arguments = _attributes(node).get("arguments")
-    if not isinstance(arguments, dict) or not arguments:
+    argument_keys = _attributes(node).get("argument_keys")
+    if not isinstance(argument_keys, list) or not argument_keys:
         return "without explicit arguments"
-    argument_map = cast(dict[str, JsonValue], arguments)
-    compact = json.dumps(
-        argument_map, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    keys = ", ".join(
+        sorted(value for value in argument_keys if isinstance(value, str))
     )
-    if len(compact) > 180:
-        keys = ", ".join(sorted(argument_map))
-        return f"using the argument fields {keys}"
-    return f"with arguments {compact}"
+    return f"using the argument fields {keys}" if keys else "with arguments"
+
+
+def _query_target(
+    graph: ProvenanceGraph,
+    *,
+    query_intent: QueryIntent,
+    answer_output_ids: tuple[str, ...],
+    support_output_ids: tuple[str, ...],
+    safe_slots: dict[str, str],
+) -> MotifQueryTarget:
+    return MotifQueryTarget(
+        query_intent=query_intent,
+        answer_output_ids=answer_output_ids,
+        support_output_ids=support_output_ids,
+        answer_evidence_spans=output_source_spans(graph, answer_output_ids),
+        support_evidence_spans=output_source_spans(graph, support_output_ids),
+        safe_slots=safe_slots,
+    )
 
 
 def _dependency_targets(
+    graph: ProvenanceGraph,
     *,
     source_output_id: str,
     target_output_id: str,
@@ -93,19 +101,22 @@ def _dependency_targets(
     if artifact is not None:
         shared["artifact"] = artifact
         return (
-            MotifQueryTarget(
+            _query_target(
+                graph,
                 query_intent="artifact_origin",
                 answer_output_ids=(source_output_id,),
                 support_output_ids=support,
                 safe_slots=shared,
             ),
-            MotifQueryTarget(
+            _query_target(
+                graph,
                 query_intent="artifact_use",
                 answer_output_ids=(target_output_id,),
                 support_output_ids=support,
                 safe_slots=shared,
             ),
-            MotifQueryTarget(
+            _query_target(
+                graph,
                 query_intent="complete_chain",
                 answer_output_ids=support,
                 support_output_ids=support,
@@ -113,19 +124,22 @@ def _dependency_targets(
             ),
         )
     return (
-        MotifQueryTarget(
+        _query_target(
+            graph,
             query_intent="upstream_source",
             answer_output_ids=(source_output_id,),
             support_output_ids=support,
             safe_slots=shared,
         ),
-        MotifQueryTarget(
+        _query_target(
+            graph,
             query_intent="downstream_result",
             answer_output_ids=(target_output_id,),
             support_output_ids=support,
             safe_slots=shared,
         ),
-        MotifQueryTarget(
+        _query_target(
+            graph,
             query_intent="complete_chain",
             answer_output_ids=support,
             support_output_ids=support,
@@ -158,7 +172,8 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
     motifs: list[MotifSpec] = []
     for call_id, output_id in sorted(output_for_call.items()):
         call = calls[call_id]
-        target = MotifQueryTarget(
+        target = _query_target(
+            graph,
             query_intent="call_result",
             answer_output_ids=(output_id,),
             support_output_ids=(output_id,),
@@ -183,16 +198,15 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
         tuple[str, str, str], LogicalDependency
     ] = {}
     base_motifs: list[MotifSpec] = []
-    for edge in graph.edges:
-        if edge.relation != FEEDS_EDGE:
-            continue
-        target_output_id = output_for_call.get(edge.target)
-        if target_output_id is None:
-            continue
+    call_for_output = {
+        output_id: call_id for call_id, output_id in output_for_call.items()
+    }
+    edge_by_id = {edge.edge_id: edge for edge in graph.edges}
+    for projected in logical_output_dependencies(graph):
         dependency = LogicalDependency(
-            source_output_id=edge.source,
-            target_output_id=target_output_id,
-            relation=FEEDS_EDGE,
+            source_output_id=projected.source_output_id,
+            target_output_id=projected.target_output_id,
+            relation=projected.relation,
         )
         key = (
             dependency.source_output_id,
@@ -200,88 +214,69 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
             dependency.relation,
         )
         base_dependencies[key] = dependency
-        source_tool = _tool_name(outputs[edge.source])
-        target_call = calls[edge.target]
-        participants = (edge.source, target_output_id)
-        motif_id = _motif_id("value_flow", participants, (dependency,))
-        base_motifs.append(
-            MotifSpec(
-                motif_id=motif_id,
-                motif_type="value_flow",
-                graph_id=graph.graph_id,
-                participant_output_ids=participants,
-                dependencies=(dependency,),
-                targets=_dependency_targets(
-                    source_output_id=edge.source,
-                    target_output_id=target_output_id,
-                    source_tool=source_tool,
-                    target_tool=_tool_name(target_call),
-                    target_context=_argument_context(target_call),
-                ),
-                hidden_metadata={"source_edge_id": edge.edge_id},
-            )
+        target_call_id = call_for_output[dependency.target_output_id]
+        target_call = calls[target_call_id]
+        participants = (
+            dependency.source_output_id,
+            dependency.target_output_id,
         )
-
-    writes_by_artifact: dict[str, list[str]] = defaultdict(list)
-    reads_by_artifact: dict[str, list[str]] = defaultdict(list)
-    for edge in graph.edges:
-        if edge.relation == WRITES_EDGE:
-            writes_by_artifact[edge.target].append(edge.source)
-        elif edge.relation == READS_EDGE:
-            reads_by_artifact[edge.target].append(edge.source)
-    for artifact_id in sorted(set(writes_by_artifact) & set(reads_by_artifact)):
-        writer_calls = sorted(
-            writes_by_artifact[artifact_id], key=lambda node_id: _position(calls[node_id])
-        )
-        reader_calls = sorted(
-            reads_by_artifact[artifact_id], key=lambda node_id: _position(calls[node_id])
-        )
-        for reader_call_id in reader_calls:
-            reader_position = _position(calls[reader_call_id])
-            prior_writers = [
-                writer_call_id
-                for writer_call_id in writer_calls
-                if _position(calls[writer_call_id]) < reader_position
-            ]
-            if not prior_writers:
-                continue
-            writer_call_id = prior_writers[-1]
-            source_output_id = output_for_call[writer_call_id]
-            target_output_id = output_for_call[reader_call_id]
-            dependency = LogicalDependency(
-                source_output_id=source_output_id,
-                target_output_id=target_output_id,
-                relation="resource.flow",
-            )
-            key = (
-                dependency.source_output_id,
-                dependency.target_output_id,
-                dependency.relation,
-            )
-            base_dependencies[key] = dependency
-            artifact = artifacts[artifact_id].text
-            participants = (source_output_id, target_output_id)
-            motif_id = _motif_id(
-                "artifact_lifecycle", participants, (dependency,)
-            )
+        if dependency.relation == FEEDS_EDGE:
             base_motifs.append(
                 MotifSpec(
-                    motif_id=motif_id,
-                    motif_type="artifact_lifecycle",
+                    motif_id=_motif_id("value_flow", participants, (dependency,)),
+                    motif_type="value_flow",
                     graph_id=graph.graph_id,
                     participant_output_ids=participants,
                     dependencies=(dependency,),
                     targets=_dependency_targets(
-                        source_output_id=source_output_id,
-                        target_output_id=target_output_id,
-                        source_tool=_tool_name(calls[writer_call_id]),
-                        target_tool=_tool_name(calls[reader_call_id]),
-                        target_context=_argument_context(calls[reader_call_id]),
-                        artifact=artifact,
+                        graph,
+                        source_output_id=dependency.source_output_id,
+                        target_output_id=dependency.target_output_id,
+                        source_tool=_tool_name(outputs[dependency.source_output_id]),
+                        target_tool=_tool_name(target_call),
+                        target_context=_argument_context(target_call),
                     ),
-                    hidden_metadata={"artifact_id": artifact_id},
+                    hidden_metadata={
+                        "source_edge_id": projected.supporting_edge_ids[0]
+                    },
                 )
             )
+            continue
+        if dependency.relation != RESOURCE_FLOW_RELATION:
+            continue
+        resource_edges = [
+            edge_by_id[edge_id]
+            for edge_id in projected.supporting_edge_ids
+            if edge_by_id[edge_id].relation in {READS_EDGE, WRITES_EDGE}
+        ]
+        artifact_ids = {edge.target for edge in resource_edges}
+        if len(artifact_ids) != 1:
+            raise ValueError(
+                f"resource dependency has inconsistent artifacts={artifact_ids}"
+            )
+        artifact_id = next(iter(artifact_ids))
+        writer_call_id = call_for_output[dependency.source_output_id]
+        base_motifs.append(
+            MotifSpec(
+                motif_id=_motif_id(
+                    "artifact_lifecycle", participants, (dependency,)
+                ),
+                motif_type="artifact_lifecycle",
+                graph_id=graph.graph_id,
+                participant_output_ids=participants,
+                dependencies=(dependency,),
+                targets=_dependency_targets(
+                    graph,
+                    source_output_id=dependency.source_output_id,
+                    target_output_id=dependency.target_output_id,
+                    source_tool=_tool_name(calls[writer_call_id]),
+                    target_tool=_tool_name(target_call),
+                    target_context=_argument_context(target_call),
+                    artifact=artifacts[artifact_id].text,
+                ),
+                hidden_metadata={"artifact_id": artifact_id},
+            )
+        )
 
     motifs.extend(sorted(base_motifs, key=lambda motif: motif.motif_id))
 
@@ -324,7 +319,8 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
         )
         support = tuple(participants)
         targets = (
-            MotifQueryTarget(
+            _query_target(
+                graph,
                 query_intent="contributing_sources",
                 answer_output_ids=tuple(unique_sources),
                 support_output_ids=support,
@@ -334,7 +330,8 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
                     "target_context": _argument_context(calls[target_call_id]),
                 },
             ),
-            MotifQueryTarget(
+            _query_target(
+                graph,
                 query_intent="downstream_result",
                 answer_output_ids=(target_output_id,),
                 support_output_ids=support,
@@ -344,7 +341,8 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
                     "target_context": _argument_context(calls[target_call_id]),
                 },
             ),
-            MotifQueryTarget(
+            _query_target(
+                graph,
                 query_intent="complete_chain",
                 answer_output_ids=support,
                 support_output_ids=support,
@@ -383,19 +381,22 @@ def extract_motifs(graph: ProvenanceGraph) -> tuple[MotifSpec, ...]:
                 "hop_count": str(len(path_edges)),
             }
             targets = (
-                MotifQueryTarget(
+                _query_target(
+                    graph,
                     query_intent="upstream_source",
                     answer_output_ids=(path_nodes[0],),
                     support_output_ids=path_nodes,
                     safe_slots=safe_slots,
                 ),
-                MotifQueryTarget(
+                _query_target(
+                    graph,
                     query_intent="downstream_result",
                     answer_output_ids=(path_nodes[-1],),
                     support_output_ids=path_nodes,
                     safe_slots=safe_slots,
                 ),
-                MotifQueryTarget(
+                _query_target(
+                    graph,
                     query_intent="complete_chain",
                     answer_output_ids=path_nodes,
                     support_output_ids=path_nodes,

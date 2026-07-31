@@ -27,6 +27,24 @@ class MetricRow(DomainModel):
     recall_at_10: UnitMetric = Field(alias="Recall@10")
     evidence_f1_at_5: UnitMetric = Field(alias="Evidence F1@5")
     evidence_f1_at_10: UnitMetric = Field(alias="Evidence F1@10")
+    evidence_density_at_5: OptionalUnitMetric = Field(
+        default="N/A", alias="Evidence Density@5"
+    )
+    evidence_density_at_10: OptionalUnitMetric = Field(
+        default="N/A", alias="Evidence Density@10"
+    )
+    coverage_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@2048 Tokens"
+    )
+    span_f1_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Span F1@2048 Tokens"
+    )
+    evidence_density_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Evidence Density@2048 Tokens"
+    )
+    full_support_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@2048 Tokens"
+    )
     full_support_at_5: UnitMetric = Field(alias="Full Support@5")
     full_support_at_10: UnitMetric = Field(alias="Full Support@10")
     mrr: UnitMetric = Field(alias="MRR")
@@ -63,6 +81,24 @@ class TaskMetricRow(DomainModel):
     recall_at_10: UnitMetric = Field(alias="Recall@10")
     evidence_f1_at_5: UnitMetric = Field(alias="Evidence F1@5")
     evidence_f1_at_10: UnitMetric = Field(alias="Evidence F1@10")
+    evidence_density_at_5: OptionalUnitMetric = Field(
+        default="N/A", alias="Evidence Density@5"
+    )
+    evidence_density_at_10: OptionalUnitMetric = Field(
+        default="N/A", alias="Evidence Density@10"
+    )
+    coverage_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@2048 Tokens"
+    )
+    span_f1_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Span F1@2048 Tokens"
+    )
+    evidence_density_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Evidence Density@2048 Tokens"
+    )
+    full_support_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@2048 Tokens"
+    )
     full_support_at_5: UnitMetric = Field(alias="Full Support@5")
     full_support_at_10: UnitMetric = Field(alias="Full Support@10")
     mrr: UnitMetric = Field(alias="MRR")
@@ -85,6 +121,9 @@ class TaskMetricRow(DomainModel):
 
 class PerTaskMetricRow(TaskMetricRow):
     task_id: NonEmptyStr
+    query_intent: NonEmptyStr | None = None
+    motif_type: NonEmptyStr | None = None
+    review_status: NonEmptyStr | None = None
 
 
 class FailureCase(DomainModel):

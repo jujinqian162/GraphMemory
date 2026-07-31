@@ -24,8 +24,14 @@ _CAPITALIZED_SPAN = re.compile(
     rf"\b{_CAPITALIZED_TOKEN}(?:\s+(?:(?:and|of|the|de|van)\s+)?{_CAPITALIZED_TOKEN})*"
 )
 _ALIAS_SEPARATOR = re.compile(r"\s*[|;,]\s*")
+_STRUCTURED_ENTITY = re.compile(
+    r"https?://[^\s\]\[\)\}\>\"']+"
+    r"|(?:/[A-Za-z0-9_.@%+,:=~-]+){2,}"
+    r"|\b[A-Za-z0-9_.-]{3,}\.(?:jsonl?|md|txt|csv|ya?ml|py|sh|html|pdf)\b"
+)
 _MIN_ENTITY_LENGTH = 2
 _MAX_ENTITY_WORDS = 8
+_MAX_BODY_ENTITIES_PER_CANDIDATE = 256
 _TITLE_SOURCE_PRIOR = 1.0
 _SOURCE_REFERENCE_PRIOR = 0.95
 _BODY_MENTION_PRIOR = 0.85
@@ -141,6 +147,17 @@ def build_graphrag_knowledge_graph(
     for mention in mentions:
         if mention.mention_type == "TITLE_ENTITY":
             title_candidates[mention.normalized_surface].add(mention.candidate_id)
+    if not title_candidates:
+        for mention in mentions:
+            title_candidates[mention.normalized_surface].add(mention.candidate_id)
+        title_candidates = defaultdict(
+            set,
+            {
+                surface: candidate_ids
+                for surface, candidate_ids in title_candidates.items()
+                if len(candidate_ids) >= 2
+            },
+        )
     groups = tuple(
         GraphRAGTitleEntityGroup(
             entity_id=_entity_id(normalized_surface),
@@ -222,8 +239,15 @@ def _body_mentions(candidate: TextCandidate) -> tuple[_RawMention, ...]:
         if body.casefold().startswith(prefix.casefold()):
             body = body[len(prefix) :]
     mentions: dict[str, _RawMention] = {}
-    for match in _CAPITALIZED_SPAN.finditer(body):
-        surface = " ".join(match.group(0).split())
+    surfaces = [
+        " ".join(match.group(0).split())
+        for match in _CAPITALIZED_SPAN.finditer(body)
+    ]
+    surfaces.extend(
+        match.group(0).rstrip(".,;:")
+        for match in _STRUCTURED_ENTITY.finditer(body)
+    )
+    for surface in surfaces:
         normalized = normalize_entity_text(surface)
         if not _valid_entity(normalized):
             continue
@@ -237,7 +261,10 @@ def _body_mentions(candidate: TextCandidate) -> tuple[_RawMention, ...]:
                 source_prior=_BODY_MENTION_PRIOR,
             ),
         )
-    return tuple(mentions[key] for key in sorted(mentions))
+    return tuple(
+        mentions[key]
+        for key in sorted(mentions)[:_MAX_BODY_ENTITIES_PER_CANDIDATE]
+    )
 
 
 def _alias_owners(title_mentions: Sequence[_RawMention]) -> dict[str, set[str]]:

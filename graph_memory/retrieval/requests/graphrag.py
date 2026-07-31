@@ -50,10 +50,10 @@ class GraphRAGResolverEvidence(DomainModel):
     anchor_candidate_id: NonEmptyStr
     entity_id: NonEmptyStr
     candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
-    selected_candidate_id: NonEmptyStr | None
-    top1_score: FiniteFloat | None
-    top2_score: FiniteFloat | None
-    score_margin: FiniteFloat | None
+    selected_candidate_id: NonEmptyStr | None = None
+    top1_score: FiniteFloat | None = None
+    top2_score: FiniteFloat | None = None
+    score_margin: FiniteFloat | None = None
     accepted: StrictBool
     rejection_reason: NonEmptyStr | None = None
 
@@ -78,7 +78,7 @@ class GraphRAGCandidateBridge(DomainModel):
     bridge_entity_id: NonEmptyStr
     confidence: FiniteFloat = Field(ge=0.0, le=1.0)
     resolver_score: FiniteFloat
-    resolver_margin: FiniteFloat | None
+    resolver_margin: FiniteFloat | None = None
     construction_reason: NonEmptyStr
     direction: Literal["BRIDGE_TO"] = "BRIDGE_TO"
 

@@ -8,11 +8,12 @@ from graph_memory.query_synthesis.provenance.catalog import (
 from graph_memory.query_synthesis.provenance.contracts import (
     MotifSpec,
     QueryIntent,
+    ProvenanceQueryExample,
+    ProvenanceQueryLabel,
+    ProvenanceQueryRecord,
     QueryTemplate,
-    SyntheticQueryExample,
-    SyntheticQueryLabel,
-    SyntheticQueryRecord,
     TemplateCatalog,
+    TemplateGenerationProvenance,
 )
 
 
@@ -59,7 +60,7 @@ def verbalize_motif(
     seed: int = 13,
     catalog: TemplateCatalog = DEFAULT_TEMPLATE_CATALOG,
     template_id: str | None = None,
-) -> SyntheticQueryExample:
+) -> ProvenanceQueryExample:
     target = motif.target_for(query_intent)
     if template_id is None:
         template = _select_template(
@@ -100,25 +101,33 @@ def verbalize_motif(
         )
     )
     query_id = f"query:{hashlib.sha256(query_identity.encode()).hexdigest()[:20]}"
-    query = SyntheticQueryRecord(
+    query = ProvenanceQueryRecord(
         query_id=query_id,
         graph_id=motif.graph_id,
         query_text=query_text,
     )
-    label = SyntheticQueryLabel(
+    label = ProvenanceQueryLabel(
         query_id=query_id,
         motif_id=motif.motif_id,
         motif_type=motif.motif_type,
         query_intent=query_intent,
+        answer_output_ids=target.answer_output_ids,
+        support_output_ids=target.support_output_ids,
+        answer_evidence_spans=target.answer_evidence_spans,
+        support_evidence_spans=target.support_evidence_spans,
+        dependencies=motif.dependencies,
+    )
+    generation = TemplateGenerationProvenance(
         template_id=template.template_id,
         template_catalog_version=catalog.version,
         style_tags=template.style_tags,
-        answer_output_ids=target.answer_output_ids,
-        support_output_ids=target.support_output_ids,
-        dependencies=motif.dependencies,
         generation_seed=seed,
     )
-    return SyntheticQueryExample(query=query, label=label)
+    return ProvenanceQueryExample(
+        query=query,
+        label=label,
+        generation=generation,
+    )
 
 
 def verbalize_all_templates(
@@ -127,7 +136,7 @@ def verbalize_all_templates(
     *,
     seed: int = 13,
     catalog: TemplateCatalog = DEFAULT_TEMPLATE_CATALOG,
-) -> tuple[SyntheticQueryExample, ...]:
+) -> tuple[ProvenanceQueryExample, ...]:
     return tuple(
         verbalize_motif(
             motif,

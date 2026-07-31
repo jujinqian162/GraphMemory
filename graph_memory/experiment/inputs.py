@@ -60,6 +60,8 @@ def ensure_dataset(
         _resolve(split.source, repository_root)
         for split in config.dataset.splits.values()
     ]
+    if config.dataset.trajectory_source is not None:
+        sources.append(_resolve(config.dataset.trajectory_source, repository_root))
     entry = _DATASET_REGISTRY_KEYS.get(config.dataset.name)
     if all(source.exists() for source in sources):
         return
