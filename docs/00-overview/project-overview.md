@@ -25,5 +25,5 @@ The evidence workflow remains runnable. The complete revision-pinned ISETrace co
 - The legacy synthetic-provenance EPGM and Provenance R-GCN implementations were removed rather than carried into ISETrace.
 - The new provenance graph is derived only from canonical execution trajectories and does not contain query nodes, answer nodes, labels, or semantic edge weights.
 - Namespaced graph kinds plus canonical source spans reserve a clean extension point for later NLP-derived claims, decisions, and semantic relations.
-- Motif shape and query intent are separate; each supported pair has multiple style-tagged templates. Natural LLM queries remain provisional until manual acceptance, and review/label policies are persisted in pilot artifacts.
+- Motif shape and authoring intent remain internal task-planning signals only. Each task receives a deterministic style instruction, while the durable output is always the four-field v7 record; generated candidates remain provisional until manual acceptance.
 - ISETrace split assignment groups every trajectory connected through a shared source intent or exact normalized intent text; no such task identity crosses train, dev, and test.

@@ -22,11 +22,11 @@ ISETrace has a domain-library path plus a test-only non-training experiment adap
 ```text
 ISETrace JSONL
   -> CanonicalTrajectory
-  -> ProvenanceGraph
-  -> MotifSpec
-  -> ProvenanceQueryRecord + ProvenanceQueryLabel
-  -> TemplateGenerationProvenance | LlmGenerationProvenance
-  -> ISETraceRankingRecord + ISETraceLabelRecord
+  -> query-independent ProvenanceGraph
+  -> deterministic task text with A/E handles
+  -> minimal LLM authoring record: id + text + query + gold quotes
+  -> exact SourceSpan compilation during benchmark preparation
+  -> ISETraceRankingRecord + span-only ISETraceLabelRecord
   -> BM25 / Dense / GraphRAG / provenance_path
 ```
 
@@ -34,8 +34,8 @@ ISETrace JSONL
 
 `ProvenanceGraph` is one immutable graph per trajectory. It contains no query, answer, motif, support label, or edge weight. The v1 core builder emits tool-call, tool-output, and artifact nodes with native/deterministic returns, temporal, exact-feed, read, and write relations. Kinds and relations are namespaced, and nodes retain canonical source spans so future annotators can add `semantic.claim` or `semantic.decision` layers without mutating source events or pretending those fields were native.
 
-Motif and query artifacts remain separate from the graph. A motif can expose multiple query intents with intent-specific answer/support IDs; the deterministic verbalizer receives only explicitly safe slots. Query text and gold labels use generator-neutral `ProvenanceQueryRecord` and `ProvenanceQueryLabel` contracts. Template/LLM identities are stored separately as a discriminated generation-provenance record, so wording provenance never changes motif-derived gold labels.
+Motifs are used only by the offline generator to select coherent source events; they do not define v7 benchmark labels. One authoring task may produce two independent query/exact-gold groups whose evidence sets may differ. The durable LLM authoring JSONL has four fields: `id`, handle-delimited task `text`, natural-language `query`, and `gold` entries containing `{source, quote}`. Deterministic benchmark preparation matches the task text to the pinned trajectory and converts each quote directly into a canonical `SourceSpan`. V7 has no answer/support label variants, output-ID gold sets, dependency-gold reconstruction, or compiled motif sidecar. Direct, linked, and multi-fact authoring strata may be retained in an operational query-ID mapping for grouped reporting, but they are neither gold nor retrieval features.
 
-The versioned v1 catalog contains six templates across six writing styles for every supported motif/query-intent pair. The temporary `scripts/generate_isetrace_llm_queries.py` utility can author provisional LLM query text over the same motifs, but its records remain explicitly `llm_generated` and `unreviewed`; see [`../40-operations/isetrace-query-authoring.md`](../40-operations/isetrace-query-authoring.md).
+The LLM authoring utility assigns each task a deterministic writing style and emits provisional v7 records for review; see [`../40-operations/isetrace-query-authoring.md`](../40-operations/isetrace-query-authoring.md). The retired template catalog and legacy query/label/generation envelopes are not part of this path.
 
-The non-training adapter independently content-addresses the query JSONL and pinned trajectory JSONL. It materializes ToolOutput-only candidate tasks, labels under an explicit review/label policy, and unique physical provenance graphs. An output-only logical dependency projection collapses `data.feeds` and explicit artifact write/read lifecycles for shared evaluation. BM25, Dense, and GraphRAG receive only text requests; `provenance_path` alone receives the physical graph. The current 100-query configuration is pilot-only and permits unreviewed records explicitly; see [`../40-operations/isetrace-nontrain-retrieval.md`](../40-operations/isetrace-nontrain-retrieval.md).
+The non-training adapter content-addresses the v7 query JSONL and pinned trajectory JSONL. It materializes flat trajectory chunks and provenance argument/output chunks, while every method is evaluated against the same exact `gold_evidence_spans` compiled only from `{source, quote}`. Provenance graphs remain query-independent retrieval inputs for `provenance_path`; graph dependencies never create, split, or expand v7 gold. BM25, Dense, and GraphRAG receive text requests, and `provenance_path` additionally receives the physical graph.

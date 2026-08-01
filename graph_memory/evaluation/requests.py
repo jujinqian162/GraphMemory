@@ -30,30 +30,9 @@ class EvidenceLabel(DomainModel):
         return self
 
 
-class SpanEvidenceDependency(DomainModel):
-    source_spans: tuple[SourceSpan, ...] = Field(min_length=1)
-    target_spans: tuple[SourceSpan, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _validate_spans(self) -> "SpanEvidenceDependency":
-        for span in (*self.source_spans, *self.target_spans):
-            if (
-                span.char_start is None
-                or span.char_end is None
-                or span.json_pointer is None
-            ):
-                raise ValueError("span dependency endpoints require exact source spans")
-        return self
-
-
 class SpanEvidenceLabel(DomainModel):
     task_id: NonEmptyStr
-    gold_answer: str
     gold_evidence_spans: tuple[SourceSpan, ...] = Field(min_length=1)
-    gold_dependency_edges: tuple[SpanEvidenceDependency, ...]
-    query_intent: NonEmptyStr | None = None
-    motif_type: NonEmptyStr | None = None
-    review_status: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _validate_spans(self) -> "SpanEvidenceLabel":
@@ -68,17 +47,6 @@ class SpanEvidenceLabel(DomainModel):
             )
         if len(keys) != len(set(keys)):
             raise ValueError("gold evidence spans must be unique")
-        gold = set(keys)
-        for dependency in self.gold_dependency_edges:
-            for endpoint in (dependency.source_spans, dependency.target_spans):
-                endpoint_keys = {
-                    (span.event_id, span.json_pointer, span.char_start, span.char_end)
-                    for span in endpoint
-                }
-                if not endpoint_keys.issubset(gold):
-                    raise ValueError(
-                        "span dependency endpoints must stay inside gold evidence"
-                    )
         return self
 
 
@@ -140,9 +108,10 @@ class EvidenceEvaluationRequest(DomainModel):
             if set(graph_ids) != expected:
                 raise ValueError("evaluation graphs and labels must align")
             for graph in self.graphs:
-                missing = set(
-                    labels_by_id[graph.task_id].gold_evidence_item_ids
-                ) - graph.graph_item_ids
+                missing = (
+                    set(labels_by_id[graph.task_id].gold_evidence_item_ids)
+                    - graph.graph_item_ids
+                )
                 if missing:
                     raise ValueError(
                         f"task_id={graph.task_id} gold evidence missing from graph: "
@@ -154,7 +123,6 @@ class EvidenceEvaluationRequest(DomainModel):
 __all__ = [
     "EvidenceEvaluationRequest",
     "EvidenceLabel",
-    "SpanEvidenceDependency",
     "SpanEvidenceEvaluationRequest",
     "SpanEvidenceLabel",
 ]

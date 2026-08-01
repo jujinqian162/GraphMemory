@@ -8,7 +8,6 @@ from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceRankingRecord,
 )
 from graph_memory.evaluation.requests import (
-    SpanEvidenceDependency,
     SpanEvidenceEvaluationRequest,
     SpanEvidenceLabel,
 )
@@ -47,18 +46,7 @@ class ISETraceToSpanEvidenceEvaluationRequest:
             labels=tuple(
                 SpanEvidenceLabel(
                     task_id=label.task_id,
-                    gold_answer=label.gold_answer,
                     gold_evidence_spans=label.gold_evidence_spans,
-                    gold_dependency_edges=tuple(
-                        SpanEvidenceDependency(
-                            source_spans=label.gold_evidence_spans_by_output_id[source],
-                            target_spans=label.gold_evidence_spans_by_output_id[target],
-                        )
-                        for source, target in label.gold_dependency_edges
-                    ),
-                    query_intent=label.query_intent,
-                    motif_type=label.motif_type,
-                    review_status=label.authoring_review_status,
                 )
                 for label in labels
             ),

@@ -16,7 +16,7 @@ graph_memory/
   datasets/           dataset-owned Pydantic records and projectors
   trajectories/       dataset-neutral ordered Agent execution events
   graphs/             evidence plus query-independent provenance graphs
-  query_synthesis/    motif specs and leakage-safe query verbalization
+  query_synthesis/    internal motif planning and v7 authoring contracts
   embeddings/         frozen dense encoders
   retrieval/          requests, flat and GraphRAG methods
   models/             dense_finetune, graph_retriever (evidence R-GCN)
@@ -33,7 +33,7 @@ graph_memory/
 - `datasets/` owns closed Pydantic source/prepared records and dataset adapters; it does not own cross-dataset canonical trajectory semantics.
 - `trajectories/` owns canonical ordered message/tool event contracts and stable source-span anchors.
 - `graphs/contracts.py` owns the closed `EvidenceGraph` model; `graphs/provenance/` owns the separate query-independent provenance graph, deterministic builder, and logical output-dependency projection shared by motifs and training-free retrieval.
-- `query_synthesis/provenance/` owns motif supervision, generator-neutral query/label contracts, query-intent labels, the versioned template catalog, and safe-slot verbalization. Template and LLM authoring metadata are separate discriminated provenance records; none of those labels enter graph construction.
+- `query_synthesis/provenance/` owns internal motif/source planning plus the four-field v7 authoring contract and deterministic handle/span helpers. It exposes no legacy answer/support query labels, template catalog, or generation-provenance envelope.
 - `retrieval/requests/` owns the closed request union; `retrieval/results.py` owns ranked results and request/result aggregates.
 - GraphRAG owns its text-derived entity graph end-to-end. Document inputs use title/body groups; title-free trajectory outputs fall back to bounded shared text entities. GraphRAG never receives the native provenance graph.
 - `models/graph_retriever/` owns the evidence R-GCN train/infer implementation.

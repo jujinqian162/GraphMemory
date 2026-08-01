@@ -117,8 +117,6 @@ def prepare_split_task(
         offset=config.offset,
         strict_invalid_examples=config.strict_invalid_examples,
         source_revision=config.source_revision,
-        review_policy=config.review_policy,
-        label_policy=config.label_policy,
         chunking=config.chunking,
         implementation_version=implementation_version,
     )
@@ -280,7 +278,6 @@ def train_evidence_rgcn_task(
         frozen_embeddings=frozen_embeddings,
         implementation_version=implementation_version,
     )
-
 
 
 @task(

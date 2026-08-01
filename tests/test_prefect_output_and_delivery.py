@@ -63,31 +63,33 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         ranking_ref = publisher.publish({"rankings": "rankings.json"})
     assert isinstance(ranking_ref, PredictionsArtifactRef)
 
-    metric_row = MetricRow.model_validate(dict(
-        method="bm25",
-        evaluation_schema="evidence_v3",
-        recall_at_2=1.0,
-        recall_at_5=1.0,
-        recall_at_10=1.0,
-        evidence_f1_at_5=1.0,
-        evidence_f1_at_10=1.0,
-        full_support_at_5=1.0,
-        full_support_at_10=1.0,
-        mrr=1.0,
-        connected_evidence_recall_at_5=1.0,
-        connected_evidence_recall_at_10=1.0,
-        query_evidence_connectivity_at_10=1.0,
-        path_recall_at_10="N/A",
-        edge_recall_at_10="N/A",
-        edge_precision_at_10="N/A",
-        edge_f1_at_10="N/A",
-        retrieval_latency_per_query=3.0,
-        index_build_time=0.0,
-        graph_construction_time=0.0,
-        memory_size="N/A",
-        avg_retrieved_nodes=1.0,
-        avg_retrieved_edges=0.0,
-    ))
+    metric_row = MetricRow.model_validate(
+        dict(
+            method="bm25",
+            evaluation_schema="evidence_v3",
+            recall_at_2=1.0,
+            recall_at_5=1.0,
+            recall_at_10=1.0,
+            evidence_f1_at_5=1.0,
+            evidence_f1_at_10=1.0,
+            full_support_at_5=1.0,
+            full_support_at_10=1.0,
+            mrr=1.0,
+            connected_evidence_recall_at_5=1.0,
+            connected_evidence_recall_at_10=1.0,
+            query_evidence_connectivity_at_10=1.0,
+            path_recall_at_10="N/A",
+            edge_recall_at_10="N/A",
+            edge_precision_at_10="N/A",
+            edge_f1_at_10="N/A",
+            retrieval_latency_per_query=3.0,
+            index_build_time=0.0,
+            graph_construction_time=0.0,
+            memory_size="N/A",
+            avg_retrieved_nodes=1.0,
+            avg_retrieved_edges=0.0,
+        )
+    )
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.EVALUATION,
@@ -157,7 +159,7 @@ def test_output_projection_is_complete_and_never_copies_processed_assets(
     with (output / "metrics" / "final.metrics.csv").open(newline="") as stream:
         row = next(csv.DictReader(stream))
     assert row["Method"] == "bm25"
-    assert row["Retrieval Latency / Query"] == "NA"
+    assert float(row["Retrieval Latency / Query"]) == 3.0
     assert not any(path.suffix in {".pt", ".ckpt"} for path in output.rglob("*"))
 
 

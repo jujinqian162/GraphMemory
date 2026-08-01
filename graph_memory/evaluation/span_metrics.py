@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from graph_memory.evaluation.requests import SpanEvidenceDependency
 from graph_memory.retrieval.results import (
     RankedNodeRecord,
     RetrievedSubgraph,
@@ -20,14 +19,6 @@ class SpanRetrievalMetrics:
     density: float
     full_support: float
     f1: float
-
-
-@dataclass(frozen=True)
-class SpanEdgeCounts:
-    matched_predictions: int
-    predicted: int
-    matched_gold: int
-    gold: int
 
 
 def span_metrics_at(
@@ -80,11 +71,7 @@ def _span_metrics(
     coverage = covered / gold_length
     density = covered / retrieved_cost if retrieved_cost else 0.0
     full_support = 1.0 if covered == gold_length else 0.0
-    f1 = (
-        2.0 * coverage * density / (coverage + density)
-        if coverage + density
-        else 0.0
-    )
+    f1 = 2.0 * coverage * density / (coverage + density) if coverage + density else 0.0
     return SpanRetrievalMetrics(coverage, density, full_support, f1)
 
 
@@ -115,92 +102,6 @@ def connected_span_coverage_at(
         / gold_length
         for component in components
     )
-
-
-def span_dependency_path_recall_at(
-    ranked_nodes: tuple[RankedNodeRecord, ...],
-    dependencies: tuple[SpanEvidenceDependency, ...],
-    subgraph: RetrievedSubgraph,
-    k: int,
-) -> float:
-    if not dependencies:
-        return 0.0
-    selected = ranked_nodes[:k]
-    selected_by_id = {node.node_id: node for node in selected}
-    components = _components(tuple(selected_by_id), subgraph)
-    component_by_node = {
-        node_id: index
-        for index, component in enumerate(components)
-        for node_id in component
-    }
-    matched = 0
-    for dependency in dependencies:
-        source_ids = {
-            node.node_id
-            for node in selected
-            if _node_overlaps(node, dependency.source_spans)
-        }
-        target_ids = {
-            node.node_id
-            for node in selected
-            if _node_overlaps(node, dependency.target_spans)
-        }
-        if any(
-            source_id != target_id
-            and component_by_node[source_id] == component_by_node[target_id]
-            for source_id in source_ids
-            for target_id in target_ids
-        ):
-            matched += 1
-    return matched / len(dependencies)
-
-
-def span_dependency_edge_counts_at(
-    ranked_nodes: tuple[RankedNodeRecord, ...],
-    dependencies: tuple[SpanEvidenceDependency, ...],
-    subgraph: RetrievedSubgraph,
-    k: int,
-) -> SpanEdgeCounts:
-    selected_by_id = {node.node_id: node for node in ranked_nodes[:k]}
-    edges = tuple(
-        edge
-        for edge in subgraph.edges
-        if edge.source in selected_by_id and edge.target in selected_by_id
-    )
-    matched_predictions = 0
-    matched_gold: set[int] = set()
-    for edge in edges:
-        source_node = selected_by_id[edge.source]
-        target_node = selected_by_id[edge.target]
-        matches = {
-            index
-            for index, dependency in enumerate(dependencies)
-            if (
-                _node_overlaps(source_node, dependency.source_spans)
-                and _node_overlaps(target_node, dependency.target_spans)
-            )
-            or (
-                _node_overlaps(source_node, dependency.target_spans)
-                and _node_overlaps(target_node, dependency.source_spans)
-            )
-        }
-        if matches:
-            matched_predictions += 1
-            matched_gold.update(matches)
-    return SpanEdgeCounts(
-        matched_predictions=matched_predictions,
-        predicted=len(edges),
-        matched_gold=len(matched_gold),
-        gold=len(dependencies),
-    )
-
-
-def _node_overlaps(
-    node: RankedNodeRecord, spans: tuple[SourceSpan, ...]
-) -> bool:
-    return _intersection_length(
-        _group_intervals(node.source_spans), _group_intervals(spans)
-    ) > 0
 
 
 def _components(
@@ -278,10 +179,7 @@ def _group_intervals(
         if span.char_start is None or span.char_end is None:
             raise ValueError("span metrics require exact character offsets")
         grouped[_span_key(span)].append((span.char_start, span.char_end))
-    return {
-        key: _merge_intervals(intervals)
-        for key, intervals in grouped.items()
-    }
+    return {key: _merge_intervals(intervals) for key, intervals in grouped.items()}
 
 
 def _merge_intervals(intervals: list[Interval]) -> tuple[Interval, ...]:
@@ -295,7 +193,9 @@ def _merge_intervals(intervals: list[Interval]) -> tuple[Interval, ...]:
 
 
 def _group_length(grouped: dict[SpanKey, tuple[Interval, ...]]) -> int:
-    return sum(end - start for intervals in grouped.values() for start, end in intervals)
+    return sum(
+        end - start for intervals in grouped.values() for start, end in intervals
+    )
 
 
 def _intersection_length(
@@ -319,12 +219,9 @@ def _intersection_length(
 
 
 __all__ = [
-    "SpanEdgeCounts",
     "SpanRetrievalMetrics",
     "connected_span_coverage_at",
     "missing_gold_spans",
-    "span_dependency_edge_counts_at",
-    "span_dependency_path_recall_at",
     "span_metrics_at",
     "span_metrics_under_token_budget",
     "span_mrr",

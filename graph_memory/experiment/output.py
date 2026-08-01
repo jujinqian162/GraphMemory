@@ -64,9 +64,7 @@ def project_run_output(
             f"one final method requires exactly one metric row, got {len(metric_rows)}"
         )
     final_row: dict[str, object] = dict(metric_rows[0])
-    if result.benchmark is None:
-        final_row["Retrieval Latency / Query"] = "NA"
-    else:
+    if result.benchmark is not None:
         final_row["Retrieval Latency / Query"] = result.benchmark.metrics[
             "benchmark.retrieval_latency_ms_per_query"
         ]

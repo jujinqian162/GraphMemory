@@ -454,8 +454,6 @@ def _prepare_config(
         seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
         source_revision=config.dataset.source_revision,
-        review_policy=config.dataset.review_policy,
-        label_policy=config.dataset.label_policy,
         chunking=config.dataset.chunking,
     )
 

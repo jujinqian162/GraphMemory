@@ -48,8 +48,6 @@ from graph_memory.experiment.artifacts import (
 from graph_memory.experiment.config import (
     DatasetName,
     ISETraceChunkingConfig,
-    ISETraceLabelPolicy,
-    ISETraceReviewPolicy,
     SplitName,
 )
 from graph_memory.io import read_json, write_json
@@ -76,8 +74,6 @@ def prepare_split(
     strict_invalid_examples: bool,
     trajectory_source: Path | None = None,
     source_revision: str | None = None,
-    review_policy: ISETraceReviewPolicy = "accepted_only",
-    label_policy: ISETraceLabelPolicy = "support",
     chunking: ISETraceChunkingConfig | None = None,
 ) -> PreparedSplitData:
     if dataset == "hotpotqa":
@@ -117,8 +113,6 @@ def prepare_split(
             seed=seed,
             offset=offset,
             strict=strict_invalid_examples,
-            review_policy=review_policy,
-            label_policy=label_policy,
             chunking=chunking,
         )
     raise ValueError(f"unsupported dataset={dataset!r}")
@@ -136,8 +130,6 @@ def materialize_prepared_split(
     offset: int,
     strict_invalid_examples: bool,
     source_revision: str | None = None,
-    review_policy: ISETraceReviewPolicy = "accepted_only",
-    label_policy: ISETraceLabelPolicy = "support",
     chunking: ISETraceChunkingConfig | None = None,
     implementation_version: str,
 ) -> PreparedSplitResult:
@@ -152,8 +144,6 @@ def materialize_prepared_split(
             None if trajectory_source is None else Path(trajectory_source.uri)
         ),
         source_revision=source_revision,
-        review_policy=review_policy,
-        label_policy=label_policy,
         chunking=chunking,
     )
     with ArtifactPublisher(
@@ -170,8 +160,6 @@ def materialize_prepared_split(
                 None if trajectory_source is None else trajectory_source.digest
             ),
             "source_revision": source_revision,
-            "review_policy": review_policy,
-            "label_policy": label_policy,
             "chunking": (
                 None if chunking is None else chunking.model_dump(mode="json")
             ),
@@ -211,8 +199,6 @@ def materialize_prepared_split(
             },
             metadata={
                 "split": split,
-                "review_policy": review_policy,
-                "label_policy": label_policy,
                 "chunking": (
                     None if chunking is None else chunking.model_dump(mode="json")
                 ),
@@ -347,8 +333,6 @@ def _prepare_isetrace(
     seed: int,
     offset: int,
     strict: bool,
-    review_policy: ISETraceReviewPolicy,
-    label_policy: ISETraceLabelPolicy,
     chunking: ISETraceChunkingConfig,
 ) -> PreparedSplitData:
     benchmark, summary = prepare_isetrace_benchmark(
@@ -359,8 +343,6 @@ def _prepare_isetrace(
         seed=seed,
         offset=offset,
         strict=strict,
-        review_policy=review_policy,
-        label_policy=label_policy,
         chunking=TokenChunkingConfig(
             tokenizer_name=chunking.tokenizer_name,
             max_tokens=chunking.max_tokens,

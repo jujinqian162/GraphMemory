@@ -36,13 +36,9 @@ from graph_memory.graphs.provenance import (
     output_content,
     output_source_spans,
 )
-from graph_memory.query_synthesis.provenance import extract_motifs
-from graph_memory.query_synthesis.provenance.contracts import (
-    LlmGenerationProvenance,
-    ProvenanceQueryExample,
-    ProvenanceQueryLabel,
-    ProvenanceQueryRecord,
-    QueryIntent,
+from graph_memory.query_synthesis.provenance.authoring import (
+    AuthoringGold,
+    AuthoringQueryRecord,
 )
 from graph_memory.retrieval.contracts import GraphRAGTrace, ProvenancePathTrace
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
@@ -136,58 +132,31 @@ class KeywordEncoder:
         return np.asarray(rows, dtype=np.float32)
 
 
-def _llm_example(
-    graph: ProvenanceGraph, *, intent: QueryIntent
-) -> ProvenanceQueryExample:
-    motif = next(
-        item for item in extract_motifs(graph) if item.motif_type == "artifact_lifecycle"
-    )
-    target = motif.target_for(intent)
-    query_id = f"query:{intent}"
-
-    def spans_for(output_ids: tuple[str, ...]) -> tuple[SourceSpan, ...]:
-        return tuple(
-            SourceSpan(
-                event_id=graph.node_by_id[output_id].source_spans[0].event_id,
-                json_pointer="/content",
-                char_start=0,
-                char_end=len(output_content(graph, output_id)),
+def _v7_example(
+    trajectory, *, query_id: str, sources: tuple[str, ...]
+) -> AuthoringQueryRecord:
+    call_by_id = {call.call_id: call for call in trajectory.tool_calls}
+    output_by_call_id = {output.call_id: output for output in trajectory.tool_outputs}
+    sections = [
+        f"[I{index} | user_intent]\n{intent.text}"
+        for index, intent in enumerate(trajectory.intents, start=1)
+    ]
+    gold: list[AuthoringGold] = []
+    for index, call_id in enumerate(sources, start=1):
+        call = call_by_id[call_id]
+        output = output_by_call_id[call_id]
+        sections.extend(
+            (
+                f"[A{index} | tool_call | {call.tool_name}]\n{call.raw_arguments}",
+                f"[E{index} | tool_output | {output.tool_name}]\n{output.content}",
             )
-            for output_id in output_ids
         )
-
-    return ProvenanceQueryExample(
-        query=ProvenanceQueryRecord(
-            query_id=query_id,
-            graph_id=graph.graph_id,
-            query_text=(
-                "Which outputs formed the report lifecycle?"
-                if intent == "complete_chain"
-                else "Which output originally created the report?"
-            ),
-        ),
-        label=ProvenanceQueryLabel(
-            query_id=query_id,
-            motif_id=motif.motif_id,
-            motif_type=motif.motif_type,
-            query_intent=target.query_intent,
-            answer_output_ids=target.answer_output_ids,
-            support_output_ids=target.support_output_ids,
-            answer_evidence_spans=spans_for(target.answer_output_ids),
-            support_evidence_spans=spans_for(target.support_output_ids),
-            dependencies=motif.dependencies,
-        ),
-        generation=LlmGenerationProvenance(
-            requested_model_id="test-model",
-            reported_model_id="test-model",
-            prompt_version="test-v1",
-            authoring_attempt=1,
-            request_digest="request-digest",
-            style_tags=("direct",),
-            reference_answer="The write output created the report before the read output used it.",
-            requested_prompt_cache_key="cache-key",
-            human_review_status="unreviewed",
-        ),
+        gold.append(AuthoringGold(source=f"E{index}", quote=output.content))
+    return AuthoringQueryRecord(
+        id=query_id,
+        text="\n\n".join(sections),
+        query="What exact evidence was recorded for this task?",
+        gold=tuple(gold),
     )
 
 
@@ -241,7 +210,9 @@ def test_long_content_is_losslessly_covered_by_both_retrieval_views() -> None:
     )
     provenance = provenance_unit_candidates(graph)
     call = trajectory.tool_calls[0]
-    output = next(item for item in trajectory.tool_outputs if item.call_id == call.call_id)
+    output = next(
+        item for item in trajectory.tool_outputs if item.call_id == call.call_id
+    )
 
     for candidates in (flat, provenance):
         _assert_exact_source_coverage(
@@ -265,30 +236,21 @@ def test_long_content_is_losslessly_covered_by_both_retrieval_views() -> None:
             char_end=len(output_text),
         ),
     )
-    assert len(
-        [node for node in graph.nodes if node.kind == ARGUMENT_CHUNK_NODE]
-    ) > 1
+    assert len([node for node in graph.nodes if node.kind == ARGUMENT_CHUNK_NODE]) > 1
     assert graph.node_by_id["call:c1"].text == "tool=write"
     assert graph.node_by_id["output:c1"].text == "tool_output=write"
 
 
-def test_legacy_output_id_only_queries_are_rejected(tmp_path: Path) -> None:
+def test_v7_rejects_legacy_query_shape(tmp_path: Path) -> None:
     raw = isetrace_record()
-    trajectory = adapt_isetrace_record(
-        parse_isetrace_record(raw), source_revision="fixture-revision"
-    )
-    graph = build_provenance_graph(trajectory, content_chunker=_test_content_chunks)
-    payload = _llm_example(graph, intent="artifact_origin").model_dump(mode="json")
-    label = payload["label"]
-    assert isinstance(label, dict)
-    label.pop("answer_evidence_spans")
-    label.pop("support_evidence_spans")
     trajectory_path = tmp_path / "trajectories.jsonl"
     trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
     query_path = tmp_path / "legacy-queries.jsonl"
-    query_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    query_path.write_text(
+        json.dumps({"query": {"query_id": "old"}}) + "\n", encoding="utf-8"
+    )
 
-    with pytest.raises(ValueError, match="output-ID fallback is forbidden"):
+    with pytest.raises(ValueError, match="invalid v7 query"):
         prepare_isetrace_benchmark(
             query_path,
             trajectory_path,
@@ -297,8 +259,6 @@ def test_legacy_output_id_only_queries_are_rejected(tmp_path: Path) -> None:
             seed=13,
             offset=0,
             strict=True,
-            review_policy="allow_unreviewed",
-            label_policy="intent_aware",
             chunking=_TEST_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -307,54 +267,38 @@ def test_legacy_output_id_only_queries_are_rejected(tmp_path: Path) -> None:
 def test_span_density_charges_duplicate_context_and_respects_token_budget() -> None:
     gold = (
         SourceSpan(
-            event_id="event:1",
-            json_pointer="/content",
-            char_start=0,
-            char_end=10,
+            event_id="event:1", json_pointer="/content", char_start=0, char_end=10
         ),
     )
     ranked = (
         RankedNodeRecord(
-            node_id="chunk:1",
-            score=1.0,
-            source_spans=gold,
-            token_count=10,
+            node_id="chunk:1", score=1.0, source_spans=gold, token_count=10
         ),
         RankedNodeRecord(
-            node_id="chunk:2",
-            score=0.5,
-            source_spans=gold,
-            token_count=10,
+            node_id="chunk:2", score=0.5, source_spans=gold, token_count=10
         ),
     )
-
     assert span_metrics_at(ranked, gold, 1).density == 1.0
     assert span_metrics_at(ranked, gold, 2).density == 0.5
     assert span_metrics_under_token_budget(ranked, gold, 10).density == 1.0
     assert span_metrics_under_token_budget(ranked, gold, 20).density == 0.5
 
 
-def test_isetrace_benchmark_reuses_query_independent_graph_and_intent_labels(
-    tmp_path: Path,
-) -> None:
+def test_v7_benchmark_reuses_graph_and_keeps_one_span_gold(tmp_path: Path) -> None:
     raw = isetrace_record()
     trajectory = adapt_isetrace_record(
         parse_isetrace_record(raw), source_revision="fixture-revision"
     )
-    graph = build_provenance_graph(
-        trajectory,
-        content_chunker=_test_content_chunks,
-    )
+    graph = build_provenance_graph(trajectory, content_chunker=_test_content_chunks)
     trajectory_path = tmp_path / "trajectories.jsonl"
     trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
-    examples = [
-        _llm_example(graph, intent="complete_chain"),
-        _llm_example(graph, intent="artifact_origin"),
-    ]
+    examples = (
+        _v7_example(trajectory, query_id="query:one", sources=("c1", "c2")),
+        _v7_example(trajectory, query_id="query:two", sources=("c2",)),
+    )
     query_path = tmp_path / "queries.jsonl"
     query_path.write_text(
-        "".join(example.model_dump_json() + "\n" for example in examples),
-        encoding="utf-8",
+        "".join(item.model_dump_json() + "\n" for item in examples), encoding="utf-8"
     )
 
     benchmark, summary = prepare_isetrace_benchmark(
@@ -365,72 +309,75 @@ def test_isetrace_benchmark_reuses_query_independent_graph_and_intent_labels(
         seed=13,
         offset=0,
         strict=True,
-        review_policy="allow_unreviewed",
-        label_policy="intent_aware",
         chunking=_TEST_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
-
     assert len(benchmark.rankings) == 2
     assert len(benchmark.provenance_graphs) == 1
+    assert benchmark.provenance_graphs[0].fingerprint() == graph.fingerprint()
     assert (
-        benchmark.provenance_graphs[0].fingerprint() == graph.fingerprint()
-    )
-    assert (
-        benchmark.rankings[0].flat_candidates
-        == benchmark.rankings[1].flat_candidates
+        benchmark.rankings[0].flat_candidates == benchmark.rankings[1].flat_candidates
     )
     assert (
         benchmark.rankings[0].provenance_candidates
         == benchmark.rankings[1].provenance_candidates
     )
-    labels = {label.query_intent: label for label in benchmark.labels}
-    assert len(labels["complete_chain"].gold_evidence_output_ids) == 2
-    assert labels["complete_chain"].gold_dependency_edges
-    assert len(labels["artifact_origin"].gold_evidence_output_ids) == 1
-    assert labels["artifact_origin"].gold_dependency_edges == ()
+    assert len(benchmark.labels[0].gold_evidence_spans) == 2
+    assert len(benchmark.labels[1].gold_evidence_spans) == 1
+    assert not hasattr(benchmark.labels[0], "answer_output_ids")
+    assert not hasattr(benchmark.labels[0], "support_output_ids")
     assert summary["unique_graphs"] == 1
+    assert summary["path_supported_tasks"] == 0
 
-    with pytest.raises(ValueError, match="admitted no query records"):
-        prepare_isetrace_benchmark(
-            query_path,
-            trajectory_path,
-            source_revision="fixture-revision",
-            count=None,
-            seed=13,
-            offset=0,
-            strict=True,
-            review_policy="accepted_only",
-            label_policy="intent_aware",
-            chunking=_TEST_CHUNKING,
-            tokenizer=CharacterOffsetTokenizer(),
-        )
 
-    unknown_graph_example = examples[0].model_copy(
-        update={
-            "query": examples[0].query.model_copy(
-                update={"graph_id": "missing-graph"}
-            )
-        }
+def test_v7_argument_quote_is_valid_gold(tmp_path: Path) -> None:
+    raw = isetrace_record()
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
     )
-    unknown_path = tmp_path / "unknown-graph-query.jsonl"
-    unknown_path.write_text(
-        unknown_graph_example.model_dump_json() + "\n", encoding="utf-8"
+    call = trajectory.tool_calls[0]
+    output = next(
+        item for item in trajectory.tool_outputs if item.call_id == call.call_id
     )
-    with pytest.raises(ValueError, match="missing graph IDs"):
-        prepare_isetrace_benchmark(
-            unknown_path,
-            trajectory_path,
-            source_revision="fixture-revision",
-            count=None,
-            seed=13,
-            offset=0,
-            strict=True,
-            review_policy="allow_unreviewed",
-            label_policy="intent_aware",
-            chunking=_TEST_CHUNKING,
-            tokenizer=CharacterOffsetTokenizer(),
+    text = "\n\n".join(
+        (
+            *[
+                f"[I{i} | user_intent]\n{intent.text}"
+                for i, intent in enumerate(trajectory.intents, 1)
+            ],
+            f"[A1 | tool_call | {call.tool_name}]\n{call.raw_arguments}",
+            f"[E1 | tool_output | {output.tool_name}]\n{output.content}",
         )
+    )
+    example = AuthoringQueryRecord(
+        id="query:argument",
+        text=text,
+        query="What arguments configured the report?",
+        gold=(AuthoringGold(source="A1", quote=call.raw_arguments),),
+    )
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(example.model_dump_json() + "\n", encoding="utf-8")
+    benchmark, _ = prepare_isetrace_benchmark(
+        query_path,
+        trajectory_path,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=True,
+        chunking=_TEST_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+    )
+    assert benchmark.labels[0].gold_evidence_spans == (
+        SourceSpan(
+            event_id=call.event_id,
+            json_pointer="/raw_arguments",
+            char_start=0,
+            char_end=len(call.raw_arguments),
+        ),
+    )
 
 
 def test_logical_dependencies_include_feeds_and_artifact_flow() -> None:
@@ -575,7 +522,9 @@ def _dense_ranker() -> DenseTaskRetriever:
     )
 
 
-def test_provenance_path_promotes_reverse_dependency_and_emits_stored_direction() -> None:
+def test_provenance_path_promotes_reverse_dependency_and_emits_stored_direction() -> (
+    None
+):
     method = ProvenancePathMethod(
         dense_ranker=_dense_ranker(),
         config=ProvenancePathConfig(
@@ -602,9 +551,7 @@ def test_provenance_path_promotes_reverse_dependency_and_emits_stored_direction(
     assert trace.exact_dense_fallback is False
     accepted = next(proposal for proposal in trace.proposals if proposal.accepted)
     assert accepted.traversed_reverse == (True, True, True, False)
-    ProvenancePathTrace.model_validate(
-        trace.model_dump(mode="json", exclude_none=True)
-    )
+    ProvenancePathTrace.model_validate(trace.model_dump(mode="json", exclude_none=True))
 
 
 def test_provenance_path_completes_bounded_multihop_chain() -> None:
@@ -626,9 +573,7 @@ def test_provenance_path_completes_bounded_multihop_chain() -> None:
         "output-content:c2:chunk:0",
         "output-content:c1:chunk:0",
     ]
-    assert {
-        (edge.source, edge.target) for edge in result.trace.retrieved_edges
-    } == {
+    assert {(edge.source, edge.target) for edge in result.trace.retrieved_edges} == {
         ("output-content:c3:chunk:0", "output-content:c2:chunk:0"),
         ("output-content:c3:chunk:0", "output-content:c1:chunk:0"),
     }
@@ -664,15 +609,14 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
     trajectory = adapt_isetrace_record(
         parse_isetrace_record(raw), source_revision="fixture-revision"
     )
-    graph = build_provenance_graph(
-        trajectory,
-        content_chunker=_test_content_chunks,
-    )
     trajectory_path = tmp_path / "stage-trajectories.jsonl"
     trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
     query_path = tmp_path / "stage-queries.jsonl"
     query_path.write_text(
-        _llm_example(graph, intent="complete_chain").model_dump_json() + "\n",
+        _v7_example(
+            trajectory, query_id="query:stage", sources=("c1", "c2")
+        ).model_dump_json()
+        + "\n",
         encoding="utf-8",
     )
     benchmark, _summary = prepare_isetrace_benchmark(
@@ -683,8 +627,6 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         seed=13,
         offset=0,
         strict=True,
-        review_policy="allow_unreviewed",
-        label_policy="intent_aware",
         chunking=_TEST_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
@@ -711,9 +653,7 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         ),
     )
     task_inputs = [item.model_dump(mode="json") for item in benchmark.rankings]
-    labels: list[object] = [
-        item.model_dump(mode="json") for item in benchmark.labels
-    ]
+    labels: list[object] = [item.model_dump(mode="json") for item in benchmark.labels]
     for method in methods:
         result = run_retrieve_stage(
             method,
@@ -725,7 +665,9 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
             model=None,
             encoder_source=None,
             device="cpu",
-            dense_encoder=(None if isinstance(method, Bm25MethodConfig) else KeywordEncoder()),
+            dense_encoder=(
+                None if isinstance(method, Bm25MethodConfig) else KeywordEncoder()
+            ),
         )
         assert len(result.predictions) == 1
         expected_candidates = (
@@ -744,14 +686,14 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         )
         assert (
             evaluation.metric_rows[0].evaluation_schema
-            == "execution_provenance_span_v2"
+            == "execution_provenance_span_v7"
         )
         assert evaluation.metric_rows[0].evidence_density_at_10 != "N/A"
         assert evaluation.metric_rows[0].coverage_at_2048_tokens != "N/A"
         assert evaluation.metric_rows[0].full_support_at_2048_tokens != "N/A"
         assert evaluation.metric_rows[0].connected_evidence_recall_at_10 != "N/A"
-        assert evaluation.metric_rows[0].path_recall_at_10 != "N/A"
-        assert evaluation.metric_rows[0].edge_recall_at_10 != "N/A"
+        assert evaluation.metric_rows[0].path_recall_at_10 == "N/A"
+        assert evaluation.metric_rows[0].edge_recall_at_10 == "N/A"
 
 
 def test_graphrag_builds_title_free_shared_entity_bridge() -> None:

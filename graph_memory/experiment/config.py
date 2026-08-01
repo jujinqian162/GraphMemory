@@ -64,8 +64,6 @@ DatasetName: TypeAlias = Literal[
     "musique",
     "isetrace",
 ]
-ISETraceReviewPolicy: TypeAlias = Literal["allow_unreviewed", "accepted_only"]
-ISETraceLabelPolicy: TypeAlias = Literal["answer_only", "support", "intent_aware"]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
 EvidenceRgcnVariant: TypeAlias = Literal[
     "full_rgcn",
@@ -79,6 +77,8 @@ EvidenceRgcnVariant: TypeAlias = Literal[
     "wo_seed_score",
     "wo_hard_negatives",
 ]
+
+
 class ClosedModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -138,8 +138,6 @@ class DatasetConfig(ClosedModel):
     strict_invalid_examples: StrictBool = False
     trajectory_source: Path | None = None
     source_revision: str | None = Field(default=None, min_length=1)
-    review_policy: ISETraceReviewPolicy = "accepted_only"
-    label_policy: ISETraceLabelPolicy = "support"
     chunking: ISETraceChunkingConfig | None = None
     splits: DatasetSplitsConfig
 
@@ -348,7 +346,6 @@ class RgcnMethodConfig(RgcnStageConfig):
 DenseRgcnMethodConfig = RgcnMethodConfig
 
 
-
 class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
     pass
 
@@ -476,8 +473,6 @@ class PrepareSplitConfig(ClosedModel):
     seed: ScientificInt
     strict_invalid_examples: StrictBool
     source_revision: str | None = Field(default=None, min_length=1)
-    review_policy: ISETraceReviewPolicy = "accepted_only"
-    label_policy: ISETraceLabelPolicy = "support"
     chunking: ISETraceChunkingConfig | None = None
 
 
@@ -541,8 +536,6 @@ class ResolvedDatasetConfig(ClosedModel):
     strict_invalid_examples: StrictBool
     trajectory_source: Path | None = None
     source_revision: str | None = None
-    review_policy: ISETraceReviewPolicy = "accepted_only"
-    label_policy: ISETraceLabelPolicy = "support"
     chunking: ISETraceChunkingConfig | None = None
     splits: dict[SplitName, ResolvedSplitConfig]
 
@@ -649,8 +642,6 @@ def resolve_experiment_config(
                 else _absolute_path(root, config.dataset.trajectory_source)
             ),
             source_revision=config.dataset.source_revision,
-            review_policy=config.dataset.review_policy,
-            label_policy=config.dataset.label_policy,
             chunking=config.dataset.chunking,
             splits=resolved_splits,
         ),
@@ -710,9 +701,7 @@ def _require_method_splits(
         required.update({"train", "dev"})
     missing = sorted(required - set(splits))
     if missing:
-        raise ValueError(
-            f"method={method.method!r} requires dataset splits={missing}"
-        )
+        raise ValueError(f"method={method.method!r} requires dataset splits={missing}")
 
 
 def _absolute_path(root: Path, value: Path) -> Path:
@@ -743,8 +732,6 @@ __all__ = [
     "FixedCountPolicy",
     "GraphBuildConfig",
     "GraphRAGMethodConfig",
-    "ISETraceLabelPolicy",
-    "ISETraceReviewPolicy",
     "MethodConfig",
     "ModelSelectionConfig",
     "NonNegativeFloat",

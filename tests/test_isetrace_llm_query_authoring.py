@@ -7,26 +7,27 @@ from email.message import Message
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 import scripts.generate_isetrace_llm_queries as authoring
 from graph_memory.datasets.isetrace import adapt_isetrace_record, parse_isetrace_record
 from graph_memory.graphs.provenance import build_provenance_graph
-from graph_memory.query_synthesis.provenance import LlmGenerationProvenance
+from graph_memory.query_synthesis.provenance import AuthoringQueryRecord
+from graph_memory.trajectories import SourceSpan
 from scripts.generate_isetrace_llm_queries import (
     PROMPT_VERSION,
     _OUTPUT_SCHEMA,
     _SYSTEM_PROMPT,
     RuntimeSettings,
     _cached_response,
-    _evidence_aliases,
-    _episode_aliases,
     _example,
     _generate_chunk,
     _packet,
     _plan_tasks,
     _post_response,
-    _queries_are_too_similar,
-    _validate_context_anchors,
-    _validate_query,
+    _validate_evidence_quotes,
+    _validate_query_contract,
+    _weighted_mode_cycle,
     main,
 )
 from tests.isetrace_fixtures import isetrace_record
@@ -48,7 +49,7 @@ def _planned_tasks():
     )
 
 
-def test_authoring_packet_reuses_motif_labels_without_exposing_internal_ids() -> None:
+def test_authoring_packet_exposes_only_v7_task_text() -> None:
     tasks = _planned_tasks()
     packet = _packet(tasks)
     serialized = json.dumps(packet)
@@ -57,130 +58,195 @@ def test_authoring_packet_reuses_motif_labels_without_exposing_internal_ids() ->
     assert all(task.motif.motif_type != "call_result" for task in tasks)
     for task in tasks:
         assert task.motif.motif_id not in serialized
-        assert not any(
-            output_id in serialized
-            for output_id in task.target.support_output_ids
-        )
+    assert "event_id" not in serialized
     assert packet["tasks"]
     payloads = packet["tasks"]
     assert isinstance(payloads, list)
-    aliases = _episode_aliases(tasks)
-    episode_context = packet["episode_context"]
-    assert isinstance(episode_context, dict)
-    events = episode_context["events"]
-    assert isinstance(events, list)
-    assert len({event["alias"] for event in events}) == len(events)
-    assert all("arguments=" not in event["excerpt"] for event in events)
+    assert "episode_context" not in packet
 
     for task, payload in zip(tasks, payloads, strict=True):
         assert isinstance(payload, dict)
+        aliases = authoring._source_aliases((task,))
         assert payload["requested_query_count"] == 2
-        assert payload["answer_event_aliases"] == [
-            aliases[node_id] for node_id in task.target.answer_output_ids
-        ]
-        assert set(payload["support_event_aliases"]) == {
-            aliases[node_id] for node_id in task.target.support_output_ids
+        assert payload["text"] == authoring.render_task_text(
+            task.trajectory, task.graph, aliases
+        )
+        assert "[I1 | user_intent]" in payload["text"]
+        assert "[A1 | tool_call |" in payload["text"]
+        assert "[E1 | tool_output |" in payload["text"]
+        assert set(payload) == {
+            "task_key",
+            "authoring_brief",
+            "style",
+            "text",
+            "requested_query_count",
         }
-        assert set(payload["context_event_aliases"]).isdisjoint(
-            payload["answer_event_aliases"]
-        )
-        assert all(
-            edge["source"] in aliases.values() and edge["target"] in aliases.values()
-            for edge in payload["dependency_edges"]
-        )
+        assert payload["style"] == task.style
+        assert isinstance(payload["authoring_brief"], str)
+        assert aliases[task.target.focus_output_ids[0]] in payload["authoring_brief"]
+        assert task.target.query_intent not in payload
 
 
-def test_llm_example_keeps_gold_label_separate_from_generation_provenance() -> None:
-    task = _planned_tasks()[0]
-    response = {
-        "id": "resp_test",
-        "status": "completed",
-        "model": "test-model-reported",
-        "prompt_cache_key": "server-key",
-        "instructions": "gateway instructions",
-        "usage": {
-            "input_tokens": 100,
-            "input_tokens_details": {"cached_tokens": 80},
-            "output_tokens": 20,
-        },
+def test_task_planning_uses_the_documented_memory_mode_weights() -> None:
+    cycle = _weighted_mode_cycle()
+
+    assert cycle.count("direct_recall") == 3
+    assert cycle.count("linked_recall") == 5
+    assert cycle.count("multi_fact_recall") == 2
+    assert {task.memory_mode for task in _planned_tasks()} == {
+        "direct_recall",
+        "linked_recall",
+        "multi_fact_recall",
     }
+
+
+def test_llm_example_persists_only_the_four_field_authoring_schema() -> None:
+    task = _planned_tasks()[0]
+    aliases = authoring._source_aliases((task,))
+    source = aliases[task.target.focus_output_ids[0]]
+    material = authoring.source_material(task.trajectory, task.graph, aliases)[source]
+    assert material.event_id is not None
+    assert material.json_pointer is not None
+    source_text = material.text
+    quote = source_text[:48]
     example = _example(
         task=task,
         query_text="What result recorded how the selected report artifact was handled later?",
-        reference_answer="The later read returned the prepared report.",
-        response=response,
-        settings=RuntimeSettings(
-            model_id="test-model", api_key="secret", base_url="https://example.test/v1"
+        gold=(
+            authoring.ResolvedAuthoringGold(
+                source=source,
+                quote=quote,
+                span=SourceSpan(
+                    event_id=material.event_id,
+                    json_pointer=material.json_pointer,
+                    char_start=0,
+                    char_end=len(quote),
+                ),
+            ),
         ),
-        request_digest="a" * 64,
-        prompt_cache_key="requested-key",
-        authoring_attempt=1,
     )
 
-    assert example.label.answer_output_ids == task.target.answer_output_ids
-    assert example.label.support_output_ids == task.target.support_output_ids
-    assert isinstance(example.generation, LlmGenerationProvenance)
-    assert example.generation.annotation_method == "llm_generated"
-    assert example.generation.human_review_status == "unreviewed"
-    assert example.generation.prompt_version == PROMPT_VERSION
-    assert example.generation.authoring_attempt == 1
-    assert example.generation.reference_answer == "The later read returned the prepared report."
-    assert "template_id" not in example.label.model_dump()
+    assert isinstance(example, AuthoringQueryRecord)
+    assert set(example.model_dump()) == {"id", "text", "query", "gold"}
+    assert example.text == authoring.render_task_text(
+        task.trajectory, task.graph, aliases
+    )
+    assert example.gold[0].source == source
+    assert example.gold[0].quote == quote
+    assert example.id.startswith("query:")
+    assert PROMPT_VERSION not in example.model_dump_json()
 
 
-def test_output_schema_uses_only_gpt_supported_array_keywords() -> None:
-    properties = cast(dict[str, object], _OUTPUT_SCHEMA["properties"])
-    items = cast(dict[str, object], properties["items"])
-    item_schema = cast(dict[str, object], items["items"])
+def test_minimal_authoring_contract_rejects_missing_or_ambiguous_gold() -> None:
+    base = {
+        "id": "query:test",
+        "text": "[I1 | user_intent]\nAudit the report.\n\n"
+        "[E1 | tool_output | read]\nstatus: ready\nstatus: ready",
+        "query": "What status was recorded?",
+    }
+    with pytest.raises(ValueError, match="exactly once"):
+        _ = AuthoringQueryRecord.model_validate(
+            {**base, "gold": ({"source": "E1", "quote": "ready"},)}
+        )
+    with pytest.raises(ValueError, match="missing source"):
+        _ = AuthoringQueryRecord.model_validate(
+            {**base, "gold": ({"source": "E2", "quote": "ready"},)}
+        )
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _ = AuthoringQueryRecord.model_validate(
+            {
+                **base,
+                "gold": ({"source": "E1", "quote": "status: ready\\nstatus"},),
+                "motif_id": "internal",
+            }
+        )
+
+
+def test_output_schema_requests_only_query_and_exact_gold() -> None:
+    envelope_defs = cast(dict[str, object], _OUTPUT_SCHEMA["$defs"])
+    item_schema = cast(dict[str, object], envelope_defs["LlmResponseItem"])
     item_properties = cast(dict[str, object], item_schema["properties"])
-    grounding_aliases = cast(
-        dict[str, object], item_properties["grounding_event_aliases"]
-    )
+    assert set(item_properties) == {
+        "task_key",
+        "decision",
+        "queries",
+        "rejection_reason",
+    }
     queries = cast(dict[str, object], item_properties["queries"])
-    query_item = cast(dict[str, object], queries["items"])
-    query_properties = cast(dict[str, object], query_item["properties"])
-    context_aliases = cast(
-        dict[str, object], query_properties["context_anchor_aliases"]
-    )
-    assert "uniqueItems" not in grounding_aliases
-    assert "uniqueItems" not in context_aliases
+    query_schema = cast(dict[str, object], envelope_defs["LlmAuthoredQuery"])
+    query_properties = cast(dict[str, object], query_schema["properties"])
+    assert set(query_properties) == {"query_text", "evidence_quotes"}
     assert queries["maxItems"] == 3
 
 
-def test_v4_prompt_and_local_quality_gates_reject_lexical_shortcuts() -> None:
+def test_v7_exact_quote_maps_argument_source_to_span() -> None:
     task = _planned_tasks()[0]
-    aliases = _evidence_aliases(task)
-    answer_alias = aliases[task.target.answer_output_ids[0]]
+    aliases = authoring._source_aliases((task,))
+    argument_alias = next(alias for alias in aliases.values() if alias.startswith("A"))
+    material = authoring.source_material(task.trajectory, task.graph, aliases)[
+        argument_alias
+    ]
+    assert material.event_id is not None
+    assert material.json_pointer is not None
+    source_text = material.text
 
-    assert "GOOD EXAMPLE" in _SYSTEM_PROMPT
+    spans, grounded, reason = _validate_evidence_quotes(
+        (authoring.LlmEvidenceQuote(source=argument_alias, quote=source_text),),
+        task=task,
+        aliases=aliases,
+    )
+
+    assert reason is None
+    assert grounded == (argument_alias,)
+    assert spans == (
+        authoring.ResolvedAuthoringGold(
+            source=argument_alias,
+            quote=source_text,
+            span=SourceSpan(
+                event_id=material.event_id,
+                json_pointer="/raw_arguments",
+                char_start=0,
+                char_end=len(source_text),
+            ),
+        ),
+    )
+
+
+def test_v7_prompt_owns_soft_quality_while_contract_gate_blocks_leaks() -> None:
+    task = _planned_tasks()[0]
+    assert "DIVERSE GOOD EXAMPLES" in _SYSTEM_PROMPT
     assert "BAD EXAMPLES" in _SYSTEM_PROMPT
-    assert _validate_context_anchors(
-        ["I1"], task=task, aliases=aliases
-    ) is None
-    assert _validate_context_anchors(
-        [answer_alias], task=task, aliases=aliases
-    ) is not None
-    assert _validate_query(
-        "How many bytes were written when the report was saved?",
-        task=task,
-        seen_queries=set(),
-    ) == "query asks about a trivial tool receipt or invocation detail"
-    assert _validate_query(
-        "What did I1 tell us about the report review outcome?",
-        task=task,
-        seen_queries=set(),
-    ) == "query contains benchmark or internal metadata language"
-    assert _queries_are_too_similar(
-        "Why did the first report fail and what correction followed?",
-        "Why did the initial report fail and what correction followed?",
+    assert "12 to 35 words" in _SYSTEM_PROMPT
+    assert "Each group chooses its own minimal evidence" in _SYSTEM_PROMPT
+    assert (
+        _validate_query_contract(
+            "Saved?",
+            task=task,
+            seen_queries=set(),
+        )
+        is None
     )
-    assert not _queries_are_too_similar(
-        "Why did the first report fail and what correction followed?",
-        "What outcome did the later review preserve for the planning team?",
+    assert (
+        _validate_query_contract(
+            "What did I1 tell us about the report review outcome?",
+            task=task,
+            seen_queries=set(),
+        )
+        == "query contains benchmark or internal metadata language"
+    )
+    assert (
+        _validate_query_contract(
+            "Which report outcome should the planning team remember?",
+            task=task,
+            seen_queries={
+                "which report outcome should the planning team remember?"
+            },
+        )
+        == "duplicate normalized query"
     )
 
 
-def test_retryable_gateway_403_is_retried(monkeypatch) -> None:
+def test_retryable_gateway_403_is_retried(monkeypatch, caplog) -> None:
     attempts = 0
 
     def fake_urlopen(request, timeout):
@@ -213,6 +279,7 @@ def test_retryable_gateway_403_is_retried(monkeypatch) -> None:
 
     assert response["id"] == "resp_ok"
     assert attempts == 2
+    assert "Responses API HTTP 403; retrying attempt 2/2" in caplog.text
 
 
 def test_response_cache_avoids_duplicate_api_calls(tmp_path: Path, monkeypatch) -> None:
@@ -277,10 +344,6 @@ def test_model_rejection_is_terminal(tmp_path: Path, monkeypatch) -> None:
             "task_key": task.task_key,
             "decision": "reject",
             "queries": [],
-            "reference_answer": None,
-            "grounding_event_aliases": [],
-            "all_answer_events_necessary": None,
-            "relation_is_meaningful": None,
             "rejection_reason": "the selected events are semantically unrelated",
         },
         response_id="resp_reject",
@@ -292,7 +355,7 @@ def test_model_rejection_is_terminal(tmp_path: Path, monkeypatch) -> None:
         return response, False
 
     monkeypatch.setattr(authoring, "_cached_response", fake_cached)
-    examples, rejected, _ = _generate_chunk(
+    examples, metadata, rejected, _ = _generate_chunk(
         [task],
         settings=RuntimeSettings(
             model_id="test-model", api_key="secret", base_url="https://example.test/v1"
@@ -305,10 +368,12 @@ def test_model_rejection_is_terminal(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert not examples
+    assert not metadata
     assert calls == 1
     assert rejected == [
         {
             "task_key": task.task_key,
+            "memory_mode": task.memory_mode,
             "reason": "the selected events are semantically unrelated",
             "attempts": 1,
             "kind": "model_rejection",
@@ -316,37 +381,58 @@ def test_model_rejection_is_terminal(tmp_path: Path, monkeypatch) -> None:
     ]
 
 
-def test_failed_grounding_self_check_is_rewritten_and_revalidated(
+def test_invalid_gold_source_is_rewritten_and_revalidated(
     tmp_path: Path, monkeypatch
 ) -> None:
     task = _planned_tasks()[0]
-    aliases = _evidence_aliases(task)
-    answer_aliases = [aliases[node_id] for node_id in task.target.answer_output_ids]
+    aliases = authoring._source_aliases((task,))
+    focus_alias = aliases[task.target.focus_output_ids[0]]
+    material = authoring.source_material(task.trajectory, task.graph, aliases)
+    other_alias = next(alias for alias in material if alias != focus_alias)
+    focus_text = material[focus_alias].text
+    other_text = material[other_alias].text
+    first_evidence = [
+        {
+            "source": focus_alias,
+            "quote": focus_text[: min(48, len(focus_text))],
+        }
+    ]
+    second_evidence = [
+        {
+            "source": other_alias,
+            "quote": other_text[: min(48, len(other_text))],
+        }
+    ]
     accepted_item: dict[str, object] = {
         "task_key": task.task_key,
         "decision": "accept",
         "queries": [
             {
                 "query_text": "What result was recorded when the report was used for the follow-up action?",
-                "context_anchor_aliases": ["I1"],
+                "evidence_quotes": first_evidence,
             },
             {
-                "query_text": "During the report review, what did the later use of the prepared artifact return?",
-                "context_anchor_aliases": ["I2"],
+                "query_text": "During the report review, what earlier detail should the planning team remember?",
+                "evidence_quotes": second_evidence,
             },
         ],
-        "reference_answer": "The answer action returned the prepared report.",
-        "grounding_event_aliases": answer_aliases,
-        "all_answer_events_necessary": True,
-        "relation_is_meaningful": True,
         "rejection_reason": None,
     }
+    accepted_queries = cast(list[dict[str, object]], accepted_item["queries"])
     responses = iter(
         [
             _model_response(
                 {
                     **accepted_item,
-                    "grounding_event_aliases": ["D1"],
+                    "queries": [
+                        {
+                            **accepted_queries[0],
+                            "evidence_quotes": [
+                                {"source": "D1", "quote": "invalid source quote"}
+                            ],
+                        },
+                        accepted_queries[1],
+                    ],
                 },
                 response_id="resp_bad_grounding",
             ),
@@ -358,7 +444,7 @@ def test_failed_grounding_self_check_is_rewritten_and_revalidated(
         return next(responses), False
 
     monkeypatch.setattr(authoring, "_cached_response", fake_cached)
-    examples, rejected, _ = _generate_chunk(
+    examples, metadata, rejected, _ = _generate_chunk(
         [task],
         settings=RuntimeSettings(
             model_id="test-model", api_key="secret", base_url="https://example.test/v1"
@@ -371,10 +457,13 @@ def test_failed_grounding_self_check_is_rewritten_and_revalidated(
     )
 
     assert len(examples) == 2
+    assert len(metadata) == 2
     assert not rejected
+    assert examples[0].gold != examples[1].gold
+    assert {item.memory_mode for item in metadata} == {task.memory_mode}
     for example in examples:
-        assert isinstance(example.generation, LlmGenerationProvenance)
-        assert example.generation.authoring_attempt == 2
+        assert isinstance(example, AuthoringQueryRecord)
+        assert set(example.model_dump()) == {"id", "text", "query", "gold"}
 
 
 def test_dry_run_writes_packets_without_env_or_network(tmp_path: Path) -> None:
@@ -402,15 +491,28 @@ def test_dry_run_writes_packets_without_env_or_network(tmp_path: Path) -> None:
         json.loads(line)
         for line in packet_path.read_text(encoding="utf-8").splitlines()
     ]
-    assert sum(
-        task["requested_query_count"]
-        for packet in packets
-        for task in packet["tasks"]
-    ) == 5
+    assert (
+        sum(
+            task["requested_query_count"]
+            for packet in packets
+            for task in packet["tasks"]
+        )
+        == 5
+    )
     assert {
-        task["requested_query_count"]
+        task["requested_query_count"] for packet in packets for task in packet["tasks"]
+    } == {1, 2}
+    assert all("episode_context" not in packet for packet in packets)
+    assert all(
+        set(task)
+        >= {
+            "task_key",
+            "authoring_brief",
+            "style",
+            "text",
+            "requested_query_count",
+        }
         for packet in packets
         for task in packet["tasks"]
-    } == {1, 2}
-    assert all("episode_context" in packet for packet in packets)
+    )
     assert not output.exists()

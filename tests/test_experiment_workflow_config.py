@@ -37,8 +37,6 @@ def test_isetrace_nontrain_config_is_test_only_execution_provenance() -> None:
     assert isinstance(resolved.method, ProvenancePathMethodConfig)
     assert set(resolved.dataset.splits) == {"test"}
     assert resolved.dataset.splits["test"].count is None
-    assert resolved.dataset.review_policy == "allow_unreviewed"
-    assert resolved.dataset.label_policy == "intent_aware"
     assert resolved.dataset.source_revision
 
 
