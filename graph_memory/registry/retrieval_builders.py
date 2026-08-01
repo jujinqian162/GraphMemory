@@ -36,14 +36,13 @@ from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetr
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graphrag import (
     GraphRAGMethod,
+    build_graphrag_knowledge_graph,
     build_graphrag_request,
-)
-from graph_memory.retrieval.methods.graphrag.sentence_resolver import (
-    GraphRAGSentenceResolver,
 )
 from graph_memory.retrieval.requests import (
     DenseConfigLike,
     EvidenceGraphRankingRequest,
+    GraphRAGKnowledgeGraph,
     ProvenancePathRequest,
     TextRankingRequest,
 )
@@ -232,29 +231,36 @@ def _build_graphrag(
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
-    sentence_resolver = GraphRAGSentenceResolver(
-        encoder=dense_ranker.encoder,
-        query_prefix=settings.encoder.query_prefix,
-        passage_prefix=settings.encoder.passage_prefix,
-        batch_size=settings.encoder.batch_size,
-        min_score_margin=settings.config.min_sentence_score_margin,
-    )
+    graph_by_candidate_ids: dict[tuple[str, ...], GraphRAGKnowledgeGraph] = {}
+    execution_tasks: list[RetrievalExecutionTask] = []
+    for request in build_payload.text_requests:
+        candidate_ids = tuple(candidate.item_id for candidate in request.candidates)
+        graph = graph_by_candidate_ids.get(candidate_ids)
+        if graph is None:
+            graph = build_graphrag_knowledge_graph(
+                request.candidates,
+                config=settings.config,
+            )
+            graph_by_candidate_ids[candidate_ids] = graph
+        execution_tasks.append(
+            RetrievalExecutionTask(
+                text_request=request,
+                method_request=build_graphrag_request(
+                    request,
+                    settings.config,
+                    knowledge_graph=graph,
+                ),
+            )
+        )
     return _built(
         GraphRAGMethod(
             dense_ranker=dense_ranker,
             config=settings.config,
-            sentence_resolver=sentence_resolver,
         ),
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,
-        execution_tasks=[
-            RetrievalExecutionTask(
-                text_request=request,
-                method_request=build_graphrag_request(request, settings.config),
-            )
-            for request in build_payload.text_requests
-        ],
+        execution_tasks=execution_tasks,
     )
 
 

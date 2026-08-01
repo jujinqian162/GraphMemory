@@ -17,7 +17,8 @@ There is one gold interpretation: the complete set of exact spans in `gold`. V7 
 
 Every method receives the same query and underlying trajectory.
 
-- BM25, Dense, and GraphRAG rank token-window chunks of the rendered full trajectory, including messages, ToolCall arguments, and ToolOutputs.
+- BM25, Dense, and GraphRAG rank the same token-window chunks of the rendered full trajectory, including messages, ToolCall arguments, and ToolOutputs.
+- GraphRAG privately subdivides those chunks into smaller graph-index text units, builds a noun-phrase co-occurrence graph, runs query-personalized PageRank, and projects graph scores back to the original token-window candidates. Its graph never receives provenance edges or gold spans.
 - `provenance_path` ranks source-backed argument/output content units and may traverse the query-independent provenance graph.
 - The provenance graph may change retrieval order and the diagnostic retrieved subgraph, but it never creates or expands gold.
 

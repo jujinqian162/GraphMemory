@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
-import pytest
 
 from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
@@ -44,47 +43,56 @@ class RecordingEncoder:
 def _graphrag_text_request() -> TextRankingRequest:
     return TextRankingRequest(
         task_id="graph-task",
-        query_text="What did Ada design?",
+        query_text="What connected Ada Lovelace and the Analytical Engine?",
         candidates=(
             TextCandidate(
                 item_id="c1",
-                text="Ada Lovelace designed the Analytical Engine.",
-                metadata={"title": "Ada Lovelace", "aliases": "Ada"},
+                text=(
+                    "Ada Lovelace documented the Analytical Engine design. "
+                    "Ada Lovelace discussed the Analytical Engine architecture."
+                ),
+                metadata={},
             ),
             TextCandidate(
                 item_id="c2",
-                text="Ada and the Analytical Engine influenced early computing.",
-                metadata={"title": "Analytical Engine"},
+                text=(
+                    "The Analytical Engine notes credit Ada Lovelace. "
+                    "The Analytical Engine archive preserves Ada Lovelace notes."
+                ),
+                metadata={},
             ),
         ),
     )
 
 
-def test_graphrag_builder_assembles_explicit_alias_aware_graph() -> None:
-    first = build_graphrag_request(_graphrag_text_request(), GraphRAGConfig())
-    second = build_graphrag_request(_graphrag_text_request(), GraphRAGConfig())
+def test_graphrag_builder_assembles_deterministic_noun_cooccurrence_graph() -> None:
+    config = GraphRAGConfig(
+        text_unit_size=12,
+        text_unit_overlap=2,
+        min_node_frequency=1,
+        min_edge_weight_percentile=0.0,
+        remove_ego_node=False,
+    )
+    first = build_graphrag_request(_graphrag_text_request(), config)
+    second = build_graphrag_request(_graphrag_text_request(), config)
 
     assert isinstance(first, GraphRAGRequest)
     assert first == second
-    ada_title = next(
-        mention
-        for mention in first.knowledge_graph.mentions
-        if mention.normalized_surface == "ada lovelace"
-        and mention.mention_type == "TITLE_ENTITY"
-    )
+    assert first.knowledge_graph.text_units
+    names = {entity.name for entity in first.knowledge_graph.entities}
+    assert "ada lovelace" in names
+    assert "analytical engine" in names
+    entity_by_name = {
+        entity.name: entity.entity_id for entity in first.knowledge_graph.entities
+    }
+    expected_pair = {
+        entity_by_name["ada lovelace"],
+        entity_by_name["analytical engine"],
+    }
     assert any(
-        mention.candidate_id == "c2"
-        and mention.entity_id == ada_title.entity_id
-        and mention.mention_type == "MENTIONS"
-        and mention.alias_confidence == pytest.approx(0.9)
-        for mention in first.knowledge_graph.mentions
+        {relation.source_entity_id, relation.target_entity_id} == expected_pair
+        for relation in first.knowledge_graph.relations
     )
-    analytical_group = next(
-        group
-        for group in first.knowledge_graph.title_groups
-        if group.normalized_title_entity == "analytical engine"
-    )
-    assert analytical_group.candidate_ids == ("c2",)
 
 
 def test_graphrag_preserves_query_and_passage_prefixes() -> None:

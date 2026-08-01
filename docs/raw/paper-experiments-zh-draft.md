@@ -39,7 +39,7 @@ Synthetic 2Wiki Provenance 是一个受控的合成检索任务，而不是真�
 在模拟 execution-provenance 实验中，当前结果比较三类代表性方法：
 
 - **BM25** 表示不使用稠密语义表示和图结构的稀疏基线。
-- **FastGraphRAG-style** 是一个轻量、非 LLM 的实体图检索基线。它从候选文本中确定性地抽取和链接实体，结合词法与稠密语义种子执行 Personalized PageRank，再将实体分数投影回候选证据。该实现参考 FastGraphRAG 的非 LLM entity-search 思路，强调可复现性和较低成本，并不声称复现依赖 LLM 社区摘要和生成阶段的完整 GraphRAG 系统。
+- **FastGraphRAG-style** 是一个轻量、非 LLM 的实体图检索基线。它先把候选文本切为私有小 text units，以确定性的 noun/structured phrase 抽取构建实体共现图，采用 frequency-scaled positive PMI 和固定剪枝，再结合精确/词法 query linking 与冻结 Dense 实体种子执行 Personalized PageRank，最后把图分数投影并软融合回共享候选证据。该实现忠实复现 FastGraphRAG 的低成本 NLP 共现图检索原则，但不声称复现依赖 LLM 社区摘要和生成阶段的完整 GraphRAG 产品。
 - **EPGM** 在类型化 execution-provenance graph 上进行有界路径搜索，将语义相关性、依赖完整性、字段绑定和 grounding 信号组合为路径得分，并返回实际参与检索的 provenance path。
 
 后续将加入可训练的 **EPGM R-GCN**。由于该方法的完整测试结果尚未产生，本稿不填入估计值，也不据此作任何结论。

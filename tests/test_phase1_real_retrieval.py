@@ -97,13 +97,12 @@ def _graphrag_method() -> RankingMethodConfig:
     return GraphRAGMethodConfig(
         method="graphrag",
         encoder=_encoder_config(),
+        text_unit_size=20,
+        text_unit_overlap=4,
+        min_node_frequency=1,
+        min_edge_weight_percentile=0.0,
+        remove_ego_node=False,
         seed_top_s=2,
-        max_entity_document_frequency_ratio=0.75,
-        sentence_resolver="frozen_dense",
-        min_sentence_score_margin=0.02,
-        min_bridge_confidence=0.2,
-        max_partners_per_anchor=1,
-        preserve_dense_top_n=2,
     )
 
 

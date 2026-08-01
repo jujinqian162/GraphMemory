@@ -47,9 +47,6 @@ from graph_memory.retrieval.methods.graphrag import (
     GraphRAGMethod,
     build_graphrag_request,
 )
-from graph_memory.retrieval.methods.graphrag.sentence_resolver import (
-    GraphRAGSentenceResolver,
-)
 from graph_memory.retrieval.methods.provenance_path import (
     ProvenancePathConfig,
     ProvenancePathMethod,
@@ -639,12 +636,12 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         GraphRAGMethodConfig(
             method="graphrag",
             encoder=encoder_config,
+            text_unit_size=20,
+            text_unit_overlap=4,
+            min_node_frequency=1,
+            min_edge_weight_percentile=0.0,
+            remove_ego_node=False,
             seed_top_s=2,
-            max_entity_document_frequency_ratio=1.0,
-            min_sentence_score_margin=0.0,
-            min_bridge_confidence=0.0,
-            max_partners_per_anchor=1,
-            preserve_dense_top_n=1,
         ),
         ProvenancePathMethodConfig(
             method="provenance_path",
@@ -696,51 +693,75 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         assert evaluation.metric_rows[0].edge_recall_at_10 == "N/A"
 
 
-def test_graphrag_builds_title_free_shared_entity_bridge() -> None:
+def test_graphrag_runs_noun_graph_ppr_and_projects_to_candidates() -> None:
     request = TextRankingRequest(
         task_id="g1",
         query_text="target",
         candidates=(
             TextCandidate(
                 item_id="a",
-                text="target references /workspace/shared/report.md",
+                text=(
+                    "target report references /workspace/shared/report.md and "
+                    "shared report archive"
+                ),
                 metadata={},
             ),
-            TextCandidate(item_id="b", text="other", metadata={}),
+            TextCandidate(item_id="b", text="other weather summary", metadata={}),
             TextCandidate(
                 item_id="z",
-                text="source at /workspace/shared/report.md",
+                text=(
+                    "source report at /workspace/shared/report.md with "
+                    "shared report archive"
+                ),
                 metadata={},
             ),
         ),
     )
     config = GraphRAGConfig(
+        text_unit_size=20,
+        text_unit_overlap=4,
+        min_node_frequency=1,
+        min_edge_weight_percentile=0.0,
+        remove_ego_node=False,
         seed_top_s=1,
-        max_entity_document_frequency_ratio=1.0,
-        min_sentence_score_margin=0.0,
-        min_bridge_confidence=0.0,
-        max_partners_per_anchor=1,
-        preserve_dense_top_n=1,
+        semantic_weight=0.0,
+        graph_weight=1.0,
     )
-    dense = _dense_ranker()
-    method = GraphRAGMethod(
-        dense_ranker=dense,
-        config=config,
-        sentence_resolver=GraphRAGSentenceResolver(
-            encoder=dense.encoder,
-            query_prefix="",
-            passage_prefix="",
-            batch_size=8,
-            min_score_margin=0.0,
-        ),
-    )
+    method = GraphRAGMethod(dense_ranker=_dense_ranker(), config=config)
 
     result = method.rank_task(build_graphrag_request(request, config), top_k=2)
 
-    assert [node.node_id for node in result.ranked_nodes] == ["a", "z", "b"]
-    assert len(result.trace.retrieved_edges) == 1
-    assert isinstance(result.trace.native_trace, GraphRAGTrace)
-    assert result.trace.native_trace.exact_dense_fallback is False
-    GraphRAGTrace.model_validate(
-        result.trace.native_trace.model_dump(mode="json", exclude_none=True)
+    assert [node.node_id for node in result.ranked_nodes[:2]] == ["a", "z"]
+    trace = result.trace.native_trace
+    assert isinstance(trace, GraphRAGTrace)
+    assert trace.trace_kind == "fast_graphrag_ppr"
+    assert trace.text_unit_count > 0
+    assert trace.entity_count > 0
+    assert trace.relation_count > 0
+    assert trace.iterations > 0
+    assert trace.exact_dense_fallback is False
+    GraphRAGTrace.model_validate(trace.model_dump(mode="json", exclude_none=True))
+
+
+def test_graphrag_is_exact_dense_when_pruning_leaves_no_graph() -> None:
+    request = TextRankingRequest(
+        task_id="g-empty",
+        query_text="target",
+        candidates=(
+            TextCandidate(item_id="a", text="target unique evidence", metadata={}),
+            TextCandidate(item_id="b", text="other isolated material", metadata={}),
+        ),
     )
+    config = GraphRAGConfig()
+    dense_ranker = _dense_ranker()
+    dense = dense_ranker.rank(request)
+    method = GraphRAGMethod(dense_ranker=dense_ranker, config=config)
+
+    result = method.rank_task(build_graphrag_request(request, config), top_k=2)
+
+    assert result.ranked_nodes == tuple(dense)
+    trace = result.trace.native_trace
+    assert isinstance(trace, GraphRAGTrace)
+    assert trace.exact_dense_fallback is True
+    assert trace.entity_count == 0
+    assert trace.relation_count == 0

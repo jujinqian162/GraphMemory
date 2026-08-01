@@ -174,6 +174,7 @@ def materialize_rankings(
             "dataset": dataset,
             "method": method_name,
             "variant": variant,
+            "method_config": method.model_dump(mode="json"),
             "prepared_digest": prepared.digest,
             "graph_digest": None if evidence_graphs is None else evidence_graphs.digest,
             "model_digest": None if model is None else model.digest,

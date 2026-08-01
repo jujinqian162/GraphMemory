@@ -4,11 +4,27 @@ encoder:
   query_prefix: "query: "
   passage_prefix: "passage: "
   batch_size: 64
-seed_top_s: 5
-max_entity_document_frequency_ratio: 0.25
-sentence_resolver: frozen_dense
-min_sentence_score_margin: 0.02
-min_bridge_confidence: 0.2
-max_partners_per_anchor: 1
-max_entity_groups_per_anchor: 8
-preserve_dense_top_n: 2
+
+# Deterministic retrieval-only adaptation of Microsoft FastGraphRAG indexing:
+# small text units -> noun-phrase co-occurrence graph -> PPMI pruning ->
+# query-personalized PageRank -> projection back to retrieval candidates.
+text_unit_size: 100
+text_unit_overlap: 20
+max_entity_words: 4
+max_word_length: 15
+max_entities_per_text_unit: 48
+min_node_frequency: 2
+min_node_degree: 1
+min_edge_weight_percentile: 40.0
+remove_ego_node: true
+normalize_edge_weights: true
+seed_top_s: 10
+exact_match_weight: 1.0
+lexical_weight: 0.5
+semantic_seed_weight: 1.0
+restart_probability: 0.2
+max_iterations: 30
+convergence_tolerance: 1.0e-6
+semantic_weight: 0.5
+graph_weight: 0.5
+trace_top_entities: 50

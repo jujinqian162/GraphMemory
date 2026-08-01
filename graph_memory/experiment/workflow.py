@@ -345,7 +345,7 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
-            implementation_version="ranking-v3-isetrace-provenance",
+            implementation_version="ranking-v9-fast-graphrag-ppr",
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking.artifact,

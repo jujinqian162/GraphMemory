@@ -6,13 +6,11 @@ from graph_memory.retrieval.requests.evidence_graph import (
     EvidenceGraphRankingRequest,
 )
 from graph_memory.retrieval.requests.graphrag import (
-    EntityMentionType,
-    GraphRAGCandidateBridge,
-    GraphRAGEntityMention,
+    GraphRAGEntity,
     GraphRAGKnowledgeGraph,
+    GraphRAGRelation,
     GraphRAGRequest,
-    GraphRAGResolverEvidence,
-    GraphRAGTitleEntityGroup,
+    GraphRAGTextUnit,
 )
 from graph_memory.retrieval.requests.provenance_path import ProvenancePathRequest
 from graph_memory.retrieval.requests.text import (
@@ -33,14 +31,12 @@ RankingMethodRequest: TypeAlias = (
 __all__ = [
     "DenseConfigLike",
     "DenseRuntime",
-    "EntityMentionType",
     "EvidenceGraphRankingRequest",
-    "GraphRAGCandidateBridge",
-    "GraphRAGEntityMention",
+    "GraphRAGEntity",
     "GraphRAGKnowledgeGraph",
+    "GraphRAGRelation",
     "GraphRAGRequest",
-    "GraphRAGResolverEvidence",
-    "GraphRAGTitleEntityGroup",
+    "GraphRAGTextUnit",
     "JsonScalar",
     "ProvenancePathRequest",
     "RankingMethodRequest",

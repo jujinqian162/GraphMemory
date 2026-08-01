@@ -10,18 +10,11 @@ from graph_memory.contracts.model import (
     FiniteFloat,
     NonEmptyStr,
     NonNegativeFiniteFloat,
-    PositiveFiniteFloat,
+    NonNegativeInt,
     PositiveInt,
 )
 from graph_memory.graphs.contracts import GraphEdge
-from graph_memory.retrieval.requests import (
-    GraphRAGCandidateBridge,
-    GraphRAGEntityMention,
-    GraphRAGResolverEvidence,
-    GraphRAGTitleEntityGroup,
-    RankingMethodRequest,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
 
 
 class RankedNode(DomainModel):
@@ -49,20 +42,19 @@ class CandidateEdgeTrace(DomainModel):
         return self
 
 
-class GraphRAGBridgeTrace(DomainModel):
-    bridge: GraphRAGCandidateBridge
-    accepted: StrictBool
-    rejection_reason: NonEmptyStr | None = None
-    original_partner_rank: PositiveInt
-    final_partner_rank: PositiveInt
+class GraphRAGEntityScoreTrace(DomainModel):
+    entity_id: NonEmptyStr
+    name: NonEmptyStr
+    score: NonNegativeFiniteFloat
 
-    @model_validator(mode="after")
-    def _validate_outcome(self) -> "GraphRAGBridgeTrace":
-        if self.accepted and self.rejection_reason is not None:
-            raise ValueError("accepted bridge cannot have a rejection reason")
-        if not self.accepted and self.rejection_reason is None:
-            raise ValueError("rejected bridge requires a reason")
-        return self
+
+class GraphRAGCandidateScoreTrace(DomainModel):
+    candidate_id: NonEmptyStr
+    dense_score: FiniteFloat
+    graph_score: NonNegativeFiniteFloat
+    final_score: FiniteFloat
+    dense_rank: PositiveInt
+    final_rank: PositiveInt
 
 
 class _NativeTraceModel(DomainModel):
@@ -168,128 +160,57 @@ class ProvenancePathTrace(_NativeTraceModel):
         _require_candidate_subset(referenced, valid_candidate_ids, "provenance path trace")
 
 
-class EntityRelationTrace(DomainModel):
-    source_entity_id: NonEmptyStr
-    target_entity_id: NonEmptyStr
-    weight: PositiveFiniteFloat
-    candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _validate_relation(self) -> "EntityRelationTrace":
-        if self.source_entity_id == self.target_entity_id:
-            raise ValueError("entity relation cannot be a self loop")
-        if len(self.candidate_ids) != len(set(self.candidate_ids)):
-            raise ValueError("entity relation candidate IDs must be unique")
-        return self
-
-
-class EntitySearchTrace(_NativeTraceModel):
-    entity_ids: tuple[NonEmptyStr, ...]
-    linked_entity_ids: tuple[NonEmptyStr, ...]
-    seed_entity_ids: tuple[NonEmptyStr, ...]
-    relations: tuple[EntityRelationTrace, ...]
-    trace_kind: Literal["entity_search"] = "entity_search"
-
-    @model_validator(mode="after")
-    def _validate_entities(self) -> "EntitySearchTrace":
-        if len(self.entity_ids) != len(set(self.entity_ids)):
-            raise ValueError("entity_ids contains duplicates")
-        entities = set(self.entity_ids)
-        for name, values in (
-            ("linked_entity_ids", self.linked_entity_ids),
-            ("seed_entity_ids", self.seed_entity_ids),
-        ):
-            if len(values) != len(set(values)):
-                raise ValueError(f"{name} contains duplicates")
-            unknown = sorted(set(values) - entities)
-            if unknown:
-                raise ValueError(f"{name} references unknown entities={unknown}")
-        seen: set[tuple[str, str]] = set()
-        for relation in self.relations:
-            if (
-                relation.source_entity_id not in entities
-                or relation.target_entity_id not in entities
-            ):
-                raise ValueError("entity relation endpoint is unknown")
-            key = (
-                min(relation.source_entity_id, relation.target_entity_id),
-                max(relation.source_entity_id, relation.target_entity_id),
-            )
-            if key in seen:
-                raise ValueError(f"duplicate entity relation={key}")
-            seen.add(key)
-        return self
-
-    def validate_candidate_context(self, valid_candidate_ids: frozenset[str]) -> None:
-        referenced = {
-            candidate_id
-            for relation in self.relations
-            for candidate_id in relation.candidate_ids
-        }
-        _require_candidate_subset(referenced, valid_candidate_ids, "entity relations")
-
-
 class GraphRAGTrace(_NativeTraceModel):
-    dense_ranks: tuple[DenseRankTrace, ...]
-    seed_candidate_ids: tuple[NonEmptyStr, ...]
+    text_unit_count: NonNegativeInt
+    entity_count: NonNegativeInt
+    relation_count: NonNegativeInt
     linked_entity_ids: tuple[NonEmptyStr, ...]
-    mentions: tuple[GraphRAGEntityMention, ...]
-    title_groups: tuple[GraphRAGTitleEntityGroup, ...]
-    resolver_evidence: tuple[GraphRAGResolverEvidence, ...]
-    bridges: tuple[GraphRAGBridgeTrace, ...]
-    protected_prefix: tuple[NonEmptyStr, ...]
+    seed_entity_scores: tuple[GraphRAGEntityScoreTrace, ...]
+    top_entity_scores: tuple[GraphRAGEntityScoreTrace, ...]
+    candidate_scores: tuple[GraphRAGCandidateScoreTrace, ...]
+    iterations: NonNegativeInt
+    converged: StrictBool
     exact_dense_fallback: StrictBool
-    emitted_edges: tuple[CandidateEdgeTrace, ...]
-    trace_kind: Literal["typed_local_bridge"] = "typed_local_bridge"
+    trace_kind: Literal["fast_graphrag_ppr"] = "fast_graphrag_ppr"
 
     @model_validator(mode="after")
     def _validate_trace(self) -> "GraphRAGTrace":
-        _require_unique_dense_ranks(self.dense_ranks)
-        _require_unique(self.seed_candidate_ids, "seed_candidate_ids")
-        _require_unique(self.protected_prefix, "protected_prefix")
         _require_unique(self.linked_entity_ids, "linked_entity_ids")
-        accepted_count = sum(bridge.accepted for bridge in self.bridges)
-        if self.exact_dense_fallback != (accepted_count == 0):
-            raise ValueError("exact fallback state is inconsistent")
+        _require_unique(
+            tuple(item.entity_id for item in self.seed_entity_scores),
+            "seed_entity_scores.entity_id",
+        )
+        _require_unique(
+            tuple(item.entity_id for item in self.top_entity_scores),
+            "top_entity_scores.entity_id",
+        )
+        candidate_ids = tuple(item.candidate_id for item in self.candidate_scores)
+        _require_unique(candidate_ids, "candidate_scores.candidate_id")
+        _require_unique(
+            tuple(item.dense_rank for item in self.candidate_scores),
+            "candidate_scores.dense_rank",
+        )
+        _require_unique(
+            tuple(item.final_rank for item in self.candidate_scores),
+            "candidate_scores.final_rank",
+        )
+        if self.exact_dense_fallback and any(
+            item.dense_rank != item.final_rank for item in self.candidate_scores
+        ):
+            raise ValueError("GraphRAG fallback must preserve the exact Dense ranking")
         return self
 
     def validate_candidate_context(self, valid_candidate_ids: frozenset[str]) -> None:
-        referenced = {
-            *(rank.node_id for rank in self.dense_ranks),
-            *self.seed_candidate_ids,
-            *self.protected_prefix,
-            *(mention.candidate_id for mention in self.mentions),
-            *(
-                candidate_id
-                for group in self.title_groups
-                for candidate_id in group.candidate_ids
-            ),
-            *(item.anchor_candidate_id for item in self.resolver_evidence),
-            *(
-                candidate_id
-                for item in self.resolver_evidence
-                for candidate_id in item.candidate_ids
-            ),
-            *(
-                endpoint
-                for item in self.bridges
-                for endpoint in (
-                    item.bridge.source_candidate_id,
-                    item.bridge.target_candidate_id,
-                )
-            ),
-            *(
-                endpoint
-                for edge in self.emitted_edges
-                for endpoint in (edge.source, edge.target)
-            ),
-        }
-        _require_candidate_subset(referenced, valid_candidate_ids, "GraphRAG trace")
+        _require_candidate_subset(
+            {item.candidate_id for item in self.candidate_scores},
+            valid_candidate_ids,
+            "GraphRAG trace",
+        )
 
 
 
 NativeRetrievalTrace: TypeAlias = Annotated[
-    EntitySearchTrace | GraphRAGTrace | ProvenancePathTrace,
+    GraphRAGTrace | ProvenancePathTrace,
     Field(discriminator="trace_kind"),
 ]
 

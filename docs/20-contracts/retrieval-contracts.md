@@ -30,5 +30,5 @@ The deleted label-conditioned `ExecutionProvenanceRankingRequest`, legacy EPGM I
 All methods return the full ranked candidate list.
 
 - `retrieved_subgraph` is the shared evaluation surface for candidate-level structure.
-- Method-native detail lives under `metadata.native_trace` with a closed `trace_kind` union, including `typed_local_bridge` and `provenance_path`.
+- Method-native detail lives under `metadata.native_trace` with a closed `trace_kind` union, including `fast_graphrag_ppr` and `provenance_path`.
 - Connector-only nodes never enter the ranked candidate list.

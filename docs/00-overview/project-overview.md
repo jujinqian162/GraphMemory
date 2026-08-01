@@ -20,7 +20,7 @@ The evidence workflow remains runnable. The complete revision-pinned ISETrace co
 ## Research boundary
 
 - Flat methods are lexical/semantic baselines.
-- GraphRAG tests method-owned text-entity propagation without access to native provenance edges; title-free ToolOutputs use bounded shared text entities.
+- GraphRAG is a deterministic retrieval-only FastGraphRAG adaptation: it builds a private noun-phrase co-occurrence graph over small text units, runs query-personalized PageRank, and projects graph scores back to the shared retrieval candidates. It never receives native provenance edges.
 - Evidence R-GCN learns independent node scores on `EvidenceGraph`.
 - The legacy synthetic-provenance EPGM and Provenance R-GCN implementations were removed rather than carried into ISETrace.
 - The new provenance graph is derived only from canonical execution trajectories and does not contain query nodes, answer nodes, labels, or semantic edge weights.

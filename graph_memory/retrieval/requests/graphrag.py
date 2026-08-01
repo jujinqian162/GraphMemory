@@ -1,103 +1,108 @@
 from __future__ import annotations
 
-from typing import Literal
-
-from pydantic import Field, StrictBool, model_validator
+from pydantic import Field, model_validator
 
 from graph_memory.contracts.model import (
     DomainModel,
-    FiniteFloat,
     NonEmptyStr,
+    PositiveFiniteFloat,
     PositiveInt,
 )
 from graph_memory.retrieval.requests.text import TextCandidate
 
-EntityMentionType = Literal["TITLE_ENTITY", "MENTIONS"]
 
-
-class GraphRAGEntityMention(DomainModel):
-    candidate_id: NonEmptyStr
-    entity_id: NonEmptyStr
-    mention_type: EntityMentionType
-    normalized_surface: NonEmptyStr
-    source_prior: FiniteFloat = Field(ge=0.0, le=1.0)
-    alias_confidence: FiniteFloat = Field(ge=0.0, le=1.0)
-    entity_document_frequency: PositiveInt
-    normalized_idf: FiniteFloat = Field(ge=0.0, le=1.0)
-    mention_confidence: FiniteFloat = Field(ge=0.0, le=1.0)
-
-
-class GraphRAGTitleEntityGroup(DomainModel):
-    entity_id: NonEmptyStr
-    normalized_title_entity: NonEmptyStr
+class GraphRAGTextUnit(DomainModel):
+    unit_id: NonEmptyStr
     candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
-    group_size: PositiveInt
-    entity_document_frequency: PositiveInt
-    document_frequency_ratio: FiniteFloat = Field(gt=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def _validate_group(self) -> "GraphRAGTitleEntityGroup":
+    def _validate_unit(self) -> "GraphRAGTextUnit":
         if len(self.candidate_ids) != len(set(self.candidate_ids)):
-            raise ValueError("title group candidate IDs must be unique")
-        if self.group_size != len(self.candidate_ids):
-            raise ValueError("title group size must match candidate IDs")
-        if self.entity_document_frequency < self.group_size:
-            raise ValueError("title group document frequency is inconsistent")
+            raise ValueError("GraphRAG text-unit candidate IDs must be unique")
         return self
 
 
-class GraphRAGResolverEvidence(DomainModel):
-    anchor_candidate_id: NonEmptyStr
+class GraphRAGEntity(DomainModel):
     entity_id: NonEmptyStr
+    name: NonEmptyStr
+    frequency: PositiveInt
+    text_unit_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
     candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
-    selected_candidate_id: NonEmptyStr | None = None
-    top1_score: FiniteFloat | None = None
-    top2_score: FiniteFloat | None = None
-    score_margin: FiniteFloat | None = None
-    accepted: StrictBool
-    rejection_reason: NonEmptyStr | None = None
 
     @model_validator(mode="after")
-    def _validate_resolution(self) -> "GraphRAGResolverEvidence":
+    def _validate_entity(self) -> "GraphRAGEntity":
+        if len(self.text_unit_ids) != len(set(self.text_unit_ids)):
+            raise ValueError("GraphRAG entity text-unit IDs must be unique")
         if len(self.candidate_ids) != len(set(self.candidate_ids)):
-            raise ValueError("resolver candidate IDs must be unique")
-        if self.accepted != (self.selected_candidate_id is not None):
-            raise ValueError("resolver accepted state must match selection")
-        if self.accepted and self.selected_candidate_id not in self.candidate_ids:
-            raise ValueError("selected candidate must belong to resolver group")
-        if not self.accepted and self.rejection_reason is None:
-            raise ValueError("rejected resolution requires a reason")
-        if self.accepted and self.rejection_reason is not None:
-            raise ValueError("accepted resolution cannot have a rejection reason")
+            raise ValueError("GraphRAG entity candidate IDs must be unique")
+        if self.frequency != len(self.text_unit_ids):
+            raise ValueError("GraphRAG entity frequency must equal text-unit frequency")
         return self
 
 
-class GraphRAGCandidateBridge(DomainModel):
-    source_candidate_id: NonEmptyStr
-    target_candidate_id: NonEmptyStr
-    bridge_entity_id: NonEmptyStr
-    confidence: FiniteFloat = Field(ge=0.0, le=1.0)
-    resolver_score: FiniteFloat
-    resolver_margin: FiniteFloat | None = None
-    construction_reason: NonEmptyStr
-    direction: Literal["BRIDGE_TO"] = "BRIDGE_TO"
+class GraphRAGRelation(DomainModel):
+    relation_id: NonEmptyStr
+    source_entity_id: NonEmptyStr
+    target_entity_id: NonEmptyStr
+    weight: PositiveFiniteFloat
+    text_unit_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def _reject_self_loop(self) -> "GraphRAGCandidateBridge":
-        if self.source_candidate_id == self.target_candidate_id:
-            raise ValueError("candidate bridge cannot be a self loop")
+    def _validate_relation(self) -> "GraphRAGRelation":
+        if self.source_entity_id == self.target_entity_id:
+            raise ValueError("GraphRAG relation cannot be a self loop")
+        if len(self.text_unit_ids) != len(set(self.text_unit_ids)):
+            raise ValueError("GraphRAG relation text-unit IDs must be unique")
+        if len(self.candidate_ids) != len(set(self.candidate_ids)):
+            raise ValueError("GraphRAG relation candidate IDs must be unique")
         return self
 
 
 class GraphRAGKnowledgeGraph(DomainModel):
-    mentions: tuple[GraphRAGEntityMention, ...]
-    title_groups: tuple[GraphRAGTitleEntityGroup, ...]
+    text_units: tuple[GraphRAGTextUnit, ...]
+    entities: tuple[GraphRAGEntity, ...]
+    relations: tuple[GraphRAGRelation, ...]
 
     @model_validator(mode="after")
-    def _unique_groups(self) -> "GraphRAGKnowledgeGraph":
-        group_entities = [group.entity_id for group in self.title_groups]
-        if len(group_entities) != len(set(group_entities)):
-            raise ValueError("title group entity IDs must be unique")
+    def _validate_graph(self) -> "GraphRAGKnowledgeGraph":
+        unit_ids = [unit.unit_id for unit in self.text_units]
+        entity_ids = [entity.entity_id for entity in self.entities]
+        relation_ids = [relation.relation_id for relation in self.relations]
+        for name, values in (
+            ("text-unit", unit_ids),
+            ("entity", entity_ids),
+            ("relation", relation_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"GraphRAG {name} IDs must be unique")
+        valid_units = set(unit_ids)
+        valid_entities = set(entity_ids)
+        relation_pairs: set[tuple[str, str]] = set()
+        for entity in self.entities:
+            missing = sorted(set(entity.text_unit_ids) - valid_units)
+            if missing:
+                raise ValueError(
+                    f"GraphRAG entity references missing text units={missing}"
+                )
+        for relation in self.relations:
+            if (
+                relation.source_entity_id not in valid_entities
+                or relation.target_entity_id not in valid_entities
+            ):
+                raise ValueError("GraphRAG relation references a missing entity")
+            missing = sorted(set(relation.text_unit_ids) - valid_units)
+            if missing:
+                raise ValueError(
+                    f"GraphRAG relation references missing text units={missing}"
+                )
+            source, target = sorted(
+                (relation.source_entity_id, relation.target_entity_id)
+            )
+            pair = (source, target)
+            if pair in relation_pairs:
+                raise ValueError(f"duplicate GraphRAG relation pair={pair}")
+            relation_pairs.add(pair)
         return self
 
 
@@ -114,27 +119,30 @@ class GraphRAGRequest(DomainModel):
             raise ValueError("GraphRAG candidate IDs must be unique")
         valid = set(candidate_ids)
         referenced = {
-            mention.candidate_id for mention in self.knowledge_graph.mentions
+            candidate_id
+            for unit in self.knowledge_graph.text_units
+            for candidate_id in unit.candidate_ids
         }
         referenced.update(
             candidate_id
-            for group in self.knowledge_graph.title_groups
-            for candidate_id in group.candidate_ids
+            for entity in self.knowledge_graph.entities
+            for candidate_id in entity.candidate_ids
+        )
+        referenced.update(
+            candidate_id
+            for relation in self.knowledge_graph.relations
+            for candidate_id in relation.candidate_ids
         )
         missing = sorted(referenced - valid)
         if missing:
-            raise ValueError(
-                f"knowledge graph references missing candidates: {missing}"
-            )
+            raise ValueError(f"GraphRAG graph references missing candidates={missing}")
         return self
 
 
 __all__ = [
-    "EntityMentionType",
-    "GraphRAGCandidateBridge",
-    "GraphRAGEntityMention",
+    "GraphRAGEntity",
     "GraphRAGKnowledgeGraph",
+    "GraphRAGRelation",
     "GraphRAGRequest",
-    "GraphRAGResolverEvidence",
-    "GraphRAGTitleEntityGroup",
+    "GraphRAGTextUnit",
 ]
