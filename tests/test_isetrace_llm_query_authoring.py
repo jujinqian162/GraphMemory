@@ -67,7 +67,7 @@ def test_authoring_packet_exposes_only_v7_task_text() -> None:
     for task, payload in zip(tasks, payloads, strict=True):
         assert isinstance(payload, dict)
         aliases = authoring._source_aliases((task,))
-        assert payload["requested_query_count"] == 2
+        assert payload["requested_query_count"] == 1
         assert payload["text"] == authoring.render_task_text(
             task.trajectory, task.graph, aliases
         )
@@ -238,9 +238,7 @@ def test_v7_prompt_owns_soft_quality_while_contract_gate_blocks_leaks() -> None:
         _validate_query_contract(
             "Which report outcome should the planning team remember?",
             task=task,
-            seen_queries={
-                "which report outcome should the planning team remember?"
-            },
+            seen_queries={"which report outcome should the planning team remember?"},
         )
         == "duplicate normalized query"
     )
@@ -454,6 +452,7 @@ def test_invalid_gold_source_is_rewritten_and_revalidated(
         api_retries=1,
         validation_retries=1,
         seen_queries=set(),
+        queries_per_task=2,
     )
 
     assert len(examples) == 2
@@ -480,7 +479,7 @@ def test_dry_run_writes_packets_without_env_or_network(tmp_path: Path) -> None:
             "--output",
             str(output),
             "--limit",
-            "5",
+            "1",
             "--dry-run",
         ]
     )
@@ -497,11 +496,11 @@ def test_dry_run_writes_packets_without_env_or_network(tmp_path: Path) -> None:
             for packet in packets
             for task in packet["tasks"]
         )
-        == 5
+        == 2
     )
     assert {
         task["requested_query_count"] for packet in packets for task in packet["tasks"]
-    } == {1, 2}
+    } == {1}
     assert all("episode_context" not in packet for packet in packets)
     assert all(
         set(task)
@@ -516,3 +515,155 @@ def test_dry_run_writes_packets_without_env_or_network(tmp_path: Path) -> None:
         for task in packet["tasks"]
     )
     assert not output.exists()
+
+
+def test_authoring_cli_defaults_are_trajectory_based(tmp_path: Path) -> None:
+    args = authoring.parse_args(["--output", str(tmp_path / "queries.jsonl")])
+
+    assert args.source == authoring.DEFAULT_SOURCE
+    assert args.limit == 100
+    assert args.per_trajectory == 2
+    assert args.tasks_per_call == 2
+    assert args.queries_per_task == 1
+
+
+def test_raw_trajectory_shuffle_is_deterministic_and_prefix_stable(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "raw"
+    source.mkdir()
+    for shard in range(2):
+        (source / f"trajectories-{shard:05d}.jsonl").write_text(
+            "".join(f'{{"record": {shard * 5 + index}}}\n' for index in range(5)),
+            encoding="utf-8",
+        )
+
+    first = authoring._scan_corpus(source, seed=13)
+    repeated = authoring._scan_corpus(source, seed=13)
+    different_seed = authoring._scan_corpus(source, seed=17)
+
+    assert [ref.key for ref in first.refs] == [ref.key for ref in repeated.refs]
+    assert [ref.key for ref in first.refs[:3]] == [ref.key for ref in repeated.refs[:3]]
+    assert [ref.key for ref in first.refs] != [ref.key for ref in different_seed.refs]
+
+
+def test_trajectory_limit_resumes_without_regenerating_completed_prefix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    refs = tuple(
+        authoring.RawTrajectoryRef(
+            path=tmp_path / "raw.jsonl",
+            byte_offset=index,
+            line_number=index + 1,
+        )
+        for index in range(3)
+    )
+    corpus = authoring.ScannedCorpus(
+        refs=refs,
+        files=(
+            {
+                "path": str((tmp_path / "raw.jsonl").resolve()),
+                "bytes": 3,
+                "records": 3,
+                "sha256": "a" * 64,
+            },
+        ),
+    )
+
+    trajectories = []
+    for index in range(3):
+        record = isetrace_record()
+        record["session_id"] = f"traj_{index}"
+        call_ids: dict[str, str] = {}
+        messages = cast(list[dict[str, object]], record["messages"])
+        for message in messages:
+            tool_calls = cast(list[dict[str, object]], message.get("tool_calls", []))
+            for call in tool_calls:
+                old_id = cast(str, call["id"])
+                new_id = f"{old_id}_{index}"
+                call["id"] = new_id
+                call_ids[old_id] = new_id
+            old_output_id = message.get("tool_call_id")
+            if isinstance(old_output_id, str):
+                message["tool_call_id"] = call_ids[old_output_id]
+        trajectories.append(
+            adapt_isetrace_record(
+                parse_isetrace_record(record), source_revision=REVISION
+            )
+        )
+
+    monkeypatch.setattr(authoring, "_scan_corpus", lambda *args, **kwargs: corpus)
+    monkeypatch.setattr(
+        authoring,
+        "_read_raw_trajectory",
+        lambda ref, **kwargs: trajectories[ref.line_number - 1],
+    )
+    monkeypatch.setattr(
+        authoring,
+        "_load_env",
+        lambda path: RuntimeSettings(
+            model_id="test-model",
+            api_key="secret",
+            base_url="https://example.test/v1",
+        ),
+    )
+
+    generated_trajectory_ids: list[str] = []
+
+    def fake_generate(tasks, **kwargs):
+        generated_trajectory_ids.append(tasks[0].trajectory.trajectory_id)
+        examples = []
+        metadata = []
+        for task in tasks:
+            aliases = authoring._source_aliases((task,))
+            source = aliases[task.target.focus_output_ids[0]]
+            material = authoring.source_material(task.trajectory, task.graph, aliases)[
+                source
+            ]
+            quote = material.text[: min(48, len(material.text))]
+            assert material.event_id is not None
+            assert material.json_pointer is not None
+            example = _example(
+                task=task,
+                query_text=(
+                    "What substantive result should be remembered for "
+                    f"{task.trajectory.trajectory_id}?"
+                ),
+                gold=(
+                    authoring.ResolvedAuthoringGold(
+                        source=source,
+                        quote=quote,
+                        span=SourceSpan(
+                            event_id=material.event_id,
+                            json_pointer=material.json_pointer,
+                            char_start=0,
+                            char_end=len(quote),
+                        ),
+                    ),
+                ),
+            )
+            examples.append(example)
+            metadata.append(
+                authoring.GeneratedQueryMetadata(
+                    query_id=example.id,
+                    task_key=task.task_key,
+                    trajectory_id=task.trajectory.trajectory_id,
+                    memory_mode=task.memory_mode,
+                )
+            )
+        return examples, metadata, [], 0
+
+    monkeypatch.setattr(authoring, "_generate_chunk", fake_generate)
+    output = tmp_path / "queries.jsonl"
+    common = ["--source", str(tmp_path), "--output", str(output)]
+
+    assert main([*common, "--limit", "1"]) == 0
+    assert generated_trajectory_ids == ["traj_0"]
+    assert len(output.read_text(encoding="utf-8").splitlines()) == 2
+
+    assert main([*common, "--limit", "3"]) == 0
+    assert generated_trajectory_ids == ["traj_0", "traj_1", "traj_2"]
+    assert len(output.read_text(encoding="utf-8").splitlines()) == 6
+
+    assert main([*common, "--limit", "3"]) == 0
+    assert generated_trajectory_ids == ["traj_0", "traj_1", "traj_2"]

@@ -1,8 +1,8 @@
-"""Generate minimal LLM-authored query records from ISETrace tasks.
+"""Generate resumable LLM-authored queries from shuffled raw ISETrace trajectories.
 
-The durable JSONL contains only ``id``, handle-delimited task ``text``, ``query``,
-and exact ``gold`` quotes. Benchmark spans are derived later from this file and
-the pinned trajectory source.
+``--limit`` counts trajectories after a fixed seed-13 shuffle. Accepted four-field
+query records and their operational sidecars are appended during generation so a
+later invocation with the same output can resume a larger trajectory prefix.
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
-from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +29,10 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from graph_memory.contracts.model import DomainModel, NonEmptyStr
-from graph_memory.datasets.isetrace import iter_canonical_trajectories
+from graph_memory.datasets.isetrace import (
+    adapt_isetrace_record,
+    parse_isetrace_record,
+)
 from graph_memory.graphs.provenance import (
     ProvenanceGraph,
     build_provenance_graph,
@@ -58,6 +61,8 @@ LOGGER = logging.getLogger(__name__)
 
 PROMPT_VERSION = "isetrace-query-author-v7-independent-memory-groups"
 DEFAULT_REVISION = "e40e04d41c04e4eb4bae181ebdd41b61c688081b"
+DEFAULT_SOURCE = Path("data/isetrace/raw/trajectories")
+AUTHORING_SEED = 13
 MAX_EVIDENCE_QUOTE_CHARS = 1200
 MemoryQueryMode: TypeAlias = Literal[
     "direct_recall",
@@ -277,6 +282,23 @@ class PlannedTask:
 
 
 @dataclass(frozen=True)
+class RawTrajectoryRef:
+    path: Path
+    byte_offset: int
+    line_number: int
+
+    @property
+    def key(self) -> str:
+        return f"{self.path.resolve()}:{self.byte_offset}"
+
+
+@dataclass(frozen=True)
+class ScannedCorpus:
+    refs: tuple[RawTrajectoryRef, ...]
+    files: tuple[dict[str, object], ...]
+
+
+@dataclass(frozen=True)
 class RuntimeSettings:
     model_id: str
     api_key: str
@@ -313,6 +335,72 @@ def _load_env(path: Path) -> RuntimeSettings:
         api_key=values["API_KEY"],
         base_url=values["BASE_URL"],
     )
+
+
+def _source_files(source: Path) -> tuple[Path, ...]:
+    if source.is_file():
+        return (source,)
+    if not source.is_dir():
+        raise ValueError(f"ISETrace source does not exist: {source}")
+    paths = tuple(sorted(source.glob("trajectories-*.jsonl")))
+    if not paths:
+        raise ValueError(
+            f"ISETrace source directory has no trajectory shards: {source}"
+        )
+    return paths
+
+
+def _scan_corpus(source: Path, *, seed: int) -> ScannedCorpus:
+    refs: list[RawTrajectoryRef] = []
+    files: list[dict[str, object]] = []
+    for path in _source_files(source):
+        digest = hashlib.sha256()
+        records = 0
+        with path.open("rb") as handle:
+            while True:
+                byte_offset = handle.tell()
+                line = handle.readline()
+                if not line:
+                    break
+                digest.update(line)
+                if not line.strip():
+                    continue
+                records += 1
+                refs.append(
+                    RawTrajectoryRef(
+                        path=path,
+                        byte_offset=byte_offset,
+                        line_number=records,
+                    )
+                )
+        files.append(
+            {
+                "path": str(path.resolve()),
+                "bytes": path.stat().st_size,
+                "records": records,
+                "sha256": digest.hexdigest(),
+            }
+        )
+    random.Random(seed).shuffle(refs)
+    return ScannedCorpus(refs=tuple(refs), files=tuple(files))
+
+
+def _read_raw_trajectory(
+    ref: RawTrajectoryRef, *, source_revision: str
+) -> CanonicalTrajectory:
+    with ref.path.open("rb") as handle:
+        handle.seek(ref.byte_offset)
+        line = handle.readline()
+    if not line.strip():
+        raise ValueError(f"empty ISETrace record at {ref.key}")
+    try:
+        value = json.loads(line)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"invalid ISETrace JSON at {ref.path}:{ref.line_number}: {error}"
+        ) from error
+    record = parse_isetrace_record(value)
+    return adapt_isetrace_record(record, source_revision=source_revision)
 
 
 def _validation_forbidden_literals(task: PlannedTask) -> list[str]:
@@ -499,7 +587,7 @@ def _plan_tasks(
 def _packet(
     tasks: Sequence[PlannedTask],
     *,
-    queries_per_task: int = 2,
+    queries_per_task: int = 1,
     authoring_attempt: int = 1,
     retry_feedback: dict[str, str] | None = None,
 ) -> dict[str, object]:
@@ -796,6 +884,222 @@ def _write_jsonl(path: Path, values: Iterable[object]) -> None:
     temporary.replace(path)
 
 
+def _append_jsonl(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        value.model_dump(mode="json", exclude_none=True)
+        if isinstance(value, DomainModel)
+        else value
+    )
+    encoded = json.dumps(payload, ensure_ascii=False) + "\n"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _read_jsonl(path: Path) -> list[object]:
+    if not path.exists():
+        return []
+    values: list[object] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                values.append(json.loads(line))
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"invalid resume JSONL at {path}:{line_number}: {error}"
+                ) from error
+    return values
+
+
+class IncrementalOutputs:
+    def __init__(self, output: Path) -> None:
+        self.output = output
+        self.metadata_path = output.with_suffix(output.suffix + ".metadata.jsonl")
+        self.rejected_path = output.with_suffix(output.suffix + ".rejected.jsonl")
+        self.progress_path = output.with_suffix(output.suffix + ".progress.jsonl")
+
+        self.examples: dict[str, AuthoringQueryRecord] = {}
+        for value in _read_jsonl(self.output):
+            example = AuthoringQueryRecord.model_validate(value)
+            if example.id in self.examples:
+                raise ValueError(f"duplicate query id in {self.output}: {example.id}")
+            self.examples[example.id] = example
+
+        self.metadata: dict[str, GeneratedQueryMetadata] = {}
+        for value in _read_jsonl(self.metadata_path):
+            item = GeneratedQueryMetadata.model_validate(value)
+            if item.query_id in self.metadata:
+                raise ValueError(
+                    f"duplicate query metadata id in {self.metadata_path}: {item.query_id}"
+                )
+            self.metadata[item.query_id] = item
+
+        self.completed_trajectories: dict[int, tuple[str, str | None]] = {}
+        for value in _read_jsonl(self.progress_path):
+            if not isinstance(value, dict) or value.get("kind") != "trajectory":
+                raise ValueError(f"invalid trajectory progress in {self.progress_path}")
+            index = value.get("selection_index")
+            source_key = value.get("source_key")
+            trajectory_id = value.get("trajectory_id")
+            if (
+                not isinstance(index, int)
+                or not isinstance(source_key, str)
+                or (trajectory_id is not None and not isinstance(trajectory_id, str))
+            ):
+                raise ValueError(f"invalid trajectory progress in {self.progress_path}")
+            self.completed_trajectories[index] = (source_key, trajectory_id)
+
+        for query_id in self.examples:
+            if query_id not in self.metadata:
+                raise ValueError(
+                    f"query={query_id} has no metadata; cannot safely resume {self.output}"
+                )
+        completed_ids = {
+            trajectory_id
+            for _source_key, trajectory_id in self.completed_trajectories.values()
+            if trajectory_id is not None
+        }
+        for query_id, item in self.metadata.items():
+            if item.trajectory_id in completed_ids and query_id not in self.examples:
+                raise ValueError(
+                    f"completed query={query_id} is missing from {self.output}"
+                )
+
+        # Queries from a partially written trajectory are deliberately excluded.
+        # Replaying its cached response can then repair either append-only file.
+        self.seen_queries = {
+            _normalized(example.query)
+            for query_id, example in self.examples.items()
+            if self.metadata[query_id].trajectory_id in completed_ids
+        }
+        self.rejection_keys = {
+            _canonical_json(value) for value in _read_jsonl(self.rejected_path)
+        }
+
+    @property
+    def query_count(self) -> int:
+        return len(self.examples)
+
+    def trajectory_is_completed(self, index: int, ref: RawTrajectoryRef) -> bool:
+        completed = self.completed_trajectories.get(index)
+        if completed is None:
+            return False
+        source_key, _trajectory_id = completed
+        if source_key != ref.key:
+            raise ValueError(
+                "resume progress does not match the deterministic source order: "
+                f"index={index} expected={ref.key} observed={source_key}"
+            )
+        return True
+
+    def _append_rejection(self, value: dict[str, object]) -> None:
+        key = _canonical_json(value)
+        if key in self.rejection_keys:
+            return
+        _append_jsonl(self.rejected_path, value)
+        self.rejection_keys.add(key)
+
+    def append_results(
+        self,
+        *,
+        examples: Sequence[AuthoringQueryRecord],
+        metadata: Sequence[GeneratedQueryMetadata],
+        rejections: Sequence[dict[str, object]],
+    ) -> None:
+        example_by_id = {example.id: example for example in examples}
+        metadata_by_id = {item.query_id: item for item in metadata}
+        if set(example_by_id) != set(metadata_by_id):
+            raise ValueError("generated query/metadata IDs do not match")
+
+        # Metadata is written first. If the process stops between files, replaying
+        # the cached trajectory response recreates the missing public query line.
+        for query_id, item in metadata_by_id.items():
+            existing = self.metadata.get(query_id)
+            if existing is not None and existing != item:
+                raise ValueError(f"conflicting metadata for query={query_id}")
+            if existing is None:
+                _append_jsonl(self.metadata_path, item)
+                self.metadata[query_id] = item
+        for query_id, example in example_by_id.items():
+            existing = self.examples.get(query_id)
+            if existing is not None and existing != example:
+                raise ValueError(f"conflicting public record for query={query_id}")
+            if existing is None:
+                _append_jsonl(self.output, example)
+                self.examples[query_id] = example
+        for rejection in rejections:
+            self._append_rejection(rejection)
+        self.seen_queries.update(
+            _normalized(example.query) for example in example_by_id.values()
+        )
+
+    def commit_trajectory(
+        self,
+        index: int,
+        ref: RawTrajectoryRef,
+        *,
+        trajectory_id: str | None,
+        status: str,
+        rejection: dict[str, object] | None = None,
+    ) -> None:
+        if self.trajectory_is_completed(index, ref):
+            return
+        if rejection is not None:
+            self._append_rejection(rejection)
+        _append_jsonl(
+            self.progress_path,
+            {
+                "kind": "trajectory",
+                "selection_index": index,
+                "source_key": ref.key,
+                "trajectory_id": trajectory_id,
+                "status": status,
+            },
+        )
+        self.completed_trajectories[index] = (ref.key, trajectory_id)
+
+
+def _state_paths(output: Path) -> tuple[Path, ...]:
+    return (
+        output,
+        output.with_suffix(output.suffix + ".metadata.jsonl"),
+        output.with_suffix(output.suffix + ".rejected.jsonl"),
+        output.with_suffix(output.suffix + ".progress.jsonl"),
+    )
+
+
+def _initialize_run_manifest(
+    output: Path,
+    *,
+    identity: dict[str, object],
+) -> None:
+    manifest_path = output.with_suffix(output.suffix + ".run.json")
+    if manifest_path.exists():
+        observed = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if observed != identity:
+            raise ValueError(
+                f"resume configuration differs from {manifest_path}; "
+                "use the original settings or a new --output"
+            )
+        return
+    if any(path.exists() and path.stat().st_size for path in _state_paths(output)):
+        raise ValueError(
+            f"existing output has no resumable run manifest: {output}; "
+            "use a new --output or remove the old authoring artifacts"
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(identity, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(manifest_path)
+
+
 def _generate_chunk(
     tasks: Sequence[PlannedTask],
     *,
@@ -805,7 +1109,7 @@ def _generate_chunk(
     api_retries: int,
     validation_retries: int,
     seen_queries: set[str],
-    queries_per_task: int = 2,
+    queries_per_task: int = 1,
 ) -> tuple[
     list[AuthoringQueryRecord],
     list[GeneratedQueryMetadata],
@@ -944,145 +1248,209 @@ def _generate_chunk(
     )
 
 
-def run(args: argparse.Namespace) -> int:
-    settings = _load_env(args.env_file) if not args.dry_run else None
-    cache_dir = args.cache_dir or args.output.parent / f".{args.output.stem}-cache"
-    examples: list[AuthoringQueryRecord] = []
-    example_metadata: list[GeneratedQueryMetadata] = []
-    rejected: list[dict[str, object]] = []
-    packets: list[dict[str, object]] = []
-    seen_queries: set[str] = set()
-    planned_total = 0
-    planned_modes: Counter[str] = Counter()
-    cache_hits = 0
+def _run_identity(
+    args: argparse.Namespace,
+    *,
+    corpus: ScannedCorpus,
+    settings: RuntimeSettings,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "prompt_version": PROMPT_VERSION,
+        "source_revision": args.source_revision,
+        "source_files": list(corpus.files),
+        "shuffle_seed": AUTHORING_SEED,
+        "per_trajectory": args.per_trajectory,
+        "tasks_per_call": args.tasks_per_call,
+        "queries_per_task": args.queries_per_task,
+        "include_call_result": args.include_call_result,
+        "model_id": settings.model_id,
+        "base_url": settings.base_url.rstrip("/"),
+    }
 
+
+def _dry_run(args: argparse.Namespace, selected: Sequence[RawTrajectoryRef]) -> int:
+    packets: list[dict[str, object]] = []
+    planned_queries = 0
+    rejected_trajectories = 0
     progress = tqdm(
-        total=args.limit,
-        desc="authoring queries" if not args.dry_run else "planning queries",
-        unit="query",
+        total=len(selected), desc="planning trajectories", unit="trajectory"
     )
     try:
-        for trajectory in iter_canonical_trajectories(
-            args.source,
-            source_revision=args.source_revision,
-            strict=False,
-        ):
-            graph = build_provenance_graph(trajectory)
+        for ref in selected:
+            try:
+                trajectory = _read_raw_trajectory(
+                    ref, source_revision=args.source_revision
+                )
+            except ValueError:
+                rejected_trajectories += 1
+                progress.update(1)
+                progress.set_postfix(
+                    planned_queries=planned_queries,
+                    rejected_trajectories=rejected_trajectories,
+                )
+                continue
             tasks = _plan_tasks(
                 trajectory,
-                graph,
-                seed=args.seed,
+                build_provenance_graph(trajectory),
+                seed=AUTHORING_SEED,
                 per_trajectory=args.per_trajectory,
                 include_call_result=args.include_call_result,
             )
-            completed = planned_total if args.dry_run else len(examples)
-            remaining = args.limit - completed
-            if remaining <= 0:
-                break
-            full_task_count = min(len(tasks), remaining // args.queries_per_task)
-            full_tasks = tasks[:full_task_count]
-            batch_specs = [
-                (chunk, args.queries_per_task)
-                for chunk in _chunks(full_tasks, args.tasks_per_call)
-            ]
-            remaining_after_full = remaining - (full_task_count * args.queries_per_task)
-            if remaining_after_full > 0 and full_task_count < len(tasks):
-                batch_specs.append(
-                    (
-                        tasks[full_task_count : full_task_count + 1],
-                        min(args.queries_per_task, remaining_after_full),
-                    )
-                )
-            planned_total += sum(
-                len(chunk) * requested_count for chunk, requested_count in batch_specs
+            for chunk in _chunks(tasks, args.tasks_per_call):
+                packets.append(_packet(chunk, queries_per_task=args.queries_per_task))
+                planned_queries += len(chunk) * args.queries_per_task
+            progress.update(1)
+            progress.set_postfix(
+                planned_queries=planned_queries,
+                rejected_trajectories=rejected_trajectories,
             )
-            for chunk, requested_count in batch_specs:
-                for task in chunk:
-                    planned_modes[task.memory_mode] += requested_count
-                if args.dry_run:
-                    packets.append(
-                        _packet(
-                            chunk,
-                            queries_per_task=requested_count,
-                        )
-                    )
-                    progress.update(len(chunk) * requested_count)
-                    continue
-                assert settings is not None
-                (
-                    new_examples,
-                    new_metadata,
-                    new_rejections,
-                    new_cache_hits,
-                ) = _generate_chunk(
+    finally:
+        progress.close()
+
+    packet_path = args.output.with_suffix(args.output.suffix + ".packets.jsonl")
+    _write_jsonl(packet_path, packets)
+    print(
+        f"selected_trajectories={len(selected)} planned_queries={planned_queries} "
+        f"rejected_trajectories={rejected_trajectories} "
+        f"packets={len(packets)} output={packet_path}"
+    )
+    return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    settings = _load_env(args.env_file) if not args.dry_run else None
+    corpus = _scan_corpus(args.source, seed=AUTHORING_SEED)
+    if args.limit > len(corpus.refs):
+        raise ValueError(
+            f"--limit={args.limit} exceeds available trajectories={len(corpus.refs)}"
+        )
+    selected = corpus.refs[: args.limit]
+    if args.dry_run:
+        return _dry_run(args, selected)
+
+    assert settings is not None
+    _initialize_run_manifest(
+        args.output,
+        identity=_run_identity(args, corpus=corpus, settings=settings),
+    )
+    outputs = IncrementalOutputs(args.output)
+    cache_dir = args.cache_dir or args.output.parent / f".{args.output.stem}-cache"
+    pending = [
+        (index, ref)
+        for index, ref in enumerate(selected)
+        if not outputs.trajectory_is_completed(index, ref)
+    ]
+    initial_queries = outputs.query_count
+    cache_hits = 0
+    rejected_trajectories = 0
+    progress = tqdm(
+        total=len(pending),
+        desc="authoring trajectories",
+        unit="trajectory",
+    )
+    progress.set_postfix(queries=outputs.query_count, cache_hits=cache_hits)
+    try:
+        for selection_index, ref in pending:
+            try:
+                trajectory = _read_raw_trajectory(
+                    ref, source_revision=args.source_revision
+                )
+            except ValueError as error:
+                rejected_trajectories += 1
+                outputs.commit_trajectory(
+                    selection_index,
+                    ref,
+                    trajectory_id=None,
+                    status="adaptation_rejected",
+                    rejection={
+                        "kind": "trajectory_rejection",
+                        "source_key": ref.key,
+                        "reason": str(error),
+                    },
+                )
+                progress.update(1)
+                progress.set_postfix(
+                    queries=outputs.query_count,
+                    cache_hits=cache_hits,
+                    rejected_trajectories=rejected_trajectories,
+                )
+                continue
+
+            tasks = _plan_tasks(
+                trajectory,
+                build_provenance_graph(trajectory),
+                seed=AUTHORING_SEED,
+                per_trajectory=args.per_trajectory,
+                include_call_result=args.include_call_result,
+            )
+            for chunk in _chunks(tasks, args.tasks_per_call):
+                examples, metadata, rejections, new_cache_hits = _generate_chunk(
                     chunk,
                     settings=settings,
                     cache_dir=cache_dir,
                     timeout=args.timeout,
                     api_retries=args.api_retries,
                     validation_retries=args.validation_retries,
-                    seen_queries=seen_queries,
-                    queries_per_task=requested_count,
+                    seen_queries=outputs.seen_queries,
+                    queries_per_task=args.queries_per_task,
                 )
-                examples.extend(new_examples)
-                example_metadata.extend(new_metadata)
-                rejected.extend(new_rejections)
                 cache_hits += new_cache_hits
-                progress.update(len(new_examples))
-                progress.set_postfix(
-                    planned=planned_total,
-                    rejected=len(rejected),
-                    cache_hits=cache_hits,
+                outputs.append_results(
+                    examples=examples,
+                    metadata=metadata,
+                    rejections=rejections,
                 )
-            if not args.dry_run and len(examples) >= args.limit:
-                break
+                progress.set_postfix(
+                    queries=outputs.query_count,
+                    cache_hits=cache_hits,
+                    rejected_trajectories=rejected_trajectories,
+                )
+            outputs.commit_trajectory(
+                selection_index,
+                ref,
+                trajectory_id=trajectory.trajectory_id,
+                status="completed" if tasks else "no_tasks",
+            )
+            progress.update(1)
+            progress.set_postfix(
+                queries=outputs.query_count,
+                cache_hits=cache_hits,
+                rejected_trajectories=rejected_trajectories,
+            )
     finally:
         progress.close()
 
-    if args.dry_run:
-        packet_path = args.output.with_suffix(args.output.suffix + ".packets.jsonl")
-        _write_jsonl(packet_path, packets)
-        mode_summary = ",".join(
-            f"{mode}={planned_modes[mode]}" for mode in _MEMORY_MODE_WEIGHTS
-        )
-        print(
-            f"wrote {len(packets)} request packets to {packet_path}; "
-            f"planned_modes={mode_summary}"
-        )
-        return 0
-
-    retained_examples = examples[: args.limit]
-    retained_ids = {example.id for example in retained_examples}
-    retained_metadata = [
-        item for item in example_metadata if item.query_id in retained_ids
-    ]
-    _write_jsonl(args.output, retained_examples)
-    metadata_path = args.output.with_suffix(args.output.suffix + ".metadata.jsonl")
-    _write_jsonl(metadata_path, retained_metadata)
-    rejected_path = args.output.with_suffix(args.output.suffix + ".rejected.jsonl")
-    _write_jsonl(rejected_path, rejected)
-    accepted_modes = Counter(item.memory_mode for item in retained_metadata)
-    mode_summary = ",".join(
-        f"{mode}={accepted_modes[mode]}" for mode in _MEMORY_MODE_WEIGHTS
-    )
     print(
-        f"planned={planned_total} accepted={len(retained_examples)} "
-        f"accepted_modes={mode_summary} rejected={len(rejected)} "
-        f"cache_hits={cache_hits} output={args.output}"
+        f"selected_trajectories={len(selected)} resumed_trajectories="
+        f"{len(selected) - len(pending)} processed_trajectories={len(pending)} "
+        f"new_queries={outputs.query_count - initial_queries} "
+        f"total_queries={outputs.query_count} cache_hits={cache_hits} "
+        f"output={args.output}"
     )
     return 0
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", default=DEFAULT_REVISION)
-    parser.add_argument("--limit", type=int, default=100)
-    parser.add_argument("--per-trajectory", type=int, default=8)
-    parser.add_argument("--tasks-per-call", type=int, default=2)
-    parser.add_argument("--queries-per-task", type=int, default=2)
-    parser.add_argument("--seed", type=int, default=13)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="number of seed-shuffled raw trajectories to process",
+    )
+    parser.add_argument("--per-trajectory", type=int, default=2)
+    parser.add_argument(
+        "--tasks-per-call",
+        "--task-per-call",
+        dest="tasks_per_call",
+        type=int,
+        default=2,
+    )
+    parser.add_argument("--queries-per-task", type=int, default=1)
     parser.add_argument("--include-call-result", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))

@@ -1,14 +1,17 @@
 # ISETrace LLM query authoring
 
-`scripts/generate_isetrace_llm_queries.py` is an offline dataset-authoring utility. It is not a Prefect experiment stage. Formal experiments must consume a frozen, manually reviewed query file from the fixed trajectory split.
+`scripts/generate_isetrace_llm_queries.py` is an offline dataset-authoring utility. It is not a Prefect experiment stage. By default it scans all raw ISETrace trajectory shards, deterministically shuffles the complete trajectory population with seed 13, and authors queries from the first `--limit` trajectories. Train/dev/test assignment happens later at the trajectory level.
 
 The authoring path is:
 
 ```text
-ISETrace JSONL
+complete raw ISETrace shards
+  -> deterministic seed-13 trajectory shuffle
+  -> first --limit trajectories
   -> deterministic task text with event handles
   -> LLM-authored query + exact evidence quotes
-  -> minimal authoring JSONL
+  -> append-only minimal authoring JSONL
+  -> later trajectory-level train/dev/test split
 ```
 
 `call_result` motifs remain excluded by default so generic tool receipts do not dominate the pool.
@@ -104,38 +107,39 @@ uv run python scripts/generate_isetrace_llm_queries.py \
   --source-revision e40e04d41c04e4eb4bae181ebdd41b61c688081b \
   --output data/isetrace/query-authoring/v7-dry-run.jsonl \
   --limit 10 \
-  --tasks-per-call 2 \
   --dry-run
 ```
 
-This writes `v7-dry-run.jsonl.packets.jsonl`. It does not read `.env` or call the network.
+This plans the first 10 seed-shuffled sample trajectories and writes `v7-dry-run.jsonl.packets.jsonl`. It does not read `.env` or call the network.
 
-## Generate a 100-query v7 pilot
+## Generate queries from 300 raw trajectories
 
-Use the frozen test trajectory split rather than resampling raw shards:
+The default `--source` is `data/isetrace/raw/trajectories`, where all eight raw shards are discovered in sorted filename order before the seed-13 shuffle:
 
 ```bash
 uv run python scripts/generate_isetrace_llm_queries.py \
-  --source data/isetrace/splits/v1/test.trajectories.jsonl \
   --source-revision e40e04d41c04e4eb4bae181ebdd41b61c688081b \
-  --output data/isetrace/query-authoring/test-minimal-pilot-v7-100.jsonl \
-  --limit 100 \
-  --per-trajectory 8 \
-  --tasks-per-call 2 \
-  --queries-per-task 2 \
+  --output data/isetrace/query-authoring/isetrace-v7-raw.jsonl \
+  --limit 300 \
   --api-retries 3 \
   --validation-retries 2 \
   --timeout 240
 ```
 
-`--limit` counts accepted query/exact-gold records, not motif tasks. With two independent queries per task, 100 accepted records normally represent 50 authoring tasks and all 100 may remain formal samples. Dataset summaries must report query, task, and trajectory counts so the within-task correlation is visible.
+`--limit` counts shuffled raw trajectories, not tasks or accepted queries. The query count is intentionally variable because a trajectory may have fewer than two eligible tasks and the model or deterministic validator may reject a task. Defaults are `--per-trajectory 2`, `--tasks-per-call 2`, and `--queries-per-task 1`. The progress bar is trajectory-based and continuously displays the current accepted-query count.
+
+Accepted records, metadata, rejections, and trajectory completion markers are appended and fsynced during the run. Reusing the same `--output` resumes the same run. For example, after completing `--limit 300`, rerunning with `--limit 3000` skips the completed first 300 shuffled trajectories and processes only the remaining 2700. `--limit` is deliberately excluded from the run identity; source digests, seed, prompt/model identity, and scientific authoring options must remain unchanged. Use a new output path when any of those inputs change.
 
 Outputs:
 
-- `test-minimal-pilot-v7-100.jsonl`: accepted four-field authoring records;
-- `test-minimal-pilot-v7-100.jsonl.metadata.jsonl`: operational query-ID to task/trajectory/stratum mapping for audit and stratified reporting; it is not gold and is not consumed as a retrieval feature;
-- `test-minimal-pilot-v7-100.jsonl.rejected.jsonl`: model and deterministic-validation rejections, including the planned memory stratum;
-- `.test-minimal-pilot-v7-100-cache/`: raw Responses payloads keyed by complete request digest.
+- `isetrace-v7-raw.jsonl`: accepted four-field authoring records, appended one record at a time;
+- `isetrace-v7-raw.jsonl.metadata.jsonl`: query-ID to task/trajectory/stratum mapping used for later trajectory-level splitting;
+- `isetrace-v7-raw.jsonl.rejected.jsonl`: model, validation, and trajectory-adaptation rejections;
+- `isetrace-v7-raw.jsonl.progress.jsonl`: durable trajectory completion ledger used for resume;
+- `isetrace-v7-raw.jsonl.run.json`: immutable run identity used to reject incompatible resume attempts;
+- `.isetrace-v7-raw-cache/`: raw Responses payloads keyed by complete request digest.
+
+An existing legacy output without the new `.run.json`/`.progress.jsonl` sidecars is not resumed automatically; choose a new output path or remove the old artifacts first.
 
 Local validation enforces only durable and auditable invariants: structured response shape, valid source handles, exact unique quote grounding, duplicate query rejection, and internal-ID leakage. Naturalness, the 12--35-word preference, substantive memory value, semantic evidence sufficiency, and non-redundancy remain prompt and review responsibilities.
 
