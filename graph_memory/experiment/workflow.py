@@ -7,6 +7,7 @@ from prefect.runtime import flow_run
 
 from graph_memory.experiment.artifacts import (
     ArtifactRef,
+    DirectorySourceRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
     identify_external_source,
@@ -423,7 +424,7 @@ def _direct_split_source(
 
 def _trajectory_source(
     config: ResolvedExperimentConfig,
-) -> FileSourceRef | None:
+) -> FileSourceRef | DirectorySourceRef | None:
     source_path = config.dataset.trajectory_source
     if source_path is None:
         return None
@@ -431,8 +432,6 @@ def _trajectory_source(
         source_path,
         repository_root=REPOSITORY_ROOT,
     )
-    if not isinstance(source, FileSourceRef):
-        raise TypeError(f"trajectory source must be a file: {source.uri}")
     return source
 
 

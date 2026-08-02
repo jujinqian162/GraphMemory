@@ -37,6 +37,15 @@ def test_isetrace_nontrain_config_is_test_only_execution_provenance() -> None:
     assert isinstance(resolved.method, ProvenancePathMethodConfig)
     assert set(resolved.dataset.splits) == {"test"}
     assert resolved.dataset.splits["test"].count is None
+    assert (
+        resolved.dataset.splits["test"].source
+        == (ROOT / "data/isetrace/query-authoring/isetrace-v7-raw.jsonl").resolve()
+    )
+    assert (
+        resolved.dataset.trajectory_source
+        == (ROOT / "data/isetrace/raw/trajectories").resolve()
+    )
+    assert resolved.dataset.strict_invalid_examples is False
     assert resolved.dataset.source_revision
 
 

@@ -97,8 +97,8 @@ def processed_store() -> ProcessedAssetStore:
 def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
-    trajectory_source: FileSourceRef | None = None,
-    implementation_version: str = "prepare-v2-isetrace",
+    trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
+    implementation_version: str = "prepare-v3-isetrace-raw-directory",
 ) -> PreparedSplitResult:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",

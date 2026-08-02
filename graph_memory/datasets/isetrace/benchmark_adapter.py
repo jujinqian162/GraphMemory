@@ -5,7 +5,10 @@ from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
 
-from graph_memory.datasets.isetrace.adapter import iter_canonical_trajectories
+from graph_memory.datasets.isetrace.adapter import (
+    ISETraceIngestionSummary,
+    iter_canonical_trajectories,
+)
 from graph_memory.datasets.isetrace.benchmark_records import (
     CombinedISETraceBenchmarkRecord,
     ISETraceLabelRecord,
@@ -59,7 +62,17 @@ def prepare_isetrace_benchmark(
 ) -> tuple[ISETracePreparedBenchmark, ISETraceBenchmarkSummary]:
     summary = ISETraceBenchmarkSummary()
     examples = _read_queries(query_source, strict=strict, summary=summary)
-    selected = sample_split(examples, count=count, seed=seed, offset=offset)
+    matched_contexts = _match_query_contexts(
+        trajectory_source,
+        examples=examples,
+        source_revision=source_revision,
+        strict=strict,
+        summary=summary,
+    )
+    valid_examples = [example for example in examples if example.id in matched_contexts]
+    summary["queries_resolved"] = len(valid_examples)
+    summary["queries_dropped"] = len(examples) - len(valid_examples)
+    selected = sample_split(valid_examples, count=count, seed=seed, offset=offset)
     summary["queries_selected"] = len(selected)
     offset_tokenizer = tokenizer or load_offset_tokenizer(chunking.tokenizer_name)
 
@@ -71,10 +84,9 @@ def prepare_isetrace_benchmark(
             overlap_tokens=chunking.overlap_tokens,
         )
 
-    trajectories, graphs, contexts = _load_contexts(
-        trajectory_source,
-        examples=selected,
-        source_revision=source_revision,
+    trajectories, graphs, contexts = _build_selected_contexts(
+        selected,
+        matched_contexts=matched_contexts,
         content_chunker=chunk_content,
     )
     flat_by_graph_id = {
@@ -174,35 +186,50 @@ def _read_queries(
     return result
 
 
-def _load_contexts(
+_SourceMapping = dict[str, tuple[str, str, str]]
+_MatchedContext = tuple[CanonicalTrajectory, _SourceMapping]
+
+
+def _match_query_contexts(
     trajectory_source: Path,
     *,
     examples: list[AuthoringQueryRecord],
     source_revision: str,
-    content_chunker,
-) -> tuple[
-    dict[str, CanonicalTrajectory],
-    dict[str, ProvenanceGraph],
-    dict[str, tuple[str, dict[str, tuple[str, str, str]]]],
-]:
-    matches_by_query: dict[
-        str, list[tuple[CanonicalTrajectory, dict[str, tuple[str, str, str]]]]
-    ] = {example.id: [] for example in examples}
+    strict: bool,
+    summary: ISETraceBenchmarkSummary,
+) -> dict[str, _MatchedContext]:
+    matches_by_query: dict[str, list[_MatchedContext]] = {
+        example.id: [] for example in examples
+    }
     examples_by_id = {example.id: example for example in examples}
     queries_by_signature: dict[tuple[object, ...], set[str]] = defaultdict(set)
+    invalid_task_ids: set[str] = set()
+    uncompilable_candidate_ids: set[str] = set()
     for example in examples:
-        queries_by_signature[_task_signature(example)].add(example.id)
+        try:
+            signature = _task_signature(example)
+        except ValueError:
+            if strict:
+                raise
+            invalid_task_ids.add(example.id)
+            summary["queries_invalid_task_text"] += 1
+            continue
+        queries_by_signature[signature].add(example.id)
 
+    ingestion = ISETraceIngestionSummary()
     for trajectory in iter_canonical_trajectories(
         trajectory_source,
         source_revision=source_revision,
         strict=False,
+        summary=ingestion,
     ):
         intents = tuple(intent.text for intent in trajectory.intents)
         outputs = {output.call_id: output for output in trajectory.tool_outputs}
         candidate_ids: set[str] = set()
         for call in trajectory.tool_calls:
-            output = outputs[call.call_id]
+            output = outputs.get(call.call_id)
+            if output is None:
+                continue
             candidate_ids.update(
                 queries_by_signature.get(
                     (intents, call.raw_arguments, output.content), ()
@@ -210,29 +237,61 @@ def _load_contexts(
             )
         for query_id in candidate_ids:
             mapping = _match_task_text(examples_by_id[query_id], trajectory)
-            if mapping is not None:
+            if mapping is None:
+                uncompilable_candidate_ids.add(query_id)
+            else:
                 matches_by_query[query_id].append((trajectory, mapping))
 
+    summary["trajectories_seen"] = ingestion.records_seen
+    summary["trajectories_accepted"] = ingestion.records_accepted
+    summary["trajectories_rejected"] = ingestion.records_rejected
+    for reason, value in ingestion.rejection_reasons.items():
+        summary[f"trajectory_rejected_{reason}"] = value
+
     missing = sorted(
-        query_id for query_id, values in matches_by_query.items() if not values
+        query_id
+        for query_id, values in matches_by_query.items()
+        if query_id not in invalid_task_ids and not values
     )
     ambiguous = {
         query_id: [trajectory.trajectory_id for trajectory, _ in values]
         for query_id, values in matches_by_query.items()
         if len(values) > 1
     }
-    if missing:
+    if strict and missing:
         raise ValueError(f"ISETrace v7 queries do not match a trajectory: {missing}")
-    if ambiguous:
+    if strict and ambiguous:
         raise ValueError(
             f"ISETrace v7 queries match multiple trajectories: {ambiguous}"
         )
+    uncompilable = {
+        query_id for query_id in missing if query_id in uncompilable_candidate_ids
+    }
+    summary["queries_uncompilable"] = len(uncompilable)
+    summary["queries_unmatched"] = len(set(missing) - uncompilable)
+    summary["queries_ambiguous"] = len(ambiguous)
+    return {
+        query_id: values[0]
+        for query_id, values in matches_by_query.items()
+        if len(values) == 1
+    }
 
+
+def _build_selected_contexts(
+    examples: list[AuthoringQueryRecord],
+    *,
+    matched_contexts: dict[str, _MatchedContext],
+    content_chunker,
+) -> tuple[
+    dict[str, CanonicalTrajectory],
+    dict[str, ProvenanceGraph],
+    dict[str, tuple[str, _SourceMapping]],
+]:
     trajectories: dict[str, CanonicalTrajectory] = {}
     graphs: dict[str, ProvenanceGraph] = {}
-    contexts: dict[str, tuple[str, dict[str, tuple[str, str, str]]]] = {}
-    for query_id, values in matches_by_query.items():
-        trajectory, mapping = values[0]
+    contexts: dict[str, tuple[str, _SourceMapping]] = {}
+    for example in examples:
+        trajectory, mapping = matched_contexts[example.id]
         graph = graphs.get(trajectory.trajectory_id)
         if graph is None:
             graph = build_provenance_graph(
@@ -241,7 +300,7 @@ def _load_contexts(
             )
             trajectories[trajectory.trajectory_id] = trajectory
             graphs[graph.graph_id] = graph
-        contexts[query_id] = (graph.graph_id, mapping)
+        contexts[example.id] = (graph.graph_id, mapping)
     return trajectories, graphs, contexts
 
 

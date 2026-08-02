@@ -130,3 +130,32 @@ def test_streaming_iteration_keeps_compact_rejection_counts(tmp_path: Path) -> N
     }
     assert summary.tool_calls == 5
     assert summary.tool_outputs == 5
+
+
+def test_streaming_iteration_accepts_raw_directory_and_shards(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    shards = raw_root / "trajectories"
+    shards.mkdir(parents=True)
+    first = isetrace_record()
+    first["session_id"] = "traj_first"
+    second = isetrace_record()
+    second["session_id"] = "traj_second"
+    (shards / "trajectories-00001.jsonl").write_text(
+        json.dumps(second) + "\n", encoding="utf-8"
+    )
+    (shards / "trajectories-00000.jsonl").write_text(
+        json.dumps(first) + "\n", encoding="utf-8"
+    )
+
+    trajectories = list(
+        iter_canonical_trajectories(
+            raw_root,
+            source_revision=REVISION,
+            strict=True,
+        )
+    )
+
+    assert [item.trajectory_id for item in trajectories] == [
+        "traj_first",
+        "traj_second",
+    ]

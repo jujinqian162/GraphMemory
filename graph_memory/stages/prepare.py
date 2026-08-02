@@ -42,6 +42,7 @@ from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPublisher,
     DatasetArtifactRef,
+    DirectorySourceRef,
     FileSourceRef,
     ProcessedAssetStore,
 )
@@ -124,7 +125,7 @@ def materialize_prepared_split(
     dataset: DatasetName,
     split: SplitName,
     source: FileSourceRef,
-    trajectory_source: FileSourceRef | None = None,
+    trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
     count: int | None,
     seed: int,
     offset: int,

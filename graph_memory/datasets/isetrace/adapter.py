@@ -264,41 +264,69 @@ def iter_canonical_trajectories(
     active_summary = summary or ISETraceIngestionSummary()
     sources = (paths,) if isinstance(paths, (str, Path)) else paths
     for source in sources:
-        path = Path(source)
-        with path.open("r", encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                if not line.strip():
-                    continue
-                active_summary.records_seen += 1
-                try:
-                    record = _RECORD_ADAPTER.validate_json(line)
-                    trajectory = adapt_isetrace_record(
-                        record,
-                        source_revision=source_revision,
-                        summary=active_summary,
-                    )
-                except ValidationError as error:
-                    reason = (
-                        "invalid_json"
-                        if any(
-                            issue["type"] == "json_invalid"
-                            for issue in error.errors()
-                        )
-                        else "raw_schema"
-                    )
-                    active_summary.reject(reason)
-                    if strict:
-                        raise ValueError(
-                            f"invalid ISETrace input at {path}:{line_number}: {error}"
-                        ) from error
-                    continue
-                except ISETraceAdaptationError as error:
-                    active_summary.reject(error.code)
-                    if strict:
-                        raise
-                    continue
-                active_summary.records_accepted += 1
-                yield trajectory
+        for path in _trajectory_source_files(Path(source)):
+            yield from _iter_canonical_trajectory_file(
+                path,
+                source_revision=source_revision,
+                strict=strict,
+                summary=active_summary,
+            )
+
+
+def _trajectory_source_files(source: Path) -> tuple[Path, ...]:
+    if source.is_file():
+        return (source,)
+    if not source.is_dir():
+        raise FileNotFoundError(f"ISETrace trajectory source does not exist: {source}")
+    root = source / "trajectories"
+    if not root.is_dir():
+        root = source
+    files = tuple(sorted(path for path in root.rglob("*.jsonl") if path.is_file()))
+    if not files:
+        raise FileNotFoundError(
+            f"ISETrace trajectory directory contains no JSONL shards: {source}"
+        )
+    return files
+
+
+def _iter_canonical_trajectory_file(
+    path: Path,
+    *,
+    source_revision: str,
+    strict: bool,
+    summary: ISETraceIngestionSummary,
+) -> Iterator[CanonicalTrajectory]:
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            summary.records_seen += 1
+            try:
+                record = _RECORD_ADAPTER.validate_json(line)
+                trajectory = adapt_isetrace_record(
+                    record,
+                    source_revision=source_revision,
+                    summary=summary,
+                )
+            except ValidationError as error:
+                reason = (
+                    "invalid_json"
+                    if any(issue["type"] == "json_invalid" for issue in error.errors())
+                    else "raw_schema"
+                )
+                summary.reject(reason)
+                if strict:
+                    raise ValueError(
+                        f"invalid ISETrace input at {path}:{line_number}: {error}"
+                    ) from error
+                continue
+            except ISETraceAdaptationError as error:
+                summary.reject(error.code)
+                if strict:
+                    raise
+                continue
+            summary.records_accepted += 1
+            yield trajectory
 
 
 __all__ = [

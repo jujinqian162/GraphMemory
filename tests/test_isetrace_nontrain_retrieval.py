@@ -327,6 +327,64 @@ def test_v7_benchmark_reuses_graph_and_keeps_one_span_gold(tmp_path: Path) -> No
     assert summary["path_supported_tasks"] == 0
 
 
+def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
+    tmp_path: Path,
+) -> None:
+    raw = isetrace_record()
+    duplicate_arguments = json.dumps(
+        {"path": "/workspace/report.md", "content": "draft"}
+    )
+    set_call_arguments(
+        raw,
+        message_index=7,
+        call_index=0,
+        value=duplicate_arguments,
+    )
+    set_tool_output_content(
+        raw,
+        message_index=8,
+        value="Successfully wrote /workspace/report.md",
+    )
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    raw_root = tmp_path / "raw"
+    shards = raw_root / "trajectories"
+    shards.mkdir(parents=True)
+    (shards / "trajectories-00000.jsonl").write_text(
+        json.dumps(raw) + "\n", encoding="utf-8"
+    )
+    examples = (
+        _v7_example(trajectory, query_id="query:ambiguous", sources=("c1",)),
+        _v7_example(trajectory, query_id="query:valid", sources=("c2",)),
+    )
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(
+        "".join(item.model_dump_json() + "\n" for item in examples),
+        encoding="utf-8",
+    )
+
+    benchmark, summary = prepare_isetrace_benchmark(
+        query_path,
+        raw_root,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=False,
+        chunking=_TEST_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+    )
+
+    assert [item.task_id for item in benchmark.rankings] == ["query:valid"]
+    assert summary["queries_seen"] == 2
+    assert summary["queries_resolved"] == 1
+    assert summary["queries_dropped"] == 1
+    assert summary["queries_uncompilable"] == 1
+    assert summary["queries_unmatched"] == 0
+    assert summary["trajectories_seen"] == 1
+
+
 def test_v7_argument_quote_is_valid_gold(tmp_path: Path) -> None:
     raw = isetrace_record()
     trajectory = adapt_isetrace_record(

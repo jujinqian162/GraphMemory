@@ -1,6 +1,8 @@
 name: isetrace
-strict_invalid_examples: true
-trajectory_source: data/isetrace/splits/v1/test.trajectories.jsonl
+# Generated authoring candidates that cannot be compiled to one exact raw event
+# are excluded during preparation and reported in the prepared artifact counts.
+strict_invalid_examples: false
+trajectory_source: data/isetrace/raw/trajectories
 source_revision: e40e04d41c04e4eb4bae181ebdd41b61c688081b
 chunking:
   tokenizer_name: models/intfloat-e5-base-v2
@@ -11,5 +13,5 @@ chunking:
 splits:
   test:
     kind: raw
-    source: data/isetrace/query-authoring/test-minimal-pilot-v7-3000.jsonl
+    source: data/isetrace/query-authoring/isetrace-v7-raw.jsonl
     offset: 0
