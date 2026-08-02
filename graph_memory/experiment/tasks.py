@@ -99,7 +99,7 @@ def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
-    implementation_version: str = "prepare-v4-isetrace-grouped-corpus",
+    implementation_version: str = "prepare-v5-skip-unlabelled-templates",
 ) -> PreparedSplitResult:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",

@@ -109,6 +109,51 @@ def test_template_renderer_uses_existing_motifs_and_focused_output_content() -> 
     assert record == render_template_supervision(graph, motif, target)
 
 
+def test_template_enumeration_skips_targets_with_empty_focused_outputs() -> None:
+    _trajectory, graph, motifs = _trajectory_graph_and_motifs()
+    motif, target = next(
+        (motif, target)
+        for motif in motifs
+        if motif.motif_type == "artifact_lifecycle"
+        for target in motif.targets
+        if len(target.focus_output_ids) == 1
+    )
+    focused_output_id = target.focus_output_ids[0]
+    removed_node_ids = {
+        edge.target
+        for edge in graph.edges
+        if edge.relation == HAS_CONTENT_EDGE and edge.source == focused_output_id
+    }
+    assert removed_node_ids
+    graph_with_empty_output = graph.model_copy(
+        update={
+            "nodes": tuple(
+                node for node in graph.nodes if node.node_id not in removed_node_ids
+            ),
+            "edges": tuple(
+                edge
+                for edge in graph.edges
+                if edge.source not in removed_node_ids
+                and edge.target not in removed_node_ids
+            ),
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="template focused outputs have no output-content candidates",
+    ):
+        _ = render_template_supervision(graph_with_empty_output, motif, target)
+
+    records = enumerate_template_supervision((graph_with_empty_output,))
+
+    assert records
+    assert all(
+        focused_output_id not in record.focus_output_ids for record in records
+    )
+    assert records == enumerate_template_supervision((graph_with_empty_output,))
+
+
 def test_template_queries_do_not_leak_internal_graph_or_hidden_identifiers() -> None:
     _trajectory, graph, _motifs = _trajectory_graph_and_motifs()
     records = enumerate_template_supervision((graph,))

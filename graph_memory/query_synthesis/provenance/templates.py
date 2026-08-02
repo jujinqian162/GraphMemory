@@ -24,6 +24,10 @@ _ELIGIBLE_TEMPLATE_MOTIFS = frozenset(
 _SAFE_SPACE = re.compile(r"\s+")
 
 
+class _MissingFocusedOutputContent(ValueError):
+    """A valid motif target cannot provide source-backed template labels."""
+
+
 def render_template_supervision(
     graph: ProvenanceGraph,
     motif: MotifSpec,
@@ -41,16 +45,23 @@ def render_template_supervision(
         node = node_by_id.get(output_id)
         if node is None or node.kind != TOOL_OUTPUT_NODE:
             raise ValueError(f"template participant={output_id!r} is not a ToolOutput")
+    candidate_ids_by_output: dict[str, list[str]] = {
+        output_id: [] for output_id in target.focus_output_ids
+    }
+    for edge in graph.edges:
+        if edge.relation == HAS_CONTENT_EDGE and edge.source in candidate_ids_by_output:
+            candidate_ids_by_output[edge.source].append(edge.target)
+    if any(not candidate_ids for candidate_ids in candidate_ids_by_output.values()):
+        raise _MissingFocusedOutputContent(
+            "template focused outputs have no output-content candidates"
+        )
     positive_candidate_ids = tuple(
         sorted(
-            edge.target
-            for edge in graph.edges
-            if edge.relation == HAS_CONTENT_EDGE
-            and edge.source in set(target.focus_output_ids)
+            candidate_id
+            for candidate_ids in candidate_ids_by_output.values()
+            for candidate_id in candidate_ids
         )
     )
-    if not positive_candidate_ids:
-        raise ValueError("template focused outputs have no output-content candidates")
 
     query_text = _render_query(graph, motif, target)
     identity = "\0".join(
@@ -88,7 +99,12 @@ def enumerate_template_supervision(
             if motif.motif_type not in _ELIGIBLE_TEMPLATE_MOTIFS:
                 continue
             for target in sorted(motif.targets, key=lambda item: item.query_intent):
-                record = render_template_supervision(graph, motif, target)
+                try:
+                    record = render_template_supervision(graph, motif, target)
+                except _MissingFocusedOutputContent:
+                    # Empty tool outputs are valid source data but cannot supervise
+                    # output-content retrieval, so omit only the unusable target.
+                    continue
                 semantic_key = (
                     record.graph_id,
                     record.query_text,
