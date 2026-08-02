@@ -5,9 +5,9 @@ Two retrieval domains, no cross-projection:
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Provenance | ISETrace natural-query pilot | BM25, Dense, GraphRAG, provenance path (all non-training) |
+| Provenance | ISETrace natural-query pilot | BM25, Dense, GraphRAG, provenance path, Provenance R-GCN |
 
-`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private text-derived entity graph. ISETrace provides canonical ordered trajectories, query-independent provenance graphs, schema-derived queries, and a test-only non-training workflow. BM25, Dense, and GraphRAG receive identical ToolOutput text candidates; `provenance_path` alone consumes the native graph and completes bounded logical dependencies without training. The committed 100-query config explicitly permits unreviewed records for engineering pilot runs and is not formal paper gold. See [`docs/40-operations/isetrace-nontrain-retrieval.md`](docs/40-operations/isetrace-nontrain-retrieval.md), [`docs/40-operations/isetrace-split.md`](docs/40-operations/isetrace-split.md), and [`docs/40-operations/isetrace-query-authoring.md`](docs/40-operations/isetrace-query-authoring.md).
+`EvidenceGraph` feeds only the evidence R-GCN methods. GraphRAG builds a private text-derived entity graph. ISETrace provides canonical ordered trajectories, query-independent `ProvenanceGraph` records, trajectory-grouped natural-query splits, and deterministic train/dev template supervision. BM25, Dense, and GraphRAG retain their non-training flat boundary; `provenance_path` and `provenance_rgcn` consume native provenance content candidates. `provenance_rgcn` reuses the maintained R-GCN encoder/training/checkpoint stack and evaluates only the natural test split. Generated natural queries remain unreviewed engineering data until separately reviewed and frozen, so no formal paper result is claimed. See [`docs/40-operations/isetrace-provenance-rgcn.md`](docs/40-operations/isetrace-provenance-rgcn.md), [`docs/40-operations/isetrace-nontrain-retrieval.md`](docs/40-operations/isetrace-nontrain-retrieval.md), and [`docs/40-operations/isetrace-query-authoring.md`](docs/40-operations/isetrace-query-authoring.md).
 
 ## Quick start
 

@@ -21,6 +21,8 @@ from graph_memory.registry.retrieval import (
     GraphRAGRetrievalSettings,
     ProvenancePathBuildPayload,
     ProvenancePathRetrievalSettings,
+    ProvenanceRgcnBuildPayload,
+    ProvenanceRgcnRetrievalSettings,
     RetrievalBuilderSpec,
     RetrievalMethodId,
     RetrievalProvenance,
@@ -44,6 +46,7 @@ from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
     GraphRAGKnowledgeGraph,
     ProvenancePathRequest,
+    ProvenanceRgcnRequest,
     TextRankingRequest,
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
@@ -86,6 +89,13 @@ def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegist
                 ProvenancePathBuildPayload,
                 lambda settings, deps: _build_provenance_path(
                     cast(ProvenancePathRetrievalSettings, settings), deps
+                ),
+            ),
+            ProvenanceRgcnRetrievalSettings: RetrievalBuilderSpec(
+                ProvenanceRgcnRetrievalSettings,
+                ProvenanceRgcnBuildPayload,
+                lambda settings, deps: _build_provenance_rgcn(
+                    cast(ProvenanceRgcnRetrievalSettings, settings), deps
                 ),
             ),
             EvidenceRgcnRetrievalSettings: RetrievalBuilderSpec(
@@ -311,6 +321,81 @@ def _build_provenance_path(
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,
+        execution_tasks=execution_tasks,
+    )
+
+
+def _build_provenance_rgcn(
+    settings: ProvenanceRgcnRetrievalSettings,
+    payload: object,
+) -> BuiltRetrievalMethod:
+    from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
+    from graph_memory.models.graph_retriever.text_embeddings import (
+        DenseGraphFeatureProvider,
+    )
+    from graph_memory.retrieval.methods.trainable_graph import (
+        ProvenanceRgcnRetrievalMethod,
+    )
+
+    build_payload = cast(ProvenanceRgcnBuildPayload, payload)
+    checkpoint = load_rgcn_checkpoint(
+        settings.checkpoint,
+        expected_method=RetrievalMethodId.PROVENANCE_RGCN,
+        map_location=settings.device,
+    )
+    provider = build_payload.text_embedding_provider
+    if provider is None:
+        provider = DenseGraphFeatureProvider(
+            model_name=checkpoint.model_config.encoder_model,
+            query_prefix=checkpoint.model_config.query_prefix,
+            passage_prefix=checkpoint.model_config.passage_prefix,
+            batch_size=checkpoint.model_config.encoder_batch_size,
+            device=settings.device,
+            encoder=cast(SentenceEncoder | None, build_payload.dense_encoder),
+        )
+    method = ProvenanceRgcnRetrievalMethod.from_checkpoint(
+        settings.checkpoint,
+        text_embedding_provider=provider,
+        device=settings.device,
+    )
+    graph_by_id = {graph.graph_id: graph for graph in build_payload.provenance_graphs}
+    if len(graph_by_id) != len(build_payload.provenance_graphs):
+        raise ValueError("provenance R-GCN graph IDs must be unique")
+    request_ids = {request.task_id for request in build_payload.text_requests}
+    if set(build_payload.graph_ids_by_task_id) != request_ids:
+        raise ValueError("provenance R-GCN task-to-graph bindings must cover requests")
+    execution_tasks: list[RetrievalExecutionTask] = []
+    for request in build_payload.text_requests:
+        graph_id = build_payload.graph_ids_by_task_id[request.task_id]
+        try:
+            graph = graph_by_id[graph_id]
+        except KeyError as error:
+            raise ValueError(
+                f"provenance R-GCN task={request.task_id} references "
+                f"missing graph={graph_id}"
+            ) from error
+        execution_tasks.append(
+            RetrievalExecutionTask(
+                text_request=request,
+                method_request=ProvenanceRgcnRequest(
+                    task_id=request.task_id,
+                    query_text=request.query_text,
+                    candidates=request.candidates,
+                    graph=graph,
+                ),
+            )
+        )
+    return _built(
+        method,
+        method=settings.method,
+        model=settings.checkpoint,
+        device=settings.device,
+        encoder=DenseEncoderSettings(
+            model_name=checkpoint.model_config.encoder_model,
+            query_prefix=checkpoint.model_config.query_prefix,
+            passage_prefix=checkpoint.model_config.passage_prefix,
+            batch_size=checkpoint.model_config.encoder_batch_size,
+        ),
         execution_tasks=execution_tasks,
     )
 

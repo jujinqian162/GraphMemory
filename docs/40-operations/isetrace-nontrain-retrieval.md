@@ -1,6 +1,6 @@
 # ISETrace v7 non-training retrieval
 
-This workflow evaluates the four-field v7 authoring records against the pinned ISETrace trajectories. It does not train a model.
+This workflow evaluates the derived natural-only test split of the four-field v7 authoring corpus against pinned ISETrace trajectories. It does not build pairs or train a model.
 
 ## Input and gold
 
@@ -36,7 +36,7 @@ data/isetrace/query-authoring/isetrace-v7-raw.jsonl
 data/isetrace/raw/trajectories/
 ```
 
-For another authoring file, override only `dataset.splits.test.source`. The raw directory remains the dataset default; `dataset.trajectory_source` also accepts either the raw root or its `trajectories/` directory.
+For another authoring file, override `dataset.natural_query_source`. `dataset.trajectory_source` remains the registered raw root or trajectory directory. The same trajectory-grouped `queries.split_ratio` derives test; non-training methods schedule only that prepared test split and ignore train/dev template mixture settings.
 
 Smoke runs:
 

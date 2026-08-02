@@ -6,6 +6,12 @@ from typing import cast
 from pydantic import JsonValue, TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.graphs.provenance import ProvenanceGraph
+from graph_memory.datasets.isetrace.benchmark_records import (
+    ISETraceLabelRecord,
+    ISETraceRankingRecord,
+)
+from graph_memory.datasets.isetrace.training import adapt_provenance_training_split
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     text_ranking_requests_for_dataset,
@@ -29,6 +35,10 @@ from graph_memory.experiment.config import (
     PairSamplingConfig,
 )
 from graph_memory.io import read_json, write_json
+from graph_memory.models.graph_retriever.provenance import provenance_train_pair_task
+from graph_memory.query_synthesis.provenance.contracts import (
+    TemplateSupervisionRecord,
+)
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.stages.results import TrainingPairsResult
 from graph_memory.training_pairs import build_train_pairs
@@ -38,6 +48,10 @@ from graph_memory.training_pairs.requests import TrainPairBuildTask
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
+PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
+ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
+ISETRACE_LABELS_ADAPTER = TypeAdapter(list[ISETraceLabelRecord])
+TEMPLATE_SUPERVISION_ADAPTER = TypeAdapter(list[TemplateSupervisionRecord])
 
 
 def build_training_pair_data(
@@ -66,8 +80,29 @@ def build_training_pair_data(
         encoder_source=encoder_source,
         device=config.device,
     )
+    provenance_graphs = (
+        PROVENANCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(prepared, "provenance_graphs"))
+        )
+        if dataset == "isetrace"
+        else []
+    )
+    template_supervision = (
+        TEMPLATE_SUPERVISION_ADAPTER.validate_python(
+            read_json(artifact_payload_path(prepared, "template_supervision"))
+        )
+        if dataset == "isetrace"
+        else []
+    )
     result = build_train_pairs(
-        _pair_tasks(dataset, tasks, labels, graphs),
+        _pair_tasks(
+            dataset,
+            tasks,
+            labels,
+            graphs,
+            provenance_graphs=provenance_graphs,
+            template_supervision=template_supervision,
+        ),
         config.sampling,
         dense_config=dense_config,
         progress_desc="build training pairs",
@@ -127,7 +162,24 @@ def _pair_tasks(
     task_inputs: list[Mapping[str, object]],
     labels: list[object],
     graphs: list[EvidenceGraph],
+    *,
+    provenance_graphs: list[ProvenanceGraph],
+    template_supervision: list[TemplateSupervisionRecord],
 ) -> list[TrainPairBuildTask]:
+    if dataset == "isetrace":
+        rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
+        isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
+        requests, compiled_labels = adapt_provenance_training_split(
+            rankings,
+            isetrace_labels,
+            provenance_graphs,
+            template_supervision,
+        )
+        return [
+            provenance_train_pair_task(request, label)
+            for request, label in zip(requests, compiled_labels, strict=True)
+        ]
+
     text_requests = {
         request.task_id: request
         for request in text_ranking_requests_for_dataset(dataset, task_inputs)

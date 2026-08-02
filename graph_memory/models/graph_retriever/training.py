@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from time import perf_counter
@@ -29,7 +30,10 @@ from graph_memory.models.graph_retriever.config.records import (
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.dev_evaluation import predict_dev_from_batches
 from graph_memory.models.graph_retriever.factory import build_model_from_config
+from graph_memory.models.graph_retriever.internals.contracts import TrainingBatch
+from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
 from graph_memory.models.graph_retriever.selection import (
+    RgcnSelectionMetric,
     RgcnSelectionSettings,
     build_selection_metrics,
     is_selection_improvement,
@@ -41,6 +45,19 @@ from graph_memory.retrieval.signals import SeedSignalProvider
 
 MetricRecord: TypeAlias = dict[str, object]
 CheckpointCallback: TypeAlias = Callable[["RgcnTrainingResult"], None]
+
+
+@dataclass(frozen=True)
+class RgcnDevEpochEvaluation:
+    dev_loss: float
+    selection_metrics: Mapping[RgcnSelectionMetric, float]
+    metric_records: MetricRecord
+
+
+DevEvaluationCallback: TypeAlias = Callable[
+    [EvidenceScoringModel, Iterable[TrainingBatch], torch.device],
+    RgcnDevEpochEvaluation,
+]
 
 
 @dataclass(frozen=True)
@@ -103,11 +120,6 @@ def train_graph_retriever(
     dev_labels = list(validated_dev.labels)
     dev_graphs = list(validated_dev.graphs)
 
-    _ = torch.manual_seed(training_config.random_seed)
-    device = torch.device(device)
-    model = build_model_from_config(model_config).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=training_config.learning_rate)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
     train_tasks = materialize_training_tasks(
         ranking_requests=train_requests,
         graphs=train_graphs,
@@ -130,6 +142,84 @@ def train_graph_retriever(
         labels=dev_labels,
         progress_desc="evidence-rgcn dev tensors",
     )
+
+    def evaluate_dev_epoch(
+        model: EvidenceScoringModel,
+        batches: Iterable[TrainingBatch],
+        eval_device: torch.device,
+    ) -> RgcnDevEpochEvaluation:
+        dev_predictions, dev_loss = predict_dev_from_batches(
+            model=model,
+            ranking_requests=dev_requests,
+            labels=dev_labels,
+            graphs=dev_graphs,
+            model_config=model_config,
+            batches=batches,
+            device=eval_device,
+        )
+        dev_rows = evaluate_results(
+            EvidenceEvaluationRequest(
+                predictions=tuple(dev_predictions),
+                labels=tuple(dev_labels),
+                graphs=tuple(dev_graphs),
+            )
+        )
+        dev_row = dev_rows[0]
+        return RgcnDevEpochEvaluation(
+            dev_loss=dev_loss,
+            selection_metrics=build_selection_metrics(
+                dev_full_support_at_5=dev_row.full_support_at_5,
+                dev_full_support_at_10=dev_row.full_support_at_10,
+                dev_recall_at_5=dev_row.recall_at_5,
+                dev_mrr=dev_row.mrr,
+                dev_loss=dev_loss,
+            ),
+            metric_records={
+                "dev_recall_at_5": dev_row.recall_at_5,
+                "dev_full_support_at_5": dev_row.full_support_at_5,
+                "dev_full_support_at_10": dev_row.full_support_at_10,
+                "dev_mrr": dev_row.mrr,
+            },
+        )
+
+    return train_materialized_graph_retriever(
+        train_tasks=train_tasks,
+        dev_tasks=dev_tasks,
+        train_pairs=train_pairs,
+        model_config=model_config,
+        training_config=training_config,
+        dev_evaluation_callback=evaluate_dev_epoch,
+        selection_settings=selection_settings,
+        checkpoint_callback=checkpoint_callback,
+        device=device,
+        progress_desc="evidence-rgcn epochs",
+    )
+
+
+def train_materialized_graph_retriever(
+    *,
+    train_tasks: list[EvidenceTaskTensor],
+    dev_tasks: list[EvidenceTaskTensor],
+    train_pairs: list[TrainPairRecord],
+    model_config: RgcnModelConfig,
+    training_config: RgcnTrainingConfig,
+    dev_evaluation_callback: DevEvaluationCallback,
+    selection_settings: RgcnSelectionSettings = RgcnSelectionSettings(),
+    checkpoint_callback: CheckpointCallback | None = None,
+    device: str | torch.device,
+    progress_desc: str = "rgcn epochs",
+) -> RgcnTrainingResult:
+    """Run the shared optimizer, batching, dev-selection, and result loop."""
+
+    if not train_tasks:
+        raise ValueError("Training requires at least one supervised task tensor.")
+    if not dev_tasks:
+        raise ValueError("Dev selection requires at least one ranking task tensor.")
+    _ = torch.manual_seed(training_config.random_seed)
+    run_device = torch.device(device)
+    model = build_model_from_config(model_config).to(run_device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=training_config.learning_rate)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
     train_loader = build_evidence_dataloader(
         train_tasks,
         per_device_graph_batch_size=training_config.per_device_graph_batch_size,
@@ -144,7 +234,9 @@ def train_graph_retriever(
     )
 
     pos_weight = (
-        _pos_weight(train_pairs, device) if training_config.pos_weight_enabled else None
+        _pos_weight(train_pairs, run_device)
+        if training_config.pos_weight_enabled
+        else None
     )
     metric_records: list[MetricRecord] = []
     best_metric = float("-inf") if selection_settings.higher_is_better else float("inf")
@@ -171,11 +263,11 @@ def train_graph_retriever(
 
     for epoch in tqdm(
         range(1, training_config.epochs + 1),
-        desc="evidence-rgcn epochs",
+        desc=progress_desc,
         unit="epoch",
     ):
         model.train()
-        _reset_peak_memory(device)
+        _reset_peak_memory(run_device)
         train_started_at = perf_counter()
         train_loss_total = 0.0
         train_sample_count = 0
@@ -184,7 +276,7 @@ def train_graph_retriever(
         last_grad_norm = 0.0
         for batch in train_loader:
             optimizer.zero_grad()
-            moved_batch = move_training_batch(batch, device)
+            moved_batch = move_training_batch(batch, run_device)
             logits = model(moved_batch)
             loss_sum = F.binary_cross_entropy_with_logits(
                 logits,
@@ -213,35 +305,14 @@ def train_graph_retriever(
                 else grad_norm
             )
         train_elapsed_seconds = perf_counter() - train_started_at
-        train_peak_device_memory_bytes = _peak_memory(device)
-        _reset_peak_memory(device)
+        train_peak_device_memory_bytes = _peak_memory(run_device)
+        _reset_peak_memory(run_device)
 
-        dev_predictions, dev_loss = predict_dev_from_batches(
-            model=model,
-            ranking_requests=dev_requests,
-            labels=dev_labels,
-            graphs=dev_graphs,
-            model_config=model_config,
-            batches=dev_loader,
-            device=device,
+        dev_evaluation = dev_evaluation_callback(model, dev_loader, run_device)
+        dev_peak_device_memory_bytes = _peak_memory(run_device)
+        dev_metric = resolve_selection_metric(
+            dev_evaluation.selection_metrics, selection_settings
         )
-        dev_peak_device_memory_bytes = _peak_memory(device)
-        dev_rows = evaluate_results(
-            EvidenceEvaluationRequest(
-                predictions=tuple(dev_predictions),
-                labels=tuple(dev_labels),
-                graphs=tuple(dev_graphs),
-            )
-        )
-        dev_row = dev_rows[0]
-        selection_metrics = build_selection_metrics(
-            dev_full_support_at_5=dev_row.full_support_at_5,
-            dev_full_support_at_10=dev_row.full_support_at_10,
-            dev_recall_at_5=dev_row.recall_at_5,
-            dev_mrr=dev_row.mrr,
-            dev_loss=dev_loss,
-        )
-        dev_metric = resolve_selection_metric(selection_metrics, selection_settings)
         if is_selection_improvement(
             current=dev_metric,
             best=best_metric,
@@ -283,11 +354,8 @@ def train_graph_retriever(
                 "train_loss": train_loss_total / train_sample_count
                 if train_sample_count
                 else 0.0,
-                "dev_loss": dev_loss,
-                "dev_recall_at_5": dev_row.recall_at_5,
-                "dev_full_support_at_5": dev_row.full_support_at_5,
-                "dev_full_support_at_10": dev_row.full_support_at_10,
-                "dev_mrr": dev_row.mrr,
+                "dev_loss": dev_evaluation.dev_loss,
+                **dev_evaluation.metric_records,
                 "selection_metric": selection_settings.best_metric,
                 "selection_metric_value": dev_metric,
                 "best_dev_metric": best_metric,

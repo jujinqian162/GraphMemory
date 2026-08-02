@@ -52,6 +52,22 @@ def test_train_and_dev_keep_using_training_seed() -> None:
     assert _prepare_config(config, "dev").seed == 41
 
 
+def test_isetrace_allocation_uses_split_seed_for_every_derived_split() -> None:
+    config_a = _resolved("dataset=isetrace", "seed=13", "split_seed=41")
+    config_b = _resolved("dataset=isetrace", "seed=29", "split_seed=41")
+
+    for split in ("train", "dev", "test"):
+        prepare_a = _prepare_config(config_a, split)
+        prepare_b = _prepare_config(config_b, split)
+        assert prepare_a.seed == prepare_b.seed == 41
+        assert prepare_a.split_ratio == prepare_b.split_ratio
+        assert prepare_a.split_ratio is not None
+        if split == "test":
+            assert prepare_a.mix_ratio is None
+        else:
+            assert prepare_a.mix_ratio is not None
+
+
 def test_split_seed_defaults_to_thirteen() -> None:
     config = _resolved("seed=41")
     assert config.split_seed == 13

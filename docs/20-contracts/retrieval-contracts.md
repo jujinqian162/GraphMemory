@@ -8,6 +8,7 @@
 | `GraphRAGRequest` | GraphRAG |
 | `EvidenceGraphRankingRequest` | Dense R-GCN, Dense-FT R-GCN |
 | `ProvenancePathRequest` | training-free provenance path |
+| `ProvenanceRgcnRequest` | trainable provenance R-GCN |
 
 No generic graph request. Cross-domain routing is rejected at Registry validation.
 
@@ -20,10 +21,11 @@ No generic graph request. Cross-domain routing is rejected at Registry validatio
 | `dense_ft` | text | evidence | encoder |
 | `graphrag` | GraphRAG | evidence, execution provenance | no |
 | `provenance_path` | ProvenancePath | execution provenance | no |
+| `provenance_rgcn` | ProvenanceRgcn | execution provenance | yes |
 | `dense_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 | `dense_ft_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 
-The deleted label-conditioned `ExecutionProvenanceRankingRequest`, legacy EPGM IDs, and Provenance R-GCN ID remain retired. ISETrace integration uses the new `ProvenancePathRequest` over the query-independent M2 graph and a new `provenance_path` identity; it is not a compatibility alias for the deleted stack.
+The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. `ProvenancePathRequest` and `ProvenanceRgcnRequest` are current, label-free method requests over the query-independent graph. The new `provenance_rgcn` identity is not a compatibility alias: Registry accepts it only for execution provenance and loads only a strict current checkpoint whose method and model config match.
 
 ## Results
 

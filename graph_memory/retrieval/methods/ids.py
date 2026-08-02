@@ -9,6 +9,7 @@ class RetrievalMethodId(StrEnum):
     DENSE_FT = "dense_ft"
     GRAPHRAG = "graphrag"
     PROVENANCE_PATH = "provenance_path"
+    PROVENANCE_RGCN = "provenance_rgcn"
     DENSE_RGCN_GRAPH_RETRIEVER = "dense_rgcn_graph_retriever"
     DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
 

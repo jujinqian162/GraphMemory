@@ -11,6 +11,7 @@ from numpy.lib.format import open_memmap
 from numpy.typing import NDArray
 from pydantic import TypeAdapter
 
+from graph_memory.datasets.isetrace.benchmark_records import ISETraceRankingRecord
 from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.embeddings import (
     format_dense_passage,
@@ -32,6 +33,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import DatasetName, DenseEncoderConfig
 from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.io import read_json, write_json
 from graph_memory.models.frozen_embeddings import (
     EmbeddingSplit,
@@ -39,12 +41,18 @@ from graph_memory.models.frozen_embeddings import (
     FrozenEmbeddingIndex,
     node_ids_digest,
 )
+from graph_memory.models.graph_retriever.provenance import (
+    provenance_embedding_request,
+)
+from graph_memory.retrieval.requests import ProvenanceRgcnRequest
 from graph_memory.stages.results import FrozenEmbeddingsResult
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
-EncodingFamily = Literal["evidence"]
+PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
+ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
+EncodingFamily = Literal["evidence", "provenance"]
 
 
 @dataclass(frozen=True)
@@ -72,7 +80,9 @@ def materialize_frozen_rgcn_embeddings(
     implementation_version: str,
     sentence_transformer: Any | None = None,
 ) -> FrozenEmbeddingsResult:
-    family: EncodingFamily = "evidence"
+    family: EncodingFamily = (
+        "provenance" if dataset == "isetrace" else "evidence"
+    )
     groups = [
         *_groups_for_split(
             family,
@@ -288,6 +298,41 @@ def _groups_for_split(
     task_inputs = cast(
         list[object], read_json(artifact_payload_path(prepared, "tasks"))
     )
+    if family == "provenance":
+        rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
+        graph_values = PROVENANCE_GRAPHS_ADAPTER.validate_python(
+            read_json(artifact_payload_path(prepared, "provenance_graphs"))
+        )
+        graphs_by_id = {graph.graph_id: graph for graph in graph_values}
+        provenance_groups: list[_TextGroup] = []
+        for ranking in rankings:
+            request = ProvenanceRgcnRequest(
+                task_id=ranking.task_id,
+                query_text=ranking.query_text,
+                candidates=ranking.provenance_candidates,
+                graph=graphs_by_id[ranking.graph_id],
+            )
+            embedding_request, node_ids = provenance_embedding_request(request)
+            text_by_node_id = {
+                "q": format_dense_query(
+                    embedding_request, query_prefix=encoder.query_prefix
+                ),
+                **{
+                    candidate.item_id: format_dense_passage(
+                        candidate, passage_prefix=encoder.passage_prefix
+                    )
+                    for candidate in embedding_request.candidates
+                },
+            }
+            provenance_groups.append(
+                _TextGroup(
+                    split=split,
+                    task_id=request.task_id,
+                    node_ids=tuple(node_ids),
+                    texts=tuple(text_by_node_id[node_id] for node_id in node_ids),
+                )
+            )
+        return provenance_groups
     if graphs is None:
         raise ValueError("Evidence frozen encoding requires evidence graphs.")
     graph_values = EVIDENCE_GRAPHS_ADAPTER.validate_python(

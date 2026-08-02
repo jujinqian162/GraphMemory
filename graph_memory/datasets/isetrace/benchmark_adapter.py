@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import math
+import random
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal, TypeAlias
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -13,6 +19,7 @@ from graph_memory.datasets.isetrace.benchmark_records import (
     CombinedISETraceBenchmarkRecord,
     ISETraceLabelRecord,
     ISETracePreparedBenchmark,
+    ISETraceQueryMetadata,
     ISETraceRankingRecord,
 )
 from graph_memory.datasets.isetrace.retrieval_views import (
@@ -21,6 +28,11 @@ from graph_memory.datasets.isetrace.retrieval_views import (
 )
 from graph_memory.datasets.splits import sample_split
 from graph_memory.graphs.provenance import ProvenanceGraph, build_provenance_graph
+from graph_memory.query_synthesis.provenance import (
+    enumerate_template_supervision,
+    select_template_supervision,
+    template_count_for_mix,
+)
 from graph_memory.query_synthesis.provenance.authoring import (
     AuthoringQueryRecord,
     AuthoringSource,
@@ -37,6 +49,8 @@ from graph_memory.text.chunking import (
 from graph_memory.trajectories import CanonicalTrajectory, SourceSpan
 
 _QUERY_ADAPTER = TypeAdapter(AuthoringQueryRecord)
+NaturalSplitName: TypeAlias = Literal["train", "dev", "test"]
+_NATURAL_SPLITS: tuple[NaturalSplitName, ...] = ("train", "dev", "test")
 
 
 class ISETraceBenchmarkSummary(Counter[str]):
@@ -53,6 +67,9 @@ def prepare_isetrace_benchmark(
     seed: int,
     offset: int,
     strict: bool,
+    split: NaturalSplitName | None = None,
+    split_ratio: Mapping[str, float] | None = None,
+    mix_ratio: Mapping[str, float] | None = None,
     chunking: TokenChunkingConfig = TokenChunkingConfig(
         tokenizer_name="models/intfloat-e5-base-v2",
         max_tokens=512,
@@ -61,6 +78,11 @@ def prepare_isetrace_benchmark(
     tokenizer: OffsetTokenizer | None = None,
 ) -> tuple[ISETracePreparedBenchmark, ISETraceBenchmarkSummary]:
     summary = ISETraceBenchmarkSummary()
+    _validate_authoring_source_identity(
+        query_source,
+        trajectory_source=trajectory_source,
+        source_revision=source_revision,
+    )
     examples = _read_queries(query_source, strict=strict, summary=summary)
     matched_contexts = _match_query_contexts(
         trajectory_source,
@@ -71,9 +93,39 @@ def prepare_isetrace_benchmark(
     )
     valid_examples = [example for example in examples if example.id in matched_contexts]
     summary["queries_resolved"] = len(valid_examples)
-    summary["queries_dropped"] = len(examples) - len(valid_examples)
-    selected = sample_split(valid_examples, count=count, seed=seed, offset=offset)
+    summary["queries_dropped"] = summary["queries_seen"] - len(valid_examples)
+    if (split is None) != (split_ratio is None):
+        raise ValueError("split and split_ratio must be provided together")
+    if split is None:
+        split_pool = valid_examples
+    else:
+        assert split_ratio is not None
+        assignments, targets = allocate_trajectory_grouped_splits(
+            {
+                example.id: matched_contexts[example.id][0].trajectory_id
+                for example in valid_examples
+            },
+            split_ratio=split_ratio,
+            split_seed=seed,
+        )
+        split_pool = [
+            example for example in valid_examples if assignments[example.id] == split
+        ]
+        for split_name in _NATURAL_SPLITS:
+            summary[f"queries_target_{split_name}"] = targets[split_name]
+            summary[f"queries_split_{split_name}"] = sum(
+                assigned == split_name for assigned in assignments.values()
+            )
+            summary[f"trajectories_split_{split_name}"] = len(
+                {
+                    matched_contexts[query_id][0].trajectory_id
+                    for query_id, assigned in assignments.items()
+                    if assigned == split_name
+                }
+            )
+    selected = sample_split(split_pool, count=count, seed=seed, offset=offset)
     summary["queries_selected"] = len(selected)
+    summary["natural_queries_selected"] = len(selected)
     offset_tokenizer = tokenizer or load_offset_tokenizer(chunking.tokenizer_name)
 
     def chunk_content(text: str):
@@ -102,9 +154,28 @@ def prepare_isetrace_benchmark(
         graph_id: provenance_unit_candidates(graph)
         for graph_id, graph in graphs.items()
     }
+    if mix_ratio is not None and split not in {"train", "dev"}:
+        raise ValueError("ISETrace template mix is supported only for train and dev")
+    template_supervision = ()
+    if mix_ratio is not None:
+        assert split is not None
+        template_pool = enumerate_template_supervision(graphs.values())
+        requested_templates = template_count_for_mix(len(selected), mix_ratio)
+        template_supervision = select_template_supervision(
+            template_pool,
+            eligible_graph_ids=frozenset(graphs),
+            requested_count=requested_templates,
+            split=split,
+            split_seed=seed,
+        )
+        summary["template_pool_available"] = len(template_pool)
+        summary["template_queries_requested"] = requested_templates
+    summary["template_queries_selected"] = len(template_supervision)
+    summary["queries_selected"] = len(selected) + len(template_supervision)
 
     rankings: list[ISETraceRankingRecord] = []
     labels: list[ISETraceLabelRecord] = []
+    query_metadata: list[ISETraceQueryMetadata] = []
     for example in selected:
         graph_id = contexts[example.id][0]
         spans = _resolve_gold_spans(example, contexts[example.id][1])
@@ -123,10 +194,64 @@ def prepare_isetrace_benchmark(
         CombinedISETraceBenchmarkRecord(ranking=ranking, label=label)
         rankings.append(ranking)
         labels.append(label)
+        query_metadata.append(
+            ISETraceQueryMetadata(
+                task_id=example.id,
+                graph_id=graph_id,
+                query_origin="natural",
+            )
+        )
+
+    for template in template_supervision:
+        candidates = provenance_by_graph_id[template.graph_id]
+        candidate_by_id = {candidate.item_id: candidate for candidate in candidates}
+        positive_spans: list[SourceSpan] = []
+        seen_span_keys: set[tuple[object, ...]] = set()
+        for candidate_id in template.positive_candidate_ids:
+            candidate = candidate_by_id.get(candidate_id)
+            if candidate is None:
+                raise ValueError(
+                    f"template={template.task_id!r} references missing "
+                    f"candidate={candidate_id!r}"
+                )
+            for span in candidate.source_spans:
+                key = (
+                    span.event_id,
+                    span.json_pointer,
+                    span.char_start,
+                    span.char_end,
+                )
+                if key not in seen_span_keys:
+                    seen_span_keys.add(key)
+                    positive_spans.append(span)
+        ranking = ISETraceRankingRecord(
+            task_id=template.task_id,
+            graph_id=template.graph_id,
+            query_text=template.query_text,
+            flat_candidates=flat_by_graph_id[template.graph_id],
+            provenance_candidates=candidates,
+        )
+        label = ISETraceLabelRecord(
+            task_id=template.task_id,
+            graph_id=template.graph_id,
+            gold_evidence_spans=tuple(positive_spans),
+        )
+        CombinedISETraceBenchmarkRecord(ranking=ranking, label=label)
+        rankings.append(ranking)
+        labels.append(label)
+        query_metadata.append(
+            ISETraceQueryMetadata(
+                task_id=template.task_id,
+                graph_id=template.graph_id,
+                query_origin="template",
+            )
+        )
 
     benchmark = ISETracePreparedBenchmark(
         rankings=tuple(rankings),
         labels=tuple(labels),
+        query_metadata=tuple(query_metadata),
+        template_supervision=template_supervision,
         provenance_graphs=tuple(graphs[graph_id] for graph_id in sorted(graphs)),
     )
     summary["unique_graphs"] = len(graphs)
@@ -144,6 +269,141 @@ def prepare_isetrace_benchmark(
     )
     summary["path_supported_tasks"] = 0
     return benchmark, summary
+
+
+def allocate_trajectory_grouped_splits(
+    query_trajectory_ids: Mapping[str, str],
+    *,
+    split_ratio: Mapping[str, float],
+    split_seed: int,
+) -> tuple[dict[str, NaturalSplitName], dict[NaturalSplitName, int]]:
+    """Allocate indivisible trajectory groups toward normalized query targets."""
+
+    if set(split_ratio) != set(_NATURAL_SPLITS):
+        raise ValueError("ISETrace split_ratio must define train, dev, and test")
+    weights: dict[NaturalSplitName, float] = {}
+    for split_name in _NATURAL_SPLITS:
+        value = split_ratio[split_name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"split ratio {split_name!r} must be numeric")
+        weight = float(value)
+        if not math.isfinite(weight) or weight <= 0.0:
+            raise ValueError(f"split ratio {split_name!r} must be positive and finite")
+        weights[split_name] = weight
+    total_weight = sum(weights.values())
+    query_count = len(query_trajectory_ids)
+    raw_targets = {
+        split_name: query_count * weights[split_name] / total_weight
+        for split_name in _NATURAL_SPLITS
+    }
+    targets: dict[NaturalSplitName, int] = {
+        split_name: math.floor(raw_targets[split_name])
+        for split_name in _NATURAL_SPLITS
+    }
+    remainder = query_count - sum(targets.values())
+    remainder_order = sorted(
+        _NATURAL_SPLITS,
+        key=lambda name: (
+            -(raw_targets[name] - targets[name]),
+            _NATURAL_SPLITS.index(name),
+        ),
+    )
+    for split_name in remainder_order[:remainder]:
+        targets[split_name] += 1
+
+    groups: dict[str, list[str]] = defaultdict(list)
+    for query_id, trajectory_id in query_trajectory_ids.items():
+        groups[trajectory_id].append(query_id)
+    ordered_groups = [
+        (trajectory_id, tuple(sorted(query_ids)))
+        for trajectory_id, query_ids in sorted(groups.items())
+    ]
+    random.Random(split_seed).shuffle(ordered_groups)
+    ordered_groups.sort(key=lambda item: -len(item[1]))
+
+    assigned_counts: Counter[NaturalSplitName] = Counter()
+    assignments: dict[str, NaturalSplitName] = {}
+    for _trajectory_id, query_ids in ordered_groups:
+        split_name = max(
+            _NATURAL_SPLITS,
+            key=lambda name: (
+                targets[name] - assigned_counts[name],
+                targets[name],
+                -_NATURAL_SPLITS.index(name),
+            ),
+        )
+        assigned_counts[split_name] += len(query_ids)
+        assignments.update({query_id: split_name for query_id in query_ids})
+    return assignments, targets
+
+
+def _validate_authoring_source_identity(
+    query_source: Path,
+    *,
+    trajectory_source: Path,
+    source_revision: str,
+) -> None:
+    manifest_path = query_source.with_suffix(query_source.suffix + ".run.json")
+    if not manifest_path.exists():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid ISETrace authoring run metadata: {manifest_path}") from error
+    if not isinstance(manifest, dict):
+        raise ValueError(f"invalid ISETrace authoring run metadata: {manifest_path}")
+    recorded_revision = manifest.get("source_revision")
+    if recorded_revision != source_revision:
+        raise ValueError(
+            "ISETrace authoring source revision conflicts with the registered "
+            f"revision: recorded={recorded_revision!r} registered={source_revision!r}"
+        )
+    recorded_files = manifest.get("source_files")
+    if not isinstance(recorded_files, list) or not recorded_files:
+        raise ValueError("ISETrace authoring run metadata has no source_files identity")
+    recorded_by_name: dict[str, dict[str, object]] = {}
+    for item in recorded_files:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            raise ValueError("ISETrace authoring source_files entries are invalid")
+        name = Path(item["path"]).name
+        if name in recorded_by_name:
+            raise ValueError(f"duplicate ISETrace authoring source filename={name!r}")
+        recorded_by_name[name] = item
+
+    source_files = _trajectory_identity_files(trajectory_source)
+    actual_by_name = {path.name: path for path in source_files}
+    if len(actual_by_name) != len(source_files):
+        raise ValueError("ISETrace trajectory source filenames must be unique")
+    if set(recorded_by_name) != set(actual_by_name):
+        raise ValueError(
+            "ISETrace authoring source files conflict with the configured trajectory source"
+        )
+    for name, path in actual_by_name.items():
+        recorded = recorded_by_name[name]
+        recorded_size = recorded.get("bytes")
+        recorded_digest = recorded.get("sha256")
+        if recorded_size != path.stat().st_size or not isinstance(recorded_digest, str):
+            raise ValueError(f"ISETrace authoring source identity conflicts for {name}")
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != recorded_digest:
+            raise ValueError(f"ISETrace authoring source digest conflicts for {name}")
+
+
+def _trajectory_identity_files(source: Path) -> tuple[Path, ...]:
+    if source.is_file():
+        return (source,)
+    root = source / "trajectories"
+    if not root.is_dir():
+        root = source
+    files = tuple(sorted(path for path in root.rglob("*.jsonl") if path.is_file()))
+    if not files:
+        raise FileNotFoundError(
+            f"ISETrace trajectory directory contains no JSONL shards: {source}"
+        )
+    return files
 
 
 def combined_isetrace_records(
@@ -180,6 +440,7 @@ def _read_queries(
                     raise ValueError(
                         f"invalid v7 query at {source}:{line_number}: {error}"
                     ) from error
+    summary["queries_parsed"] = len(result)
     ids = [example.id for example in result]
     if len(ids) != len(set(ids)):
         raise ValueError("ISETrace query IDs must be unique")
@@ -380,6 +641,7 @@ def _resolve_gold_spans(
 
 __all__ = [
     "ISETraceBenchmarkSummary",
+    "allocate_trajectory_grouped_splits",
     "combined_isetrace_records",
     "prepare_isetrace_benchmark",
 ]

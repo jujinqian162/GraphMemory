@@ -20,6 +20,7 @@ from graph_memory.experiment.config import (
     GraphRAGMethodConfig,
     PairBuildConfig,
     ProvenancePathMethodConfig,
+    ProvenanceRgcnMethodConfig,
     PrepareSplitConfig,
     ResolvedExperimentConfig,
     RgcnMethodConfig,
@@ -41,6 +42,7 @@ from graph_memory.experiment.tasks import (
     resolve_encoder_source,
     train_dense_ft_task,
     train_evidence_rgcn_task,
+    train_provenance_rgcn_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
 from graph_memory.stages.results import (
@@ -139,6 +141,67 @@ def run_experiment(
                 encoder_source=encoder_source,
             )
             assets.extend((pairs.artifact, model.artifact))
+
+        elif isinstance(method, ProvenanceRgcnMethodConfig):
+            train = prepare_split_task(
+                source=split_sources["train"],
+                config=_prepare_config(config, "train"),
+                trajectory_source=_trajectory_source(config),
+            )
+            dev = prepare_split_task(
+                source=split_sources["dev"],
+                config=_prepare_config(config, "dev"),
+                trajectory_source=_trajectory_source(config),
+            )
+            test = prepare_split_task(
+                source=split_sources["test"],
+                config=_prepare_config(config, "test"),
+                trajectory_source=_trajectory_source(config),
+            )
+            effective = method.effective()
+            encoder_source = resolve_encoder_source(effective.encoder)
+            pairs = build_training_pairs_task(
+                prepared=train.artifact,
+                evidence_graphs=None,
+                dataset=config.dataset.name,
+                config=PairBuildConfig(
+                    sampling=effective.pairs,
+                    encoder=effective.encoder,
+                    device=config.device,
+                ),
+                encoder_source=encoder_source,
+            )
+            frozen_embeddings = encode_frozen_rgcn_embeddings_task(
+                train_prepared=train.artifact,
+                dev_prepared=dev.artifact,
+                train_graphs=None,
+                dev_graphs=None,
+                seed_model=None,
+                dataset=config.dataset.name,
+                encoder=effective.encoder,
+                encoder_source=encoder_source,
+                enable_gpupool=config.encoding.enable_gpupool,
+                device=config.device,
+                chunk_size=config.encoding.chunk_size,
+            )
+            model = train_provenance_rgcn_task(
+                train_prepared=train.artifact,
+                train_pairs=pairs.artifact,
+                dev_prepared=dev.artifact,
+                config=method.train_stage(),
+                encoder_source=encoder_source,
+                frozen_embeddings=frozen_embeddings.artifact,
+            )
+            assets.extend(
+                (
+                    train.artifact,
+                    dev.artifact,
+                    test.artifact,
+                    pairs.artifact,
+                    frozen_embeddings.artifact,
+                    model.artifact,
+                )
+            )
 
         elif isinstance(method, RgcnMethodConfig):
             train = prepare_split_task(
@@ -440,19 +503,40 @@ def _prepare_config(
     split: SplitName,
 ) -> PrepareSplitConfig:
     split_config = config.dataset.splits[split]
-    # The test split must stay identical across training seeds and methods, so
-    # it is sampled with a dedicated fixed split_seed decoupled from config.seed.
-    # Train/dev keep using config.seed so trainable methods still receive
-    # seed-dependent training and validation data across seeds.
-    sampling_seed = config.split_seed if split == "test" else config.seed
+    # ISETrace allocation is trajectory-grouped and therefore fixed across all
+    # model seeds. Evidence datasets retain their existing seed policy.
+    sampling_seed = (
+        config.split_seed
+        if config.dataset.name == "isetrace" or split == "test"
+        else config.seed
+    )
+    full_provenance_split = (
+        config.dataset.name == "isetrace"
+        and isinstance(config.method, ProvenanceRgcnMethodConfig)
+        and config.profile == "full"
+    )
     return PrepareSplitConfig(
         dataset=config.dataset.name,
         split=split,
-        count=split_config.count,
+        count=None if full_provenance_split else split_config.count,
         offset=split_config.offset,
         seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
         source_revision=config.dataset.source_revision,
+        split_ratio=(
+            None
+            if config.dataset.queries is None
+            else config.dataset.queries.split_ratio
+        ),
+        mix_ratio=(
+            None
+            if config.dataset.queries is None or split == "test"
+            else (
+                config.dataset.queries.mix_ratio.train
+                if split == "train"
+                else config.dataset.queries.mix_ratio.dev
+            )
+        ),
         chunking=config.dataset.chunking,
     )
 

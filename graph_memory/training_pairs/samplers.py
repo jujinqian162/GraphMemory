@@ -6,11 +6,11 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from graph_memory.contracts.common import TrainPairSampleType
-from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.retrieval.bulk import task_groups
 from graph_memory.retrieval.contracts import RankedNode, SeedRanker
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.retrieval.signals import SeedSignal, SeedSignalProvider, score_tasks
+from graph_memory.training_pairs.requests import CandidateNeighborEdge
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class PairSamplingContext:
     """
 
     text_request: TextRankingRequest
-    graph: EvidenceGraph | None
+    candidate_neighbor_edges: tuple[CandidateNeighborEdge, ...] | None
     gold_node_ids: set[str]
     non_gold_node_ids: list[str]
     rng: random.Random
@@ -107,13 +107,13 @@ class GraphNeighborNegativeSampler:
     def sample(self, context: PairSamplingContext, desired_count: int) -> list[str]:
         if desired_count <= 0:
             return []
-        if context.graph is None:
+        if context.candidate_neighbor_edges is None:
             raise ValueError(
-                "Graph-neighbor negative sampling requires an evidence graph."
+                "Graph-neighbor negative sampling requires candidate neighbor edges."
             )
         non_gold_node_id_set = set(context.non_gold_node_ids)
         candidates: list[str] = []
-        for edge in context.graph.edges:
+        for edge in context.candidate_neighbor_edges:
             source = edge.source
             target = edge.target
             if source in context.gold_node_ids and target in non_gold_node_id_set:

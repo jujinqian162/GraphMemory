@@ -25,7 +25,16 @@ uv run python experiment/run.py -m `
   method=bm25,dense,graphrag,provenance_path
 ```
 
-The committed dataset config permits unreviewed queries for engineering runs only. See [`isetrace-nontrain-retrieval.md`](isetrace-nontrain-retrieval.md) before interpreting metrics.
+## ISETrace Provenance R-GCN engineering run
+
+```powershell
+uv run python experiment/run.py name=isetrace_rgcn_smoke dataset=isetrace profile=smoke method=provenance_rgcn device=cpu
+uv run python experiment/run.py name=isetrace_rgcn_no_graph dataset=isetrace profile=quick method=provenance_rgcn method.variant=wo_graph device=cuda:0
+```
+
+The trainable lifecycle prepares mixed train/dev pools, builds candidate pairs, freezes graph/query embeddings, selects on natural dev Recall@5, reloads the strict checkpoint, and evaluates the natural-only test split. `profile=full` does not apply the evidence benchmark's fixed dev cap to ISETrace.
+
+The committed generated queries are unreviewed engineering inputs only. See [`isetrace-provenance-rgcn.md`](isetrace-provenance-rgcn.md) and [`isetrace-nontrain-retrieval.md`](isetrace-nontrain-retrieval.md) before interpreting metrics.
 
 ## Multirun and multi-GPU
 

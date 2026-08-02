@@ -4,9 +4,9 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Literal, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, StrictStr, StringConstraints, model_validator
 
 from graph_memory.contracts.model import DomainModel, NonEmptyStr
 from graph_memory.graphs.provenance.contracts import NamespacedIdentifier
@@ -115,6 +115,38 @@ def motif_target_source_ids(target: MotifAuthoringTarget) -> tuple[str, ...]:
     )
 
 
+class TemplateSupervisionRecord(DomainModel):
+    """Training-only query, focused label, and audit identity outside the graph."""
+
+    task_id: NonEmptyStr
+    graph_id: NonEmptyStr
+    query_text: NonEmptyStr
+    focus_output_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    participant_output_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    positive_candidate_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    motif_id: NonEmptyStr
+    motif_type: MotifType
+    query_intent: QueryIntent
+    renderer_version: Literal["provenance-template-v1"] = "provenance-template-v1"
+    graph_fingerprint: Annotated[
+        StrictStr, StringConstraints(pattern=r"^[a-f0-9]{64}$")
+    ]
+
+    @model_validator(mode="after")
+    def _validate_template(self) -> "TemplateSupervisionRecord":
+        if len(set(self.focus_output_ids)) != len(self.focus_output_ids):
+            raise ValueError("template focus output IDs must be unique")
+        if len(set(self.participant_output_ids)) != len(self.participant_output_ids):
+            raise ValueError("template participant output IDs must be unique")
+        if len(set(self.positive_candidate_ids)) != len(
+            self.positive_candidate_ids
+        ):
+            raise ValueError("template positive candidate IDs must be unique")
+        if not set(self.focus_output_ids).issubset(self.participant_output_ids):
+            raise ValueError("template focused outputs must be motif participants")
+        return self
+
+
 class MotifCatalog(DomainModel):
     motifs: tuple[MotifSpec, ...]
 
@@ -152,6 +184,7 @@ __all__ = [
     "MotifSpec",
     "MotifType",
     "QueryIntent",
+    "TemplateSupervisionRecord",
     "authoring_target_key",
     "motif_id",
     "motif_target_source_ids",

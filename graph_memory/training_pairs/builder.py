@@ -19,7 +19,10 @@ from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.signals import RetrieverSeedSignalProvider, SeedSignalProvider
 from graph_memory.training_pairs.config import NegativeSamplingConfig
-from graph_memory.training_pairs.requests import TrainPairBuildTask
+from graph_memory.training_pairs.requests import (
+    CandidateNeighborEdge,
+    TrainPairBuildTask,
+)
 from graph_memory.training_pairs.samplers import (
     BM25HardNegativeSampler,
     DenseHardNegativeSampler,
@@ -53,13 +56,12 @@ class TrainPairBuilder:
                 "Train-pair tasks must either all provide evidence graphs or all omit them."
             )
         graphs_by_task_id = {graph.task_id: graph for graph in graphs}
-        if (
-            not graphs_by_task_id
-            and self.config.hard_graph_neighbor_per_positive > 0
+        if self.config.hard_graph_neighbor_per_positive > 0 and any(
+            _candidate_neighbor_edges(task) is None for task in task_list
         ):
             raise ValueError(
                 "hard_graph_neighbor_per_positive must be zero when train-pair tasks "
-                "do not provide evidence graphs."
+                "do not provide candidate neighbor edges."
             )
 
         rng = random.Random(self.config.random_seed)
@@ -99,7 +101,7 @@ class TrainPairBuilder:
             gold_node_set = set(gold_nodes)
             context = PairSamplingContext(
                 text_request=text_request,
-                graph=task.graph,
+                candidate_neighbor_edges=_candidate_neighbor_edges(task),
                 gold_node_ids=gold_node_set,
                 non_gold_node_ids=[node_id for node_id in memory_node_ids if node_id not in gold_node_set],
                 rng=rng,
@@ -167,6 +169,19 @@ def build_train_pairs(
     )
     return builder.build(tasks, progress_desc=progress_desc)
 
+
+
+def _candidate_neighbor_edges(
+    task: TrainPairBuildTask,
+) -> tuple[CandidateNeighborEdge, ...] | None:
+    if task.candidate_neighbor_edges is not None:
+        return task.candidate_neighbor_edges
+    if task.graph is None:
+        return None
+    return tuple(
+        CandidateNeighborEdge(source=edge.source, target=edge.target)
+        for edge in task.graph.edges
+    )
 
 
 def _build_default_samplers(

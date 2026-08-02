@@ -1,17 +1,21 @@
 name: isetrace
-# Generated authoring candidates that cannot be compiled to one exact raw event
-# are excluded during preparation and reported in the prepared artifact counts.
-strict_invalid_examples: false
 trajectory_source: data/isetrace/raw/trajectories
-source_revision: e40e04d41c04e4eb4bae181ebdd41b61c688081b
+natural_query_source: data/isetrace/query-authoring/isetrace-v7-raw.jsonl
+queries:
+  split_ratio:
+    train: 8
+    dev: 2
+    test: 5
+  mix_ratio:
+    train:
+      natural: 1
+      template: 3
+    dev:
+      natural: 1
+      template: 1
 chunking:
   tokenizer_name: models/intfloat-e5-base-v2
   # 512 total encoder tokens, reserving room for E5 prefix/special tokens.
   max_tokens: 512
   reserved_tokens: 8
   overlap_tokens: 64
-splits:
-  test:
-    kind: raw
-    source: data/isetrace/query-authoring/isetrace-v7-raw.jsonl
-    offset: 0

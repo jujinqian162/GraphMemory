@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import torch
-from pydantic import Field, SkipValidation
+from pydantic import Field, SkipValidation, model_validator
 from torch import nn
 
 from graph_memory.contracts.model import (
@@ -37,6 +37,14 @@ class RgcnCheckpointEnvelope(DomainModel):
     checkpoint_model_config: RgcnModelConfig = Field(alias="model_config")
     training_config: RgcnTrainingConfig
     created_at: NonEmptyStr
+
+    @model_validator(mode="after")
+    def _validate_method_config(self) -> "RgcnCheckpointEnvelope":
+        if self.checkpoint_model_config.method_name != self.method_name.value:
+            raise ValueError(
+                "checkpoint method_name and model_config.method_name must match"
+            )
+        return self
 
     def require_method(self, expected_method: RetrievalMethodId | None) -> None:
         if expected_method is not None and self.method_name != expected_method:

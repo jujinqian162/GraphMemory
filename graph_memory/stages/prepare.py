@@ -49,6 +49,8 @@ from graph_memory.experiment.artifacts import (
 from graph_memory.experiment.config import (
     DatasetName,
     ISETraceChunkingConfig,
+    ISETraceOriginRatio,
+    ISETraceSplitRatio,
     SplitName,
 )
 from graph_memory.io import read_json, write_json
@@ -63,6 +65,8 @@ class PreparedSplitData:
     combined: list[object]
     counts: dict[str, JsonValue]
     provenance_graphs: list[object] | None = None
+    query_metadata: list[object] | None = None
+    template_supervision: list[object] | None = None
 
 
 def prepare_split(
@@ -73,8 +77,11 @@ def prepare_split(
     seed: int,
     offset: int,
     strict_invalid_examples: bool,
+    split: SplitName | None = None,
     trajectory_source: Path | None = None,
     source_revision: str | None = None,
+    split_ratio: ISETraceSplitRatio | None = None,
+    mix_ratio: ISETraceOriginRatio | None = None,
     chunking: ISETraceChunkingConfig | None = None,
 ) -> PreparedSplitData:
     if dataset == "hotpotqa":
@@ -102,14 +109,24 @@ def prepare_split(
             strict=strict_invalid_examples,
         )
     if dataset == "isetrace":
-        if trajectory_source is None or source_revision is None or chunking is None:
+        if (
+            split is None
+            or trajectory_source is None
+            or source_revision is None
+            or split_ratio is None
+            or chunking is None
+        ):
             raise ValueError(
-                "isetrace preparation requires trajectory_source, source_revision, and chunking"
+                "isetrace preparation requires split, trajectory_source, "
+                "source_revision, split_ratio, and chunking"
             )
         return _prepare_isetrace(
             source,
+            split=split,
             trajectory_source=trajectory_source,
             source_revision=source_revision,
+            split_ratio=split_ratio,
+            mix_ratio=mix_ratio,
             count=count,
             seed=seed,
             offset=offset,
@@ -131,6 +148,8 @@ def materialize_prepared_split(
     offset: int,
     strict_invalid_examples: bool,
     source_revision: str | None = None,
+    split_ratio: ISETraceSplitRatio | None = None,
+    mix_ratio: ISETraceOriginRatio | None = None,
     chunking: ISETraceChunkingConfig | None = None,
     implementation_version: str,
 ) -> PreparedSplitResult:
@@ -141,10 +160,13 @@ def materialize_prepared_split(
         seed=seed,
         offset=offset,
         strict_invalid_examples=strict_invalid_examples,
+        split=split,
         trajectory_source=(
             None if trajectory_source is None else Path(trajectory_source.uri)
         ),
         source_revision=source_revision,
+        split_ratio=split_ratio,
+        mix_ratio=mix_ratio,
         chunking=chunking,
     )
     with ArtifactPublisher(
@@ -161,6 +183,14 @@ def materialize_prepared_split(
                 None if trajectory_source is None else trajectory_source.digest
             ),
             "source_revision": source_revision,
+            "split_ratio": (
+                None
+                if split_ratio is None
+                else split_ratio.model_dump(mode="json")
+            ),
+            "mix_ratio": (
+                None if mix_ratio is None else mix_ratio.model_dump(mode="json")
+            ),
             "chunking": (
                 None if chunking is None else chunking.model_dump(mode="json")
             ),
@@ -192,6 +222,18 @@ def materialize_prepared_split(
                 [_json_record(graph) for graph in prepared.provenance_graphs],
             )
             payloads["provenance_graphs"] = "provenance_graphs.json"
+        if prepared.query_metadata is not None:
+            write_json(
+                publisher.workspace / "query_metadata.json",
+                [_json_record(item) for item in prepared.query_metadata],
+            )
+            payloads["query_metadata"] = "query_metadata.json"
+        if prepared.template_supervision is not None:
+            write_json(
+                publisher.workspace / "template_supervision.json",
+                [_json_record(item) for item in prepared.template_supervision],
+            )
+            payloads["template_supervision"] = "template_supervision.json"
         artifact = publisher.publish(
             payloads,
             shape={
@@ -328,8 +370,11 @@ def _validate_musique_raw(value: object, index: int) -> None:
 def _prepare_isetrace(
     source: Path,
     *,
+    split: SplitName,
     trajectory_source: Path,
     source_revision: str,
+    split_ratio: ISETraceSplitRatio,
+    mix_ratio: ISETraceOriginRatio | None,
     count: int | None,
     seed: int,
     offset: int,
@@ -344,6 +389,9 @@ def _prepare_isetrace(
         seed=seed,
         offset=offset,
         strict=strict,
+        split=split,
+        split_ratio=split_ratio.model_dump(),
+        mix_ratio=None if mix_ratio is None else mix_ratio.model_dump(),
         chunking=TokenChunkingConfig(
             tokenizer_name=chunking.tokenizer_name,
             max_tokens=chunking.max_tokens,
@@ -364,6 +412,10 @@ def _prepare_isetrace(
         combined=cast(list[object], combined),
         counts=counts,
         provenance_graphs=cast(list[object], list(benchmark.provenance_graphs)),
+        query_metadata=cast(list[object], list(benchmark.query_metadata)),
+        template_supervision=cast(
+            list[object], list(benchmark.template_supervision)
+        ),
     )
 
 

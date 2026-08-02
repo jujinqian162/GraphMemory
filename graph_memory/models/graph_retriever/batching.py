@@ -226,6 +226,31 @@ def collate_evidence_tasks(tasks: Sequence[EvidenceTaskTensor]) -> TrainingBatch
     )
 
 
+def split_batch_node_scores(
+    batch: TrainingBatch,
+    scores: Tensor,
+) -> dict[str, list[tuple[str, float]]]:
+    """Split flattened scorer output back into task-owned node rows."""
+
+    sample_count = len(batch.sample_task_ids)
+    if len(batch.sample_node_ids) != sample_count:
+        raise ValueError("batch sample task and node ownership metadata must align")
+    if scores.shape != (sample_count,):
+        raise ValueError(
+            "batch scores must contain one value per sample: "
+            f"expected={(sample_count,)} observed={tuple(scores.shape)}"
+        )
+    result: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for task_id, node_id, score in zip(
+        batch.sample_task_ids,
+        batch.sample_node_ids,
+        scores.detach().cpu().tolist(),
+        strict=True,
+    ):
+        result[task_id].append((node_id, float(score)))
+    return dict(result)
+
+
 def move_training_batch(
     batch: TrainingBatch, device: torch.device | str
 ) -> TrainingBatch:
@@ -387,4 +412,5 @@ __all__ = [
     "materialize_full_ranking_tasks",
     "materialize_training_tasks",
     "move_training_batch",
+    "split_batch_node_scores",
 ]

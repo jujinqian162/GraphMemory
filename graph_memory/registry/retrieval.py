@@ -89,6 +89,16 @@ class EvidenceRgcnRetrievalSettings:
 
 
 @dataclass(frozen=True)
+class ProvenanceRgcnRetrievalSettings:
+    top_k: int
+    checkpoint: Path
+    device: str
+    method: Literal[RetrievalMethodId.PROVENANCE_RGCN] = (
+        RetrievalMethodId.PROVENANCE_RGCN
+    )
+
+
+@dataclass(frozen=True)
 class DenseFinetunedRetrievalSettings:
     top_k: int
     checkpoint: Path
@@ -103,6 +113,7 @@ RetrievalJobSettings: TypeAlias = (
     | GraphRAGRetrievalSettings
     | ProvenancePathRetrievalSettings
     | EvidenceRgcnRetrievalSettings
+    | ProvenanceRgcnRetrievalSettings
 )
 
 
@@ -149,6 +160,18 @@ class ProvenancePathBuildPayload:
         RetrievalTaskFamily.EXECUTION_PROVENANCE
     )
     dense_encoder: "SentenceEncoder | None" = None
+
+
+@dataclass(frozen=True)
+class ProvenanceRgcnBuildPayload:
+    text_requests: list[TextRankingRequest]
+    provenance_graphs: list[ProvenanceGraph]
+    graph_ids_by_task_id: Mapping[str, str]
+    dense_encoder: "SentenceEncoder | None" = None
+    text_embedding_provider: "TextEmbeddingProvider | None" = None
+    task_family: Literal[RetrievalTaskFamily.EXECUTION_PROVENANCE] = (
+        RetrievalTaskFamily.EXECUTION_PROVENANCE
+    )
 
 
 @dataclass(frozen=True)
@@ -211,6 +234,7 @@ def _payload_family(payload: object) -> RetrievalTaskFamily:
             FlatRetrievalBuildPayload,
             GraphRAGBuildPayload,
             ProvenancePathBuildPayload,
+            ProvenanceRgcnBuildPayload,
         ),
     ):
         return payload.task_family
@@ -232,6 +256,8 @@ __all__ = [
     "GraphRAGRetrievalSettings",
     "ProvenancePathBuildPayload",
     "ProvenancePathRetrievalSettings",
+    "ProvenanceRgcnBuildPayload",
+    "ProvenanceRgcnRetrievalSettings",
     "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",

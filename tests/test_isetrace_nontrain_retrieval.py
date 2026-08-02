@@ -321,6 +321,23 @@ def test_v7_benchmark_reuses_graph_and_keeps_one_span_gold(tmp_path: Path) -> No
     )
     assert len(benchmark.labels[0].gold_evidence_spans) == 2
     assert len(benchmark.labels[1].gold_evidence_spans) == 1
+    assert [item.query_origin for item in benchmark.query_metadata] == [
+        "natural",
+        "natural",
+    ]
+    assert all(
+        "query_origin" not in ranking.model_dump(mode="json")
+        for ranking in benchmark.rankings
+    )
+    assert all(
+        "query_origin" not in candidate.model_dump(mode="json")
+        for ranking in benchmark.rankings
+        for candidate in ranking.provenance_candidates
+    )
+    assert all(
+        "query_origin" not in graph.model_dump(mode="json")
+        for graph in benchmark.provenance_graphs
+    )
     assert not hasattr(benchmark.labels[0], "answer_output_ids")
     assert not hasattr(benchmark.labels[0], "support_output_ids")
     assert summary["unique_graphs"] == 1
@@ -372,12 +389,16 @@ def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
         seed=13,
         offset=0,
         strict=False,
+        split="train",
+        split_ratio={"train": 8, "dev": 2, "test": 5},
         chunking=_TEST_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
 
     assert [item.task_id for item in benchmark.rankings] == ["query:valid"]
     assert summary["queries_seen"] == 2
+    assert summary["queries_resolved"] == 1
+    assert summary["queries_target_train"] == 1
     assert summary["queries_resolved"] == 1
     assert summary["queries_dropped"] == 1
     assert summary["queries_uncompilable"] == 1

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Literal, TypeAlias, Union, cast
 
@@ -65,6 +66,7 @@ DatasetName: TypeAlias = Literal[
     "isetrace",
 ]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
+ProvenanceRgcnVariant: TypeAlias = Literal["full_rgcn", "wo_graph"]
 EvidenceRgcnVariant: TypeAlias = Literal[
     "full_rgcn",
     "wo_bridge",
@@ -133,32 +135,87 @@ class ISETraceChunkingConfig(ClosedModel):
         return self
 
 
-class DatasetConfig(ClosedModel):
-    name: DatasetName
+def _normalized_weights(
+    value: object,
+    *,
+    names: tuple[str, ...],
+    allow_zero: frozenset[str] = frozenset(),
+) -> object:
+    if not isinstance(value, Mapping):
+        return value
+    data = dict(value)
+    if not all(name in data for name in names):
+        return value
+    numbers: dict[str, float] = {}
+    for name in names:
+        raw = data[name]
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError(f"ratio weight {name!r} must be numeric")
+        number = float(raw)
+        if not math.isfinite(number):
+            raise ValueError(f"ratio weight {name!r} must be finite")
+        if number < 0.0 or (number == 0.0 and name not in allow_zero):
+            raise ValueError(f"ratio weight {name!r} must be positive")
+        numbers[name] = number
+    total = sum(numbers.values())
+    if total <= 0.0:
+        raise ValueError("ratio weights must have a positive total")
+    return {**data, **{name: numbers[name] / total for name in names}}
+
+
+class ISETraceSplitRatio(ClosedModel):
+    train: PositiveFloat
+    dev: PositiveFloat
+    test: PositiveFloat
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, value: object) -> object:
+        return _normalized_weights(value, names=("train", "dev", "test"))
+
+
+class ISETraceOriginRatio(ClosedModel):
+    natural: PositiveFloat
+    template: NonNegativeFloat
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, value: object) -> object:
+        return _normalized_weights(
+            value,
+            names=("natural", "template"),
+            allow_zero=frozenset({"template"}),
+        )
+
+
+class ISETraceMixRatio(ClosedModel):
+    train: ISETraceOriginRatio
+    dev: ISETraceOriginRatio
+
+
+class ISETraceQueriesConfig(ClosedModel):
+    split_ratio: ISETraceSplitRatio
+    mix_ratio: ISETraceMixRatio
+
+
+class EvidenceDatasetConfig(ClosedModel):
+    name: Literal["hotpotqa", "twowiki", "musique"]
     strict_invalid_examples: StrictBool = False
-    trajectory_source: Path | None = None
-    source_revision: str | None = Field(default=None, min_length=1)
-    chunking: ISETraceChunkingConfig | None = None
     splits: DatasetSplitsConfig
 
-    @model_validator(mode="after")
-    def _validate_dataset_sources(self) -> "DatasetConfig":
-        if self.name == "isetrace":
-            if self.trajectory_source is None or self.source_revision is None:
-                raise ValueError(
-                    "isetrace requires trajectory_source and source_revision"
-                )
-            if self.chunking is None:
-                raise ValueError("isetrace requires chunking settings")
-        elif (
-            self.trajectory_source is not None
-            or self.source_revision is not None
-            or self.chunking is not None
-        ):
-            raise ValueError(
-                "trajectory_source/source_revision/chunking are reserved for isetrace"
-            )
-        return self
+
+class ISETraceDatasetConfig(ClosedModel):
+    name: Literal["isetrace"]
+    trajectory_source: Path
+    natural_query_source: Path
+    queries: ISETraceQueriesConfig
+    chunking: ISETraceChunkingConfig
+
+
+DatasetConfig: TypeAlias = Annotated[
+    Union[EvidenceDatasetConfig, ISETraceDatasetConfig],
+    Field(discriminator="name"),
+]
 
 
 class FixedCountPolicy(ClosedModel):
@@ -205,6 +262,7 @@ class DenseFinetuneProfileSettings(ClosedModel):
 
 class TrainableProfileSettings(ClosedModel):
     evidence_rgcn: RgcnProfileSettings
+    provenance_rgcn: RgcnProfileSettings
     dense_ft: DenseFinetuneProfileSettings
 
 
@@ -319,6 +377,7 @@ class RgcnTrainStageConfig(ClosedModel):
     method: Literal[
         "dense_rgcn_graph_retriever",
         "dense_ft_rgcn_graph_retriever",
+        "provenance_rgcn",
     ]
     variant: EvidenceRgcnVariant
     encoder: DenseEncoderConfig
@@ -344,6 +403,24 @@ class RgcnMethodConfig(RgcnStageConfig):
 
 
 DenseRgcnMethodConfig = RgcnMethodConfig
+
+
+class ProvenanceRgcnMethodConfig(RgcnStageConfig):
+    method: Literal["provenance_rgcn"]
+    variant: ProvenanceRgcnVariant = "full_rgcn"
+
+    def effective(self) -> "ProvenanceRgcnMethodConfig":
+        stage = super().for_variant(self.variant)
+        return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
+
+    def train_stage(self) -> RgcnTrainStageConfig:
+        effective = self.effective()
+        return RgcnTrainStageConfig(
+            method=self.method,
+            variant=self.variant,
+            encoder=effective.encoder,
+            train=effective.train,
+        )
 
 
 class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
@@ -406,6 +483,7 @@ MethodConfig: TypeAlias = Annotated[
         DenseMethodConfig,
         GraphRAGMethodConfig,
         ProvenancePathMethodConfig,
+        ProvenanceRgcnMethodConfig,
         RgcnMethodConfig,
         DenseFinetuneMethodConfig,
         DenseFtRgcnMethodConfig,
@@ -419,6 +497,7 @@ class TrainableRankingConfig(ClosedModel):
         "dense_ft",
         "dense_rgcn_graph_retriever",
         "dense_ft_rgcn_graph_retriever",
+        "provenance_rgcn",
     ]
     variant: str | None = None
 
@@ -473,6 +552,8 @@ class PrepareSplitConfig(ClosedModel):
     seed: ScientificInt
     strict_invalid_examples: StrictBool
     source_revision: str | None = Field(default=None, min_length=1)
+    split_ratio: ISETraceSplitRatio | None = None
+    mix_ratio: ISETraceOriginRatio | None = None
     chunking: ISETraceChunkingConfig | None = None
 
 
@@ -535,7 +616,9 @@ class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool
     trajectory_source: Path | None = None
+    natural_query_source: Path | None = None
     source_revision: str | None = None
+    queries: ISETraceQueriesConfig | None = None
     chunking: ISETraceChunkingConfig | None = None
     splits: dict[SplitName, ResolvedSplitConfig]
 
@@ -600,49 +683,77 @@ def resolve_experiment_config(
     root = repository_root.resolve()
     split_names: tuple[SplitName, ...] = ("train", "dev", "test")
     resolved_splits: dict[SplitName, ResolvedSplitConfig] = {}
-    for split_name in split_names:
-        dataset_split = getattr(config.dataset.splits, split_name)
-        if dataset_split is None:
-            continue
-        policy = getattr(config.profile.splits, split_name)
-        if isinstance(policy, FixedCountPolicy):
-            count: int | None = policy.count
-        elif dataset_split.capacity is not None:
-            count = dataset_split.capacity - dataset_split.offset
-        else:
-            count = None
-        if (
-            dataset_split.capacity is not None
-            and count is not None
-            and count > dataset_split.capacity - dataset_split.offset
-        ):
-            raise ValueError(
-                f"profile={config.profile.name} split={split_name} requests "
-                f"offset+count={dataset_split.offset + count} beyond "
-                f"capacity={dataset_split.capacity}"
+    if isinstance(config.dataset, ISETraceDatasetConfig):
+        natural_source = _absolute_path(root, config.dataset.natural_query_source)
+        for split_name in split_names:
+            policy = getattr(config.profile.splits, split_name)
+            count = policy.count if isinstance(policy, FixedCountPolicy) else None
+            resolved_splits[split_name] = ResolvedRawSplitConfig(
+                kind="raw",
+                source=natural_source,
+                offset=0,
+                capacity=None,
+                count=count,
             )
-        resolved_splits[split_name] = ResolvedRawSplitConfig(
-            kind="raw",
-            source=_absolute_path(root, dataset_split.source),
-            offset=dataset_split.offset,
-            capacity=dataset_split.capacity,
-            count=count,
-        )
+    else:
+        for split_name in split_names:
+            dataset_split = getattr(config.dataset.splits, split_name)
+            if dataset_split is None:
+                continue
+            policy = getattr(config.profile.splits, split_name)
+            if isinstance(policy, FixedCountPolicy):
+                count = policy.count
+            elif dataset_split.capacity is not None:
+                count = dataset_split.capacity - dataset_split.offset
+            else:
+                count = None
+            if (
+                dataset_split.capacity is not None
+                and count is not None
+                and count > dataset_split.capacity - dataset_split.offset
+            ):
+                raise ValueError(
+                    f"profile={config.profile.name} split={split_name} requests "
+                    f"offset+count={dataset_split.offset + count} beyond "
+                    f"capacity={dataset_split.capacity}"
+                )
+            resolved_splits[split_name] = ResolvedRawSplitConfig(
+                kind="raw",
+                source=_absolute_path(root, dataset_split.source),
+                offset=dataset_split.offset,
+                capacity=dataset_split.capacity,
+                count=count,
+            )
 
     _check_dataset_method_compatibility(config.dataset.name, config.method)
     _require_method_splits(config.method, resolved_splits)
+    if isinstance(config.dataset, ISETraceDatasetConfig):
+        from graph_memory.datasets.isetrace.registration import ISETRACE_REVISION
+
+        strict_invalid_examples = False
+        trajectory_source = _absolute_path(root, config.dataset.trajectory_source)
+        natural_query_source = _absolute_path(root, config.dataset.natural_query_source)
+        registered_revision: str | None = ISETRACE_REVISION
+        queries: ISETraceQueriesConfig | None = config.dataset.queries
+        chunking: ISETraceChunkingConfig | None = config.dataset.chunking
+    else:
+        strict_invalid_examples = config.dataset.strict_invalid_examples
+        trajectory_source = None
+        natural_query_source = None
+        registered_revision = None
+        queries = None
+        chunking = None
+
     return ResolvedExperimentConfig(
         name=config.name,
         dataset=ResolvedDatasetConfig(
             name=config.dataset.name,
-            strict_invalid_examples=config.dataset.strict_invalid_examples,
-            trajectory_source=(
-                None
-                if config.dataset.trajectory_source is None
-                else _absolute_path(root, config.dataset.trajectory_source)
-            ),
-            source_revision=config.dataset.source_revision,
-            chunking=config.dataset.chunking,
+            strict_invalid_examples=strict_invalid_examples,
+            trajectory_source=trajectory_source,
+            natural_query_source=natural_query_source,
+            source_revision=registered_revision,
+            queries=queries,
+            chunking=chunking,
             splits=resolved_splits,
         ),
         profile=config.profile.name,
@@ -694,6 +805,7 @@ def _require_method_splits(
         method,
         (
             DenseFinetuneMethodConfig,
+            ProvenanceRgcnMethodConfig,
             RgcnMethodConfig,
             DenseFtRgcnMethodConfig,
         ),
@@ -732,6 +844,12 @@ __all__ = [
     "FixedCountPolicy",
     "GraphBuildConfig",
     "GraphRAGMethodConfig",
+    "ISETraceChunkingConfig",
+    "ISETraceDatasetConfig",
+    "ISETraceMixRatio",
+    "ISETraceOriginRatio",
+    "ISETraceQueriesConfig",
+    "ISETraceSplitRatio",
     "MethodConfig",
     "ModelSelectionConfig",
     "NonNegativeFloat",
@@ -742,6 +860,8 @@ __all__ = [
     "PositiveInt",
     "ProfileConfig",
     "ProvenancePathMethodConfig",
+    "ProvenanceRgcnMethodConfig",
+    "ProvenanceRgcnVariant",
     "PrepareSplitConfig",
     "RankingMethodConfig",
     "ResolvedExperimentConfig",

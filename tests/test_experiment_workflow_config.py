@@ -7,14 +7,18 @@ from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
 from pydantic import ValidationError
 
+from graph_memory.datasets.isetrace.registration import ISETRACE_REVISION
 from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
+    ISETraceDatasetConfig,
     ProvenancePathMethodConfig,
+    ProvenanceRgcnMethodConfig,
     RgcnMethodConfig,
     parse_composed_config,
     resolve_experiment_config,
 )
+from graph_memory.experiment.workflow import _prepare_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,25 +32,101 @@ def _compose(*overrides: str):
         )
 
 
-def test_isetrace_nontrain_config_is_test_only_execution_provenance() -> None:
+def test_isetrace_config_resolves_one_normalized_natural_query_corpus() -> None:
     composed = parse_composed_config(
         _compose("dataset=isetrace", "profile=full", "method=provenance_path")
     )
     resolved = resolve_experiment_config(composed, repository_root=ROOT)
 
+    assert isinstance(composed.dataset, ISETraceDatasetConfig)
     assert isinstance(resolved.method, ProvenancePathMethodConfig)
-    assert set(resolved.dataset.splits) == {"test"}
-    assert resolved.dataset.splits["test"].count is None
-    assert (
-        resolved.dataset.splits["test"].source
-        == (ROOT / "data/isetrace/query-authoring/isetrace-v7-raw.jsonl").resolve()
+    assert composed.dataset.queries.split_ratio.model_dump() == pytest.approx(
+        {"train": 8 / 15, "dev": 2 / 15, "test": 5 / 15}
     )
+    assert composed.dataset.queries.mix_ratio.train.model_dump() == pytest.approx(
+        {"natural": 0.25, "template": 0.75}
+    )
+    assert composed.dataset.queries.mix_ratio.dev.model_dump() == pytest.approx(
+        {"natural": 0.5, "template": 0.5}
+    )
+    assert set(resolved.dataset.splits) == {"train", "dev", "test"}
+    natural_source = (
+        ROOT / "data/isetrace/query-authoring/isetrace-v7-raw.jsonl"
+    ).resolve()
+    assert all(
+        split.source == natural_source for split in resolved.dataset.splits.values()
+    )
+    assert resolved.dataset.natural_query_source == natural_source
     assert (
         resolved.dataset.trajectory_source
         == (ROOT / "data/isetrace/raw/trajectories").resolve()
     )
     assert resolved.dataset.strict_invalid_examples is False
-    assert resolved.dataset.source_revision
+    assert resolved.dataset.source_revision == ISETRACE_REVISION
+    assert not hasattr(composed.dataset, "source_revision")
+    assert not hasattr(composed.dataset, "splits")
+
+
+@pytest.mark.parametrize(
+    "retired_override",
+    (
+        "+dataset.source_revision=retired",
+        "+dataset.strict_invalid_examples=false",
+        "+dataset.splits.test.kind=raw",
+        "+dataset.allow_unreviewed=true",
+        "+dataset.accepted_only=true",
+        "+dataset.target_policy=answer_only",
+        "+dataset.queries.kind=corpus",
+        "+dataset.queries.invalid_policy=drop",
+        "+dataset.queries.grouping_policy=trajectory",
+        "+dataset.queries.manifest_name=split.json",
+        "+dataset.queries.extension_policy=rebuild",
+        "+dataset.queries.schema_version=7",
+        "+dataset.queries.mix_ratio.kind=relative",
+        "+dataset.queries.mix_ratio.test.natural=1",
+    ),
+)
+def test_isetrace_rejects_retired_test_only_and_policy_fields(
+    retired_override: str,
+) -> None:
+    with pytest.raises((ValidationError, ConfigCompositionException)):
+        parse_composed_config(
+            _compose(
+                "dataset=isetrace",
+                "method=provenance_path",
+                retired_override,
+            )
+        )
+
+
+def test_isetrace_provenance_rgcn_config_requires_current_trainable_lifecycle() -> None:
+    composed = parse_composed_config(
+        _compose("dataset=isetrace", "method=provenance_rgcn")
+    )
+    resolved = resolve_experiment_config(composed, repository_root=ROOT)
+
+    assert isinstance(composed.method, ProvenanceRgcnMethodConfig)
+    assert composed.method.variant == "full_rgcn"
+    assert set(resolved.dataset.splits) == {"train", "dev", "test"}
+
+    no_graph = parse_composed_config(
+        _compose(
+            "dataset=isetrace",
+            "method=provenance_rgcn",
+            "method.variant=wo_graph",
+        )
+    )
+    assert isinstance(no_graph.method, ProvenanceRgcnMethodConfig)
+    assert no_graph.method.effective().train.model.num_layers == 0
+
+
+def test_evidence_dataset_rejects_provenance_rgcn_method() -> None:
+    composed = parse_composed_config(
+        _compose("dataset=hotpotqa", "method=provenance_rgcn")
+    )
+
+    with pytest.raises(ValueError, match="does not support"):
+        resolve_experiment_config(composed, repository_root=ROOT)
 
 
 def test_isetrace_rejects_evidence_only_trainable_method() -> None:
@@ -75,9 +155,20 @@ def test_rgcn_profiles_define_true_graph_batches() -> None:
     evidence = parse_composed_config(
         _compose("profile=full", "method=dense_rgcn_graph_retriever")
     )
+    provenance = parse_composed_config(
+        _compose("dataset=isetrace", "profile=full", "method=provenance_rgcn")
+    )
+    resolved_provenance = resolve_experiment_config(
+        provenance, repository_root=ROOT
+    )
 
     assert isinstance(evidence.method, RgcnMethodConfig)
     assert evidence.method.train.trainer.per_device_graph_batch_size == 128
+    assert isinstance(provenance.method, ProvenanceRgcnMethodConfig)
+    assert provenance.method.train.trainer.per_device_graph_batch_size == 128
+    assert _prepare_config(resolved_provenance, "train").count is None
+    assert _prepare_config(resolved_provenance, "dev").count is None
+    assert _prepare_config(resolved_provenance, "test").count is None
 
 
 def test_dense_ft_seed_config_is_the_canonical_public_dense_ft_stage() -> None:

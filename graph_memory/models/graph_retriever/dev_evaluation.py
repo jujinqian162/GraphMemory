@@ -15,6 +15,7 @@ from graph_memory.models.graph_retriever.batching import (
     build_evidence_dataloader,
     materialize_full_ranking_tasks,
     move_training_batch,
+    split_batch_node_scores,
 )
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
@@ -88,13 +89,10 @@ def predict_dev_from_batches(
             loss = F.binary_cross_entropy_with_logits(logits, moved_batch.labels)
             loss_total += float(loss.detach().cpu()) * int(moved_batch.labels.shape[0])
             sample_count += int(moved_batch.labels.shape[0])
-            for task_id, node_id, score in zip(
-                batch.sample_task_ids,
-                batch.sample_node_ids,
-                logits.detach().cpu().tolist(),
-            ):
-                logits_by_task_id[task_id].append(
-                    RankedNode(node_id=node_id, score=float(score))
+            for task_id, rows in split_batch_node_scores(batch, logits).items():
+                logits_by_task_id[task_id].extend(
+                    RankedNode(node_id=node_id, score=score)
+                    for node_id, score in rows
                 )
 
     predictions: list[RankedResult] = []

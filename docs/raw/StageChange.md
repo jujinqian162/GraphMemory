@@ -1,0 +1,20 @@
+以下是对aaai投稿截止那天的实验状态概括：
+
+当时实验最核心的问题是没有任何数据集能同时提供Agent Trajectory, memory search query和相应的label(answer id)。实验分出三个部分RQ1-3。
+
+RQ1是传统问答检索数据集和baseline(不提供Agent Trajectory)，我适配了hotpotqa、2wikimultihop和musique三个数据集，h和bm25, dense, fastgraphrag, rgcn 这些baseline。RQ1的问题就是数据集和Agent没啥关系，唯一作用就是强调图结构携带更多信息，对记忆检索有用。
+
+RQ2是转换2wikimultihop数据集模拟Agent Trajectory，将原本的多跳链条强行改造成了Tool Call，Tool Output链条，这个部分唯一的能力就是在数据集足够大（能训练）的情况下提供“看着像Agent Trajectory”的数据，但是缺点就是毕竟2wikimultihop数据集不是Agent Trajectory，用程序模拟它非常勉强。而且graph的edge和node类型都很少，RGCN也难以发挥出高的水平。
+
+RQ3则是真正的Agent Trajectory。RQ3的目标是尽可能贴合论文，而论文中要求了很多node和edge，比如claim、decision、verification等等，问题是这些结构即使是在不提供query和label的数据集中也几乎没有，原因是claim、decision、verification这些东西在程序看来都是字符串，无法分辨并构造相应的图结构。于是我写了个侵入式的skill，要求Agent使用multiAgent策略并提供一些tool如record_claim， record_decision 并强制要求Agent在完成任务的过程中使用这个skill，这样就有了完全贴合论文表述的数据，这个部分的缺点是数据量太小，都是我自己跑的一些任务，也无法训练RGCN。
+
+---
+以下是这两天的进度和计划
+
+我现在的想法是，还是必须引入真实的Agent Trajectory，目前我引入了isetrace，这个数据集不提供memory search的query和label，我做法是：
+
+从巨大的trajectory中随机抽取一组相邻信息，交给llm并让其生成query，和exact gold（这个gold必须是这组信息中的某处关键信息），目前我试了以下24小时可以跑出3000+ query，效率和质量都还可以。
+
+新数据集的格式和那些多跳问题检索不一样，后者会提供稳定的sentence大小和sentence_id，于是可以设置指标Full support @ k， Recall @ k，计算召回率，但是新数据集是真实Trajectory，没有什么sentence_id，而我认为分割数据也是baseline的职责一部分，也可以成为ours method的优势。dense这种flat method是直接按照固定chunk切片embedding计算向量相似度排出topk，而ours method基于trajectory构建图结构并按照图结构划分数据，这也导致之前的指标像Full support变得不太好弄，所以我觉得可以引入一个指标Coverage@tokens，即在限定召回tokens的情况下，也就是固定token预算看召回能覆盖多少gold。目前我已经实现了非训练ours method，在这个Coverage@1024上可以超过dense、graphrag(Coverage@其他tokens数量还没测)。
+
+尽管如此，现在的这个实验距离最开始论文所设想的还有一定距离，一是没有multiagent，二是图的edge和node没有那么理想，举个例子：当初论文中有depends_on这个边，设想大概是表明两个tool use之间是有依赖或因果的。但是在trajectory中，程序只能看到两个tool use类型，程序无法知道这两个tool use是并列的read file又或是下一个read file的参数依赖上一个read fild的output。总结以下就是depends_on也好、decision也好这些edge和node都是需要llm参与的，如果不像之前RQ3那样做侵入式的skill，这些node也无法直接构建。现在我做的边是这样的：Earlier ToolOutput ──data.feeds──> Later ToolCall，从每个Earlier output 文本中抽取一些特殊字符串如：URL,绝对路径... 如果Later ToolCall的arguments中出现匹配的，则构建data.feeds边。(由于还没有完成RGCN和相应的消融实验，所以不知道这样设计好不好)

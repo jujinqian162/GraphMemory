@@ -8,6 +8,7 @@ from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
     GraphRAGRequest,
     ProvenancePathRequest,
+    ProvenanceRgcnRequest,
     TextRankingRequest,
 )
 
@@ -89,6 +90,11 @@ def build_method_registry() -> MethodRegistry:
         MethodDefinition(
             RetrievalMethodId.PROVENANCE_PATH,
             ProvenancePathRequest,
+            provenance,
+        ),
+        MethodDefinition(
+            RetrievalMethodId.PROVENANCE_RGCN,
+            ProvenanceRgcnRequest,
             provenance,
         ),
         MethodDefinition(

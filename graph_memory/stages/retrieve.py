@@ -51,6 +51,8 @@ from graph_memory.registry.retrieval import (
     GraphRAGRetrievalSettings,
     ProvenancePathBuildPayload,
     ProvenancePathRetrievalSettings,
+    ProvenanceRgcnBuildPayload,
+    ProvenanceRgcnRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
     RetrievalTaskFamily,
@@ -89,7 +91,13 @@ def run_retrieve_stage(
         dataset,
         task_inputs,
         isetrace_representation=(
-            "provenance" if isinstance(method, ProvenancePathMethodConfig) else "flat"
+            "provenance"
+            if isinstance(method, ProvenancePathMethodConfig)
+            or (
+                isinstance(method, TrainableRankingConfig)
+                and method.method == "provenance_rgcn"
+            )
+            else "flat"
         ),
     )
     settings = _retrieval_settings(
@@ -146,6 +154,10 @@ def materialize_rankings(
             read_json(artifact_payload_path(prepared, "provenance_graphs"))
         )
         if isinstance(method, ProvenancePathMethodConfig)
+        or (
+            isinstance(method, TrainableRankingConfig)
+            and method.method == "provenance_rgcn"
+        )
         else []
     )
     started = time.perf_counter()
@@ -243,6 +255,19 @@ def _build_payload(
             },
             dense_encoder=dense_encoder,
         )
+    if (
+        isinstance(method, TrainableRankingConfig)
+        and method.method == "provenance_rgcn"
+    ):
+        records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
+        return ProvenanceRgcnBuildPayload(
+            text_requests=text_requests,
+            provenance_graphs=provenance_graphs,
+            graph_ids_by_task_id={
+                record.task_id: record.graph_id for record in records
+            },
+            dense_encoder=dense_encoder,
+        )
     if isinstance(method, TrainableRankingConfig) and method.method in {
         "dense_rgcn_graph_retriever",
         "dense_ft_rgcn_graph_retriever",
@@ -290,6 +315,12 @@ def _retrieval_settings(
             return DenseFinetunedRetrievalSettings(
                 top_k=top_k,
                 checkpoint=_model_payload(model, "model"),
+                device=device,
+            )
+        if method.method == "provenance_rgcn":
+            return ProvenanceRgcnRetrievalSettings(
+                top_k=top_k,
+                checkpoint=_model_payload(model, "checkpoint"),
                 device=device,
             )
         if method.method == "dense_rgcn_graph_retriever":

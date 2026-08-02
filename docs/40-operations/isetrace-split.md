@@ -1,16 +1,10 @@
-# ISETrace provisioning and fixed split
+# ISETrace provisioning and query split
 
-The RQ2 benchmark uses the complete revision-pinned ISETrace release, not the 32-trajectory sample. The sample under `data/isetrace/sample/` remains only for fast smoke tests and query-authoring inspection.
+The benchmark uses the revision-pinned ISETrace release, not the 32-trajectory sample. The sample under `data/isetrace/sample/` remains for smoke tests and authoring inspection.
 
-## Download
+## Provisioning
 
-The registered source revision is:
-
-```text
-e40e04d41c04e4eb4bae181ebdd41b61c688081b
-```
-
-Download all eight trajectory shards and the intent corpus directly through the configured Hugging Face mirror:
+The registered trajectory revision is owned by `graph_memory/datasets/isetrace/registration.py`. Users do not repeat it in Hydra configuration.
 
 ```bash
 uv run python scripts/prepare_dataset.py \
@@ -19,44 +13,48 @@ uv run python scripts/prepare_dataset.py \
   --mirror
 ```
 
-The complete local corpus contains 23,132 trajectories in eight shards plus 43,955 intent-corpus records. `prepare_dataset.py` verifies every registered file size. `--mirror` selects `hf-mirror.com` before the first request instead of waiting for an official-endpoint failure.
+Preparation validates registered source sizes and digests. When natural-query authoring run metadata is present, its source revision, file size, and digest must agree with the registered trajectory source.
 
-## Split policy
+## Query allocation
 
-Build the fixed split with:
+`configs/dataset/isetrace.yaml` names one `natural_query_source` and a normalized `queries.split_ratio`. Preparation:
 
-```bash
-uv run python scripts/build_isetrace_split.py
+1. parses and resolves natural query records against pinned trajectories;
+2. excludes and counts malformed or unresolvable records;
+3. groups every valid query by trajectory;
+4. deterministically assigns whole trajectory groups using `split_seed`;
+5. applies the requested split's count/offset only after allocation.
+
+No hand-filtered corpus or user-supplied split manifest is required. Every query for one trajectory stays in one split. Model/training seeds do not change split ownership.
+
+The committed ratio is:
+
+```yaml
+queries:
+  split_ratio:
+    train: 0.5333333333333333
+    dev: 0.13333333333333333
+    test: 0.3333333333333333
 ```
 
-Outputs are written under `data/isetrace/splits/v1/`:
+The values are normalized and must cover exactly `train`, `dev`, and `test` with positive weights.
 
-- `manifest.json`: source revision, per-shard SHA-256 digests, policy, counts, and assignment-file digests;
-- `train.jsonl`, `dev.jsonl`, and `test.jsonl`: stable trajectory IDs, source locations, intent IDs, and leakage-group IDs.
+## Train/dev mixtures
 
-The policy is `isetrace-intent-components-v1`, seed 13, with an 80/10/10 ratio. The unit of assignment is not an individual trajectory or source shard. It is a connected component formed by:
+Train and dev retain all selected natural queries and may add deterministic templates according to their own `queries.mix_ratio`. Template records are rendered only from provenance graphs whose trajectories already belong to that split. An insufficient template pool fails instead of silently changing the configured ratio.
 
-1. trajectories sharing any `source_intent_id`; and
-2. trajectories containing exactly equal intent text after case-folding and whitespace normalization.
+Test is always natural-only. Template records are never generated for test.
 
-Whole components are assigned together. Components are processed by descending size with seeded deterministic deficit balancing, yielding exact trajectory counts while preventing the same source task from crossing splits. This matters because 2,002 source intents occur in two trajectories and transitive components contain as many as 109 trajectories.
+Prepared artifacts include deterministic counts for resolved, malformed, unresolvable, split-target, natural-selected, template-selected, and origin totals. `query_metadata.json` records origin for reporting, while model-facing requests and graphs remain origin-free.
 
-| Split | Raw trajectories | Intent components | Canonically valid | Dependency-motif eligible |
-|---|---:|---:|---:|---:|
-| Train | 18,506 | 16,936 | 18,376 | 17,272 |
-| Dev | 2,313 | 2,115 | 2,296 | 2,177 |
-| Test | 2,313 | 2,115 | 2,296 | 2,153 |
-| **Total** | **23,132** | **21,166** | **22,968** | **21,602** |
+## Full profile
 
-The current canonical adapter rejects 164 records with incomplete tool-call/output pairing. A further 1,366 valid trajectories contain no dependency motif beyond `call_result`; they remain assigned for auditability but are excluded from the primary dependency-retrieval query pool. `call_result` is diagnostic and must be reported separately.
+For `dataset=isetrace method=provenance_rgcn profile=full`, train/dev/test consume all queries assigned to their configured mixed splits. The evidence workflow's fixed dev cap is not applied.
 
-The full-data M2 audit extracts 295,744 dependency motifs:
+## Leakage rule
 
-| Motif | Count |
-|---|---:|
-| `value_flow` | 143,061 |
-| `multi_hop_flow` | 76,086 |
-| `artifact_lifecycle` | 55,382 |
-| `multi_source_join` | 21,215 |
+- Training consumes only train trajectories.
+- Checkpoint selection consumes only dev trajectories and uses natural dev metrics as primary.
+- Test retrieval consumes only natural queries from test trajectories.
 
-M3 query selection must consume these fixed assignments. Training may use only train trajectories, model/checkpoint selection only dev trajectories, and all template-natural generalization reporting only test trajectories. LLM-authored test queries must be generated from frozen test `QuerySpec` records rather than resampling raw trajectories.
+Generated natural queries remain unreviewed until separately reviewed and frozen. Split correctness does not make them formal paper gold.

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from datetime import datetime, timezone
 
+from graph_memory.datasets.isetrace.registration import ISETRACE_REVISION
 from graph_memory.experiment.inputs import huggingface_mirror_url
 from graph_memory.experiment.persistence import write_yaml_atomic
 
@@ -52,7 +53,6 @@ class PrepareDatasetArgs:
 Downloader = Callable[[str, Path, int | None], None]
 
 SUMMARY_DIR = Path("results") / "debug" / "datasets-prepare"
-ISETRACE_REVISION = "e40e04d41c04e4eb4bae181ebdd41b61c688081b"
 DATASET_REGISTRY: dict[str, DatasetSpec] = {
     "hotpotqa-v1": DatasetSpec(
         dataset="hotpotqa-v1",

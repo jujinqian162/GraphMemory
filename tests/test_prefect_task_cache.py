@@ -125,6 +125,88 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     )
 
 
+def test_provenance_rgcn_flow_plans_trainable_lifecycle_without_evidence_graphs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
+        composed = compose(
+            config_name="config",
+            overrides=[
+                "name=provenance-rgcn-plan",
+                "dataset=isetrace",
+                "profile=smoke",
+                "device=cpu",
+                "method=provenance_rgcn",
+            ],
+        )
+    config = resolve_experiment_config(
+        parse_composed_config(composed), repository_root=ROOT
+    )
+    observed: dict[str, object] = {}
+    prepared_splits: list[str] = []
+
+    monkeypatch.setattr(
+        experiment_workflow,
+        "prefect_storage_settings",
+        lambda *, refresh_cache: nullcontext(),
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "_resolve_split_sources",
+        lambda config: {split: object() for split in ("train", "dev", "test")},
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "_trajectory_source",
+        lambda config: object(),
+    )
+
+    def prepare(**kwargs):
+        prepared_splits.append(kwargs["config"].split)
+        assert kwargs["trajectory_source"] is not None
+        return SimpleNamespace(artifact=object(), split=kwargs["config"].split)
+
+    def pairs(**kwargs):
+        observed["pair_graphs"] = kwargs["evidence_graphs"]
+        return SimpleNamespace(artifact=object())
+
+    def encode(**kwargs):
+        observed["encode_graphs"] = (
+            kwargs["train_graphs"],
+            kwargs["dev_graphs"],
+        )
+        return SimpleNamespace(artifact=object())
+
+    def train(**kwargs):
+        observed["trained"] = True
+        raise PairInputsCaptured
+
+    monkeypatch.setattr(experiment_workflow, "prepare_split_task", prepare)
+    monkeypatch.setattr(
+        experiment_workflow, "resolve_encoder_source", lambda encoder: object()
+    )
+    monkeypatch.setattr(experiment_workflow, "build_training_pairs_task", pairs)
+    monkeypatch.setattr(experiment_workflow, "encode_frozen_rgcn_embeddings_task", encode)
+    monkeypatch.setattr(experiment_workflow, "train_provenance_rgcn_task", train)
+    monkeypatch.setattr(
+        experiment_workflow,
+        "build_evidence_graphs_task",
+        lambda **kwargs: pytest.fail("provenance R-GCN must not build EvidenceGraph"),
+    )
+
+    with pytest.raises(PairInputsCaptured):
+        experiment_workflow.run_experiment.fn(
+            config,
+            run_output=tmp_path / "run",
+        )
+
+    assert prepared_splits == ["train", "dev", "test"]
+    assert observed["pair_graphs"] is None
+    assert observed["encode_graphs"] == (None, None)
+    assert observed["trained"] is True
+
+
 def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
     sampling = PairSamplingConfig(
         random_seed=13,

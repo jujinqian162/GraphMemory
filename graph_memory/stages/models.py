@@ -6,7 +6,14 @@ from typing import cast
 from pydantic import JsonValue, TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
+from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.training_pairs.contracts import TrainPairRecord
+from graph_memory.datasets.isetrace.benchmark_records import (
+    ISETraceLabelRecord,
+    ISETraceQueryMetadata,
+    ISETraceRankingRecord,
+)
+from graph_memory.datasets.isetrace.training import adapt_provenance_training_split
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     text_ranking_requests_for_dataset,
@@ -33,6 +40,17 @@ from graph_memory.experiment.config import (
 )
 from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
+from graph_memory.models.graph_retriever.provenance import provenance_rgcn_model_config
+from graph_memory.models.graph_retriever.provenance_training import (
+    QueryOrigin,
+    train_provenance_graph_retriever,
+)
+from graph_memory.models.graph_retriever.text_embeddings import (
+    PrecomputedGraphFeatureProvider,
+)
+from graph_memory.query_synthesis.provenance.contracts import (
+    TemplateSupervisionRecord,
+)
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
 from graph_memory.stages.results import ModelResult
@@ -48,6 +66,11 @@ from graph_memory.stages.trainers import (
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
+PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
+ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
+ISETRACE_LABELS_ADAPTER = TypeAdapter(list[ISETraceLabelRecord])
+ISETRACE_QUERY_METADATA_ADAPTER = TypeAdapter(list[ISETraceQueryMetadata])
+TEMPLATE_SUPERVISION_ADAPTER = TypeAdapter(list[TemplateSupervisionRecord])
 TRAIN_PAIRS_ADAPTER = TypeAdapter(list[TrainPairRecord])
 
 
@@ -287,6 +310,163 @@ def materialize_evidence_rgcn_model(
 
 
 
+def materialize_provenance_rgcn_model(
+    store: ProcessedAssetStore,
+    *,
+    config: RgcnTrainStageConfig,
+    train_prepared: DatasetArtifactRef,
+    train_pairs: TrainingPairsArtifactRef,
+    dev_prepared: DatasetArtifactRef,
+    encoder_source: EncoderSourceRef,
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
+    implementation_version: str,
+) -> ModelResult:
+    if config.method != "provenance_rgcn":
+        raise ValueError("provenance model stage requires method=provenance_rgcn")
+    effective_encoder = _resolved_encoder(config.encoder, encoder_source)
+    train_requests, train_labels, _train_origins = _load_provenance_split(
+        train_prepared
+    )
+    dev_requests, dev_labels, dev_origins = _load_provenance_split(dev_prepared)
+    pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
+    )
+    embedding_store = FrozenEmbeddingStore(frozen_embeddings)
+    if embedding_store.index.family != "provenance":
+        raise ValueError("Provenance R-GCN requires provenance frozen embeddings.")
+    train_partition = embedding_store.partition("train")
+    dev_partition = embedding_store.partition("dev")
+    encoder_dim = embedding_store.index.embedding_dim
+    train_provider = PrecomputedGraphFeatureProvider(
+        train_partition, embedding_dim=encoder_dim
+    )
+    dev_provider = PrecomputedGraphFeatureProvider(
+        dev_partition, embedding_dim=encoder_dim
+    )
+    model_settings = config.train.model
+    model_config = provenance_rgcn_model_config(
+        encoder_model=effective_encoder.model_name,
+        encoder_dim=encoder_dim,
+        query_prefix=effective_encoder.query_prefix,
+        passage_prefix=effective_encoder.passage_prefix,
+        encoder_batch_size=effective_encoder.batch_size,
+        hidden_dim=model_settings.hidden_dim,
+        num_layers=model_settings.num_layers,
+        dropout=model_settings.dropout,
+        ablation_name=model_settings.ablation,
+    )
+    with ArtifactPublisher(
+        store,
+        kind=ArtifactKind.MODEL,
+        namespace=config.method,
+        task_identity="train-provenance-rgcn",
+        origin={
+            "stage": "train",
+            "dataset": "isetrace",
+            "method": config.method,
+            "variant": config.variant,
+            "prepared_digest": train_prepared.digest,
+            "pairs_digest": train_pairs.digest,
+            "dev_digest": dev_prepared.digest,
+            "encoder_identity": _encoder_identity(encoder_source),
+            "frozen_embeddings_digest": frozen_embeddings.digest,
+            "implementation_version": implementation_version,
+        },
+    ) as publisher:
+        result = train_provenance_graph_retriever(
+            train_requests=train_requests,
+            train_labels=train_labels,
+            train_pairs=pair_values,
+            dev_requests=dev_requests,
+            dev_labels=dev_labels,
+            dev_query_origins=dev_origins,
+            model_config=model_config,
+            training_config=config.train.trainer,
+            text_embedding_provider=train_provider,
+            dev_text_embedding_provider=dev_provider,
+            device=config.train.trainer.device,
+        )
+        checkpoints = publisher.workspace / "checkpoints"
+        best_model = build_model_from_config(result.model_config)
+        best_model.load_state_dict(result.best_model_state_dict)
+        epoch_checkpoint = checkpoints / f"checkpoint_epoch_{result.best_epoch}.pt"
+        for path in (epoch_checkpoint, checkpoints / "best.pt"):
+            save_rgcn_checkpoint(
+                path,
+                method_name=result.model_config.method_name,
+                model=best_model,
+                optimizer_state_dict=result.optimizer_state_dict,
+                scheduler_state_dict=result.scheduler_state_dict,
+                epoch=result.best_epoch,
+                global_step=result.global_step,
+                best_dev_metric=result.best_dev_metric,
+                model_config=result.model_config,
+                training_config=result.training_config,
+            )
+        history = tuple(
+            cast(dict[str, JsonValue], dict(record)) for record in result.metric_records
+        )
+        write_jsonl(publisher.workspace / "training_metrics.jsonl", list(history))
+        artifact = publisher.publish(
+            {
+                "checkpoints": "checkpoints",
+                "checkpoint": "checkpoints/best.pt",
+                "training_metrics": "training_metrics.jsonl",
+            },
+            metadata={
+                "variant": config.variant,
+                "best_epoch": result.best_epoch,
+                "global_step": result.global_step,
+                "best_dev_metric": result.best_dev_metric,
+                "selection_query_origin": "natural",
+                "selection_metric": "dev_natural_recall_at_5",
+            },
+        )
+    assert isinstance(artifact, ModelArtifactRef)
+    metadata: dict[str, JsonValue] = {
+        "variant": config.variant,
+        "best_epoch": result.best_epoch,
+        "global_step": result.global_step,
+        "best_dev_metric": result.best_dev_metric,
+        "selection_query_origin": "natural",
+        "selection_metric": "dev_natural_recall_at_5",
+    }
+    return ModelResult(
+        method=config.method,
+        artifact=artifact,
+        training_history=history,
+        metadata=metadata,
+    )
+
+
+def _load_provenance_split(prepared: DatasetArtifactRef):
+    rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(prepared, "tasks"))
+    )
+    labels = ISETRACE_LABELS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(prepared, "labels"))
+    )
+    graphs = PROVENANCE_GRAPHS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(prepared, "provenance_graphs"))
+    )
+    templates = TEMPLATE_SUPERVISION_ADAPTER.validate_python(
+        read_json(artifact_payload_path(prepared, "template_supervision"))
+    )
+    metadata = ISETRACE_QUERY_METADATA_ADAPTER.validate_python(
+        read_json(artifact_payload_path(prepared, "query_metadata"))
+    )
+    requests, compiled_labels = adapt_provenance_training_split(
+        rankings, labels, graphs, templates
+    )
+    origins = cast(
+        dict[str, QueryOrigin],
+        {record.task_id: record.query_origin for record in metadata},
+    )
+    if set(origins) != {request.task_id for request in requests}:
+        raise ValueError("ISETrace provenance query origins must align")
+    return requests, compiled_labels, origins
+
+
 def _resolved_encoder(
     encoder: DenseEncoderConfig,
     source: EncoderSourceRef,
@@ -306,4 +486,5 @@ __all__ = [
     "EncoderSourceRef",
     "materialize_dense_finetune_model",
     "materialize_evidence_rgcn_model",
+    "materialize_provenance_rgcn_model",
 ]

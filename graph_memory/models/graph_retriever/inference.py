@@ -11,6 +11,7 @@ from graph_memory.models.graph_retriever.batching import (
     collate_evidence_tasks,
     materialize_full_ranking_tasks,
     move_training_batch,
+    split_batch_node_scores,
 )
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
@@ -68,11 +69,12 @@ class GraphRetrieverInference:
         cpu_batch = collate_evidence_tasks(tasks)
         with torch.no_grad():
             batch = move_training_batch(cpu_batch, self.device)
-            logits = self.model(batch).detach().cpu().tolist()
+            logits = self.model(batch).detach().cpu()
+        rows_by_task = split_batch_node_scores(cpu_batch, logits)
         ranked_nodes = sorted(
             [
-                RankedNode(node_id=node_id, score=float(score))
-                for node_id, score in zip(cpu_batch.sample_node_ids, logits)
+                RankedNode(node_id=node_id, score=score)
+                for node_id, score in rows_by_task[request.task_id]
             ],
             key=lambda ranked_node: (-ranked_node.score, ranked_node.node_id),
         )

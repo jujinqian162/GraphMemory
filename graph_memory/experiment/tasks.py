@@ -52,6 +52,7 @@ from graph_memory.stages.graphs import materialize_evidence_graphs
 from graph_memory.stages.models import (
     materialize_dense_finetune_model,
     materialize_evidence_rgcn_model,
+    materialize_provenance_rgcn_model,
 )
 from graph_memory.stages.pairs import materialize_training_pairs
 from graph_memory.stages.prepare import materialize_prepared_split
@@ -98,7 +99,7 @@ def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
-    implementation_version: str = "prepare-v3-isetrace-raw-directory",
+    implementation_version: str = "prepare-v4-isetrace-grouped-corpus",
 ) -> PreparedSplitResult:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",
@@ -117,6 +118,8 @@ def prepare_split_task(
         offset=config.offset,
         strict_invalid_examples=config.strict_invalid_examples,
         source_revision=config.source_revision,
+        split_ratio=config.split_ratio,
+        mix_ratio=config.mix_ratio,
         chunking=config.chunking,
         implementation_version=implementation_version,
     )
@@ -275,6 +278,35 @@ def train_evidence_rgcn_task(
         dev_graphs=dev_graphs,
         encoder_source=encoder_source,
         seed_model=seed_model,
+        frozen_embeddings=frozen_embeddings,
+        implementation_version=implementation_version,
+    )
+
+
+@task(
+    name="train-provenance-rgcn",
+    persist_result=True,
+    cache_policy=SCIENTIFIC_CACHE_POLICY,
+)
+def train_provenance_rgcn_task(
+    train_prepared: DatasetArtifactRef,
+    train_pairs: TrainingPairsArtifactRef,
+    dev_prepared: DatasetArtifactRef,
+    config: RgcnTrainStageConfig,
+    encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
+    frozen_embeddings: FrozenEmbeddingsArtifactRef,
+    implementation_version: str = "provenance-rgcn-train-v1",
+) -> ModelResult:
+    get_run_logger().info(
+        "train provenance-rgcn | epochs=%s", config.train.trainer.epochs
+    )
+    return materialize_provenance_rgcn_model(
+        processed_store(),
+        config=config,
+        train_prepared=train_prepared,
+        train_pairs=train_pairs,
+        dev_prepared=dev_prepared,
+        encoder_source=encoder_source,
         frozen_embeddings=frozen_embeddings,
         implementation_version=implementation_version,
     )
@@ -448,4 +480,5 @@ __all__ = [
     "resolve_encoder_source",
     "train_dense_ft_task",
     "train_evidence_rgcn_task",
+    "train_provenance_rgcn_task",
 ]

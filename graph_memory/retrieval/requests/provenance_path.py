@@ -11,17 +11,17 @@ from graph_memory.graphs.provenance import (
 from graph_memory.retrieval.requests.text import TextCandidate
 
 
-class ProvenancePathRequest(DomainModel):
+class ExecutionProvenanceRankingRequest(DomainModel):
     task_id: NonEmptyStr
     query_text: str
     candidates: tuple[TextCandidate, ...]
     graph: ProvenanceGraph
 
     @model_validator(mode="after")
-    def _validate_context(self) -> "ProvenancePathRequest":
+    def _validate_context(self) -> "ExecutionProvenanceRankingRequest":
         candidate_ids = [candidate.item_id for candidate in self.candidates]
         if len(candidate_ids) != len(set(candidate_ids)):
-            raise ValueError("provenance path candidate IDs must be unique")
+            raise ValueError("execution provenance candidate IDs must be unique")
         graph_candidate_ids = {
             node.node_id
             for node in self.graph.nodes
@@ -31,7 +31,7 @@ class ProvenancePathRequest(DomainModel):
             missing = sorted(graph_candidate_ids - set(candidate_ids))
             extra = sorted(set(candidate_ids) - graph_candidate_ids)
             raise ValueError(
-                "provenance path candidates must cover graph content units exactly; "
+                "execution provenance candidates must cover graph content units exactly; "
                 f"missing={missing} extra={extra}"
             )
         graph_ids = {
@@ -41,9 +41,21 @@ class ProvenancePathRequest(DomainModel):
         }
         if graph_ids and graph_ids != {self.graph.graph_id}:
             raise ValueError(
-                "provenance path candidate graph metadata does not match graph"
+                "execution provenance candidate graph metadata does not match graph"
             )
         return self
 
 
-__all__ = ["ProvenancePathRequest"]
+class ProvenancePathRequest(ExecutionProvenanceRankingRequest):
+    pass
+
+
+class ProvenanceRgcnRequest(ExecutionProvenanceRankingRequest):
+    pass
+
+
+__all__ = [
+    "ExecutionProvenanceRankingRequest",
+    "ProvenancePathRequest",
+    "ProvenanceRgcnRequest",
+]
