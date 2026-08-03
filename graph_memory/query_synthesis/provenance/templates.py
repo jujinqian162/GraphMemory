@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import math
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 
 from graph_memory.graphs.provenance import (
     ARTIFACT_NODE,
@@ -122,29 +121,6 @@ def enumerate_template_supervision(
     return tuple(sorted(records, key=lambda item: item.task_id))
 
 
-def template_count_for_mix(
-    natural_count: int,
-    mix_ratio: Mapping[str, float],
-) -> int:
-    if natural_count < 0:
-        raise ValueError("natural query count cannot be negative")
-    if set(mix_ratio) != {"natural", "template"}:
-        raise ValueError("mix_ratio must define natural and template")
-    natural_weight = mix_ratio["natural"]
-    template_weight = mix_ratio["template"]
-    for name, value in (
-        ("natural", natural_weight),
-        ("template", template_weight),
-    ):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"mix ratio {name!r} must be numeric")
-        if not math.isfinite(float(value)):
-            raise ValueError(f"mix ratio {name!r} must be finite")
-    if natural_weight <= 0 or template_weight < 0:
-        raise ValueError("natural weight must be positive and template nonnegative")
-    return math.floor(natural_count * template_weight / natural_weight + 0.5)
-
-
 def select_template_supervision(
     records: Iterable[TemplateSupervisionRecord],
     *,
@@ -250,5 +226,4 @@ __all__ = [
     "enumerate_template_supervision",
     "render_template_supervision",
     "select_template_supervision",
-    "template_count_for_mix",
 ]

@@ -18,7 +18,7 @@ The natural-query authoring file is now a general corpus rather than a preassign
 
 **Goals:**
 
-- Keep the user-facing ISETrace query configuration small and limited to sources and ratios that are expected to change.
+- Keep the user-facing ISETrace query configuration small and use exact per-origin task counts.
 - Split natural queries deterministically without placing two queries over the same trajectory in different splits.
 - Inject natural queries into train and dev while keeping test natural-only.
 - Generate template supervision from existing motifs without changing graph construction.
@@ -38,7 +38,7 @@ The natural-query authoring file is now a general corpus rather than a preassign
 
 ## Decisions
 
-### 1. Expose only sources and ratios in ISETrace query configuration
+### 1. Expose sources and exact query counts in ISETrace configuration
 
 The ISETrace dataset configuration uses this scientific surface:
 
@@ -48,17 +48,10 @@ trajectory_source: data/isetrace/raw/trajectories
 natural_query_source: data/isetrace/query-authoring/isetrace-v7-raw.jsonl
 
 queries:
-  split_ratio:
-    train: 8
-    dev: 2
-    test: 5
-  mix_ratio:
-    train:
-      natural: 1
-      template: 3
-    dev:
-      natural: 1
-      template: 1
+  splits:
+    train: {natural: 2692, template: 5384}
+    dev: {natural: 393, template: 393}
+    test: {natural: 981, template: 0}
 
 chunking:
   tokenizer_name: models/intfloat-e5-base-v2
@@ -67,7 +60,7 @@ chunking:
   overlap_tokens: 64
 ```
 
-Ratio values are positive numeric weights and are normalized by the program. With 6,000 valid natural queries, `8:2:5` targets 3,200 train, 800 dev, and 2,000 test queries before trajectory-group rounding. Test is always natural-only, so it has no configurable mix entry.
+Counts are strict nonnegative integers and mean exactly what preparation emits. Train/dev may set `natural: 0` for template-only supervision. Test requires natural greater than zero and template equal to zero. Generic evidence-dataset profile caps do not alter ISETrace counts.
 
 The following are fixed implementation behavior and do not appear in config:
 
@@ -87,33 +80,21 @@ This is an explicit replacement of the earlier `isetrace-nontrain-benchmark` dat
 
 Alternative: keep the old generic split and policy shape and point all splits at one file. Rejected because it would expose fixed mechanics, encourage row-level slicing, retain output-level label semantics that no longer match exact spans, and cannot safely prevent same-trajectory leakage.
 
-### 2. Resolve natural queries before trajectory-grouped splitting
+### 2. Resolve natural queries before registered trajectory-grouped ownership
 
-Preparation first parses the natural corpus and resolves every usable query to exactly one canonical trajectory and exact source spans. Invalid, unmatched, uncompilable, or ambiguous records are excluded deterministically and counted. Split ratios apply to the valid resolved pool, not raw JSONL line count.
+Preparation first parses the natural corpus and resolves every usable query to exactly one canonical trajectory and exact source spans. Invalid, unmatched, uncompilable, or ambiguous records are excluded deterministically and counted.
 
-All natural queries mapped to one `trajectory_id` form one indivisible group. Groups are assigned deterministically from `split_seed` while balancing natural-query counts toward the configured ratio. The training seed never changes this assignment. The prepared artifact records the source digest, configured ratios, actual per-split query and trajectory counts, and dropped-record counts; these are ordinary content-addressed artifact details rather than user-configured manifest policy.
+All natural queries mapped to one `trajectory_id` form one indivisible group. Groups are assigned deterministically from `split_seed` toward exact targets derived from repository-owned weights. For the 4,066-query server corpus these resolve to 2,692 train, 393 dev, and 981 test records. A changed source digest receives a newly content-addressed deterministic plan. The training seed and requested supervision counts never change ownership. The prepared artifact records source identity, registered weights, resolved targets, requested/available/selected origin counts, actual trajectory counts, and dropped-record counts.
 
 Grouping is fixed at trajectory granularity because the model receives the complete graph. Query-row splitting would leak an identical graph across train and test. A stricter unseen-intent study, if later required, is a separate benchmark change rather than a runtime switch.
 
-### 3. Interpret mix ratios relative to all allocated natural queries
+### 3. Select exact natural/template counts
 
-Every allocated natural query is retained in its split. For train or dev with weights `(natural=n, template=t)`, preparation deterministically selects:
+For each split, preparation deterministically selects exactly the configured natural count and exactly the configured template count from records whose trajectories belong to that split. Natural and template may independently be zero for train/dev, but each split must contain at least one task. Template-only preparation still builds deterministic graph anchors from its frozen trajectory partition.
 
-```text
-template_count = round(natural_count * t / n)
-```
+If either requested count exceeds its eligible pool, preparation fails with requested and available counts rather than silently truncating. Content-addressed identity includes exact query counts and registered ownership weights. Retired `split_ratio` and `mix_ratio` fields are rejected explicitly.
 
-from eligible templates belonging to trajectories already assigned to that split. `natural` must be greater than zero; `template` may be zero. If the eligible template pool is too small, preparation fails with the requested and available counts instead of silently changing the ratio.
-
-Examples:
-
-- train `natural:1, template:3` means three template queries per natural query;
-- dev `natural:1, template:1` means equal counts;
-- test contains every allocated natural query and no template query.
-
-Profile-level smoke/quick counts are applied only after the scientific pools are built. A full ISETrace trainable profile consumes every prepared train/dev/test item so it does not silently truncate the configured mixture.
-
-Alternative: expose multiple fixed-count, fraction, anchored, and fallback policy kinds. Rejected because one ratio interpretation satisfies the planned experiments and keeps the config readable.
+A size-matched template-only control against the 1:2 experiment uses 8,076 train templates and 786 dev templates, with no natural train/dev tasks and the same 981-query natural test.
 
 ### 4. Generate simple template supervision from existing motifs
 
@@ -192,11 +173,11 @@ Natural labels are mapped to candidates by exact source-span overlap. Template l
 
 The existing binary node-ranking loss and checkpoint format remain authoritative unless current strict validation requires adding the new method identity or provenance relation vocabulary. No edge scorer or auxiliary dependency loss is introduced. Retrieved native edges/path information remains a diagnostic projection from the input graph, as for the training-free method.
 
-### 9. Select on natural dev and evaluate natural-only test
+### 9. Select by available dev origin and evaluate natural-only test
 
-Training consumes the configured train mixture. Dev preparation retains both origins, but checkpoint selection uses the natural dev subset as the primary metric input. Template dev metrics are reported separately as diagnostics and do not outweigh poor natural-query generalization.
+Training consumes the configured exact train composition. Mixed dev containing natural records selects checkpoints on natural Recall@5 and reports template metrics separately. Template-only dev selects on template Recall@5 and records template as the selection origin; this enables the explicit synthetic-supervision ablation without inventing empty natural metrics.
 
-Formal test contains only natural queries. It uses the existing ISETrace exact-span suite: Recall/Coverage, Full Support, span F1, MRR, evidence density, and fixed token-budget metrics. Path and edge metrics remain unavailable without independent labels.
+Formal test contains only natural queries. It uses the ISETrace exact-span suite: Recall/Coverage, Coverage@512/1024/2048 Tokens, Full Support, span F1, MRR, and evidence density. Path and edge metrics remain unavailable without independent labels.
 
 Predictions and metrics are additionally grouped by `query_origin` for train/dev diagnostics and by existing natural-query memory mode when metadata is available. Origin never enters retrieval requests or model tensors.
 
@@ -224,19 +205,19 @@ No compatibility loader is added for the deleted provenance checkpoints. The new
 - **Template labels can cover long outputs.** The first implementation accepts coarse focused-output supervision to remain simple; natural exact-span training examples provide finer supervision. Fact-level deterministic template parsing is deferred unless results show it is necessary.
 - **Physical provenance paths are longer than RQ1 evidence edges.** The layer count remains an ordinary model parameter, while no shortcut relation or second graph is added before a measured need exists.
 - **Tool distribution is skewed.** Existing hard negatives and trajectory grouping reduce trivial memorization; tool-balancing policy is deferred until observed train/dev diagnostics justify it.
-- **Natural corpus growth changes the resolved split artifact.** Content-addressed source identity makes the change explicit. Formal runs must record the resolved source and split summary; no user-facing manifest policy is required.
+- **Natural corpus growth changes resolved split identity.** Source content identity makes the new deterministic target plan explicit. Formal runs must record the new source and split summary.
 - **Existing unreviewed natural records are not formal gold.** Engineering runs may use them, but paper claims require the selected natural test corpus to be reviewed and frozen.
 
 ## Migration Plan
 
-1. Add failing config and preparation tests for the concise ISETrace query configuration, source revision inference, trajectory-grouped natural splitting, mix counts, and natural-only test.
+1. Add failing config and preparation tests for explicit ISETrace origin counts, source revision inference, registered trajectory-grouped ownership, exact counts, template-only train/dev, and natural-only test.
 2. Add training-only template query records and a small renderer over existing motifs, then materialize focused output-content labels without changing `ProvenanceGraph`.
 3. Add provenance tensorization into the existing graph-batch contract, including the ephemeral disconnected query node, fixed relation mapping, candidate ownership, and source-span label mapping.
 4. Add `provenance_rgcn` model config, Registry definition/builder, pair/training adapters, strict checkpoint round trip, and batch-size-one inference.
-5. Wire train/dev/test workflow stages, natural-dev checkpoint selection, natural-only test retrieval, and origin-stratified summaries.
+5. Wire train/dev/test workflow stages, origin-aware dev checkpoint selection, natural-only test retrieval, Coverage@512/1024/2048, and origin-stratified summaries.
 6. Add smoke/quick/full configuration, maintained docs, and focused architecture/config/workflow/model/evaluation tests.
 7. Run Ruff, BasedPyright, focused pytest, broad pytest, strict OpenSpec validation when the CLI is available, and `git diff --check` before any formal training run.
 
 ## Open Questions
 
-None blocking. The initial implementation intentionally uses one split algorithm, one mix interpretation, one fixed provenance relation policy, frozen text embeddings, and node-ranking only.
+None blocking. The implementation intentionally uses one registered split ownership policy, exact per-origin task counts, one fixed provenance relation policy, frozen text embeddings, and node-ranking only.

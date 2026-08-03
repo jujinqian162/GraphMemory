@@ -8,13 +8,12 @@
 
 - `trajectory_source`
 - `natural_query_source`
-- normalized `queries.split_ratio`
-- train/dev `queries.mix_ratio`
+- explicit `queries.splits.<split>.natural/template` task counts
 - content chunking settings
 
 The source revision is inferred from dataset registration and checked against authoring run metadata when available. Split assignment uses `split_seed` and groups every query for one trajectory. Model seed changes do not move trajectories between splits.
 
-Natural queries are resolved before allocation. Invalid or unresolvable records are excluded and counted. Train/dev retain all selected natural records and add a deterministic ratio-derived number of templates rendered from existing motifs. Test never contains templates.
+Natural queries are resolved before allocation. Invalid or unresolvable records are excluded and counted. Train/dev select exactly their configured natural/template counts from frozen trajectory partitions, including valid `natural: 0` template-only runs. Test never contains templates.
 
 ## Supervision and negatives
 
@@ -45,25 +44,42 @@ prepare train/dev/test
   -> build provenance candidate pairs
   -> freeze train/dev graph + query embeddings
   -> train shared node-ranking R-GCN
-  -> select on natural dev Recall@5
+  -> select on natural dev Recall@5, or template dev Recall@5 when dev is template-only
   -> save strict provenance_rgcn checkpoint
   -> reload checkpoint and rank natural-only test requests
   -> exact-span evaluation
 ```
 
-Natural and template dev metrics are reported separately. Template metrics are diagnostic; primary checkpoint selection is natural-only. Test uses the existing ISETrace span Recall/Coverage, Full Support, span F1, MRR, evidence-density, and token-budget metrics. Candidate source spans are preserved through ranking.
+Natural and template dev metrics are reported separately. Mixed dev selects on natural Recall@5; template-only dev selects on template Recall@5 and records that origin in the model artifact. Test reports exact-span Recall, Coverage@512/1024/2048 Tokens, Full Support, span F1, MRR, and evidence density. Candidate source spans are preserved through ranking.
 
 There are no independently annotated provenance edge/path labels in the natural corpus. Therefore path/edge accuracy is unavailable; any retrieved provenance path is diagnostic only and must not be reported as labeled accuracy.
 
 ## Commands
 
-```powershell
-uv run python experiment/run.py name=isetrace_rgcn_smoke dataset=isetrace profile=smoke method=provenance_rgcn device=cpu
-uv run python experiment/run.py name=isetrace_rgcn_full dataset=isetrace profile=full method=provenance_rgcn device=cuda:0
-uv run python experiment/run.py name=isetrace_rgcn_wo_graph dataset=isetrace profile=quick method=provenance_rgcn method.variant=wo_graph device=cuda:0
+```bash
+uv run python experiment/run.py \
+  name=isetrace_rgcn_smoke dataset=isetrace profile=smoke \
+  method=provenance_rgcn device=cpu \
+  dataset.queries.splits.train.natural=4 \
+  dataset.queries.splits.train.template=4 \
+  dataset.queries.splits.dev.natural=2 \
+  dataset.queries.splits.dev.template=2 \
+  dataset.queries.splits.test.natural=2
+
+uv run python experiment/run.py \
+  name=isetrace_rgcn_full dataset=isetrace profile=full \
+  method=provenance_rgcn device=cuda:0
+
+uv run python experiment/run.py \
+  name=isetrace_rgcn_template_only dataset=isetrace profile=full \
+  method=provenance_rgcn device=cuda:0 \
+  dataset.queries.splits.train.natural=0 \
+  dataset.queries.splits.train.template=8076 \
+  dataset.queries.splits.dev.natural=0 \
+  dataset.queries.splits.dev.template=786
 ```
 
-The `full` profile consumes the complete configured mixed train/dev splits rather than the evidence workflow's fixed dev cap.
+ISETrace always consumes the exact configured counts rather than evidence-workflow profile caps. For a size-matched template-only control against the 1:2 run, override train to `{natural: 0, template: 8076}` and dev to `{natural: 0, template: 786}` while retaining the 981-query natural test.
 
 ## Claim boundary
 

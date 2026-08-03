@@ -17,6 +17,7 @@ from graph_memory.evaluation.span_metrics import (
     span_mrr,
 )
 
+CONTEXT_TOKEN_BUDGETS = (512, 1024, 2048)
 CONTEXT_TOKEN_BUDGET = 2048
 
 
@@ -48,11 +49,14 @@ class SpanEvidenceMetricSuite:
             at_10 = span_metrics_at(
                 prediction.ranked_nodes, label.gold_evidence_spans, 10
             )
-            at_budget = span_metrics_under_token_budget(
-                prediction.ranked_nodes,
-                label.gold_evidence_spans,
-                CONTEXT_TOKEN_BUDGET,
-            )
+            at_budget = {
+                budget: span_metrics_under_token_budget(
+                    prediction.ranked_nodes,
+                    label.gold_evidence_spans,
+                    budget,
+                )
+                for budget in CONTEXT_TOKEN_BUDGETS
+            }
             row = TaskMetricRow.model_validate(
                 {
                     "Recall@2": at_2.coverage,
@@ -62,10 +66,12 @@ class SpanEvidenceMetricSuite:
                     "Evidence F1@10": at_10.f1,
                     "Evidence Density@5": at_5.density,
                     "Evidence Density@10": at_10.density,
-                    "Coverage@2048 Tokens": at_budget.coverage,
-                    "Span F1@2048 Tokens": at_budget.f1,
-                    "Evidence Density@2048 Tokens": at_budget.density,
-                    "Full Support@2048 Tokens": at_budget.full_support,
+                    "Coverage@512 Tokens": at_budget[512].coverage,
+                    "Coverage@1024 Tokens": at_budget[1024].coverage,
+                    "Coverage@2048 Tokens": at_budget[2048].coverage,
+                    "Span F1@2048 Tokens": at_budget[2048].f1,
+                    "Evidence Density@2048 Tokens": at_budget[2048].density,
+                    "Full Support@2048 Tokens": at_budget[2048].full_support,
                     "Full Support@5": at_5.full_support,
                     "Full Support@10": at_10.full_support,
                     "MRR": span_mrr(prediction.ranked_nodes, label.gold_evidence_spans),
@@ -161,4 +167,8 @@ def _span_id(span) -> str:
     return f"{span.event_id}{span.json_pointer}:{span.char_start}-{span.char_end}"
 
 
-__all__ = ["CONTEXT_TOKEN_BUDGET", "SpanEvidenceMetricSuite"]
+__all__ = [
+    "CONTEXT_TOKEN_BUDGET",
+    "CONTEXT_TOKEN_BUDGETS",
+    "SpanEvidenceMetricSuite",
+]

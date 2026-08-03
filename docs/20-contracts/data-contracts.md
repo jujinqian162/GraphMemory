@@ -26,7 +26,7 @@ ISETrace JSONL
   -> deterministic task text with A/E handles
   -> minimal LLM authoring record: id + text + query + gold quotes
   -> exact SourceSpan compilation during benchmark preparation
-  -> trajectory-grouped split + train/dev natural/template mixture
+  -> frozen trajectory-grouped split + explicit natural/template counts
   -> ISETraceRankingRecord + span-only ISETraceLabelRecord
   -> BM25 / Dense / GraphRAG / provenance_path / provenance_rgcn
 ```
@@ -35,7 +35,7 @@ ISETrace JSONL
 
 `ProvenanceGraph` is one immutable graph per trajectory. It contains no query, answer, motif, support label, or edge weight. The v1 core builder emits tool-call, tool-output, and artifact nodes with native/deterministic returns, temporal, exact-feed, read, and write relations. Kinds and relations are namespaced, and nodes retain canonical source spans so future annotators can add `semantic.claim` or `semantic.decision` layers without mutating source events or pretending those fields were native.
 
-The durable natural-query JSONL has four fields: `id`, handle-delimited task `text`, natural-language `query`, and `gold` entries containing `{source, quote}`. Preparation first resolves valid records, groups them by trajectory, and uses normalized `queries.split_ratio` with `split_seed`; model seeds do not change split ownership. Natural gold remains exact `SourceSpan` data compiled from quotes. Existing deterministic `MotifSpec` records may render additional training-only template records for train/dev according to `queries.mix_ratio`; their labels are only focused ToolOutput content candidates. Nonfocused motif participants stay eligible negatives. Template supervision and `query_origin` are sidecar payloads, never request, candidate, graph, or model-feature fields. Test is always natural-only.
+The durable natural-query JSONL has four fields: `id`, handle-delimited task `text`, natural-language `query`, and `gold` entries containing `{source, quote}`. Preparation first resolves valid records and assigns trajectory groups using registered v7 ownership weights plus `split_seed`; model seeds and supervision counts do not change ownership. `queries.splits.<split>.natural/template` then requests exact task counts, including natural-zero template-only train/dev. Natural gold remains exact `SourceSpan` data compiled from quotes. Deterministic `MotifSpec` records render template supervision whose labels are only focused ToolOutput content candidates. Nonfocused motif participants stay eligible negatives. Template supervision and `query_origin` are sidecar payloads, never request, candidate, graph, or model-feature fields. Test requires natural-only counts.
 
 The LLM authoring utility assigns each task a deterministic writing style and emits provisional v7 records for review; see [`../40-operations/isetrace-query-authoring.md`](../40-operations/isetrace-query-authoring.md). Retired answer/support/intent-aware policies and legacy label-conditioned query envelopes are not restored.
 

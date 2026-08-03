@@ -85,7 +85,7 @@ def test_grouped_split_targets_weights_and_never_splits_one_trajectory() -> None
 
     assignments, targets = allocate_trajectory_grouped_splits(
         query_trajectories,
-        split_ratio={"train": 8, "dev": 2, "test": 5},
+        split_weights={"train": 3200, "dev": 800, "test": 2000},
         split_seed=41,
     )
 
@@ -110,17 +110,17 @@ def test_grouped_split_depends_only_on_split_seed() -> None:
 
     seed_13_a, _ = allocate_trajectory_grouped_splits(
         query_trajectories,
-        split_ratio={"train": 8, "dev": 2, "test": 5},
+        split_weights={"train": 10, "dev": 10, "test": 10},
         split_seed=13,
     )
     seed_13_b, _ = allocate_trajectory_grouped_splits(
         query_trajectories,
-        split_ratio={"train": 8, "dev": 2, "test": 5},
+        split_weights={"train": 10, "dev": 10, "test": 10},
         split_seed=13,
     )
     seed_17, _ = allocate_trajectory_grouped_splits(
         query_trajectories,
-        split_ratio={"train": 8, "dev": 2, "test": 5},
+        split_weights={"train": 10, "dev": 10, "test": 10},
         split_seed=17,
     )
 
@@ -166,7 +166,8 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
             offset=0,
             strict=True,
             split=split,
-            split_ratio={"train": 1, "dev": 1, "test": 1},
+            split_weights={"train": 2, "dev": 2, "test": 2},
+            query_counts={"natural": 2, "template": 0},
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -176,8 +177,8 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
         graph_ids_by_split[split] = {
             ranking.graph_id for ranking in benchmark.rankings
         }
-        assert summary[f"queries_target_{split}"] == 2
-        assert summary[f"queries_split_{split}"] == 2
+        assert summary[f"natural_queries_capacity_{split}"] == 2
+        assert summary[f"natural_queries_available_{split}"] == 2
         assert all(
             metadata.query_origin == "natural"
             for metadata in benchmark.query_metadata
@@ -231,12 +232,11 @@ def test_mixed_preparation_retains_natural_queries_and_keeps_test_natural_only(
             offset=0,
             strict=True,
             split=split,
-            split_ratio={"train": 1, "dev": 1, "test": 1},
-            mix_ratio=(
-                {"natural": 1, "template": 1}
-                if split in {"train", "dev"}
-                else None
-            ),
+            split_weights={"train": 2, "dev": 2, "test": 2},
+            query_counts={
+                "natural": 2,
+                "template": 2 if split in {"train", "dev"} else 0,
+            },
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -264,6 +264,59 @@ def test_mixed_preparation_retains_natural_queries_and_keeps_test_natural_only(
     assert not (graphs_by_split["train"] & graphs_by_split["dev"])
     assert not (graphs_by_split["train"] & graphs_by_split["test"])
     assert not (graphs_by_split["dev"] & graphs_by_split["test"])
+
+
+def test_template_only_preparation_uses_exact_counts_from_frozen_split(
+    tmp_path: Path,
+) -> None:
+    raw_trajectories = [_raw_trajectory(index) for index in range(3)]
+    trajectories = [
+        adapt_isetrace_record(
+            parse_isetrace_record(raw), source_revision="fixture-revision"
+        )
+        for raw in raw_trajectories
+    ]
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(
+        "".join(json.dumps(raw) + "\n" for raw in raw_trajectories),
+        encoding="utf-8",
+    )
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(
+        "".join(
+            _query(
+                trajectory,
+                query_id=f"query:{trajectory_index}:{query_index}",
+            ).model_dump_json()
+            + "\n"
+            for trajectory_index, trajectory in enumerate(trajectories)
+            for query_index in range(2)
+        ),
+        encoding="utf-8",
+    )
+
+    benchmark, summary = prepare_isetrace_benchmark(
+        query_path,
+        trajectory_path,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=True,
+        split="train",
+        split_weights={"train": 2, "dev": 2, "test": 2},
+        query_counts={"natural": 0, "template": 2},
+        chunking=_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+    )
+
+    assert len(benchmark.rankings) == 2
+    assert len(benchmark.template_supervision) == 2
+    assert {item.query_origin for item in benchmark.query_metadata} == {"template"}
+    assert summary["natural_queries_requested"] == 0
+    assert summary["natural_queries_selected"] == 0
+    assert summary["template_queries_requested"] == 2
+    assert summary["template_queries_selected"] == 2
 
 
 def test_mixed_preparation_fails_on_insufficient_template_pool(
@@ -294,8 +347,8 @@ def test_mixed_preparation_fails_on_insufficient_template_pool(
             offset=0,
             strict=True,
             split="train",
-            split_ratio={"train": 8, "dev": 2, "test": 5},
-            mix_ratio={"natural": 1, "template": 1000},
+            split_weights={"train": 1, "dev": 0, "test": 0},
+            query_counts={"natural": 1, "template": 1000},
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -337,7 +390,8 @@ def test_preparation_drops_and_reports_malformed_and_unresolvable_records(
         offset=0,
         strict=False,
         split="train",
-        split_ratio={"train": 8, "dev": 2, "test": 5},
+        split_weights={"train": 1, "dev": 0, "test": 0},
+        query_counts={"natural": 1, "template": 0},
         chunking=_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
@@ -349,7 +403,7 @@ def test_preparation_drops_and_reports_malformed_and_unresolvable_records(
     assert summary["queries_dropped"] == 2
     assert summary["invalid_queries"] == 1
     assert summary["queries_unmatched"] == 1
-    assert summary["queries_target_train"] == 1
+    assert summary["natural_queries_capacity_train"] == 1
 
 
 def test_authoring_revision_conflict_fails_before_query_parsing(
@@ -387,7 +441,8 @@ def test_authoring_revision_conflict_fails_before_query_parsing(
             offset=0,
             strict=True,
             split="test",
-            split_ratio={"train": 8, "dev": 2, "test": 5},
+            split_weights={"train": 0, "dev": 0, "test": 1},
+            query_counts={"natural": 1, "template": 0},
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -428,7 +483,8 @@ def test_authoring_source_digest_conflict_fails_before_graph_construction(
             offset=0,
             strict=True,
             split="test",
-            split_ratio={"train": 8, "dev": 2, "test": 5},
+            split_weights={"train": 0, "dev": 0, "test": 1},
+            query_counts={"natural": 1, "template": 0},
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )

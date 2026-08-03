@@ -36,7 +36,7 @@ data/isetrace/query-authoring/isetrace-v7-raw.jsonl
 data/isetrace/raw/trajectories/
 ```
 
-For another authoring file, override `dataset.natural_query_source`. `dataset.trajectory_source` remains the registered raw root or trajectory directory. The same trajectory-grouped `queries.split_ratio` derives test; non-training methods schedule only that prepared test split and ignore train/dev template mixture settings.
+For another authoring file, override `dataset.natural_query_source`. `dataset.trajectory_source` remains the registered raw root or trajectory directory. Registered trajectory ownership plus `split_seed` derives the fixed test partition; `queries.splits.test` requests its exact natural count. Non-training methods schedule only that prepared test split and ignore train/dev counts.
 
 Smoke runs:
 
@@ -57,7 +57,7 @@ uv run python experiment/run.py -m \
 
 ## Interpretation
 
-Report span Coverage/Recall, Span F1, Full Support, Evidence Density, MRR, and fixed token-budget results. Graph connectivity can remain a method diagnostic, but it is not a labeled dependency metric in v7.
+Report span Coverage/Recall, Span F1, Full Support, Evidence Density, MRR, and Coverage@512/1024/2048 Tokens. Graph connectivity can remain a method diagnostic, but it is not a labeled dependency metric in v7.
 
 Experiment scale is determined from successfully compiled records rather than the filename. Preparation writes `queries_seen`, `queries_resolved`, `queries_dropped`, `queries_uncompilable`, `queries_unmatched`, and `queries_ambiguous` into the dataset artifact counts.
 

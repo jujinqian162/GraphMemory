@@ -108,6 +108,8 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
                     evidence_f1_at_10=0.0,
                     evidence_density_at_5=0.25,
                     evidence_density_at_10=0.2,
+                    coverage_at_512_tokens=0.4,
+                    coverage_at_1024_tokens=0.6,
                     coverage_at_2048_tokens=0.8,
                     span_f1_at_2048_tokens=0.4,
                     evidence_density_at_2048_tokens=0.3,
@@ -154,6 +156,8 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
     assert metrics["final.mrr"] == 0.5
     assert metrics["final.evidence_density_at_5"] == 0.25
     assert metrics["final.evidence_density_at_10"] == 0.2
+    assert metrics["final.coverage_at_512_tokens"] == 0.4
+    assert metrics["final.coverage_at_1024_tokens"] == 0.6
     assert metrics["final.coverage_at_2048_tokens"] == 0.8
     assert metrics["final.span_f1_at_2048_tokens"] == 0.4
     assert metrics["final.evidence_density_at_2048_tokens"] == 0.3

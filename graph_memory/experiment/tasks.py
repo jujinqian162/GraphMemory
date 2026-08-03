@@ -99,7 +99,7 @@ def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
-    implementation_version: str = "prepare-v5-skip-unlabelled-templates",
+    implementation_version: str = "prepare-v6-explicit-isetrace-query-counts",
 ) -> PreparedSplitResult:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",
@@ -118,8 +118,7 @@ def prepare_split_task(
         offset=config.offset,
         strict_invalid_examples=config.strict_invalid_examples,
         source_revision=config.source_revision,
-        split_ratio=config.split_ratio,
-        mix_ratio=config.mix_ratio,
+        query_counts=config.query_counts,
         chunking=config.chunking,
         implementation_version=implementation_version,
     )
@@ -360,7 +359,7 @@ def evaluate_rankings_task(
     dataset: DatasetName,
     top_k: int,
     failure_case_limit: int,
-    implementation_version: str = "evaluation-v2-isetrace",
+    implementation_version: str = "evaluation-v3-token-budget-coverage",
 ) -> EvaluationResult:
     get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(

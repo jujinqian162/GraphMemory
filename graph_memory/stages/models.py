@@ -328,6 +328,10 @@ def materialize_provenance_rgcn_model(
         train_prepared
     )
     dev_requests, dev_labels, dev_origins = _load_provenance_split(dev_prepared)
+    selection_query_origin = (
+        "natural" if "natural" in dev_origins.values() else "template"
+    )
+    selection_metric = f"dev_{selection_query_origin}_recall_at_5"
     pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
         read_json(artifact_payload_path(train_pairs, "pairs"))
     )
@@ -418,8 +422,8 @@ def materialize_provenance_rgcn_model(
                 "best_epoch": result.best_epoch,
                 "global_step": result.global_step,
                 "best_dev_metric": result.best_dev_metric,
-                "selection_query_origin": "natural",
-                "selection_metric": "dev_natural_recall_at_5",
+                "selection_query_origin": selection_query_origin,
+                "selection_metric": selection_metric,
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
@@ -428,8 +432,8 @@ def materialize_provenance_rgcn_model(
         "best_epoch": result.best_epoch,
         "global_step": result.global_step,
         "best_dev_metric": result.best_dev_metric,
-        "selection_query_origin": "natural",
-        "selection_metric": "dev_natural_recall_at_5",
+        "selection_query_origin": selection_query_origin,
+        "selection_metric": selection_metric,
     }
     return ModelResult(
         method=config.method,

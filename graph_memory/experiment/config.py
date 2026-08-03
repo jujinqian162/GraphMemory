@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Literal, TypeAlias, Union, cast
 
@@ -135,67 +134,43 @@ class ISETraceChunkingConfig(ClosedModel):
         return self
 
 
-def _normalized_weights(
-    value: object,
-    *,
-    names: tuple[str, ...],
-    allow_zero: frozenset[str] = frozenset(),
-) -> object:
-    if not isinstance(value, Mapping):
-        return value
-    data = dict(value)
-    if not all(name in data for name in names):
-        return value
-    numbers: dict[str, float] = {}
-    for name in names:
-        raw = data[name]
-        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            raise ValueError(f"ratio weight {name!r} must be numeric")
-        number = float(raw)
-        if not math.isfinite(number):
-            raise ValueError(f"ratio weight {name!r} must be finite")
-        if number < 0.0 or (number == 0.0 and name not in allow_zero):
-            raise ValueError(f"ratio weight {name!r} must be positive")
-        numbers[name] = number
-    total = sum(numbers.values())
-    if total <= 0.0:
-        raise ValueError("ratio weights must have a positive total")
-    return {**data, **{name: numbers[name] / total for name in names}}
+class ISETraceQueryOriginCounts(ClosedModel):
+    natural: NonNegativeInt
+    template: NonNegativeInt
+
+    @model_validator(mode="after")
+    def _require_queries(self) -> "ISETraceQueryOriginCounts":
+        if self.natural + self.template <= 0:
+            raise ValueError("ISETrace split must request at least one query")
+        return self
 
 
-class ISETraceSplitRatio(ClosedModel):
-    train: PositiveFloat
-    dev: PositiveFloat
-    test: PositiveFloat
+class ISETraceQuerySplitCounts(ClosedModel):
+    train: ISETraceQueryOriginCounts
+    dev: ISETraceQueryOriginCounts
+    test: ISETraceQueryOriginCounts
 
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize(cls, value: object) -> object:
-        return _normalized_weights(value, names=("train", "dev", "test"))
-
-
-class ISETraceOriginRatio(ClosedModel):
-    natural: PositiveFloat
-    template: NonNegativeFloat
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize(cls, value: object) -> object:
-        return _normalized_weights(
-            value,
-            names=("natural", "template"),
-            allow_zero=frozenset({"template"}),
-        )
-
-
-class ISETraceMixRatio(ClosedModel):
-    train: ISETraceOriginRatio
-    dev: ISETraceOriginRatio
+    @model_validator(mode="after")
+    def _require_natural_only_test(self) -> "ISETraceQuerySplitCounts":
+        if self.test.natural <= 0 or self.test.template != 0:
+            raise ValueError(
+                "ISETrace test split must request natural > 0 and template = 0"
+            )
+        return self
 
 
 class ISETraceQueriesConfig(ClosedModel):
-    split_ratio: ISETraceSplitRatio
-    mix_ratio: ISETraceMixRatio
+    splits: ISETraceQuerySplitCounts
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_ratio_configuration(cls, value: object) -> object:
+        if isinstance(value, dict) and ({"split_ratio", "mix_ratio"} & set(value)):
+            raise ValueError(
+                "ISETrace split_ratio/mix_ratio have been removed; configure "
+                "queries.splits.<split>.natural/template with explicit counts"
+            )
+        return value
 
 
 class EvidenceDatasetConfig(ClosedModel):
@@ -552,8 +527,7 @@ class PrepareSplitConfig(ClosedModel):
     seed: ScientificInt
     strict_invalid_examples: StrictBool
     source_revision: str | None = Field(default=None, min_length=1)
-    split_ratio: ISETraceSplitRatio | None = None
-    mix_ratio: ISETraceOriginRatio | None = None
+    query_counts: ISETraceQueryOriginCounts | None = None
     chunking: ISETraceChunkingConfig | None = None
 
 
@@ -686,14 +660,12 @@ def resolve_experiment_config(
     if isinstance(config.dataset, ISETraceDatasetConfig):
         natural_source = _absolute_path(root, config.dataset.natural_query_source)
         for split_name in split_names:
-            policy = getattr(config.profile.splits, split_name)
-            count = policy.count if isinstance(policy, FixedCountPolicy) else None
             resolved_splits[split_name] = ResolvedRawSplitConfig(
                 kind="raw",
                 source=natural_source,
                 offset=0,
                 capacity=None,
-                count=count,
+                count=None,
             )
     else:
         for split_name in split_names:
@@ -846,10 +818,9 @@ __all__ = [
     "GraphRAGMethodConfig",
     "ISETraceChunkingConfig",
     "ISETraceDatasetConfig",
-    "ISETraceMixRatio",
-    "ISETraceOriginRatio",
     "ISETraceQueriesConfig",
-    "ISETraceSplitRatio",
+    "ISETraceQueryOriginCounts",
+    "ISETraceQuerySplitCounts",
     "MethodConfig",
     "ModelSelectionConfig",
     "NonNegativeFloat",

@@ -32,7 +32,7 @@ def _compose(*overrides: str):
         )
 
 
-def test_isetrace_config_resolves_one_normalized_natural_query_corpus() -> None:
+def test_isetrace_config_resolves_explicit_query_counts() -> None:
     composed = parse_composed_config(
         _compose("dataset=isetrace", "profile=full", "method=provenance_path")
     )
@@ -40,15 +40,11 @@ def test_isetrace_config_resolves_one_normalized_natural_query_corpus() -> None:
 
     assert isinstance(composed.dataset, ISETraceDatasetConfig)
     assert isinstance(resolved.method, ProvenancePathMethodConfig)
-    assert composed.dataset.queries.split_ratio.model_dump() == pytest.approx(
-        {"train": 8 / 15, "dev": 2 / 15, "test": 5 / 15}
-    )
-    assert composed.dataset.queries.mix_ratio.train.model_dump() == pytest.approx(
-        {"natural": 0.25, "template": 0.75}
-    )
-    assert composed.dataset.queries.mix_ratio.dev.model_dump() == pytest.approx(
-        {"natural": 0.5, "template": 0.5}
-    )
+    assert composed.dataset.queries.splits.model_dump() == {
+        "train": {"natural": 2692, "template": 5384},
+        "dev": {"natural": 393, "template": 393},
+        "test": {"natural": 981, "template": 0},
+    }
     assert set(resolved.dataset.splits) == {"train", "dev", "test"}
     natural_source = (
         ROOT / "data/isetrace/query-authoring/isetrace-v7-raw.jsonl"
@@ -82,8 +78,8 @@ def test_isetrace_config_resolves_one_normalized_natural_query_corpus() -> None:
         "+dataset.queries.manifest_name=split.json",
         "+dataset.queries.extension_policy=rebuild",
         "+dataset.queries.schema_version=7",
-        "+dataset.queries.mix_ratio.kind=relative",
-        "+dataset.queries.mix_ratio.test.natural=1",
+        "+dataset.queries.split_ratio.train=1",
+        "+dataset.queries.mix_ratio.train.natural=1",
     ),
 )
 def test_isetrace_rejects_retired_test_only_and_policy_fields(
@@ -97,6 +93,28 @@ def test_isetrace_rejects_retired_test_only_and_policy_fields(
                 retired_override,
             )
         )
+
+
+def test_isetrace_accepts_template_only_train_and_dev_counts() -> None:
+    composed = parse_composed_config(
+        _compose(
+            "dataset=isetrace",
+            "method=provenance_rgcn",
+            "dataset.queries.splits.train.natural=0",
+            "dataset.queries.splits.train.template=8076",
+            "dataset.queries.splits.dev.natural=0",
+            "dataset.queries.splits.dev.template=786",
+        )
+    )
+    assert isinstance(composed.dataset, ISETraceDatasetConfig)
+    assert composed.dataset.queries.splits.train.model_dump() == {
+        "natural": 0,
+        "template": 8076,
+    }
+    assert composed.dataset.queries.splits.dev.model_dump() == {
+        "natural": 0,
+        "template": 786,
+    }
 
 
 def test_isetrace_provenance_rgcn_config_requires_current_trainable_lifecycle() -> None:

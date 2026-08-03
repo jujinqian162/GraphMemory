@@ -390,7 +390,8 @@ def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
         offset=0,
         strict=False,
         split="train",
-        split_ratio={"train": 8, "dev": 2, "test": 5},
+        split_weights={"train": 1, "dev": 0, "test": 0},
+        query_counts={"natural": 1, "template": 0},
         chunking=_TEST_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
@@ -398,7 +399,7 @@ def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
     assert [item.task_id for item in benchmark.rankings] == ["query:valid"]
     assert summary["queries_seen"] == 2
     assert summary["queries_resolved"] == 1
-    assert summary["queries_target_train"] == 1
+    assert summary["natural_queries_capacity_train"] == 1
     assert summary["queries_resolved"] == 1
     assert summary["queries_dropped"] == 1
     assert summary["queries_uncompilable"] == 1
@@ -765,7 +766,14 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
             == "execution_provenance_span_v7"
         )
         assert evaluation.metric_rows[0].evidence_density_at_10 != "N/A"
+        assert evaluation.metric_rows[0].coverage_at_512_tokens != "N/A"
+        assert evaluation.metric_rows[0].coverage_at_1024_tokens != "N/A"
         assert evaluation.metric_rows[0].coverage_at_2048_tokens != "N/A"
+        assert (
+            evaluation.metric_rows[0].coverage_at_512_tokens
+            <= evaluation.metric_rows[0].coverage_at_1024_tokens
+            <= evaluation.metric_rows[0].coverage_at_2048_tokens
+        )
         assert evaluation.metric_rows[0].full_support_at_2048_tokens != "N/A"
         assert evaluation.metric_rows[0].connected_evidence_recall_at_10 != "N/A"
         assert evaluation.metric_rows[0].path_recall_at_10 == "N/A"

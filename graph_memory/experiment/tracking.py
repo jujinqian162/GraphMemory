@@ -20,6 +20,8 @@ FINAL_METRIC_KEYS = {
     "Evidence F1@10": "final.evidence_f1_at_10",
     "Evidence Density@5": "final.evidence_density_at_5",
     "Evidence Density@10": "final.evidence_density_at_10",
+    "Coverage@512 Tokens": "final.coverage_at_512_tokens",
+    "Coverage@1024 Tokens": "final.coverage_at_1024_tokens",
     "Coverage@2048 Tokens": "final.coverage_at_2048_tokens",
     "Span F1@2048 Tokens": "final.span_f1_at_2048_tokens",
     "Evidence Density@2048 Tokens": "final.evidence_density_at_2048_tokens",

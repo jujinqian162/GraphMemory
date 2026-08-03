@@ -510,32 +510,18 @@ def _prepare_config(
         if config.dataset.name == "isetrace" or split == "test"
         else config.seed
     )
-    full_provenance_split = (
-        config.dataset.name == "isetrace"
-        and isinstance(config.method, ProvenanceRgcnMethodConfig)
-        and config.profile == "full"
-    )
     return PrepareSplitConfig(
         dataset=config.dataset.name,
         split=split,
-        count=None if full_provenance_split else split_config.count,
+        count=None if config.dataset.name == "isetrace" else split_config.count,
         offset=split_config.offset,
         seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
         source_revision=config.dataset.source_revision,
-        split_ratio=(
+        query_counts=(
             None
             if config.dataset.queries is None
-            else config.dataset.queries.split_ratio
-        ),
-        mix_ratio=(
-            None
-            if config.dataset.queries is None or split == "test"
-            else (
-                config.dataset.queries.mix_ratio.train
-                if split == "train"
-                else config.dataset.queries.mix_ratio.dev
-            )
+            else getattr(config.dataset.queries.splits, split)
         ),
         chunking=config.dataset.chunking,
     )

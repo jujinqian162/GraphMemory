@@ -15,7 +15,6 @@ from graph_memory.query_synthesis.provenance.templates import (
     enumerate_template_supervision,
     render_template_supervision,
     select_template_supervision,
-    template_count_for_mix,
 )
 
 __all__ = [
@@ -31,5 +30,4 @@ __all__ = [
     "extract_motifs",
     "render_template_supervision",
     "select_template_supervision",
-    "template_count_for_mix",
 ]

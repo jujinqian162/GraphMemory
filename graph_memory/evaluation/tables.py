@@ -16,6 +16,8 @@ MAIN_RESULT_COLUMNS = [
     "Evidence F1@10",
     "Evidence Density@5",
     "Evidence Density@10",
+    "Coverage@512 Tokens",
+    "Coverage@1024 Tokens",
     "Coverage@2048 Tokens",
     "Span F1@2048 Tokens",
     "Evidence Density@2048 Tokens",

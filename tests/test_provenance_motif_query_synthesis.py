@@ -9,7 +9,6 @@ from graph_memory.query_synthesis.provenance import (
     extract_motifs,
     render_template_supervision,
     select_template_supervision,
-    template_count_for_mix,
 )
 from graph_memory.query_synthesis.provenance.authoring import (
     parse_task_intents,
@@ -219,8 +218,6 @@ def test_template_selection_is_owned_deterministic_and_fails_when_insufficient()
     )
     assert first == second
     assert all(record.graph_id == graph.graph_id for record in first)
-    assert template_count_for_mix(4, {"natural": 1, "template": 3}) == 12
-    assert template_count_for_mix(4, {"natural": 1, "template": 0}) == 0
 
     with pytest.raises(ValueError, match=r"requested=\d+ available=\d+"):
         select_template_supervision(

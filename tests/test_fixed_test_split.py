@@ -60,12 +60,11 @@ def test_isetrace_allocation_uses_split_seed_for_every_derived_split() -> None:
         prepare_a = _prepare_config(config_a, split)
         prepare_b = _prepare_config(config_b, split)
         assert prepare_a.seed == prepare_b.seed == 41
-        assert prepare_a.split_ratio == prepare_b.split_ratio
-        assert prepare_a.split_ratio is not None
+        assert prepare_a.query_counts == prepare_b.query_counts
+        assert prepare_a.query_counts is not None
         if split == "test":
-            assert prepare_a.mix_ratio is None
-        else:
-            assert prepare_a.mix_ratio is not None
+            assert prepare_a.query_counts.template == 0
+            assert prepare_a.query_counts.natural == 981
 
 
 def test_split_seed_defaults_to_thirteen() -> None:

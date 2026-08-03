@@ -12,6 +12,14 @@ For each query, the ISETrace adapter SHALL rank the same argument-content and ou
 - **WHEN** a natural gold span overlaps no argument-content or output-content candidate in the referenced graph
 - **THEN** preparation excludes and reports the uncompilable natural record before split allocation
 
+### Requirement: Token-budget coverage is reported at three budgets
+The ISETrace exact-span evaluator SHALL report Coverage@512 Tokens, Coverage@1024 Tokens, and Coverage@2048 Tokens in per-task rows, aggregate metrics, result tables, and experiment tracking.
+
+#### Scenario: Evaluate one ranked result
+- **WHEN** an ISETrace ranked result is evaluated against exact gold spans
+- **THEN** coverage is computed independently under 512, 1024, and 2048 retrieved-token budgets
+- **AND** coverage is nondecreasing as the token budget increases
+
 ## MODIFIED Requirements
 
 ### Requirement: ISETrace benchmark inputs are revision-pinned and content-addressed

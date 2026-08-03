@@ -4,11 +4,11 @@ RQ2 now has a revision-pinned ISETrace trajectory corpus, a query-independent pr
 
 The implementation should reuse the current provenance graph and the existing RQ1 R-GCN encoder, batching, negative sampling, training, and checkpoint infrastructure. It must not restore the deleted label-conditioned provenance stack or introduce a second graph-learning framework.
 
-Natural LLM-authored queries are no longer a test-only file. Configuration must support deterministic train/dev/test allocation of that corpus and simple natural/template mixing in train and dev, while formal test remains natural-only.
+Natural LLM-authored queries are no longer a test-only file. Configuration must support deterministic train/dev/test trajectory ownership and exact natural/template task counts, including template-only train/dev, while formal test remains natural-only.
 
 ## What Changes
 
-- Replace the ISETrace test-only query configuration with a small corpus configuration containing only the trajectory source, natural-query source, natural split ratio, and train/dev natural-template mix ratios.
+- Replace ratio-derived ISETrace query configuration with trajectory/natural sources plus explicit `queries.splits.<split>.natural/template` counts.
 - Infer and validate the pinned ISETrace revision from repository data registration and authoring metadata instead of exposing it as a routine experiment field.
 - Resolve valid natural queries to trajectories before splitting, keep every trajectory in exactly one split, and use the existing `split_seed` independently of model training seeds.
 - Generate train/dev template queries from the existing query-independent provenance motifs. Template labels stay outside the graph and identify only focused output content; participant nodes are not automatically positive.
@@ -36,6 +36,6 @@ Existing evidence R-GCN methods retain their current behavior. The old ISETrace 
 - ISETrace dataset configuration and strict Pydantic experiment configuration.
 - ISETrace preparation artifacts, query-origin metadata, template-query materialization, and split summaries.
 - A provenance-specific tensorization adapter around the existing graph-retriever runtime, plus Registry, workflow, training, checkpoint, and retrieval wiring for `provenance_rgcn`.
-- Focused tests for configuration readability, deterministic grouped splitting, mixture counts, graph/query independence, natural-span labels, template labels, R-GCN training, and natural-only test evaluation.
+- Focused tests for explicit counts, deterministic grouped ownership, template-only supervision, graph/query independence, natural-span labels, template labels, origin-aware R-GCN selection, natural-only test evaluation, and Coverage@512/1024/2048.
 - Maintained architecture, contracts, and RQ2 operations documentation.
 - No new dependency, graph schema, generic training framework, Dense-FT stage, edge decoder, compatibility alias, or paper result is included.

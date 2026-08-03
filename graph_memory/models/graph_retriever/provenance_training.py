@@ -74,8 +74,11 @@ def train_provenance_graph_retriever(
     expected_dev_ids = {request.task_id for request in dev_request_list}
     if set(dev_query_origins) != expected_dev_ids:
         raise ValueError("dev query origins must align exactly with dev task IDs")
-    if not any(origin == "natural" for origin in dev_query_origins.values()):
-        raise ValueError("provenance dev selection requires natural queries")
+    selection_origin: QueryOrigin = (
+        "natural"
+        if any(origin == "natural" for origin in dev_query_origins.values())
+        else "template"
+    )
 
     text_train_requests = [_as_text_request(request) for request in train_request_list]
     validated_pairs = TrainPairDataset(
@@ -125,36 +128,34 @@ def train_provenance_graph_retriever(
             labels=dev_label_list,
             query_origins=dev_query_origins,
         )
-        natural = rows_by_origin["natural"]
         overall = rows_by_origin["overall"]
+        selected = rows_by_origin[selection_origin]
         metric_records: dict[str, object] = {
-            "dev_query_selection_origin": "natural",
+            "dev_query_selection_origin": selection_origin,
             "dev_recall_at_5": overall.recall_at_5,
             "dev_full_support_at_5": overall.full_support_at_5,
             "dev_full_support_at_10": overall.full_support_at_10,
             "dev_mrr": overall.mrr,
-            "dev_natural_recall_at_5": natural.recall_at_5,
-            "dev_natural_full_support_at_5": natural.full_support_at_5,
-            "dev_natural_full_support_at_10": natural.full_support_at_10,
-            "dev_natural_mrr": natural.mrr,
         }
-        template = rows_by_origin.get("template")
-        if template is not None:
+        for origin in ("natural", "template"):
+            origin_row = rows_by_origin.get(origin)
+            if origin_row is None:
+                continue
             metric_records.update(
                 {
-                    "dev_template_recall_at_5": template.recall_at_5,
-                    "dev_template_full_support_at_5": template.full_support_at_5,
-                    "dev_template_full_support_at_10": template.full_support_at_10,
-                    "dev_template_mrr": template.mrr,
+                    f"dev_{origin}_recall_at_5": origin_row.recall_at_5,
+                    f"dev_{origin}_full_support_at_5": origin_row.full_support_at_5,
+                    f"dev_{origin}_full_support_at_10": origin_row.full_support_at_10,
+                    f"dev_{origin}_mrr": origin_row.mrr,
                 }
             )
         return RgcnDevEpochEvaluation(
             dev_loss=dev_loss,
             selection_metrics=build_selection_metrics(
-                dev_full_support_at_5=natural.full_support_at_5,
-                dev_full_support_at_10=natural.full_support_at_10,
-                dev_recall_at_5=natural.recall_at_5,
-                dev_mrr=natural.mrr,
+                dev_full_support_at_5=selected.full_support_at_5,
+                dev_full_support_at_10=selected.full_support_at_10,
+                dev_recall_at_5=selected.recall_at_5,
+                dev_mrr=selected.mrr,
                 dev_loss=dev_loss,
             ),
             metric_records=metric_records,

@@ -33,6 +33,12 @@ class MetricRow(DomainModel):
     evidence_density_at_10: OptionalUnitMetric = Field(
         default="N/A", alias="Evidence Density@10"
     )
+    coverage_at_512_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@512 Tokens"
+    )
+    coverage_at_1024_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@1024 Tokens"
+    )
     coverage_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Coverage@2048 Tokens"
     )
@@ -86,6 +92,12 @@ class TaskMetricRow(DomainModel):
     )
     evidence_density_at_10: OptionalUnitMetric = Field(
         default="N/A", alias="Evidence Density@10"
+    )
+    coverage_at_512_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@512 Tokens"
+    )
+    coverage_at_1024_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@1024 Tokens"
     )
     coverage_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Coverage@2048 Tokens"

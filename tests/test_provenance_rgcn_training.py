@@ -232,6 +232,32 @@ def test_tiny_mixed_provenance_training_uses_natural_dev_selection(
     assert "dev_template_recall_at_5" in metrics
     assert metrics["selection_metric_value"] == metrics["dev_natural_recall_at_5"]
 
+    template_only = train_provenance_graph_retriever(
+        train_requests=[requests[1]],
+        train_labels=[train_labels[1]],
+        train_pairs=[
+            pair for pair in pair_result.pairs if pair.task_id == "train-template"
+        ],
+        dev_requests=[requests[3]],
+        dev_labels=[dev_labels[1]],
+        dev_query_origins={"dev-template": "template"},
+        model_config=_model_config(),
+        training_config=RgcnTrainingConfig(
+            learning_rate=1e-3,
+            per_device_graph_batch_size=1,
+            epochs=1,
+            random_seed=19,
+        ),
+        text_embedding_provider=DeterministicEmbeddingProvider(),
+        device="cpu",
+    )
+    template_metrics = template_only.metric_records[0]
+    assert template_metrics["dev_query_selection_origin"] == "template"
+    assert "dev_natural_recall_at_5" not in template_metrics
+    assert template_metrics["selection_metric_value"] == template_metrics[
+        "dev_template_recall_at_5"
+    ]
+
     checkpoint_path = tmp_path / "mixed-provenance-rgcn.pt"
     selected_model = build_model_from_config(result.model_config)
     selected_model.load_state_dict(result.best_model_state_dict)

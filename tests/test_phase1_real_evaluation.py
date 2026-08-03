@@ -157,6 +157,8 @@ def test_evaluate_results_joins_predictions_labels_and_graphs():
             "Evidence F1@10": 0.33333333333333337,
             "Evidence Density@5": "N/A",
             "Evidence Density@10": "N/A",
+            "Coverage@512 Tokens": "N/A",
+            "Coverage@1024 Tokens": "N/A",
             "Coverage@2048 Tokens": "N/A",
             "Span F1@2048 Tokens": "N/A",
             "Evidence Density@2048 Tokens": "N/A",
