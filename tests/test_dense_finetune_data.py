@@ -18,6 +18,13 @@ from graph_memory.models.dense_finetune.data import (
     build_dense_finetune_examples,
     build_ir_evaluator_payload,
 )
+from graph_memory.models.dense_finetune.training import (
+    _TaskLocalDenseFinetuneEvaluator,
+    _TrajectoryBatchSampler,
+)
+from graph_memory.models.dense_finetune.contracts import (
+    DenseFinetuneTaskLocalEvaluatorPayload,
+)
 from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 
 
@@ -244,6 +251,86 @@ def test_dense_finetune_rejects_unknown_pair_node_id() -> None:
             ],
             settings=DenseFinetuneDataSettings(),
         )
+
+
+def test_trajectory_batch_sampler_is_deterministic_and_group_safe() -> None:
+    group_ids = ("g1", "g1", "g2", "g2", "g3")
+
+    first = list(_TrajectoryBatchSampler(group_ids, batch_size=3, seed=17))
+    second = list(_TrajectoryBatchSampler(group_ids, batch_size=3, seed=17))
+
+    assert first == second
+    assert sorted(index for batch in first for index in batch) == list(range(5))
+    assert all(
+        len({group_ids[index] for index in batch}) == len(batch)
+        for batch in first
+    )
+
+
+def test_task_local_dense_evaluator_ranks_only_each_tasks_candidates() -> None:
+    requests = (
+        TextRankingRequest(
+            task_id="natural",
+            query_text="natural query",
+            candidates=(
+                TextCandidate(item_id="shared", text="natural positive", metadata={}),
+                TextCandidate(item_id="n", text="natural negative", metadata={}),
+            ),
+        ),
+        TextRankingRequest(
+            task_id="template",
+            query_text="template query",
+            candidates=(
+                TextCandidate(item_id="shared", text="template negative", metadata={}),
+                TextCandidate(item_id="t", text="template positive", metadata={}),
+            ),
+        ),
+    )
+    labels = (
+        EvidenceLabel(
+            task_id="natural",
+            gold_answer="",
+            gold_evidence_item_ids=("shared",),
+            gold_dependency_edges=(),
+        ),
+        EvidenceLabel(
+            task_id="template",
+            gold_answer="",
+            gold_evidence_item_ids=("t",),
+            gold_dependency_edges=(),
+        ),
+    )
+
+    class KeywordModel:
+        def encode(self, texts, **kwargs):
+            del kwargs
+            vectors = []
+            for text in texts:
+                vectors.append(
+                    [
+                        float("natural" in text),
+                        float("template" in text and "negative" not in text),
+                    ]
+                )
+            return np.asarray(vectors, dtype=float)
+
+    evaluator = _TaskLocalDenseFinetuneEvaluator(
+        payload=DenseFinetuneTaskLocalEvaluatorPayload(
+            requests=requests,
+            labels=labels,
+            query_origins={"natural": "natural", "template": "template"},
+        ),
+        query_prefix="",
+        passage_prefix="",
+        batch_size=8,
+        selected_metric="dev_natural_recall_at_5",
+    )
+
+    score = evaluator(KeywordModel())
+
+    assert score == 1.0
+    assert evaluator.metric_values["dev_natural_recall_at_5"] == 1.0
+    assert evaluator.metric_values["dev_template_recall_at_5"] == 1.0
 
 
 def test_ir_evaluator_payload_uses_task_qualified_corpus_ids() -> None:

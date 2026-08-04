@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import random
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal, TypeAlias
 
@@ -30,8 +29,9 @@ from graph_memory.datasets.splits import sample_split
 from graph_memory.graphs.provenance import ProvenanceGraph, build_provenance_graph
 from graph_memory.query_synthesis.provenance import (
     enumerate_template_supervision,
-    select_template_supervision,
+    render_call_result_supervision,
 )
+from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
 from graph_memory.query_synthesis.provenance.authoring import (
     AuthoringQueryRecord,
     AuthoringSource,
@@ -67,8 +67,7 @@ def prepare_isetrace_benchmark(
     offset: int,
     strict: bool,
     split: NaturalSplitName | None = None,
-    split_weights: Mapping[str, int] | None = None,
-    query_counts: Mapping[str, int] | None = None,
+    trajectory_splits: Mapping[str, Mapping[str, int]] | None = None,
     chunking: TokenChunkingConfig = TokenChunkingConfig(
         tokenizer_name="models/intfloat-e5-base-v2",
         max_tokens=512,
@@ -83,7 +82,7 @@ def prepare_isetrace_benchmark(
         source_revision=source_revision,
     )
     examples = _read_queries(query_source, strict=strict, summary=summary)
-    matched_contexts = _match_query_contexts(
+    matched_contexts, trajectory_ids = _match_query_contexts(
         trajectory_source,
         examples=examples,
         source_revision=source_revision,
@@ -93,57 +92,42 @@ def prepare_isetrace_benchmark(
     valid_examples = [example for example in examples if example.id in matched_contexts]
     summary["queries_resolved"] = len(valid_examples)
     summary["queries_dropped"] = summary["queries_seen"] - len(valid_examples)
-    split_arguments = (split, split_weights, query_counts)
+    split_arguments = (split, trajectory_splits)
     if any(value is None for value in split_arguments) and any(
         value is not None for value in split_arguments
     ):
-        raise ValueError(
-            "split, split_weights, and query_counts must be provided together"
-        )
+        raise ValueError("split and trajectory_splits must be provided together")
     if split is None:
-        split_pool = valid_examples
         requested_natural = count
         requested_template = 0
+        natural_trajectory_ids = frozenset(
+            matched_contexts[example.id][0].trajectory_id for example in valid_examples
+        )
+        template_trajectory_ids = frozenset()
     else:
-        assert split_weights is not None
-        assert query_counts is not None
+        assert trajectory_splits is not None
         if count is not None or offset != 0:
             raise ValueError(
-                "ISETrace explicit query counts do not support count/offset caps"
+                "ISETrace trajectory splits do not support count/offset caps"
             )
-        if set(query_counts) != {"natural", "template"}:
-            raise ValueError("query_counts must define natural and template")
-        requested_natural = _nonnegative_count(
-            query_counts["natural"], name="natural"
-        )
-        requested_template = _nonnegative_count(
-            query_counts["template"], name="template"
-        )
-        if split == "test" and (requested_natural <= 0 or requested_template != 0):
-            raise ValueError("ISETrace test split must be natural-only")
-        assignments, targets = allocate_trajectory_grouped_splits(
-            {
-                example.id: matched_contexts[example.id][0].trajectory_id
+        natural_by_split, template_by_split = allocate_trajectory_splits(
+            [
+                matched_contexts[example.id][0].trajectory_id
                 for example in valid_examples
-            },
-            split_weights=split_weights,
+            ],
+            split_counts=trajectory_splits,
             split_seed=seed,
+            template_trajectory_ids=trajectory_ids,
         )
-        split_pool = [
-            example for example in valid_examples if assignments[example.id] == split
-        ]
-        for split_name in _NATURAL_SPLITS:
-            summary[f"natural_queries_capacity_{split_name}"] = targets[split_name]
-            summary[f"natural_queries_available_{split_name}"] = sum(
-                assigned == split_name for assigned in assignments.values()
-            )
-            summary[f"trajectories_split_{split_name}"] = len(
-                {
-                    matched_contexts[query_id][0].trajectory_id
-                    for query_id, assigned in assignments.items()
-                    if assigned == split_name
-                }
-            )
+        natural_trajectory_ids = natural_by_split[split]
+        template_trajectory_ids = template_by_split[split]
+        requested_natural = None
+        requested_template = len(template_trajectory_ids)
+    split_pool = [
+        example
+        for example in valid_examples
+        if matched_contexts[example.id][0].trajectory_id in natural_trajectory_ids
+    ]
     if requested_natural is not None and requested_natural > len(split_pool):
         raise ValueError(
             "insufficient ISETrace natural query pool: "
@@ -156,6 +140,8 @@ def prepare_isetrace_benchmark(
         offset=offset,
     )
     summary["natural_queries_available"] = len(split_pool)
+    summary["natural_trajectories_selected"] = len(natural_trajectory_ids)
+    summary["template_trajectories_selected"] = len(template_trajectory_ids)
     summary["natural_queries_requested"] = (
         len(split_pool) if requested_natural is None else requested_natural
     )
@@ -170,25 +156,26 @@ def prepare_isetrace_benchmark(
             overlap_tokens=chunking.overlap_tokens,
         )
 
-    # Build deterministic graph anchors even when natural=0. Full experiments
-    # naturally cover the complete frozen partition; small smoke requests avoid
-    # paying full-corpus graph/tokenization cost.
     if split is None:
         graph_examples = selected
     else:
-        anchor_count = min(
-            len(split_pool),
-            max(requested_natural or 0, requested_template),
-        )
-        graph_examples = sample_split(
-            split_pool,
-            count=anchor_count,
-            seed=seed,
-            offset=0,
-        )
+        representative_by_trajectory: dict[str, AuthoringQueryRecord] = {}
+        for example in valid_examples:
+            trajectory_id = matched_contexts[example.id][0].trajectory_id
+            representative_by_trajectory.setdefault(trajectory_id, example)
+        graph_examples = list(selected)
+        selected_ids = {example.id for example in selected}
+        for trajectory_id in sorted(template_trajectory_ids):
+            representative = representative_by_trajectory[trajectory_id]
+            if representative.id not in selected_ids:
+                graph_examples.append(representative)
+                selected_ids.add(representative.id)
     trajectories, graphs, contexts = _build_selected_contexts(
         graph_examples,
         matched_contexts=matched_contexts,
+        extra_trajectory_ids=template_trajectory_ids,
+        trajectory_source=trajectory_source,
+        source_revision=source_revision,
         content_chunker=chunk_content,
     )
     flat_by_graph_id = {
@@ -208,12 +195,16 @@ def prepare_isetrace_benchmark(
     template_pool = ()
     if split is not None and requested_template > 0:
         template_pool = enumerate_template_supervision(graphs.values())
-        template_supervision = select_template_supervision(
-            template_pool,
-            eligible_graph_ids=frozenset(graphs),
-            requested_count=requested_template,
-            split=split,
-            split_seed=seed,
+        first_by_graph: dict[str, TemplateSupervisionRecord] = {}
+        for record in sorted(template_pool, key=lambda item: item.task_id):
+            first_by_graph.setdefault(record.graph_id, record)
+        for graph_id in sorted(template_trajectory_ids):
+            first_by_graph.setdefault(
+                graph_id,
+                render_call_result_supervision(graphs[graph_id]),
+            )
+        template_supervision = tuple(
+            first_by_graph[graph_id] for graph_id in sorted(template_trajectory_ids)
         )
     summary["template_queries_available"] = len(template_pool)
     summary["template_queries_requested"] = requested_template
@@ -321,72 +312,91 @@ def prepare_isetrace_benchmark(
     return benchmark, summary
 
 
-def allocate_trajectory_grouped_splits(
-    query_trajectory_ids: Mapping[str, str],
+def allocate_trajectory_splits(
+    natural_trajectory_ids: Sequence[str] | set[str],
     *,
-    split_weights: Mapping[str, int],
+    split_counts: Mapping[str, Mapping[str, int]],
     split_seed: int,
-) -> tuple[dict[str, NaturalSplitName], dict[NaturalSplitName, int]]:
-    """Allocate indivisible trajectory groups from registered ownership weights."""
+    template_trajectory_ids: Sequence[str] | set[str] = (),
+) -> tuple[
+    dict[NaturalSplitName, frozenset[str]],
+    dict[NaturalSplitName, frozenset[str]],
+]:
+    """Select test by query order, then deterministic disjoint train/dev sets."""
 
-    if set(split_weights) != set(_NATURAL_SPLITS):
-        raise ValueError("ISETrace split_weights must define train, dev, and test")
-    weights: dict[NaturalSplitName, int] = {}
-    for split_name in _NATURAL_SPLITS:
-        weights[split_name] = _nonnegative_count(
-            split_weights[split_name], name=f"{split_name} weight"
+    if set(split_counts) != set(_NATURAL_SPLITS):
+        raise ValueError("ISETrace trajectory splits must define train, dev, and test")
+    normalized: dict[NaturalSplitName, tuple[int, int]] = {}
+    for split in _NATURAL_SPLITS:
+        counts = split_counts[split]
+        if set(counts) != {"natural", "template"}:
+            raise ValueError(f"ISETrace trajectory split={split} must define origins")
+        normalized[split] = (
+            _nonnegative_count(counts["natural"], name=f"{split} natural"),
+            _nonnegative_count(counts["template"], name=f"{split} template"),
         )
-    total_weight = sum(weights.values())
-    if total_weight <= 0:
-        raise ValueError("registered ISETrace split weights must have a positive total")
-    query_count = len(query_trajectory_ids)
-    raw_targets = {
-        name: query_count * weights[name] / total_weight for name in _NATURAL_SPLITS
-    }
-    targets: dict[NaturalSplitName, int] = {
-        name: math.floor(raw_targets[name]) for name in _NATURAL_SPLITS
-    }
-    remainder = query_count - sum(targets.values())
-    for name in sorted(
-        _NATURAL_SPLITS,
-        key=lambda item: (
-            -(raw_targets[item] - targets[item]),
-            _NATURAL_SPLITS.index(item),
-        ),
-    )[:remainder]:
-        targets[name] += 1
 
-    groups: dict[str, list[str]] = defaultdict(list)
-    for query_id, trajectory_id in query_trajectory_ids.items():
-        groups[trajectory_id].append(query_id)
-    ordered_groups = [
-        (trajectory_id, tuple(sorted(query_ids)))
-        for trajectory_id, query_ids in sorted(groups.items())
-    ]
-    random.Random(split_seed).shuffle(ordered_groups)
-    ordered_groups.sort(key=lambda item: -len(item[1]))
-
-    assigned_counts: Counter[NaturalSplitName] = Counter()
-    assignments: dict[str, NaturalSplitName] = {}
-    for _trajectory_id, query_ids in ordered_groups:
-        split_name = max(
-            _NATURAL_SPLITS,
-            key=lambda name: (
-                targets[name] - assigned_counts[name],
-                targets[name],
-                -_NATURAL_SPLITS.index(name),
-            ),
-        )
-        assigned_counts[split_name] += len(query_ids)
-        assignments.update({query_id: split_name for query_id in query_ids})
-    actual_counts = Counter(assignments.values())
-    if any(actual_counts[name] != targets[name] for name in _NATURAL_SPLITS):
+    ordered_natural = list(dict.fromkeys(natural_trajectory_ids))
+    natural_required = sum(counts[0] for counts in normalized.values())
+    if natural_required > len(ordered_natural):
         raise ValueError(
-            "registered ISETrace split targets cannot be satisfied without "
-            "splitting a trajectory: "
-            f"target={targets} actual={dict(actual_counts)}"
+            "insufficient ISETrace natural trajectory pool: "
+            f"requested={natural_required} available={len(ordered_natural)}"
         )
-    return assignments, targets
+    test_count = normalized["test"][0]
+    test_ids = frozenset(ordered_natural[:test_count])
+    remaining_natural = sorted(set(ordered_natural) - test_ids)
+    random.Random(split_seed).shuffle(remaining_natural)
+    train_count = normalized["train"][0]
+    dev_count = normalized["dev"][0]
+    natural_by_split: dict[NaturalSplitName, frozenset[str]] = {
+        "train": frozenset(remaining_natural[:train_count]),
+        "dev": frozenset(
+            remaining_natural[train_count : train_count + dev_count]
+        ),
+        "test": test_ids,
+    }
+
+    eligible_template = set(template_trajectory_ids)
+    template_by_split: dict[NaturalSplitName, frozenset[str]] = {
+        split: frozenset() for split in _NATURAL_SPLITS
+    }
+    assigned = set(test_ids)
+    for split in ("train", "dev"):
+        target = normalized[split][1]
+        overlap = sorted(
+            natural_by_split[split] & eligible_template,
+            key=lambda item: _seeded_split_key(split_seed, item),
+        )[:target]
+        template_by_split[split] = frozenset(overlap)
+        assigned.update(natural_by_split[split])
+    available = sorted(
+        eligible_template - assigned,
+        key=lambda item: _seeded_split_key(split_seed, item),
+    )
+    cursor = 0
+    for split in ("train", "dev"):
+        target = normalized[split][1]
+        current = set(template_by_split[split])
+        needed = target - len(current)
+        current.update(available[cursor : cursor + needed])
+        cursor += needed
+        template_by_split[split] = frozenset(current)
+    requested_templates = sum(normalized[split][1] for split in ("train", "dev"))
+    available_templates = len(eligible_template - test_ids)
+    if any(
+        len(template_by_split[split]) != normalized[split][1]
+        for split in ("train", "dev")
+    ):
+        raise ValueError(
+            "insufficient ISETrace template trajectory pool: "
+            f"requested={requested_templates} available={available_templates}"
+        )
+    return natural_by_split, template_by_split
+
+
+def _seeded_split_key(seed: int, trajectory_id: str) -> str:
+    return hashlib.sha256(f"{seed}\0{trajectory_id}".encode()).hexdigest()
 
 
 def _nonnegative_count(value: object, *, name: str) -> int:
@@ -516,7 +526,7 @@ def _match_query_contexts(
     source_revision: str,
     strict: bool,
     summary: ISETraceBenchmarkSummary,
-) -> dict[str, _MatchedContext]:
+) -> tuple[dict[str, _MatchedContext], set[str]]:
     matches_by_query: dict[str, list[_MatchedContext]] = {
         example.id: [] for example in examples
     }
@@ -524,6 +534,7 @@ def _match_query_contexts(
     queries_by_signature: dict[tuple[object, ...], set[str]] = defaultdict(set)
     invalid_task_ids: set[str] = set()
     uncompilable_candidate_ids: set[str] = set()
+    trajectory_ids: set[str] = set()
     for example in examples:
         try:
             signature = _task_signature(example)
@@ -542,6 +553,8 @@ def _match_query_contexts(
         strict=False,
         summary=ingestion,
     ):
+        if any(output.content for output in trajectory.tool_outputs):
+            trajectory_ids.add(trajectory.trajectory_id)
         intents = tuple(intent.text for intent in trajectory.intents)
         outputs = {output.call_id: output for output in trajectory.tool_outputs}
         candidate_ids: set[str] = set()
@@ -589,17 +602,23 @@ def _match_query_contexts(
     summary["queries_uncompilable"] = len(uncompilable)
     summary["queries_unmatched"] = len(set(missing) - uncompilable)
     summary["queries_ambiguous"] = len(ambiguous)
-    return {
-        query_id: values[0]
-        for query_id, values in matches_by_query.items()
-        if len(values) == 1
-    }
+    return (
+        {
+            query_id: values[0]
+            for query_id, values in matches_by_query.items()
+            if len(values) == 1
+        },
+        trajectory_ids,
+    )
 
 
 def _build_selected_contexts(
     examples: list[AuthoringQueryRecord],
     *,
     matched_contexts: dict[str, _MatchedContext],
+    extra_trajectory_ids: frozenset[str],
+    trajectory_source: Path,
+    source_revision: str,
     content_chunker,
 ) -> tuple[
     dict[str, CanonicalTrajectory],
@@ -620,6 +639,29 @@ def _build_selected_contexts(
             trajectories[trajectory.trajectory_id] = trajectory
             graphs[graph.graph_id] = graph
         contexts[example.id] = (graph.graph_id, mapping)
+    missing = set(extra_trajectory_ids) - set(trajectories)
+    if missing:
+        for trajectory in iter_canonical_trajectories(
+            trajectory_source,
+            source_revision=source_revision,
+            strict=False,
+        ):
+            if trajectory.trajectory_id not in missing:
+                continue
+            graph = build_provenance_graph(
+                trajectory,
+                content_chunker=content_chunker,
+            )
+            trajectories[trajectory.trajectory_id] = trajectory
+            graphs[graph.graph_id] = graph
+            missing.remove(trajectory.trajectory_id)
+            if not missing:
+                break
+    if missing:
+        raise ValueError(
+            "selected ISETrace trajectories are missing from the source: "
+            f"count={len(missing)} first={min(missing)!r}"
+        )
     return trajectories, graphs, contexts
 
 
@@ -699,7 +741,7 @@ def _resolve_gold_spans(
 
 __all__ = [
     "ISETraceBenchmarkSummary",
-    "allocate_trajectory_grouped_splits",
+    "allocate_trajectory_splits",
     "combined_isetrace_records",
     "prepare_isetrace_benchmark",
 ]

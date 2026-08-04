@@ -38,7 +38,10 @@ class PairInputsCaptured(Exception):
 
 @pytest.mark.parametrize(
     ("dataset", "expects_graph", "expected_graph_neighbors"),
-    (("hotpotqa", True, 1),),
+    (
+        ("hotpotqa", True, 1),
+        ("isetrace", False, 0),
+    ),
 )
 def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch,
@@ -78,7 +81,7 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch.setattr(
         experiment_workflow,
         "prepare_split_task",
-        lambda *, source, config: SimpleNamespace(
+        lambda *, source, config, trajectory_source=None: SimpleNamespace(
             artifact=object(),
             split=config.split,
         ),
@@ -117,6 +120,7 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
 
     pair_config = observed["config"]
     assert isinstance(pair_config, PairBuildConfig)
+    assert pair_config.method == "dense_ft"
     assert observed.get("built_graph", False) is expects_graph
     assert observed["evidence_graphs"] is (graph_artifact if expects_graph else None)
     assert (
@@ -222,7 +226,12 @@ def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
         passage_prefix="passage: ",
         batch_size=64,
     )
-    cpu = PairBuildConfig(sampling=sampling, encoder=encoder, device="cpu")
+    cpu = PairBuildConfig(
+        method="dense_ft",
+        sampling=sampling,
+        encoder=encoder,
+        device="cpu",
+    )
     cuda = cpu.model_copy(update={"device": "cuda:7"})
     policy = ScientificInputs()
 

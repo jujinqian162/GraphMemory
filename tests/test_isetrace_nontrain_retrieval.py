@@ -12,6 +12,11 @@ from graph_memory.datasets.isetrace import (
     parse_isetrace_record,
     prepare_isetrace_benchmark,
 )
+from graph_memory.datasets.isetrace.benchmark_records import (
+    ISETraceLabelRecord,
+    ISETraceRankingRecord,
+)
+from graph_memory.datasets.isetrace.training import adapt_flat_dense_training_split
 from graph_memory.datasets.isetrace.retrieval_views import (
     flat_trajectory_candidates,
     provenance_unit_candidates,
@@ -238,6 +243,91 @@ def test_long_content_is_losslessly_covered_by_both_retrieval_views() -> None:
     assert graph.node_by_id["output:c1"].text == "tool_output=write"
 
 
+def test_flat_dense_supervision_maps_every_overlapping_chunk() -> None:
+    raw = isetrace_record()
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    output = trajectory.tool_outputs[0]
+    candidates = flat_trajectory_candidates(
+        trajectory,
+        tokenizer=CharacterOffsetTokenizer(),
+        max_tokens=64,
+        overlap_tokens=16,
+    )
+    overlapping = tuple(
+        candidate.item_id
+        for candidate in candidates
+        if any(
+            span.event_id == output.event_id
+            and span.json_pointer == "/content"
+            and span.char_start is not None
+            and span.char_end is not None
+            and max(span.char_start, 0) < min(span.char_end, len(output.content))
+            for span in candidate.source_spans
+        )
+    )
+    ranking = ISETraceRankingRecord(
+        task_id="flat-train",
+        graph_id=trajectory.trajectory_id,
+        query_text="What did the first tool return?",
+        flat_candidates=candidates,
+        provenance_candidates=(candidates[0],),
+    )
+    label = ISETraceLabelRecord(
+        task_id=ranking.task_id,
+        graph_id=ranking.graph_id,
+        gold_evidence_spans=(
+            SourceSpan(
+                event_id=output.event_id,
+                json_pointer="/content",
+                char_start=0,
+                char_end=len(output.content),
+            ),
+        ),
+    )
+
+    requests, labels = adapt_flat_dense_training_split([ranking], [label])
+
+    assert requests[0].candidates == candidates
+    assert labels[0].gold_evidence_item_ids == overlapping
+
+
+def test_flat_dense_supervision_fails_when_no_chunk_overlaps() -> None:
+    raw = isetrace_record()
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    candidates = flat_trajectory_candidates(
+        trajectory,
+        tokenizer=CharacterOffsetTokenizer(),
+        max_tokens=64,
+        overlap_tokens=8,
+    )
+    ranking = ISETraceRankingRecord(
+        task_id="flat-missing",
+        graph_id=trajectory.trajectory_id,
+        query_text="Missing evidence",
+        flat_candidates=candidates,
+        provenance_candidates=(candidates[0],),
+    )
+    label = ISETraceLabelRecord(
+        task_id=ranking.task_id,
+        graph_id=ranking.graph_id,
+        gold_evidence_spans=(
+            SourceSpan(
+                event_id="event:missing",
+                json_pointer="/content",
+                char_start=0,
+                char_end=1,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="flat-missing.*no positive candidates"):
+        adapt_flat_dense_training_split([ranking], [label])
+
+
 def test_v7_rejects_legacy_query_shape(tmp_path: Path) -> None:
     raw = isetrace_record()
     trajectory_path = tmp_path / "trajectories.jsonl"
@@ -390,8 +480,11 @@ def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
         offset=0,
         strict=False,
         split="train",
-        split_weights={"train": 1, "dev": 0, "test": 0},
-        query_counts={"natural": 1, "template": 0},
+        trajectory_splits={
+            "train": {"natural": 1, "template": 0},
+            "dev": {"natural": 0, "template": 0},
+            "test": {"natural": 0, "template": 0},
+        },
         chunking=_TEST_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
@@ -399,7 +492,6 @@ def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
     assert [item.task_id for item in benchmark.rankings] == ["query:valid"]
     assert summary["queries_seen"] == 2
     assert summary["queries_resolved"] == 1
-    assert summary["natural_queries_capacity_train"] == 1
     assert summary["queries_resolved"] == 1
     assert summary["queries_dropped"] == 1
     assert summary["queries_uncompilable"] == 1

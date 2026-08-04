@@ -13,6 +13,7 @@ from graph_memory.query_synthesis.provenance.contracts import (
 from graph_memory.query_synthesis.provenance.motifs import extract_motifs
 from graph_memory.query_synthesis.provenance.templates import (
     enumerate_template_supervision,
+    render_call_result_supervision,
     render_template_supervision,
     select_template_supervision,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "TemplateSupervisionRecord",
     "enumerate_template_supervision",
     "extract_motifs",
+    "render_call_result_supervision",
     "render_template_supervision",
     "select_template_supervision",
 ]

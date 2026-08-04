@@ -18,14 +18,14 @@ No generic graph request. Cross-domain routing is rejected at Registry validatio
 |---|---|---|---|
 | `bm25` | text | evidence, execution provenance | no |
 | `dense` | text | evidence, execution provenance | no |
-| `dense_ft` | text | evidence | encoder |
+| `dense_ft` | text | evidence, execution provenance | encoder |
 | `graphrag` | GraphRAG | evidence, execution provenance | no |
 | `provenance_path` | ProvenancePath | execution provenance | no |
 | `provenance_rgcn` | ProvenanceRgcn | execution provenance | yes |
 | `dense_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 | `dense_ft_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 
-The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. `ProvenancePathRequest` and `ProvenanceRgcnRequest` are current, label-free method requests over the query-independent graph. The new `provenance_rgcn` identity is not a compatibility alias: Registry accepts it only for execution provenance and loads only a strict current checkpoint whose method and model config match.
+The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. On ISETrace, BM25, Dense, Dense-FT, and GraphRAG share the same flat trajectory chunks; Dense-FT maps exact gold spans to overlapping chunks and never receives a provenance graph. `ProvenancePathRequest` and `ProvenanceRgcnRequest` are current, label-free method requests over the query-independent graph. The `provenance_rgcn` identity is not a compatibility alias: Registry accepts it only for execution provenance and loads only a strict current checkpoint whose method and model config match.
 
 ## Results
 

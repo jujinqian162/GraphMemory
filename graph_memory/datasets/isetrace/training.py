@@ -12,7 +12,8 @@ from graph_memory.models.graph_retriever.provenance import provenance_training_l
 from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
 )
-from graph_memory.retrieval.requests import ProvenanceRgcnRequest
+from graph_memory.retrieval.requests import ProvenanceRgcnRequest, TextRankingRequest
+from graph_memory.trajectories import source_spans_overlap
 
 
 def adapt_provenance_training_split(
@@ -64,4 +65,55 @@ def adapt_provenance_training_split(
     return requests, compiled_labels
 
 
-__all__ = ["adapt_provenance_training_split"]
+def adapt_flat_dense_training_split(
+    rankings: Sequence[ISETraceRankingRecord],
+    labels: Sequence[ISETraceLabelRecord],
+) -> tuple[list[TextRankingRequest], list[EvidenceLabel]]:
+    """Compile exact ISETrace spans into flat-chunk Dense-FT supervision."""
+
+    labels_by_id = {label.task_id: label for label in labels}
+    if len(labels_by_id) != len(labels):
+        raise ValueError("ISETrace flat training label task IDs must be unique")
+
+    requests: list[TextRankingRequest] = []
+    compiled_labels: list[EvidenceLabel] = []
+    for ranking in rankings:
+        label = labels_by_id.get(ranking.task_id)
+        if label is None or label.graph_id != ranking.graph_id:
+            raise ValueError("ISETrace flat training rankings and labels must align")
+        positive_ids = tuple(
+            candidate.item_id
+            for candidate in ranking.flat_candidates
+            if any(
+                source_spans_overlap(candidate_span, gold_span)
+                for candidate_span in candidate.source_spans
+                for gold_span in label.gold_evidence_spans
+            )
+        )
+        if not positive_ids:
+            raise ValueError(
+                f"ISETrace flat task={ranking.task_id!r} has no positive candidates"
+            )
+        requests.append(
+            TextRankingRequest(
+                task_id=ranking.task_id,
+                query_text=ranking.query_text,
+                candidates=ranking.flat_candidates,
+            )
+        )
+        compiled_labels.append(
+            EvidenceLabel(
+                task_id=ranking.task_id,
+                gold_answer="",
+                gold_evidence_item_ids=positive_ids,
+                gold_dependency_edges=(),
+            )
+        )
+
+    request_ids = {request.task_id for request in requests}
+    if request_ids != set(labels_by_id):
+        raise ValueError("ISETrace flat training requests and labels must align")
+    return requests, compiled_labels
+
+
+__all__ = ["adapt_flat_dense_training_split", "adapt_provenance_training_split"]

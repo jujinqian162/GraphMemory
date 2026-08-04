@@ -1,8 +1,10 @@
 from graph_memory.models.dense_finetune.contracts import (
     DenseFinetuneDataSettings,
     DenseFinetuneDatasetBuildResult,
+    DenseFinetuneEvaluatorPayload,
     DenseFinetuneExample,
     DenseFinetuneIREvaluatorPayload,
+    DenseFinetuneTaskLocalEvaluatorPayload,
 )
 from graph_memory.models.dense_finetune.data import (
     build_dense_finetune_examples,
@@ -27,8 +29,10 @@ from graph_memory.models.dense_finetune.training import (
 __all__ = [
     "DenseFinetuneDataSettings",
     "DenseFinetuneDatasetBuildResult",
+    "DenseFinetuneEvaluatorPayload",
     "DenseFinetuneExample",
     "DenseFinetuneIREvaluatorPayload",
+    "DenseFinetuneTaskLocalEvaluatorPayload",
     "DENSE_FT_METADATA_FILENAME",
     "DenseFinetuneModelMetadata",
     "DenseFinetuneRunConfig",

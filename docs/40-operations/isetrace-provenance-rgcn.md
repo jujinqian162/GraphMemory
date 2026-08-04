@@ -8,7 +8,7 @@
 
 - `trajectory_source`
 - `natural_query_source`
-- explicit `queries.splits.<split>.natural/template` task counts
+- explicit `trajectories.splits.<split>.natural/template` trajectory counts
 - content chunking settings
 
 The source revision is inferred from dataset registration and checked against authoring run metadata when available. Split assignment uses `split_seed` and groups every query for one trajectory. Model seed changes do not move trajectories between splits.
@@ -60,11 +60,11 @@ There are no independently annotated provenance edge/path labels in the natural 
 uv run python experiment/run.py \
   name=isetrace_rgcn_smoke dataset=isetrace profile=smoke \
   method=provenance_rgcn device=cpu \
-  dataset.queries.splits.train.natural=4 \
-  dataset.queries.splits.train.template=4 \
-  dataset.queries.splits.dev.natural=2 \
-  dataset.queries.splits.dev.template=2 \
-  dataset.queries.splits.test.natural=2
+  dataset.trajectories.splits.train.natural=4 \
+  dataset.trajectories.splits.train.template=4 \
+  dataset.trajectories.splits.dev.natural=2 \
+  dataset.trajectories.splits.dev.template=2 \
+  dataset.trajectories.splits.test.natural=2
 
 uv run python experiment/run.py \
   name=isetrace_rgcn_full dataset=isetrace profile=full \
@@ -73,13 +73,13 @@ uv run python experiment/run.py \
 uv run python experiment/run.py \
   name=isetrace_rgcn_template_only dataset=isetrace profile=full \
   method=provenance_rgcn device=cuda:0 \
-  dataset.queries.splits.train.natural=0 \
-  dataset.queries.splits.train.template=8076 \
-  dataset.queries.splits.dev.natural=0 \
-  dataset.queries.splits.dev.template=786
+  dataset.trajectories.splits.train.natural=0 \
+  dataset.trajectories.splits.train.template=8076 \
+  dataset.trajectories.splits.dev.natural=0 \
+  dataset.trajectories.splits.dev.template=786
 ```
 
-ISETrace always consumes the exact configured counts rather than evidence-workflow profile caps. For a size-matched template-only control against the 1:2 run, override train to `{natural: 0, template: 8076}` and dev to `{natural: 0, template: 786}` while retaining the 981-query natural test.
+The ratio sweeps use the fixed 3,894 train and 580 dev natural queries. Template counts are trajectory counts because each selected trajectory emits one template query. The full-pool setting uses all 21,746 eligible non-test template trajectories: 18,927 train and 2,819 dev, giving an aggregate ratio of `1:4.8605`.
 
 ## Claim boundary
 

@@ -11,7 +11,10 @@ from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceLabelRecord,
     ISETraceRankingRecord,
 )
-from graph_memory.datasets.isetrace.training import adapt_provenance_training_split
+from graph_memory.datasets.isetrace.training import (
+    adapt_flat_dense_training_split,
+    adapt_provenance_training_split,
+)
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     text_ranking_requests_for_dataset,
@@ -97,6 +100,7 @@ def build_training_pair_data(
     result = build_train_pairs(
         _pair_tasks(
             dataset,
+            config.method,
             tasks,
             labels,
             graphs,
@@ -138,6 +142,8 @@ def materialize_training_pairs(
         origin={
             "stage": "pairs",
             "dataset": dataset,
+            "method": config.method,
+            "sampling_config": config.sampling.model_dump(mode="json"),
             "prepared_digest": prepared.digest,
             "graph_digest": None if evidence_graphs is None else evidence_graphs.digest,
             "encoder_identity": _encoder_identity(encoder_source),
@@ -159,6 +165,7 @@ def materialize_training_pairs(
 
 def _pair_tasks(
     dataset: DatasetName,
+    method: str,
     task_inputs: list[Mapping[str, object]],
     labels: list[object],
     graphs: list[EvidenceGraph],
@@ -169,6 +176,19 @@ def _pair_tasks(
     if dataset == "isetrace":
         rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
         isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
+        if method == "dense_ft":
+            requests, compiled_labels = adapt_flat_dense_training_split(
+                rankings,
+                isetrace_labels,
+            )
+            return [
+                TrainPairBuildTask(text_request=request, label=label)
+                for request, label in zip(requests, compiled_labels, strict=True)
+            ]
+        if method != "provenance_rgcn":
+            raise ValueError(
+                f"dataset='isetrace' has no train-pair projection for method={method!r}"
+            )
         requests, compiled_labels = adapt_provenance_training_split(
             rankings,
             isetrace_labels,

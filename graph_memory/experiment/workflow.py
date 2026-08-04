@@ -83,32 +83,38 @@ def run_experiment(
                 ProvenancePathMethodConfig,
             ),
         ):
+            trajectory_source = _trajectory_source(config)
             test = prepare_split_task(
                 source=split_sources["test"],
                 config=_prepare_config(config, "test"),
-                trajectory_source=_trajectory_source(config),
+                trajectory_source=trajectory_source,
             )
             assets.append(test.artifact)
             if not isinstance(method, Bm25MethodConfig):
                 ranking_encoder = resolve_encoder_source(method.encoder)
 
         elif isinstance(method, DenseFinetuneMethodConfig):
+            effective_method = method.effective_for_dataset(config.dataset.name)
+            trajectory_source = _trajectory_source(config)
             train = prepare_split_task(
                 source=split_sources["train"],
                 config=_prepare_config(config, "train"),
+                trajectory_source=trajectory_source,
             )
             dev = prepare_split_task(
                 source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
+                trajectory_source=trajectory_source,
             )
             test = prepare_split_task(
                 source=split_sources["test"],
                 config=_prepare_config(config, "test"),
+                trajectory_source=trajectory_source,
             )
             assets.extend((train.artifact, dev.artifact, test.artifact))
 
-            encoder_source = resolve_encoder_source(method.encoder)
-            effective_pairs = method.pairs
+            encoder_source = resolve_encoder_source(effective_method.encoder)
+            effective_pairs = effective_method.pairs
             train_graphs = None
             if effective_pairs.hard_graph_neighbor_per_positive > 0:
                 train_graphs = build_evidence_graphs_task(
@@ -126,8 +132,9 @@ def run_experiment(
                 ),
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
+                    method=effective_method.method,
                     sampling=effective_pairs,
-                    encoder=method.encoder,
+                    encoder=effective_method.encoder,
                     device=config.device,
                 ),
                 encoder_source=encoder_source,
@@ -137,26 +144,27 @@ def run_experiment(
                 train_pairs=pairs.artifact,
                 dev_prepared=dev.artifact,
                 dataset=config.dataset.name,
-                config=method.train_stage(),
+                config=effective_method.train_stage(),
                 encoder_source=encoder_source,
             )
             assets.extend((pairs.artifact, model.artifact))
 
         elif isinstance(method, ProvenanceRgcnMethodConfig):
+            trajectory_source = _trajectory_source(config)
             train = prepare_split_task(
                 source=split_sources["train"],
                 config=_prepare_config(config, "train"),
-                trajectory_source=_trajectory_source(config),
+                trajectory_source=trajectory_source,
             )
             dev = prepare_split_task(
                 source=split_sources["dev"],
                 config=_prepare_config(config, "dev"),
-                trajectory_source=_trajectory_source(config),
+                trajectory_source=trajectory_source,
             )
             test = prepare_split_task(
                 source=split_sources["test"],
                 config=_prepare_config(config, "test"),
-                trajectory_source=_trajectory_source(config),
+                trajectory_source=trajectory_source,
             )
             effective = method.effective()
             encoder_source = resolve_encoder_source(effective.encoder)
@@ -165,6 +173,7 @@ def run_experiment(
                 evidence_graphs=None,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
+                    method=effective.method,
                     sampling=effective.pairs,
                     encoder=effective.encoder,
                     device=config.device,
@@ -241,6 +250,7 @@ def run_experiment(
                 evidence_graphs=train_graphs.artifact,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
+                    method=effective.method,
                     sampling=effective.pairs,
                     encoder=effective.encoder,
                     device=config.device,
@@ -325,6 +335,7 @@ def run_experiment(
                 evidence_graphs=train_graphs.artifact,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
+                    method=method.seed.method,
                     sampling=method.seed.pairs,
                     encoder=method.seed.encoder,
                     device=config.device,
@@ -347,6 +358,7 @@ def run_experiment(
                 evidence_graphs=train_graphs.artifact,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
+                    method=method.method,
                     sampling=rgcn.pairs,
                     encoder=rgcn.encoder,
                     device=config.device,
@@ -503,8 +515,8 @@ def _prepare_config(
     split: SplitName,
 ) -> PrepareSplitConfig:
     split_config = config.dataset.splits[split]
-    # ISETrace allocation is trajectory-grouped and therefore fixed across all
-    # model seeds. Evidence datasets retain their existing seed policy.
+    # ISETrace query selection is deterministic within the immutable trajectory
+    # partition. Evidence datasets retain their existing seed policy.
     sampling_seed = (
         config.split_seed
         if config.dataset.name == "isetrace" or split == "test"
@@ -518,10 +530,10 @@ def _prepare_config(
         seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
         source_revision=config.dataset.source_revision,
-        query_counts=(
+        trajectory_splits=(
             None
-            if config.dataset.queries is None
-            else getattr(config.dataset.queries.splits, split)
+            if config.dataset.trajectories is None
+            else config.dataset.trajectories.splits
         ),
         chunking=config.dataset.chunking,
     )

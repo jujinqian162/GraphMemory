@@ -7,13 +7,18 @@ from pydantic import JsonValue, TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.provenance import ProvenanceGraph
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceLabelRecord,
     ISETraceQueryMetadata,
     ISETraceRankingRecord,
 )
-from graph_memory.datasets.isetrace.training import adapt_provenance_training_split
+from graph_memory.datasets.isetrace.training import (
+    adapt_flat_dense_training_split,
+    adapt_provenance_training_split,
+)
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
     text_ranking_requests_for_dataset,
@@ -103,6 +108,18 @@ def materialize_dense_finetune_model(
     pairs = TRAIN_PAIRS_ADAPTER.validate_python(
         read_json(artifact_payload_path(train_pairs, "pairs"))
     )
+    train_requests, train_compiled_labels, train_group_ids, _ = _dense_finetune_split(
+        dataset,
+        train_tasks,
+        train_labels,
+        metadata=_isetrace_query_metadata(dataset, train_prepared),
+    )
+    dev_requests, dev_compiled_labels, _, dev_query_origins = _dense_finetune_split(
+        dataset,
+        dev_tasks,
+        dev_labels,
+        metadata=_isetrace_query_metadata(dataset, dev_prepared),
+    )
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -123,19 +140,13 @@ def materialize_dense_finetune_model(
         model_dir = publisher.workspace / "model"
         result = DenseFinetuneMethodTrainer(effective).train(
             DenseFinetuneTrainPayload(
-                train_requests=tuple(
-                    text_ranking_requests_for_dataset(dataset, train_tasks)
-                ),
-                train_labels=tuple(
-                    evidence_labels_for_dataset(dataset, train_labels)
-                ),
+                train_requests=tuple(train_requests),
+                train_labels=tuple(train_compiled_labels),
                 train_pairs=tuple(pairs),
-                dev_requests=tuple(
-                    text_ranking_requests_for_dataset(dataset, dev_tasks)
-                ),
-                dev_labels=tuple(
-                    evidence_labels_for_dataset(dataset, dev_labels)
-                ),
+                train_group_ids=train_group_ids,
+                dev_requests=tuple(dev_requests),
+                dev_labels=tuple(dev_compiled_labels),
+                dev_query_origins=dev_query_origins,
                 output_dir=trainer_output,
                 model_dir=model_dir,
             )
@@ -153,6 +164,8 @@ def materialize_dense_finetune_model(
             metadata={
                 "selected_metric_name": result.selected_metric_name,
                 "selected_metric_value": result.selected_metric_value,
+                "selection_query_origin": result.selection_query_origin,
+                "effective_sampling": train_pairs.origin.get("sampling_config"),
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
@@ -163,7 +176,49 @@ def materialize_dense_finetune_model(
         metadata={
             "selected_metric_name": result.selected_metric_name,
             "selected_metric_value": result.selected_metric_value,
+            "selection_query_origin": result.selection_query_origin,
         },
+    )
+
+
+def _dense_finetune_split(
+    dataset: DatasetName,
+    tasks: list[object],
+    labels: list[object],
+    *,
+    metadata: list[ISETraceQueryMetadata],
+) -> tuple[
+    list[TextRankingRequest],
+    list[EvidenceLabel],
+    dict[str, str],
+    dict[str, str],
+]:
+    if dataset != "isetrace":
+        requests = text_ranking_requests_for_dataset(dataset, tasks)
+        compiled_labels = evidence_labels_for_dataset(dataset, labels)
+        return requests, compiled_labels, {}, {}
+
+    rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(tasks)
+    isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
+    requests, compiled_labels = adapt_flat_dense_training_split(
+        rankings,
+        isetrace_labels,
+    )
+    group_ids = {ranking.task_id: ranking.graph_id for ranking in rankings}
+    query_origins = {record.task_id: record.query_origin for record in metadata}
+    if set(query_origins) != {request.task_id for request in requests}:
+        raise ValueError("ISETrace Dense-FT query origins must align")
+    return requests, compiled_labels, group_ids, query_origins
+
+
+def _isetrace_query_metadata(
+    dataset: DatasetName,
+    prepared: DatasetArtifactRef,
+) -> list[ISETraceQueryMetadata]:
+    if dataset != "isetrace":
+        return []
+    return ISETRACE_QUERY_METADATA_ADAPTER.validate_python(
+        read_json(artifact_payload_path(prepared, "query_metadata"))
     )
 
 

@@ -99,7 +99,7 @@ def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
-    implementation_version: str = "prepare-v6-explicit-isetrace-query-counts",
+    implementation_version: str = "prepare-v8-prefix-test-full-template-pool",
 ) -> PreparedSplitResult:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",
@@ -118,7 +118,7 @@ def prepare_split_task(
         offset=config.offset,
         strict_invalid_examples=config.strict_invalid_examples,
         source_revision=config.source_revision,
-        query_counts=config.query_counts,
+        trajectory_splits=config.trajectory_splits,
         chunking=config.chunking,
         implementation_version=implementation_version,
     )

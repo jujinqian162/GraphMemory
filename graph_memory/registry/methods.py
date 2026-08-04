@@ -80,7 +80,7 @@ def build_method_registry() -> MethodRegistry:
         MethodDefinition(
             RetrievalMethodId.DENSE_FT,
             TextRankingRequest,
-            evidence,
+            shared,
         ),
         MethodDefinition(
             RetrievalMethodId.GRAPHRAG,

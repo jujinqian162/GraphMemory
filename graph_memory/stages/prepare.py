@@ -21,9 +21,6 @@ from graph_memory.datasets.isetrace import (
     combined_isetrace_records,
     prepare_isetrace_benchmark,
 )
-from graph_memory.datasets.isetrace.registration import (
-    ISETRACE_NATURAL_SPLIT_WEIGHTS,
-)
 from graph_memory.datasets.musique import (
     MuSiQuePreparedSplit,
     combined_musique_records,
@@ -52,7 +49,7 @@ from graph_memory.experiment.artifacts import (
 from graph_memory.experiment.config import (
     DatasetName,
     ISETraceChunkingConfig,
-    ISETraceQueryOriginCounts,
+    ISETraceTrajectorySplitCounts,
     SplitName,
 )
 from graph_memory.io import read_json, write_json
@@ -82,7 +79,7 @@ def prepare_split(
     split: SplitName | None = None,
     trajectory_source: Path | None = None,
     source_revision: str | None = None,
-    query_counts: ISETraceQueryOriginCounts | None = None,
+    trajectory_splits: ISETraceTrajectorySplitCounts | None = None,
     chunking: ISETraceChunkingConfig | None = None,
 ) -> PreparedSplitData:
     if dataset == "hotpotqa":
@@ -114,19 +111,19 @@ def prepare_split(
             split is None
             or trajectory_source is None
             or source_revision is None
-            or query_counts is None
+            or trajectory_splits is None
             or chunking is None
         ):
             raise ValueError(
                 "isetrace preparation requires split, trajectory_source, "
-                "source_revision, query_counts, and chunking"
+                "source_revision, trajectory_splits, and chunking"
             )
         return _prepare_isetrace(
             source,
             split=split,
             trajectory_source=trajectory_source,
             source_revision=source_revision,
-            query_counts=query_counts,
+            trajectory_splits=trajectory_splits,
             count=count,
             seed=seed,
             offset=offset,
@@ -148,7 +145,7 @@ def materialize_prepared_split(
     offset: int,
     strict_invalid_examples: bool,
     source_revision: str | None = None,
-    query_counts: ISETraceQueryOriginCounts | None = None,
+    trajectory_splits: ISETraceTrajectorySplitCounts | None = None,
     chunking: ISETraceChunkingConfig | None = None,
     implementation_version: str,
 ) -> PreparedSplitResult:
@@ -164,7 +161,7 @@ def materialize_prepared_split(
             None if trajectory_source is None else Path(trajectory_source.uri)
         ),
         source_revision=source_revision,
-        query_counts=query_counts,
+        trajectory_splits=trajectory_splits,
         chunking=chunking,
     )
     with ArtifactPublisher(
@@ -181,16 +178,10 @@ def materialize_prepared_split(
                 None if trajectory_source is None else trajectory_source.digest
             ),
             "source_revision": source_revision,
-            "query_counts": (
-                None if query_counts is None else query_counts.model_dump(mode="json")
-            ),
-            "registered_split_weights": (
-                cast(
-                    dict[str, JsonValue],
-                    dict(ISETRACE_NATURAL_SPLIT_WEIGHTS),
-                )
-                if dataset == "isetrace"
-                else None
+            "trajectory_splits": (
+                None
+                if trajectory_splits is None
+                else trajectory_splits.model_dump(mode="json")
             ),
             "chunking": (
                 None if chunking is None else chunking.model_dump(mode="json")
@@ -374,7 +365,7 @@ def _prepare_isetrace(
     split: SplitName,
     trajectory_source: Path,
     source_revision: str,
-    query_counts: ISETraceQueryOriginCounts,
+    trajectory_splits: ISETraceTrajectorySplitCounts,
     count: int | None,
     seed: int,
     offset: int,
@@ -390,8 +381,7 @@ def _prepare_isetrace(
         offset=offset,
         strict=strict,
         split=split,
-        split_weights=ISETRACE_NATURAL_SPLIT_WEIGHTS,
-        query_counts=query_counts.model_dump(),
+        trajectory_splits=trajectory_splits.model_dump(),
         chunking=TokenChunkingConfig(
             tokenizer_name=chunking.tokenizer_name,
             max_tokens=chunking.max_tokens,

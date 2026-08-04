@@ -15,6 +15,7 @@ DENSE_FT_METADATA_FILENAME = "dense_ft_model_config.json"
 class DenseFinetuneSelectionMetadata(DomainModel):
     selected_metric: NonEmptyStr
     higher_is_better: StrictBool
+    query_origin: NonEmptyStr | None = None
 
 
 class DenseFinetuneModelMetadata(DomainModel):

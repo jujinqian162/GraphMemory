@@ -32,7 +32,7 @@ def _compose(*overrides: str):
         )
 
 
-def test_isetrace_config_resolves_explicit_query_counts() -> None:
+def test_isetrace_config_resolves_explicit_trajectory_counts() -> None:
     composed = parse_composed_config(
         _compose("dataset=isetrace", "profile=full", "method=provenance_path")
     )
@@ -40,10 +40,10 @@ def test_isetrace_config_resolves_explicit_query_counts() -> None:
 
     assert isinstance(composed.dataset, ISETraceDatasetConfig)
     assert isinstance(resolved.method, ProvenancePathMethodConfig)
-    assert composed.dataset.queries.splits.model_dump() == {
-        "train": {"natural": 2692, "template": 5384},
-        "dev": {"natural": 393, "template": 393},
-        "test": {"natural": 981, "template": 0},
+    assert composed.dataset.trajectories.splits.model_dump() == {
+        "train": {"natural": 2410, "template": 7788},
+        "dev": {"natural": 352, "template": 1160},
+        "test": {"natural": 1207, "template": 0},
     }
     assert set(resolved.dataset.splits) == {"train", "dev", "test"}
     natural_source = (
@@ -72,14 +72,14 @@ def test_isetrace_config_resolves_explicit_query_counts() -> None:
         "+dataset.allow_unreviewed=true",
         "+dataset.accepted_only=true",
         "+dataset.target_policy=answer_only",
-        "+dataset.queries.kind=corpus",
-        "+dataset.queries.invalid_policy=drop",
-        "+dataset.queries.grouping_policy=trajectory",
-        "+dataset.queries.manifest_name=split.json",
-        "+dataset.queries.extension_policy=rebuild",
-        "+dataset.queries.schema_version=7",
-        "+dataset.queries.split_ratio.train=1",
-        "+dataset.queries.mix_ratio.train.natural=1",
+        "+dataset.trajectories.kind=corpus",
+        "+dataset.trajectories.invalid_policy=drop",
+        "+dataset.trajectories.grouping_policy=trajectory",
+        "+dataset.trajectories.manifest_name=split.json",
+        "+dataset.trajectories.extension_policy=rebuild",
+        "+dataset.trajectories.schema_version=7",
+        "+dataset.trajectories.split_ratio.train=1",
+        "+dataset.trajectories.mix_ratio.train.natural=1",
     ),
 )
 def test_isetrace_rejects_retired_test_only_and_policy_fields(
@@ -100,21 +100,42 @@ def test_isetrace_accepts_template_only_train_and_dev_counts() -> None:
         _compose(
             "dataset=isetrace",
             "method=provenance_rgcn",
-            "dataset.queries.splits.train.natural=0",
-            "dataset.queries.splits.train.template=8076",
-            "dataset.queries.splits.dev.natural=0",
-            "dataset.queries.splits.dev.template=786",
+            "dataset.trajectories.splits.train.natural=0",
+            "dataset.trajectories.splits.train.template=8076",
+            "dataset.trajectories.splits.dev.natural=0",
+            "dataset.trajectories.splits.dev.template=786",
         )
     )
     assert isinstance(composed.dataset, ISETraceDatasetConfig)
-    assert composed.dataset.queries.splits.train.model_dump() == {
+    assert composed.dataset.trajectories.splits.train.model_dump() == {
         "natural": 0,
         "template": 8076,
     }
-    assert composed.dataset.queries.splits.dev.model_dump() == {
+    assert composed.dataset.trajectories.splits.dev.model_dump() == {
         "natural": 0,
         "template": 786,
     }
+
+
+def test_isetrace_dense_ft_uses_effective_text_only_sampling() -> None:
+    composed = parse_composed_config(
+        _compose("dataset=isetrace", "method=dense_ft", "profile=full")
+    )
+    resolved = resolve_experiment_config(composed, repository_root=ROOT)
+
+    assert isinstance(composed.method, DenseFinetuneMethodConfig)
+    assert composed.method.pairs.hard_graph_neighbor_per_positive == 1
+    assert isinstance(resolved.method, DenseFinetuneMethodConfig)
+    assert resolved.method.pairs.hard_graph_neighbor_per_positive == 0
+
+    evidence = resolve_experiment_config(
+        parse_composed_config(
+            _compose("dataset=hotpotqa", "method=dense_ft", "profile=full")
+        ),
+        repository_root=ROOT,
+    )
+    assert isinstance(evidence.method, DenseFinetuneMethodConfig)
+    assert evidence.method.pairs.hard_graph_neighbor_per_positive == 1
 
 
 def test_isetrace_provenance_rgcn_config_requires_current_trainable_lifecycle() -> None:

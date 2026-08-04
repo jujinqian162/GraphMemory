@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from graph_memory.contracts.common import NodeId, TaskId, TrainPairSampleType
 from graph_memory.contracts.model import DomainModel, NonNegativeInt
+from graph_memory.evaluation.requests import EvidenceLabel
+from graph_memory.retrieval.requests import TextRankingRequest
 
 
 class DenseFinetuneDataSettings(DomainModel):
@@ -10,6 +12,7 @@ class DenseFinetuneDataSettings(DomainModel):
 
 class DenseFinetuneExample(DomainModel):
     task_id: TaskId
+    group_id: str | None = None
     positive_node_id: NodeId
     negative_node_id: NodeId | None
     anchor: str
@@ -27,3 +30,14 @@ class DenseFinetuneIREvaluatorPayload(DomainModel):
     queries: dict[str, str]
     corpus: dict[str, str]
     relevant_docs: dict[str, frozenset[str]]
+
+
+class DenseFinetuneTaskLocalEvaluatorPayload(DomainModel):
+    requests: tuple[TextRankingRequest, ...]
+    labels: tuple[EvidenceLabel, ...]
+    query_origins: dict[str, str]
+
+
+DenseFinetuneEvaluatorPayload = (
+    DenseFinetuneIREvaluatorPayload | DenseFinetuneTaskLocalEvaluatorPayload
+)

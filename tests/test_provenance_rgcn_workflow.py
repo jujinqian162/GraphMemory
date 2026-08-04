@@ -15,7 +15,8 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     ISETraceChunkingConfig,
-    ISETraceQueryOriginCounts,
+    ISETraceTrajectoryOriginCounts,
+    ISETraceTrajectorySplitCounts,
 )
 from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
@@ -98,7 +99,11 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         offset=0,
         strict_invalid_examples=False,
         source_revision="fixture-revision",
-        query_counts=ISETraceQueryOriginCounts(natural=0, template=1),
+        trajectory_splits=ISETraceTrajectorySplitCounts(
+            train=ISETraceTrajectoryOriginCounts(natural=0, template=1),
+            dev=ISETraceTrajectoryOriginCounts(natural=0, template=1),
+            test=ISETraceTrajectoryOriginCounts(natural=1, template=0),
+        ),
         chunking=ISETraceChunkingConfig(
             tokenizer_name="fixture-encoder",
             max_tokens=64,

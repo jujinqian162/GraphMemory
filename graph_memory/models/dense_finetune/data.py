@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from graph_memory.contracts.common import NodeId, TaskId, TrainPairSampleType
 from graph_memory.training_pairs.contracts import TrainPairRecord
@@ -29,6 +29,7 @@ def build_dense_finetune_examples(
     ranking_requests: Sequence[TextRankingRequest],
     train_pairs: Sequence[TrainPairRecord],
     settings: DenseFinetuneDataSettings,
+    group_ids: Mapping[TaskId, str] | None = None,
     query_prefix: str = "query: ",
     passage_prefix: str = "passage: ",
 ) -> DenseFinetuneDatasetBuildResult:
@@ -75,6 +76,7 @@ def build_dense_finetune_examples(
                     positive_item=positive_item,
                     negative_item=None,
                     positive_node_id=positive_pair.node_id,
+                    group_id=None if group_ids is None else group_ids.get(task_id),
                     negative_sample_type=None,
                     query_prefix=query_prefix,
                     passage_prefix=passage_prefix,
@@ -96,6 +98,7 @@ def build_dense_finetune_examples(
                     positive_item=positive_item,
                     negative_item=negative_item,
                     positive_node_id=positive_pair.node_id,
+                    group_id=None if group_ids is None else group_ids.get(task_id),
                     negative_sample_type=negative_pair.sample_type,
                     query_prefix=query_prefix,
                     passage_prefix=passage_prefix,
@@ -183,12 +186,14 @@ def _build_example(
     positive_item: TextCandidate,
     negative_item: TextCandidate | None,
     positive_node_id: NodeId,
+    group_id: str | None,
     negative_sample_type: TrainPairSampleType | None,
     query_prefix: str,
     passage_prefix: str,
 ) -> DenseFinetuneExample:
     return DenseFinetuneExample(
         task_id=request.task_id,
+        group_id=group_id,
         positive_node_id=positive_node_id,
         negative_node_id=None if negative_item is None else negative_item.item_id,
         anchor=format_dense_query(request, query_prefix=query_prefix),

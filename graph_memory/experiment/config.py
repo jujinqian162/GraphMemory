@@ -134,24 +134,24 @@ class ISETraceChunkingConfig(ClosedModel):
         return self
 
 
-class ISETraceQueryOriginCounts(ClosedModel):
+class ISETraceTrajectoryOriginCounts(ClosedModel):
     natural: NonNegativeInt
     template: NonNegativeInt
 
     @model_validator(mode="after")
-    def _require_queries(self) -> "ISETraceQueryOriginCounts":
+    def _require_trajectories(self) -> "ISETraceTrajectoryOriginCounts":
         if self.natural + self.template <= 0:
-            raise ValueError("ISETrace split must request at least one query")
+            raise ValueError("ISETrace split must request at least one trajectory")
         return self
 
 
-class ISETraceQuerySplitCounts(ClosedModel):
-    train: ISETraceQueryOriginCounts
-    dev: ISETraceQueryOriginCounts
-    test: ISETraceQueryOriginCounts
+class ISETraceTrajectorySplitCounts(ClosedModel):
+    train: ISETraceTrajectoryOriginCounts
+    dev: ISETraceTrajectoryOriginCounts
+    test: ISETraceTrajectoryOriginCounts
 
     @model_validator(mode="after")
-    def _require_natural_only_test(self) -> "ISETraceQuerySplitCounts":
+    def _require_natural_only_test(self) -> "ISETraceTrajectorySplitCounts":
         if self.test.natural <= 0 or self.test.template != 0:
             raise ValueError(
                 "ISETrace test split must request natural > 0 and template = 0"
@@ -159,18 +159,8 @@ class ISETraceQuerySplitCounts(ClosedModel):
         return self
 
 
-class ISETraceQueriesConfig(ClosedModel):
-    splits: ISETraceQuerySplitCounts
-
-    @model_validator(mode="before")
-    @classmethod
-    def _reject_ratio_configuration(cls, value: object) -> object:
-        if isinstance(value, dict) and ({"split_ratio", "mix_ratio"} & set(value)):
-            raise ValueError(
-                "ISETrace split_ratio/mix_ratio have been removed; configure "
-                "queries.splits.<split>.natural/template with explicit counts"
-            )
-        return value
+class ISETraceTrajectoriesConfig(ClosedModel):
+    splits: ISETraceTrajectorySplitCounts
 
 
 class EvidenceDatasetConfig(ClosedModel):
@@ -183,7 +173,7 @@ class ISETraceDatasetConfig(ClosedModel):
     name: Literal["isetrace"]
     trajectory_source: Path
     natural_query_source: Path
-    queries: ISETraceQueriesConfig
+    trajectories: ISETraceTrajectoriesConfig
     chunking: ISETraceChunkingConfig
 
 
@@ -425,6 +415,17 @@ class DenseFinetuneStageConfig(ClosedModel):
 class DenseFinetuneMethodConfig(DenseFinetuneStageConfig):
     pairs: PairSamplingConfig
 
+    def effective_for_dataset(self, dataset: DatasetName) -> DenseFinetuneMethodConfig:
+        if dataset != "isetrace":
+            return self
+        return self.model_copy(
+            update={
+                "pairs": self.pairs.model_copy(
+                    update={"hard_graph_neighbor_per_positive": 0}
+                )
+            }
+        )
+
     def train_stage(self) -> DenseFinetuneStageConfig:
         return DenseFinetuneStageConfig(
             method=self.method,
@@ -507,6 +508,12 @@ def ranking_config(method: MethodConfig) -> RankingMethodConfig:
 
 
 class PairBuildConfig(ClosedModel):
+    method: Literal[
+        "dense_ft",
+        "dense_rgcn_graph_retriever",
+        "dense_ft_rgcn_graph_retriever",
+        "provenance_rgcn",
+    ]
     sampling: PairSamplingConfig
     encoder: DenseEncoderConfig
     device: Device
@@ -527,7 +534,7 @@ class PrepareSplitConfig(ClosedModel):
     seed: ScientificInt
     strict_invalid_examples: StrictBool
     source_revision: str | None = Field(default=None, min_length=1)
-    query_counts: ISETraceQueryOriginCounts | None = None
+    trajectory_splits: ISETraceTrajectorySplitCounts | None = None
     chunking: ISETraceChunkingConfig | None = None
 
 
@@ -592,7 +599,7 @@ class ResolvedDatasetConfig(ClosedModel):
     trajectory_source: Path | None = None
     natural_query_source: Path | None = None
     source_revision: str | None = None
-    queries: ISETraceQueriesConfig | None = None
+    trajectories: ISETraceTrajectoriesConfig | None = None
     chunking: ISETraceChunkingConfig | None = None
     splits: dict[SplitName, ResolvedSplitConfig]
 
@@ -706,16 +713,21 @@ def resolve_experiment_config(
         trajectory_source = _absolute_path(root, config.dataset.trajectory_source)
         natural_query_source = _absolute_path(root, config.dataset.natural_query_source)
         registered_revision: str | None = ISETRACE_REVISION
-        queries: ISETraceQueriesConfig | None = config.dataset.queries
+        trajectories: ISETraceTrajectoriesConfig | None = config.dataset.trajectories
         chunking: ISETraceChunkingConfig | None = config.dataset.chunking
     else:
         strict_invalid_examples = config.dataset.strict_invalid_examples
         trajectory_source = None
         natural_query_source = None
         registered_revision = None
-        queries = None
+        trajectories = None
         chunking = None
 
+    resolved_method = (
+        config.method.effective_for_dataset(config.dataset.name)
+        if isinstance(config.method, DenseFinetuneMethodConfig)
+        else config.method
+    )
     return ResolvedExperimentConfig(
         name=config.name,
         dataset=ResolvedDatasetConfig(
@@ -724,12 +736,12 @@ def resolve_experiment_config(
             trajectory_source=trajectory_source,
             natural_query_source=natural_query_source,
             source_revision=registered_revision,
-            queries=queries,
+            trajectories=trajectories,
             chunking=chunking,
             splits=resolved_splits,
         ),
         profile=config.profile.name,
-        method=config.method,
+        method=resolved_method,
         seed=config.seed,
         split_seed=config.split_seed,
         device=config.device,
@@ -818,9 +830,9 @@ __all__ = [
     "GraphRAGMethodConfig",
     "ISETraceChunkingConfig",
     "ISETraceDatasetConfig",
-    "ISETraceQueriesConfig",
-    "ISETraceQueryOriginCounts",
-    "ISETraceQuerySplitCounts",
+    "ISETraceTrajectoriesConfig",
+    "ISETraceTrajectoryOriginCounts",
+    "ISETraceTrajectorySplitCounts",
     "MethodConfig",
     "ModelSelectionConfig",
     "NonNegativeFloat",

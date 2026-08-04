@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from graph_memory.contracts.model import DomainModel
 from graph_memory.evaluation.requests import EvidenceLabel
@@ -48,8 +48,10 @@ class DenseFinetuneTrainPayload(DomainModel):
     train_requests: tuple[TextRankingRequest, ...]
     train_labels: tuple[EvidenceLabel, ...]
     train_pairs: tuple[TrainPairRecord, ...]
+    train_group_ids: dict[str, str] = Field(default_factory=dict)
     dev_requests: tuple[TextRankingRequest, ...]
     dev_labels: tuple[EvidenceLabel, ...]
+    dev_query_origins: dict[str, str] = Field(default_factory=dict)
     output_dir: Path
     model_dir: Path
 
@@ -61,10 +63,30 @@ class DenseFinetuneTrainPayload(DomainModel):
             pairs=self.train_pairs,
         )
         _validate_dev(self.dev_requests, self.dev_labels, ())
+        _validate_group_ids(
+            self.train_requests,
+            self.train_group_ids,
+            name="train",
+        )
+        _validate_group_ids(
+            self.dev_requests,
+            self.dev_query_origins,
+            name="dev query origins",
+        )
         return self
 
 
 TrainPayload: TypeAlias = RgcnTrainPayload | DenseFinetuneTrainPayload
+
+
+def _validate_group_ids(
+    requests: tuple[TextRankingRequest, ...],
+    group_ids: dict[str, str],
+    *,
+    name: str,
+) -> None:
+    if group_ids and set(group_ids) != {request.task_id for request in requests}:
+        raise ValueError(f"dense-ft {name} group IDs must align with requests")
 
 
 def _validate_dev(

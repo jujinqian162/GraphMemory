@@ -52,7 +52,7 @@ def test_train_and_dev_keep_using_training_seed() -> None:
     assert _prepare_config(config, "dev").seed == 41
 
 
-def test_isetrace_allocation_uses_split_seed_for_every_derived_split() -> None:
+def test_isetrace_trajectory_selection_uses_split_seed() -> None:
     config_a = _resolved("dataset=isetrace", "seed=13", "split_seed=41")
     config_b = _resolved("dataset=isetrace", "seed=29", "split_seed=41")
 
@@ -60,11 +60,11 @@ def test_isetrace_allocation_uses_split_seed_for_every_derived_split() -> None:
         prepare_a = _prepare_config(config_a, split)
         prepare_b = _prepare_config(config_b, split)
         assert prepare_a.seed == prepare_b.seed == 41
-        assert prepare_a.query_counts == prepare_b.query_counts
-        assert prepare_a.query_counts is not None
+        assert prepare_a.trajectory_splits == prepare_b.trajectory_splits
+        assert prepare_a.trajectory_splits is not None
         if split == "test":
-            assert prepare_a.query_counts.template == 0
-            assert prepare_a.query_counts.natural == 981
+            assert getattr(prepare_a.trajectory_splits, split).template == 0
+            assert getattr(prepare_a.trajectory_splits, split).natural == 1207
 
 
 def test_split_seed_defaults_to_thirteen() -> None:

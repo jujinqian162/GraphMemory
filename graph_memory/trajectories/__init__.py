@@ -9,6 +9,7 @@ from graph_memory.trajectories.contracts import (
     ToolOutputEvent,
     TrajectoryEvent,
 )
+from graph_memory.trajectories.spans import source_spans_overlap
 
 __all__ = [
     "CanonicalTrajectory",
@@ -20,4 +21,5 @@ __all__ = [
     "ToolDefinition",
     "ToolOutputEvent",
     "TrajectoryEvent",
+    "source_spans_overlap",
 ]

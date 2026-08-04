@@ -1,16 +1,16 @@
 name: isetrace
 trajectory_source: data/isetrace/raw/trajectories
 natural_query_source: data/isetrace/query-authoring/isetrace-v7-raw.jsonl
-queries:
+trajectories:
   splits:
     train:
-      natural: 2692
-      template: 5384
+      natural: 2410
+      template: 7788
     dev:
-      natural: 393
-      template: 393
+      natural: 352
+      template: 1160
     test:
-      natural: 981
+      natural: 1207
       template: 0
 chunking:
   tokenizer_name: models/intfloat-e5-base-v2

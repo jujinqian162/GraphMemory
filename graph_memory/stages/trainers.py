@@ -127,8 +127,10 @@ class DenseFinetuneMethodTrainer:
             ),
             train_requests=payload.train_requests,
             train_pairs=payload.train_pairs,
+            train_group_ids=payload.train_group_ids,
             dev_requests=payload.dev_requests,
             dev_labels=payload.dev_labels,
+            dev_query_origins=payload.dev_query_origins,
             output_dir=payload.output_dir,
             model_dir=payload.model_dir,
         )

@@ -36,7 +36,7 @@ data/isetrace/query-authoring/isetrace-v7-raw.jsonl
 data/isetrace/raw/trajectories/
 ```
 
-For another authoring file, override `dataset.natural_query_source`. `dataset.trajectory_source` remains the registered raw root or trajectory directory. Registered trajectory ownership plus `split_seed` derives the fixed test partition; `queries.splits.test` requests its exact natural count. Non-training methods schedule only that prepared test split and ignore train/dev counts.
+For another authoring file, override `dataset.natural_query_source`. `dataset.trajectory_source` remains the registered raw root or trajectory directory. `trajectories.splits.test.natural` selects test trajectories, and every valid authored query on those trajectories is evaluated. Non-training methods schedule only test preparation.
 
 Smoke runs:
 

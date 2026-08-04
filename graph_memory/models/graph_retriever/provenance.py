@@ -43,7 +43,7 @@ from graph_memory.training_pairs.requests import (
     CandidateNeighborEdge,
     TrainPairBuildTask,
 )
-from graph_memory.trajectories import SourceSpan
+from graph_memory.trajectories import SourceSpan, source_spans_overlap
 
 PROVENANCE_PHYSICAL_RELATIONS: tuple[str, ...] = (
     RETURNS_EDGE,
@@ -128,7 +128,7 @@ def provenance_training_label(
             candidate.item_id
             for candidate in request.candidates
             if any(
-                _source_spans_overlap(candidate_span, gold_span)
+                source_spans_overlap(candidate_span, gold_span)
                 for candidate_span in candidate.source_spans
                 for gold_span in gold_spans
             )
@@ -249,19 +249,6 @@ def tensorize_provenance_edges(graph: ProvenanceGraph) -> MessageEdgeTensors:
         relation_ids=torch.tensor(relation_ids, dtype=torch.long),
         edge_weights=torch.ones(len(relation_ids), dtype=torch.float32),
     )
-
-
-def _source_spans_overlap(left: SourceSpan, right: SourceSpan) -> bool:
-    if left.event_id != right.event_id or left.json_pointer != right.json_pointer:
-        return False
-    if (
-        left.char_start is None
-        or left.char_end is None
-        or right.char_start is None
-        or right.char_end is None
-    ):
-        return False
-    return max(left.char_start, right.char_start) < min(left.char_end, right.char_end)
 
 
 def _add_candidate_pair(

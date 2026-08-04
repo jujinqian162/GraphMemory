@@ -9,7 +9,7 @@ import pytest
 
 from graph_memory.datasets.isetrace import (
     adapt_isetrace_record,
-    allocate_trajectory_grouped_splits,
+    allocate_trajectory_splits,
     parse_isetrace_record,
     prepare_isetrace_benchmark,
 )
@@ -76,52 +76,55 @@ def _raw_trajectory(index: int) -> dict[str, object]:
     return raw
 
 
-def test_grouped_split_targets_weights_and_never_splits_one_trajectory() -> None:
-    query_trajectories = {
-        f"query:{trajectory_index}:{query_index}": f"trajectory:{trajectory_index}"
-        for trajectory_index in range(3000)
-        for query_index in range(2)
+def _trajectory_splits(
+    *,
+    natural: tuple[int, int, int] = (1, 1, 1),
+    template: tuple[int, int, int] = (0, 0, 0),
+) -> dict[str, dict[str, int]]:
+    return {
+        split: {"natural": natural[index], "template": template[index]}
+        for index, split in enumerate(("train", "dev", "test"))
     }
 
-    assignments, targets = allocate_trajectory_grouped_splits(
-        query_trajectories,
-        split_weights={"train": 3200, "dev": 800, "test": 2000},
+
+def test_trajectory_split_counts_are_disjoint_and_origin_sets_may_overlap() -> None:
+    trajectory_ids = {f"trajectory:{index}" for index in range(6)}
+    natural, template = allocate_trajectory_splits(
+        trajectory_ids,
+        split_counts=_trajectory_splits(
+            natural=(2, 1, 1), template=(1, 2, 0)
+        ),
         split_seed=41,
+        template_trajectory_ids=trajectory_ids,
     )
 
-    assert targets == {"train": 3200, "dev": 800, "test": 2000}
-    assert {
-        split: sum(value == split for value in assignments.values())
+    assert len(natural["train"]) == 2
+    assert len(template["train"]) == 1
+    assert template["train"] <= natural["train"]
+    assert len(natural["dev"]) == 1
+    assert len(template["dev"]) == 2
+    assert natural["dev"] <= template["dev"]
+    split_unions = {
+        split: natural[split] | template[split]
         for split in ("train", "dev", "test")
-    } == targets
-    for trajectory_index in range(3000):
-        assert len(
-            {
-                assignments[f"query:{trajectory_index}:{query_index}"]
-                for query_index in range(2)
-            }
-        ) == 1
-
-
-def test_grouped_split_depends_only_on_split_seed() -> None:
-    query_trajectories = {
-        f"query:{index}": f"trajectory:{index}" for index in range(30)
     }
+    assert not (split_unions["train"] & split_unions["dev"])
+    assert not (split_unions["train"] & split_unions["test"])
+    assert not (split_unions["dev"] & split_unions["test"])
 
-    seed_13_a, _ = allocate_trajectory_grouped_splits(
-        query_trajectories,
-        split_weights={"train": 10, "dev": 10, "test": 10},
-        split_seed=13,
+
+def test_trajectory_split_depends_only_on_split_seed() -> None:
+    trajectory_ids = {f"trajectory:{index}" for index in range(30)}
+    counts = _trajectory_splits(natural=(10, 10, 10))
+
+    seed_13_a = allocate_trajectory_splits(
+        trajectory_ids, split_counts=counts, split_seed=13
     )
-    seed_13_b, _ = allocate_trajectory_grouped_splits(
-        query_trajectories,
-        split_weights={"train": 10, "dev": 10, "test": 10},
-        split_seed=13,
+    seed_13_b = allocate_trajectory_splits(
+        trajectory_ids, split_counts=counts, split_seed=13
     )
-    seed_17, _ = allocate_trajectory_grouped_splits(
-        query_trajectories,
-        split_weights={"train": 10, "dev": 10, "test": 10},
-        split_seed=17,
+    seed_17 = allocate_trajectory_splits(
+        trajectory_ids, split_counts=counts, split_seed=17
     )
 
     assert seed_13_a == seed_13_b
@@ -166,8 +169,7 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
             offset=0,
             strict=True,
             split=split,
-            split_weights={"train": 2, "dev": 2, "test": 2},
-            query_counts={"natural": 2, "template": 0},
+            trajectory_splits=_trajectory_splits(),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -177,8 +179,8 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
         graph_ids_by_split[split] = {
             ranking.graph_id for ranking in benchmark.rankings
         }
-        assert summary[f"natural_queries_capacity_{split}"] == 2
-        assert summary[f"natural_queries_available_{split}"] == 2
+        assert summary["natural_trajectories_selected"] == 1
+        assert summary["natural_queries_available"] == 2
         assert all(
             metadata.query_origin == "natural"
             for metadata in benchmark.query_metadata
@@ -232,17 +234,13 @@ def test_mixed_preparation_retains_natural_queries_and_keeps_test_natural_only(
             offset=0,
             strict=True,
             split=split,
-            split_weights={"train": 2, "dev": 2, "test": 2},
-            query_counts={
-                "natural": 2,
-                "template": 2 if split in {"train", "dev"} else 0,
-            },
+            trajectory_splits=_trajectory_splits(template=(1, 1, 0)),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
         origins = [metadata.query_origin for metadata in benchmark.query_metadata]
         assert origins.count("natural") == 2
-        expected_templates = 0 if split == "test" else 2
+        expected_templates = 0 if split == "test" else 1
         assert origins.count("template") == expected_templates
         assert len(benchmark.template_supervision) == expected_templates
         assert summary["natural_queries_selected"] == 2
@@ -304,22 +302,21 @@ def test_template_only_preparation_uses_exact_counts_from_frozen_split(
         offset=0,
         strict=True,
         split="train",
-        split_weights={"train": 2, "dev": 2, "test": 2},
-        query_counts={"natural": 0, "template": 2},
+        trajectory_splits=_trajectory_splits(natural=(0, 1, 1), template=(1, 0, 0)),
         chunking=_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
 
-    assert len(benchmark.rankings) == 2
-    assert len(benchmark.template_supervision) == 2
+    assert len(benchmark.rankings) == 1
+    assert len(benchmark.template_supervision) == 1
     assert {item.query_origin for item in benchmark.query_metadata} == {"template"}
     assert summary["natural_queries_requested"] == 0
     assert summary["natural_queries_selected"] == 0
-    assert summary["template_queries_requested"] == 2
-    assert summary["template_queries_selected"] == 2
+    assert summary["template_queries_requested"] == 1
+    assert summary["template_queries_selected"] == 1
 
 
-def test_mixed_preparation_fails_on_insufficient_template_pool(
+def test_preparation_fails_on_insufficient_trajectory_pool(
     tmp_path: Path,
 ) -> None:
     raw = _raw_trajectory(1)
@@ -336,7 +333,7 @@ def test_mixed_preparation_fails_on_insufficient_template_pool(
 
     with pytest.raises(
         ValueError,
-        match=r"insufficient ISETrace template pool: requested=1000 available=\d+",
+        match=r"insufficient ISETrace natural trajectory pool: requested=2 available=1",
     ):
         prepare_isetrace_benchmark(
             query_path,
@@ -347,8 +344,9 @@ def test_mixed_preparation_fails_on_insufficient_template_pool(
             offset=0,
             strict=True,
             split="train",
-            split_weights={"train": 1, "dev": 0, "test": 0},
-            query_counts={"natural": 1, "template": 1000},
+            trajectory_splits=_trajectory_splits(
+                natural=(1, 1, 0), template=(0, 0, 0)
+            ),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -390,8 +388,7 @@ def test_preparation_drops_and_reports_malformed_and_unresolvable_records(
         offset=0,
         strict=False,
         split="train",
-        split_weights={"train": 1, "dev": 0, "test": 0},
-        query_counts={"natural": 1, "template": 0},
+        trajectory_splits=_trajectory_splits(natural=(1, 0, 0)),
         chunking=_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
@@ -403,7 +400,7 @@ def test_preparation_drops_and_reports_malformed_and_unresolvable_records(
     assert summary["queries_dropped"] == 2
     assert summary["invalid_queries"] == 1
     assert summary["queries_unmatched"] == 1
-    assert summary["natural_queries_capacity_train"] == 1
+    assert summary["natural_trajectories_selected"] == 1
 
 
 def test_authoring_revision_conflict_fails_before_query_parsing(
@@ -441,8 +438,7 @@ def test_authoring_revision_conflict_fails_before_query_parsing(
             offset=0,
             strict=True,
             split="test",
-            split_weights={"train": 0, "dev": 0, "test": 1},
-            query_counts={"natural": 1, "template": 0},
+            trajectory_splits=_trajectory_splits(natural=(0, 0, 1)),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
@@ -483,8 +479,7 @@ def test_authoring_source_digest_conflict_fails_before_graph_construction(
             offset=0,
             strict=True,
             split="test",
-            split_weights={"train": 0, "dev": 0, "test": 1},
-            query_counts={"natural": 1, "template": 0},
+            trajectory_splits=_trajectory_splits(natural=(0, 0, 1)),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )

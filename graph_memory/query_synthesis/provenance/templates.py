@@ -34,7 +34,7 @@ def render_template_supervision(
 ) -> TemplateSupervisionRecord:
     if motif.graph_id != graph.graph_id:
         raise ValueError("template motif and provenance graph IDs must align")
-    if motif.motif_type not in _ELIGIBLE_TEMPLATE_MOTIFS:
+    if motif.motif_type not in _ELIGIBLE_TEMPLATE_MOTIFS | {"call_result"}:
         raise ValueError(f"motif_type={motif.motif_type!r} is not template-eligible")
     if target not in motif.targets:
         raise ValueError("template target must belong to the supplied motif")
@@ -85,6 +85,20 @@ def render_template_supervision(
         query_intent=target.query_intent,
         graph_fingerprint=graph.fingerprint(),
     )
+
+
+def render_call_result_supervision(
+    graph: ProvenanceGraph,
+) -> TemplateSupervisionRecord:
+    motifs = tuple(
+        motif for motif in extract_motifs(graph) if motif.motif_type == "call_result"
+    )
+    for motif in motifs:
+        try:
+            return render_template_supervision(graph, motif, motif.targets[0])
+        except _MissingFocusedOutputContent:
+            continue
+    raise ValueError(f"trajectory={graph.graph_id!r} has no nonempty tool output")
 
 
 def enumerate_template_supervision(
@@ -164,6 +178,8 @@ def _render_query(
     target_tool = tools[-1]
     hop_count = max(1, len(motif.dependencies))
     artifact = _artifact_description(graph, motif)
+    if target.query_intent == "call_result":
+        return f"What output did {source_tool} return?"
     if target.query_intent == "upstream_source":
         return (
             f"Which output from {source_tool} supplied the upstream information "
@@ -224,6 +240,7 @@ def _safe_description(value: str) -> str:
 
 __all__ = [
     "enumerate_template_supervision",
+    "render_call_result_supervision",
     "render_template_supervision",
     "select_template_supervision",
 ]
