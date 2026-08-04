@@ -316,6 +316,52 @@ def test_template_only_preparation_uses_exact_counts_from_frozen_split(
     assert summary["template_queries_selected"] == 1
 
 
+def test_template_only_preparation_supports_trajectory_without_natural_query(
+    tmp_path: Path,
+) -> None:
+    raw_trajectories = [_raw_trajectory(index) for index in range(2)]
+    trajectories = [
+        adapt_isetrace_record(
+            parse_isetrace_record(raw), source_revision="fixture-revision"
+        )
+        for raw in raw_trajectories
+    ]
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(
+        "".join(json.dumps(raw) + "\n" for raw in raw_trajectories),
+        encoding="utf-8",
+    )
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(
+        _query(trajectories[0], query_id="query:natural-only").model_dump_json()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    benchmark, summary = prepare_isetrace_benchmark(
+        query_path,
+        trajectory_path,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=True,
+        split="train",
+        trajectory_splits=_trajectory_splits(
+            natural=(0, 0, 1), template=(1, 0, 0)
+        ),
+        chunking=_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+    )
+
+    assert len(benchmark.rankings) == 1
+    assert len(benchmark.template_supervision) == 1
+    assert benchmark.rankings[0].graph_id == trajectories[1].trajectory_id
+    assert {item.query_origin for item in benchmark.query_metadata} == {"template"}
+    assert summary["natural_queries_selected"] == 0
+    assert summary["template_queries_selected"] == 1
+
+
 def test_preparation_fails_on_insufficient_trajectory_pool(
     tmp_path: Path,
 ) -> None:

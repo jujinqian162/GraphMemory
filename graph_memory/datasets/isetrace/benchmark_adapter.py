@@ -156,20 +156,7 @@ def prepare_isetrace_benchmark(
             overlap_tokens=chunking.overlap_tokens,
         )
 
-    if split is None:
-        graph_examples = selected
-    else:
-        representative_by_trajectory: dict[str, AuthoringQueryRecord] = {}
-        for example in valid_examples:
-            trajectory_id = matched_contexts[example.id][0].trajectory_id
-            representative_by_trajectory.setdefault(trajectory_id, example)
-        graph_examples = list(selected)
-        selected_ids = {example.id for example in selected}
-        for trajectory_id in sorted(template_trajectory_ids):
-            representative = representative_by_trajectory[trajectory_id]
-            if representative.id not in selected_ids:
-                graph_examples.append(representative)
-                selected_ids.add(representative.id)
+    graph_examples = selected
     trajectories, graphs, contexts = _build_selected_contexts(
         graph_examples,
         matched_contexts=matched_contexts,
