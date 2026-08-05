@@ -11,7 +11,7 @@ from graph_memory.datasets.hotpotqa import (
 )
 from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
 from graph_memory.datasets.splits import sample_split
-from graph_memory.stages.prepare import prepare_split
+from graph_memory.stages.prepare import prepare_evidence_split
 
 RawHotpotQARecord: TypeAlias = dict[str, object]
 
@@ -93,7 +93,7 @@ def test_prepare_hotpotqa_drops_record_with_empty_candidate_sentence(tmp_path: P
     source = tmp_path / "hotpotqa.json"
     _ = source.write_text(json.dumps([hotpot_raw_example(), invalid]), encoding="utf-8")
 
-    prepared = prepare_split(
+    task_inputs, _task_labels, counts = prepare_evidence_split(
         "hotpotqa",
         source,
         count=None,
@@ -102,14 +102,11 @@ def test_prepare_hotpotqa_drops_record_with_empty_candidate_sentence(tmp_path: P
         strict_invalid_examples=False,
     )
 
-    assert prepared.counts["raw_examples"] == 2
-    assert prepared.counts["valid_examples"] == 1
-    assert prepared.counts["invalid_examples_dropped"] == 1
-    assert prepared.counts["task_inputs"] == 1
-    assert (
-        HotpotQARankingRecord.model_validate(prepared.task_inputs[0]).task_id
-        == "hotpot_ex1"
-    )
+    assert counts["raw_examples"] == 2
+    assert counts["valid_examples"] == 1
+    assert counts["invalid_examples_dropped"] == 1
+    assert counts["task_inputs"] == 1
+    assert HotpotQARankingRecord.model_validate(task_inputs[0]).task_id == "hotpot_ex1"
 
 
 def test_sample_split_is_deterministic_disjoint_and_bounds_checked() -> None:

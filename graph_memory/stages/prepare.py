@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -41,18 +40,7 @@ from graph_memory.io import read_json, write_json
 from graph_memory.stages.results import PreparedSplitResult
 from graph_memory.text.chunking import TokenChunkingConfig
 
-
-@dataclass(frozen=True)
-class PreparedSplitData:
-    task_inputs: list[object]
-    task_labels: list[object]
-    counts: dict[str, JsonValue]
-    provenance_graphs: list[object] | None = None
-    query_metadata: list[object] | None = None
-    template_supervision: list[object] | None = None
-
-
-def prepare_split(
+def prepare_evidence_split(
     dataset: DatasetName,
     source: Path,
     *,
@@ -60,12 +48,7 @@ def prepare_split(
     seed: int,
     offset: int,
     strict_invalid_examples: bool,
-    split: SplitName | None = None,
-    trajectory_source: Path | None = None,
-    source_revision: str | None = None,
-    trajectory_splits: ISETraceTrajectorySplitCounts | None = None,
-    chunking: ISETraceChunkingConfig | None = None,
-) -> PreparedSplitData:
+) -> tuple[list[object], list[object], dict[str, JsonValue]]:
     if dataset == "hotpotqa":
         return _prepare_hotpotqa(
             source,
@@ -90,31 +73,7 @@ def prepare_split(
             offset=offset,
             strict=strict_invalid_examples,
         )
-    if dataset == "isetrace":
-        if (
-            split is None
-            or trajectory_source is None
-            or source_revision is None
-            or trajectory_splits is None
-            or chunking is None
-        ):
-            raise ValueError(
-                "isetrace preparation requires split, trajectory_source, "
-                "source_revision, trajectory_splits, and chunking"
-            )
-        return _prepare_isetrace(
-            source,
-            split=split,
-            trajectory_source=trajectory_source,
-            source_revision=source_revision,
-            trajectory_splits=trajectory_splits,
-            count=count,
-            seed=seed,
-            offset=offset,
-            strict=strict_invalid_examples,
-            chunking=chunking,
-        )
-    raise ValueError(f"unsupported dataset={dataset!r}")
+    raise ValueError(f"unsupported evidence dataset={dataset!r}")
 
 
 def materialize_prepared_split(
@@ -133,21 +92,57 @@ def materialize_prepared_split(
     chunking: ISETraceChunkingConfig | None = None,
     implementation_version: str,
 ) -> PreparedSplitResult:
-    prepared = prepare_split(
-        dataset,
-        Path(source.uri),
-        count=count,
-        seed=seed,
-        offset=offset,
-        strict_invalid_examples=strict_invalid_examples,
-        split=split,
-        trajectory_source=(
-            None if trajectory_source is None else Path(trajectory_source.uri)
-        ),
-        source_revision=source_revision,
-        trajectory_splits=trajectory_splits,
-        chunking=chunking,
-    )
+    if dataset == "isetrace":
+        if (
+            trajectory_source is None
+            or source_revision is None
+            or trajectory_splits is None
+            or chunking is None
+        ):
+            raise ValueError(
+                "isetrace preparation requires trajectory_source, source_revision, "
+                "trajectory_splits, and chunking"
+            )
+        benchmark, summary = prepare_isetrace_benchmark(
+            Path(source.uri),
+            Path(trajectory_source.uri),
+            source_revision=source_revision,
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict=strict_invalid_examples,
+            split=split,
+            trajectory_splits=trajectory_splits.model_dump(),
+            chunking=TokenChunkingConfig(
+                tokenizer_name=chunking.tokenizer_name,
+                max_tokens=chunking.max_tokens,
+                overlap_tokens=chunking.overlap_tokens,
+                reserved_tokens=chunking.reserved_tokens,
+            ),
+        )
+        task_inputs: list[object] = list(benchmark.rankings)
+        task_labels: list[object] = list(benchmark.labels)
+        counts = cast(dict[str, JsonValue], summary.to_dict())
+        counts.update(
+            parsed_examples=len(task_inputs),
+            task_inputs=len(task_inputs),
+            task_labels=len(task_labels),
+        )
+        provenance_graphs: Sequence[object] | None = benchmark.provenance_graphs
+        query_metadata: Sequence[object] | None = benchmark.query_metadata
+        template_supervision: Sequence[object] | None = benchmark.template_supervision
+    else:
+        task_inputs, task_labels, counts = prepare_evidence_split(
+            dataset,
+            Path(source.uri),
+            count=count,
+            seed=seed,
+            offset=offset,
+            strict_invalid_examples=strict_invalid_examples,
+        )
+        provenance_graphs = None
+        query_metadata = None
+        template_supervision = None
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.DATASET,
@@ -175,41 +170,41 @@ def materialize_prepared_split(
     ) as publisher:
         write_json(
             publisher.workspace / "tasks.json",
-            [_json_record(record) for record in prepared.task_inputs],
+            [_json_record(record) for record in task_inputs],
         )
         write_json(
             publisher.workspace / "labels.json",
-            [_json_record(record) for record in prepared.task_labels],
+            [_json_record(record) for record in task_labels],
         )
-        write_json(publisher.workspace / "counts.json", prepared.counts)
+        write_json(publisher.workspace / "counts.json", counts)
         payloads = {
             "tasks": "tasks.json",
             "labels": "labels.json",
             "counts": "counts.json",
         }
-        if prepared.provenance_graphs is not None:
+        if provenance_graphs is not None:
             write_json(
                 publisher.workspace / "provenance_graphs.json",
-                [_json_record(graph) for graph in prepared.provenance_graphs],
+                [_json_record(graph) for graph in provenance_graphs],
             )
             payloads["provenance_graphs"] = "provenance_graphs.json"
-        if prepared.query_metadata is not None:
+        if query_metadata is not None:
             write_json(
                 publisher.workspace / "query_metadata.json",
-                [_json_record(item) for item in prepared.query_metadata],
+                [_json_record(item) for item in query_metadata],
             )
             payloads["query_metadata"] = "query_metadata.json"
-        if prepared.template_supervision is not None:
+        if template_supervision is not None:
             write_json(
                 publisher.workspace / "template_supervision.json",
-                [_json_record(item) for item in prepared.template_supervision],
+                [_json_record(item) for item in template_supervision],
             )
             payloads["template_supervision"] = "template_supervision.json"
         artifact = publisher.publish(
             payloads,
             shape={
-                "tasks": len(prepared.task_inputs),
-                "labels": len(prepared.task_labels),
+                "tasks": len(task_inputs),
+                "labels": len(task_labels),
             },
             metadata={
                 "split": split,
@@ -222,13 +217,13 @@ def materialize_prepared_split(
     return PreparedSplitResult(
         split=split,
         artifact=artifact,
-        counts=prepared.counts,
+        counts=counts,
     )
 
 
 def _prepare_hotpotqa(
     source: Path, *, count: int | None, seed: int, offset: int, strict: bool
-) -> PreparedSplitData:
+) -> tuple[list[object], list[object], dict[str, JsonValue]]:
     raw = read_json(source)
     if not isinstance(raw, list):
         raise ValueError("HotpotQA raw input must be a JSON list.")
@@ -256,7 +251,7 @@ def _prepare_hotpotqa(
 
 def _prepare_twowiki(
     source: Path, *, count: int | None, seed: int, offset: int, strict: bool
-) -> PreparedSplitData:
+) -> tuple[list[object], list[object], dict[str, JsonValue]]:
     raw = read_json(source)
     if not isinstance(raw, list):
         raise ValueError("2Wiki raw input must be a JSON list.")
@@ -284,7 +279,7 @@ def _prepare_twowiki(
 
 def _prepare_musique(
     source: Path, *, count: int | None, seed: int, offset: int, strict: bool
-) -> PreparedSplitData:
+) -> tuple[list[object], list[object], dict[str, JsonValue]]:
     raw = _read_jsonl(source)
     valid, invalid = _converted_records(
         raw,
@@ -305,54 +300,6 @@ def _prepare_musique(
         parsed_count=len(selected),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
-    )
-
-
-def _prepare_isetrace(
-    source: Path,
-    *,
-    split: SplitName,
-    trajectory_source: Path,
-    source_revision: str,
-    trajectory_splits: ISETraceTrajectorySplitCounts,
-    count: int | None,
-    seed: int,
-    offset: int,
-    strict: bool,
-    chunking: ISETraceChunkingConfig,
-) -> PreparedSplitData:
-    benchmark, summary = prepare_isetrace_benchmark(
-        source,
-        trajectory_source,
-        source_revision=source_revision,
-        count=count,
-        seed=seed,
-        offset=offset,
-        strict=strict,
-        split=split,
-        trajectory_splits=trajectory_splits.model_dump(),
-        chunking=TokenChunkingConfig(
-            tokenizer_name=chunking.tokenizer_name,
-            max_tokens=chunking.max_tokens,
-            overlap_tokens=chunking.overlap_tokens,
-            reserved_tokens=chunking.reserved_tokens,
-        ),
-    )
-    rankings = list(benchmark.rankings)
-    labels = list(benchmark.labels)
-    counts = cast(dict[str, JsonValue], summary.to_dict())
-    counts["parsed_examples"] = len(rankings)
-    counts["task_inputs"] = len(rankings)
-    counts["task_labels"] = len(labels)
-    return PreparedSplitData(
-        task_inputs=cast(list[object], rankings),
-        task_labels=cast(list[object], labels),
-        counts=counts,
-        provenance_graphs=cast(list[object], list(benchmark.provenance_graphs)),
-        query_metadata=cast(list[object], list(benchmark.query_metadata)),
-        template_supervision=cast(
-            list[object], list(benchmark.template_supervision)
-        ),
     )
 
 
@@ -388,7 +335,7 @@ def _prepared(
     parsed_count: int,
     tasks: list[object],
     labels: list[object],
-) -> PreparedSplitData:
+) -> tuple[list[object], list[object], dict[str, JsonValue]]:
     counts: dict[str, JsonValue] = {
         "raw_examples": len(raw),
         "valid_examples": len(valid),
@@ -402,7 +349,7 @@ def _prepared(
             1 for label in labels if _has_dependency_edges(label)
         ),
     }
-    return PreparedSplitData(tasks, labels, counts)
+    return tasks, labels, counts
 
 
 def _json_record(record: object) -> object:
@@ -433,4 +380,4 @@ def _read_jsonl(path: Path) -> list[object]:
     return records
 
 
-__all__ = ["PreparedSplitData", "materialize_prepared_split", "prepare_split"]
+__all__ = ["materialize_prepared_split", "prepare_evidence_split"]

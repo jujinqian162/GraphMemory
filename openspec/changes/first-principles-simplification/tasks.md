@@ -53,7 +53,7 @@
 - [x] 6.1 Convert each evidence record once during preparation and reuse the successful conversion for validity filtering and sampling.
 - [x] 6.2 Inline all evidence and ISETrace projector classes into dataset selection while preserving dataset-specific parsing, request fields, graph-node metadata, and label derivation.
 - [x] 6.3 Remove `Converted*`, `ConversionResult`, and evidence-dataset `*PreparedSplit` field-transport DTOs; direct ranking/label pairs cover all consumers.
-- [ ] 6.4 Split ISETrace flat and provenance preparation into direct branches that reuse trajectory parsing but do not introduce a representation enum or universal prepared object.
+- [x] 6.4 Split ISETrace and evidence preparation into direct branches at materialization; reuse the authoritative ISETrace benchmark object without a representation enum or universal prepared DTO.
 - [x] 6.5 Inline the single-implementation evidence graph builder, context, accumulator, and rule classes into direct construction functions while preserving all four edge algorithms, deduplication, and the conversion script caller.
 - [x] 6.6 Remove the unused `MotifCatalog` and template-selection public export/test while preserving active motif extraction, template enumeration, source spans, and authoring semantics.
 - [x] 6.7 Run dataset label, ISETrace trajectory/span, graph construction, provenance tensorization, Ruff, basedpyright, and full tests; record domain-cleanup net deletion.

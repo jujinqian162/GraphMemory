@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import graph_memory.stages.prepare as prepare_stage
 from graph_memory.datasets.isetrace.benchmark_records import (
@@ -18,13 +19,8 @@ from graph_memory.experiment.config import (
     ISETraceTrajectoryOriginCounts,
     ISETraceTrajectorySplitCounts,
 )
-from graph_memory.query_synthesis.provenance.contracts import (
-    TemplateSupervisionRecord,
-)
-from graph_memory.stages.prepare import (
-    PreparedSplitData,
-    materialize_prepared_split,
-)
+from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
+from graph_memory.stages.prepare import materialize_prepared_split
 from tests.test_provenance_rgcn_tensorization import _graph_and_request
 
 
@@ -70,18 +66,24 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         query_intent="downstream_result",
         graph_fingerprint=graph.fingerprint(),
     )
-    prepared = PreparedSplitData(
-        task_inputs=[ranking],
-        task_labels=[label],
-        counts={
+    benchmark = SimpleNamespace(
+        rankings=(ranking,),
+        labels=(label,),
+        provenance_graphs=(graph,),
+        query_metadata=(metadata,),
+        template_supervision=(template,),
+    )
+    summary = SimpleNamespace(
+        to_dict=lambda: {
             "natural_queries_selected": 0,
             "template_queries_selected": 1,
-        },
-        provenance_graphs=[graph],
-        query_metadata=[metadata],
-        template_supervision=[template],
+        }
     )
-    monkeypatch.setattr(prepare_stage, "prepare_split", lambda *args, **kwargs: prepared)
+    monkeypatch.setattr(
+        prepare_stage,
+        "prepare_isetrace_benchmark",
+        lambda *args, **kwargs: (benchmark, summary),
+    )
     source_path = tmp_path / "source.jsonl"
     source_path.write_text("{}\n", encoding="utf-8")
     source = identify_external_source(source_path, repository_root=tmp_path)
