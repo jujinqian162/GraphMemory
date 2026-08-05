@@ -67,9 +67,9 @@
 
 ## 8. Final Verification
 
-- [ ] 8.1 Run full pytest, Ruff, basedpyright at error level, compileall, and `git diff --check`.
-- [ ] 8.2 Run strict OpenSpec validation and confirm every checked task has corresponding implementation or validation evidence.
-- [ ] 8.3 Run retained dataset/method config composition and representative local smoke workflows for flat, Dense-FT, evidence graph, and provenance graph families.
-- [ ] 8.4 Compare deterministic preparation, rankings, metrics, manifests, cache/resume outcomes, and tracking behavior against the baseline within existing tolerances.
-- [ ] 8.5 Perform final call-site and export scans proving deleted wrappers, registries, payloads, factories, compatibility aliases, and duplicate authorities are absent.
-- [ ] 8.6 Report production, test, docs/config, class, and module net reductions plus residual scientific and operational risks for review.
+- [x] 8.1 Run full pytest, Ruff, basedpyright at error level, compileall, and `git diff --check`.
+- [x] 8.2 Run strict OpenSpec validation and confirm every checked task has corresponding implementation or validation evidence.
+- [x] 8.3 Run retained dataset/method config composition and representative local smoke workflows for flat, Dense-FT, evidence graph, and provenance graph families.
+- [x] 8.4 Compare deterministic preparation, rankings, metrics, manifests, cache/resume outcomes, and tracking behavior against the baseline within existing tolerances.
+- [x] 8.5 Perform final call-site and export scans proving deleted wrappers, registries, payloads, factories, compatibility aliases, and duplicate authorities are absent.
+- [x] 8.6 Report production, test, docs/config, class, and module net reductions plus residual scientific and operational risks for review.
