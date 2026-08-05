@@ -44,7 +44,14 @@ from graph_memory.experiment.config import (
     RgcnTrainStageConfig,
 )
 from graph_memory.io import read_json, write_jsonl
+from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
+from graph_memory.models.dense_finetune.training import (
+    DenseFinetuneRunConfig,
+    train_dense_finetune,
+)
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
+from graph_memory.models.graph_retriever.config.defaults import default_model_config
+from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.provenance import provenance_rgcn_model_config
 from graph_memory.models.graph_retriever.provenance_training import (
     QueryOrigin,
@@ -53,20 +60,13 @@ from graph_memory.models.graph_retriever.provenance_training import (
 from graph_memory.models.graph_retriever.text_embeddings import (
     PrecomputedGraphFeatureProvider,
 )
+from graph_memory.models.graph_retriever.training import train_graph_retriever
 from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
 )
-from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
 from graph_memory.stages.results import ModelResult
-from graph_memory.stages.train_payloads import (
-    DenseFinetuneTrainPayload,
-    RgcnTrainPayload,
-)
-from graph_memory.stages.trainers import (
-    DenseFinetuneMethodTrainer,
-    RgcnGraphRetrieverTrainer,
-)
+from graph_memory.training_pairs.contracts import TrainPairDataset
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -138,18 +138,38 @@ def materialize_dense_finetune_model(
     ) as publisher:
         trainer_output = publisher.workspace / "trainer_output"
         model_dir = publisher.workspace / "model"
-        result = DenseFinetuneMethodTrainer(effective).train(
-            DenseFinetuneTrainPayload(
-                train_requests=tuple(train_requests),
-                train_labels=tuple(train_compiled_labels),
-                train_pairs=tuple(pairs),
-                train_group_ids=train_group_ids,
-                dev_requests=tuple(dev_requests),
-                dev_labels=tuple(dev_compiled_labels),
-                dev_query_origins=dev_query_origins,
-                output_dir=trainer_output,
-                model_dir=model_dir,
-            )
+        TrainPairDataset(
+            requests=tuple(train_requests),
+            labels=tuple(train_compiled_labels),
+            pairs=tuple(pairs),
+        )
+        _validate_dev_split(dev_requests, dev_compiled_labels)
+        _validate_optional_task_values(
+            train_requests, train_group_ids, name="train group IDs"
+        )
+        _validate_optional_task_values(
+            dev_requests, dev_query_origins, name="dev query origins"
+        )
+        settings = effective.train
+        encoder = effective.encoder
+        result = train_dense_finetune(
+            config=DenseFinetuneRunConfig(
+                base_model=encoder.model_name,
+                query_prefix=encoder.query_prefix,
+                passage_prefix=encoder.passage_prefix,
+                batch_size=encoder.batch_size,
+                data=settings.data,
+                trainer=settings.trainer,
+                selection=settings.selection,
+            ),
+            train_requests=train_requests,
+            train_pairs=pairs,
+            train_group_ids=train_group_ids,
+            dev_requests=dev_requests,
+            dev_labels=dev_compiled_labels,
+            dev_query_origins=dev_query_origins,
+            output_dir=trainer_output,
+            model_dir=model_dir,
         )
         shutil.rmtree(trainer_output, ignore_errors=True)
         history = tuple(
@@ -261,6 +281,17 @@ def materialize_evidence_rgcn_model(
     pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
         read_json(artifact_payload_path(train_pairs, "pairs"))
     )
+    train_requests = text_ranking_requests_for_dataset(dataset, train_tasks)
+    compiled_train_labels = evidence_labels_for_dataset(dataset, train_labels)
+    dev_requests = text_ranking_requests_for_dataset(dataset, dev_tasks)
+    compiled_dev_labels = evidence_labels_for_dataset(dataset, dev_labels)
+    TrainPairDataset(
+        requests=tuple(train_requests),
+        labels=tuple(compiled_train_labels),
+        graphs=tuple(train_graph_values),
+        pairs=tuple(pair_values),
+    )
+    _validate_dev_split(dev_requests, compiled_dev_labels, dev_graph_values)
     seed_dir = (
         artifact_payload_path(seed_model, "model")
         if seed_model is not None
@@ -269,6 +300,31 @@ def materialize_evidence_rgcn_model(
     embedding_store = FrozenEmbeddingStore(frozen_embeddings)
     if embedding_store.index.family != "evidence":
         raise ValueError("Evidence R-GCN requires evidence frozen embeddings.")
+    encoder_settings = _effective_rgcn_encoder(
+        effective_encoder, seed_checkpoint=seed_dir
+    )
+    train_embeddings = embedding_store.partition("train")
+    dev_embeddings = embedding_store.partition("dev")
+    embedding_dim = embedding_store.index.embedding_dim
+    train_provider = PrecomputedGraphFeatureProvider(
+        train_embeddings, embedding_dim=embedding_dim
+    )
+    dev_provider = PrecomputedGraphFeatureProvider(
+        dev_embeddings, embedding_dim=embedding_dim
+    )
+    settings = config.train
+    model_config = default_model_config(
+        method_name=method,
+        encoder_model=encoder_settings.model_name,
+        encoder_dim=embedding_dim,
+        query_prefix=encoder_settings.query_prefix,
+        passage_prefix=encoder_settings.passage_prefix,
+        encoder_batch_size=encoder_settings.batch_size,
+        hidden_dim=settings.model.hidden_dim,
+        num_layers=settings.model.num_layers,
+        dropout=settings.model.dropout,
+        ablation_name=settings.model.ablation,
+    )
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -290,31 +346,22 @@ def materialize_evidence_rgcn_model(
             "implementation_version": implementation_version,
         },
     ) as publisher:
-        result = RgcnGraphRetrieverTrainer(
-            method=method,
-            encoder=effective_encoder,
-            train_config=config.train,
-            seed_checkpoint=seed_dir,
-            train_embeddings=embedding_store.partition("train"),
-            dev_embeddings=embedding_store.partition("dev"),
-        ).train(
-            RgcnTrainPayload(
-                train_requests=tuple(
-                    text_ranking_requests_for_dataset(dataset, train_tasks)
-                ),
-                train_labels=tuple(
-                    evidence_labels_for_dataset(dataset, train_labels)
-                ),
-                train_graphs=tuple(train_graph_values),
-                train_pairs=tuple(pair_values),
-                dev_requests=tuple(
-                    text_ranking_requests_for_dataset(dataset, dev_tasks)
-                ),
-                dev_labels=tuple(
-                    evidence_labels_for_dataset(dataset, dev_labels)
-                ),
-                dev_graphs=tuple(dev_graph_values),
-            )
+        result = train_graph_retriever(
+            train_requests=train_requests,
+            train_graphs=train_graph_values,
+            train_labels=compiled_train_labels,
+            train_pairs=pair_values,
+            dev_requests=dev_requests,
+            dev_labels=compiled_dev_labels,
+            dev_graphs=dev_graph_values,
+            model_config=model_config,
+            training_config=settings.trainer,
+            text_embedding_provider=train_provider,
+            seed_signal_provider=train_provider,
+            dev_text_embedding_provider=dev_provider,
+            dev_seed_signal_provider=dev_provider,
+            selection_settings=settings.selection,
+            device=settings.trainer.device,
         )
         checkpoints = publisher.workspace / "checkpoints"
         best_model = build_model_from_config(result.model_config)
@@ -524,6 +571,51 @@ def _load_provenance_split(prepared: DatasetArtifactRef):
     if set(origins) != {request.task_id for request in requests}:
         raise ValueError("ISETrace provenance query origins must align")
     return requests, compiled_labels, origins
+
+
+def _effective_rgcn_encoder(
+    encoder: DenseEncoderConfig,
+    *,
+    seed_checkpoint,
+) -> DenseEncoderConfig:
+    if seed_checkpoint is None:
+        return encoder
+    metadata = load_dense_ft_model_metadata(seed_checkpoint)
+    return encoder.model_copy(
+        update={
+            "model_name": str(seed_checkpoint),
+            "query_prefix": metadata.query_prefix,
+            "passage_prefix": metadata.passage_prefix,
+            "batch_size": metadata.batch_size,
+        }
+    )
+
+
+def _validate_dev_split(
+    requests: list[TextRankingRequest],
+    labels: list[EvidenceLabel],
+    graphs: list[EvidenceGraph] | None = None,
+) -> None:
+    request_ids = [request.task_id for request in requests]
+    label_ids = [label.task_id for label in labels]
+    if len(request_ids) != len(set(request_ids)):
+        raise ValueError("dev request task IDs must be unique")
+    if set(request_ids) != set(label_ids) or len(label_ids) != len(set(label_ids)):
+        raise ValueError("dev requests and labels must align")
+    if graphs:
+        graph_ids = [graph.task_id for graph in graphs]
+        if set(request_ids) != set(graph_ids) or len(graph_ids) != len(set(graph_ids)):
+            raise ValueError("dev requests and graphs must align")
+
+
+def _validate_optional_task_values(
+    requests: list[TextRankingRequest],
+    values: dict[str, str],
+    *,
+    name: str,
+) -> None:
+    if values and set(values) != {request.task_id for request in requests}:
+        raise ValueError(f"dense-ft {name} must align with requests")
 
 
 def _resolved_encoder(

@@ -27,8 +27,8 @@
 
 ## 4. Tranche 3 - Flatten Training and Configuration Projections
 
-- [ ] 4.1 Make model materializers call concrete Dense-FT, evidence R-GCN, and provenance R-GCN training functions directly.
-- [ ] 4.2 Delete `stages/train_payloads.py`, `stages/trainers.py`, trainer protocols, train dependency carriers, and single-implementation Dense-FT factories/runners that only forward arguments.
+- [x] 4.1 Make model materializers call concrete Dense-FT, evidence R-GCN, and provenance R-GCN training functions directly.
+- [x] 4.2 Delete `stages/train_payloads.py`, `stages/trainers.py`, trainer protocols, train dependency carriers, and single-implementation stage trainer wrappers that only forward arguments.
 - [ ] 4.3 Inline graph scoring model construction and delete `GraphScoringModelFactory` while preserving checkpoint model configuration and inference loading.
 - [ ] 4.4 Replace negative-sampler protocol/context/factory dispatch with direct calls to the existing four sampling algorithms inside pair construction.
 - [ ] 4.5 Remove `effective`, train-stage, R-GCN train-stage, and ranking config projections that only copy method fields; make each concrete algorithm consume the single parsed owner.

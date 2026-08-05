@@ -22,8 +22,7 @@ from graph_memory.retrieval.requests import (
     TextRankingRequest,
 )
 from graph_memory.retrieval.results import RankedResult, RetrievedSubgraph
-from graph_memory.stages.train_payloads import DenseFinetuneTrainPayload
-from graph_memory.training_pairs.contracts import TrainPairRecord
+from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 
 
 class _ScientificProbe(DomainModel):
@@ -124,10 +123,10 @@ def test_training_payload_rejects_pair_drift_at_construction_boundary(
     )
 
     with pytest.raises(ValidationError, match="negative node is gold evidence"):
-        DenseFinetuneTrainPayload(
-            train_requests=(request,),
-            train_labels=(label,),
-            train_pairs=(
+        TrainPairDataset(
+            requests=(request,),
+            labels=(label,),
+            pairs=(
                 TrainPairRecord(
                     task_id="task",
                     node_id="m0",
@@ -135,8 +134,4 @@ def test_training_payload_rejects_pair_drift_at_construction_boundary(
                     sample_type="hard_dense",
                 ),
             ),
-            dev_requests=(request,),
-            dev_labels=(label,),
-            output_dir=tmp_path / "output",
-            model_dir=tmp_path / "model",
         )
