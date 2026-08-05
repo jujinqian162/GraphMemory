@@ -62,7 +62,7 @@
 
 - [x] 7.1 Update active architecture and overview docs to show direct dataset selection, static retrieval dispatch, direct stage training, and the two separate graph flows.
 - [x] 7.2 Remove active documentation for deleted projectors, registries, factories, payload wrappers, duplicate outputs, and projected config authorities.
-- [ ] 7.3 Review existing active OpenSpec changes that require deleted internals; archive completed history or mark it superseded without copying those contracts into this change.
+- [x] 7.3 Archive four completed active OpenSpec histories that describe superseded registry, model-boundary, metric-boundary, or validation internals; canonical specs remain unchanged.
 - [x] 7.4 Verify active docs and configs describe all eight retained methods but do not present optional methods as reasons for plugin architecture.
 
 ## 8. Final Verification
