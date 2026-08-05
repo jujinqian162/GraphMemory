@@ -34,7 +34,7 @@ from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
 )
 from graph_memory.retrieval.requests import (
-    ProvenanceRgcnRequest,
+    ExecutionProvenanceRankingRequest,
     TextCandidate,
     TextRankingRequest,
 )
@@ -98,7 +98,7 @@ def provenance_rgcn_model_config(
 
 
 def provenance_training_label(
-    request: ProvenanceRgcnRequest,
+    request: ExecutionProvenanceRankingRequest,
     *,
     gold_spans: Sequence[SourceSpan],
     template: TemplateSupervisionRecord | None = None,
@@ -197,7 +197,7 @@ def provenance_candidate_neighbor_edges(
 
 
 def provenance_train_pair_task(
-    request: ProvenanceRgcnRequest,
+    request: ExecutionProvenanceRankingRequest,
     label: EvidenceLabel,
 ) -> TrainPairBuildTask:
     if request.task_id != label.task_id:
@@ -263,7 +263,7 @@ def _add_candidate_pair(
 
 
 def provenance_embedding_request(
-    request: ProvenanceRgcnRequest,
+    request: ExecutionProvenanceRankingRequest,
 ) -> tuple[TextRankingRequest, list[str]]:
     node_ids = [node.node_id for node in request.graph.nodes]
     if "q" in node_ids:
@@ -288,7 +288,7 @@ def provenance_embedding_request(
 
 
 def tensorize_provenance_ranking_task(
-    request: ProvenanceRgcnRequest,
+    request: ExecutionProvenanceRankingRequest,
     *,
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
@@ -347,7 +347,7 @@ def tensorize_provenance_ranking_task(
 
 
 def tensorize_provenance_dev_task(
-    request: ProvenanceRgcnRequest,
+    request: ExecutionProvenanceRankingRequest,
     label: EvidenceLabel,
     *,
     model_config: RgcnModelConfig,
@@ -380,7 +380,7 @@ def tensorize_provenance_dev_task(
 
 
 def tensorize_provenance_training_task(
-    request: ProvenanceRgcnRequest,
+    request: ExecutionProvenanceRankingRequest,
     pairs: Sequence[TrainPairRecord],
     *,
     model_config: RgcnModelConfig,
@@ -417,7 +417,7 @@ def tensorize_provenance_training_task(
 
 
 def tensorize_provenance_ranking_tasks(
-    requests: Sequence[ProvenanceRgcnRequest],
+    requests: Sequence[ExecutionProvenanceRankingRequest],
     *,
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,

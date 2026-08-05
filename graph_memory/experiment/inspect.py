@@ -76,8 +76,8 @@ def _method_row(method: RetrievalMethodId) -> dict[str, object]:
             RetrievalMethodId.DENSE: "TextRankingRequest",
             RetrievalMethodId.DENSE_FT: "TextRankingRequest",
             RetrievalMethodId.GRAPHRAG: "GraphRAGRequest",
-            RetrievalMethodId.PROVENANCE_PATH: "ProvenancePathRequest",
-            RetrievalMethodId.PROVENANCE_RGCN: "ProvenanceRgcnRequest",
+            RetrievalMethodId.PROVENANCE_PATH: "ExecutionProvenanceRankingRequest",
+            RetrievalMethodId.PROVENANCE_RGCN: "ExecutionProvenanceRankingRequest",
             RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER: (
                 "EvidenceGraphRankingRequest"
             ),

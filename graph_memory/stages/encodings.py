@@ -44,7 +44,7 @@ from graph_memory.models.frozen_embeddings import (
 from graph_memory.models.graph_retriever.provenance import (
     provenance_embedding_request,
 )
-from graph_memory.retrieval.requests import ProvenanceRgcnRequest
+from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -299,7 +299,7 @@ def _groups_for_split(
         graphs_by_id = {graph.graph_id: graph for graph in graph_values}
         provenance_groups: list[_TextGroup] = []
         for ranking in rankings:
-            request = ProvenanceRgcnRequest(
+            request = ExecutionProvenanceRankingRequest(
                 task_id=ranking.task_id,
                 query_text=ranking.query_text,
                 candidates=ranking.provenance_candidates,

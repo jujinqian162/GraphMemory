@@ -34,9 +34,8 @@ from graph_memory.retrieval.methods.graphrag import (
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
+    ExecutionProvenanceRankingRequest,
     GraphRAGKnowledgeGraph,
-    ProvenancePathRequest,
-    ProvenanceRgcnRequest,
     RankingMethodRequest,
     TextRankingRequest,
 )
@@ -245,7 +244,6 @@ def _build_provenance_path(
             text_requests,
             graphs,
             graph_ids_by_task_id,
-            request_type=ProvenancePathRequest,
             method="provenance path",
         ),
     )
@@ -297,7 +295,6 @@ def _build_provenance_rgcn(
             text_requests,
             graphs,
             graph_ids_by_task_id,
-            request_type=ProvenanceRgcnRequest,
             method="provenance R-GCN",
         ),
     )
@@ -465,7 +462,6 @@ def _provenance_requests(
     graphs: list[ProvenanceGraph],
     graph_ids_by_task_id: Mapping[str, str],
     *,
-    request_type: type[ProvenancePathRequest] | type[ProvenanceRgcnRequest],
     method: str,
 ) -> list[RankingMethodRequest]:
     graph_by_id = {graph.graph_id: graph for graph in graphs}
@@ -484,7 +480,7 @@ def _provenance_requests(
                 f"{method} task={request.task_id} references missing graph={graph_id}"
             ) from error
         result.append(
-            request_type(
+            ExecutionProvenanceRankingRequest(
                 task_id=request.task_id,
                 query_text=request.query_text,
                 candidates=request.candidates,

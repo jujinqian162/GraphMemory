@@ -7,10 +7,9 @@
 | `TextRankingRequest` | BM25, Dense, Dense-FT |
 | `GraphRAGRequest` | GraphRAG |
 | `EvidenceGraphRankingRequest` | Dense R-GCN, Dense-FT R-GCN |
-| `ProvenancePathRequest` | training-free provenance path |
-| `ProvenanceRgcnRequest` | trainable provenance R-GCN |
+| `ExecutionProvenanceRankingRequest` | provenance path, provenance R-GCN |
 
-No generic graph request. Config resolution rejects unsupported dataset/method combinations, and each concrete method rejects the wrong request type at its direct boundary.
+No generic graph request. The two provenance methods share one label-free request because they consume the same query-independent graph; static method dispatch selects their different algorithms. Config resolution rejects unsupported dataset/method combinations, and each concrete method rejects the wrong request family at its direct boundary.
 
 ## Method matrix
 
@@ -20,12 +19,12 @@ No generic graph request. Config resolution rejects unsupported dataset/method c
 | `dense` | text | evidence, execution provenance | no |
 | `dense_ft` | text | evidence, execution provenance | encoder |
 | `graphrag` | GraphRAG | evidence, execution provenance | no |
-| `provenance_path` | ProvenancePath | execution provenance | no |
-| `provenance_rgcn` | ProvenanceRgcn | execution provenance | yes |
+| `provenance_path` | execution provenance | execution provenance | no |
+| `provenance_rgcn` | execution provenance | execution provenance | yes |
 | `dense_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 | `dense_ft_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 
-The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. On ISETrace, BM25, Dense, Dense-FT, and GraphRAG share the same flat trajectory chunks; Dense-FT maps exact gold spans to overlapping chunks and never receives a provenance graph. `ProvenancePathRequest` and `ProvenanceRgcnRequest` are current, label-free method requests over the query-independent graph. The `provenance_rgcn` identity is not a compatibility alias: config resolution permits it only for execution provenance, and loading requires a strict current checkpoint whose method and model config match.
+The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. On ISETrace, BM25, Dense, Dense-FT, and GraphRAG share the same flat trajectory chunks; Dense-FT maps exact gold spans to overlapping chunks and never receives a provenance graph. Both provenance methods consume `ExecutionProvenanceRankingRequest` over the query-independent graph. The `provenance_rgcn` identity is not a compatibility alias: config resolution permits it only for execution provenance, and loading requires a strict current checkpoint whose method and model config match.
 
 ## Results
 

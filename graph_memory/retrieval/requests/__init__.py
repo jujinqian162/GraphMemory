@@ -14,8 +14,6 @@ from graph_memory.retrieval.requests.graphrag import (
 )
 from graph_memory.retrieval.requests.provenance_path import (
     ExecutionProvenanceRankingRequest,
-    ProvenancePathRequest,
-    ProvenanceRgcnRequest,
 )
 from graph_memory.retrieval.requests.text import (
     DenseConfigLike,
@@ -28,8 +26,7 @@ RankingMethodRequest: TypeAlias = (
     TextRankingRequest
     | EvidenceGraphRankingRequest
     | GraphRAGRequest
-    | ProvenancePathRequest
-    | ProvenanceRgcnRequest
+    | ExecutionProvenanceRankingRequest
 )
 
 __all__ = [
@@ -42,8 +39,6 @@ __all__ = [
     "GraphRAGRequest",
     "GraphRAGTextUnit",
     "JsonScalar",
-    "ProvenancePathRequest",
-    "ProvenanceRgcnRequest",
     "RankingMethodRequest",
     "TextCandidate",
     "TextRankingRequest",

@@ -46,16 +46,4 @@ class ExecutionProvenanceRankingRequest(DomainModel):
         return self
 
 
-class ProvenancePathRequest(ExecutionProvenanceRankingRequest):
-    pass
-
-
-class ProvenanceRgcnRequest(ExecutionProvenanceRankingRequest):
-    pass
-
-
-__all__ = [
-    "ExecutionProvenanceRankingRequest",
-    "ProvenancePathRequest",
-    "ProvenanceRgcnRequest",
-]
+__all__ = ["ExecutionProvenanceRankingRequest"]

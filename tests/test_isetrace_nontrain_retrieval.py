@@ -64,7 +64,7 @@ from graph_memory.experiment.config import (
     ProvenancePathMethodConfig,
 )
 from graph_memory.retrieval.requests import (
-    ProvenancePathRequest,
+    ExecutionProvenanceRankingRequest,
     TextCandidate,
     TextRankingRequest,
 )
@@ -663,8 +663,8 @@ def _multihop_graph() -> ProvenanceGraph:
     )
 
 
-def _path_request(graph: ProvenanceGraph) -> ProvenancePathRequest:
-    return ProvenancePathRequest(
+def _path_request(graph: ProvenanceGraph) -> ExecutionProvenanceRankingRequest:
+    return ExecutionProvenanceRankingRequest(
         task_id="q1",
         query_text="target",
         candidates=tuple(

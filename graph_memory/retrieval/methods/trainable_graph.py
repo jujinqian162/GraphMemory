@@ -25,7 +25,7 @@ from graph_memory.retrieval.contracts import (
 )
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
-    ProvenanceRgcnRequest,
+    ExecutionProvenanceRankingRequest,
     RankingMethodRequest,
 )
 
@@ -81,9 +81,9 @@ class ProvenanceRgcnRetrievalMethod:
         self, request: RankingMethodRequest, *, top_k: int
     ) -> RetrievalMethodResult:
         del top_k
-        if not isinstance(request, ProvenanceRgcnRequest):
+        if not isinstance(request, ExecutionProvenanceRankingRequest):
             raise TypeError(
-                f"{self.name} requires ProvenanceRgcnRequest, "
+                f"{self.name} requires ExecutionProvenanceRankingRequest, "
                 f"got {type(request).__name__}."
             )
         task = tensorize_provenance_ranking_task(

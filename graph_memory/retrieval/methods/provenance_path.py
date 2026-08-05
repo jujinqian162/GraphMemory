@@ -17,7 +17,7 @@ from graph_memory.retrieval.contracts import (
 )
 from graph_memory.retrieval.methods.flat.dense import DenseTaskRetriever
 from graph_memory.retrieval.requests import (
-    ProvenancePathRequest,
+    ExecutionProvenanceRankingRequest,
     RankingMethodRequest,
     TextRankingRequest,
 )
@@ -78,9 +78,9 @@ class ProvenancePathMethod:
         *,
         top_k: int,
     ) -> RetrievalMethodResult:
-        if not isinstance(request, ProvenancePathRequest):
+        if not isinstance(request, ExecutionProvenanceRankingRequest):
             raise TypeError(
-                f"{self.name} requires ProvenancePathRequest, "
+                f"{self.name} requires ExecutionProvenanceRankingRequest, "
                 f"got {type(request).__name__}."
             )
         text_request = TextRankingRequest(

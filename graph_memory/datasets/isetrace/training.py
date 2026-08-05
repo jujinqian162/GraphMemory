@@ -12,7 +12,7 @@ from graph_memory.models.graph_retriever.provenance import provenance_training_l
 from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
 )
-from graph_memory.retrieval.requests import ProvenanceRgcnRequest, TextRankingRequest
+from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest, TextRankingRequest
 from graph_memory.trajectories import source_spans_overlap
 
 
@@ -21,7 +21,7 @@ def adapt_provenance_training_split(
     labels: Sequence[ISETraceLabelRecord],
     graphs: Sequence[ProvenanceGraph],
     template_supervision: Sequence[TemplateSupervisionRecord],
-) -> tuple[list[ProvenanceRgcnRequest], list[EvidenceLabel]]:
+) -> tuple[list[ExecutionProvenanceRankingRequest], list[EvidenceLabel]]:
     """Compile one prepared ISETrace split into provenance model supervision."""
 
     labels_by_id = {label.task_id: label for label in labels}
@@ -33,7 +33,7 @@ def adapt_provenance_training_split(
         raise ValueError("ISETrace training label task IDs must be unique")
     if len(graphs_by_id) != len(graphs):
         raise ValueError("ISETrace training graph IDs must be unique")
-    requests: list[ProvenanceRgcnRequest] = []
+    requests: list[ExecutionProvenanceRankingRequest] = []
     compiled_labels: list[EvidenceLabel] = []
     for ranking in rankings:
         try:
@@ -43,7 +43,7 @@ def adapt_provenance_training_split(
             raise ValueError(
                 "ISETrace training rankings, labels, and graphs must align"
             ) from error
-        request = ProvenanceRgcnRequest(
+        request = ExecutionProvenanceRankingRequest(
             task_id=ranking.task_id,
             query_text=ranking.query_text,
             candidates=ranking.provenance_candidates,

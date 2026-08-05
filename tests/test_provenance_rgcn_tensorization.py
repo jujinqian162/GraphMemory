@@ -23,7 +23,7 @@ from graph_memory.models.graph_retriever.provenance import (
     tensorize_provenance_ranking_task,
     tensorize_provenance_ranking_tasks,
 )
-from graph_memory.retrieval.requests import ProvenanceRgcnRequest, TextRankingRequest
+from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest, TextRankingRequest
 from tests.isetrace_fixtures import isetrace_record
 
 
@@ -48,7 +48,7 @@ def _graph_and_request(*, task_id: str, query_text: str):
         source_revision="fixture-revision",
     )
     graph = build_provenance_graph(trajectory)
-    request = ProvenanceRgcnRequest(
+    request = ExecutionProvenanceRankingRequest(
         task_id=task_id,
         query_text=query_text,
         candidates=provenance_unit_candidates(graph),

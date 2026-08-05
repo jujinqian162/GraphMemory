@@ -37,7 +37,7 @@ from graph_memory.models.graph_retriever.training import (
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
-from graph_memory.retrieval.requests import ProvenanceRgcnRequest, TextRankingRequest
+from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest, TextRankingRequest
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 
@@ -46,10 +46,10 @@ QueryOrigin: TypeAlias = Literal["natural", "template"]
 
 def train_provenance_graph_retriever(
     *,
-    train_requests: Sequence[ProvenanceRgcnRequest],
+    train_requests: Sequence[ExecutionProvenanceRankingRequest],
     train_labels: Sequence[EvidenceLabel],
     train_pairs: Sequence[TrainPairRecord],
-    dev_requests: Sequence[ProvenanceRgcnRequest],
+    dev_requests: Sequence[ExecutionProvenanceRankingRequest],
     dev_labels: Sequence[EvidenceLabel],
     dev_query_origins: Mapping[str, QueryOrigin],
     model_config: RgcnModelConfig,
@@ -177,7 +177,7 @@ def train_provenance_graph_retriever(
 def _predict_provenance_dev_from_batches(
     *,
     model: EvidenceScoringModel,
-    requests: Sequence[ProvenanceRgcnRequest],
+    requests: Sequence[ExecutionProvenanceRankingRequest],
     batches: Iterable[TrainingBatch],
     device: torch.device,
 ) -> tuple[list[RankedResult], float]:
@@ -250,7 +250,7 @@ def _evaluate_by_origin(
 
 
 def _validate_request_label_alignment(
-    requests: Sequence[ProvenanceRgcnRequest],
+    requests: Sequence[ExecutionProvenanceRankingRequest],
     labels: Sequence[EvidenceLabel],
     split: str,
 ) -> None:
@@ -274,7 +274,7 @@ def _validate_request_label_alignment(
             )
 
 
-def _as_text_request(request: ProvenanceRgcnRequest) -> TextRankingRequest:
+def _as_text_request(request: ExecutionProvenanceRankingRequest) -> TextRankingRequest:
     return TextRankingRequest(
         task_id=request.task_id,
         query_text=request.query_text,
