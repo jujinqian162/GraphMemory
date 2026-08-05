@@ -10,27 +10,18 @@ from typing import cast
 from pydantic import BaseModel, JsonValue
 
 from graph_memory.datasets.hotpotqa import (
-    HotpotQAPreparedSplit,
     convert_hotpotqa_example,
-    convert_hotpotqa_examples,
     parse_hotpotqa_example,
-    parse_hotpotqa_examples,
 )
 from graph_memory.datasets.isetrace import prepare_isetrace_benchmark
 from graph_memory.datasets.musique import (
-    MuSiQuePreparedSplit,
     convert_musique_example,
-    convert_musique_examples,
     parse_musique_example,
-    parse_musique_examples,
 )
 from graph_memory.datasets.splits import sample_split
 from graph_memory.datasets.twowiki import (
-    TwoWikiPreparedSplit,
     convert_twowiki_example,
-    convert_twowiki_examples,
     parse_twowiki_example,
-    parse_twowiki_examples,
 )
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
@@ -241,35 +232,26 @@ def _prepare_hotpotqa(
     raw = read_json(source)
     if not isinstance(raw, list):
         raise ValueError("HotpotQA raw input must be a JSON list.")
-    valid, invalid = _valid_records(
+    valid, invalid = _converted_records(
         raw,
         strict=strict,
         dataset="HotpotQA",
-        validate=lambda value, index: _validate_hotpotqa_raw(value, index),
+        convert=lambda value, index: convert_hotpotqa_example(
+            parse_hotpotqa_example(value, record_index=index)
+        ),
     )
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
-    parsed = parse_hotpotqa_examples(selected)
-    conversion = convert_hotpotqa_examples(parsed)
-    split = HotpotQAPreparedSplit(
-        rankings=tuple(conversion.ranking_records),
-        labels=tuple(conversion.label_records),
-    )
-    tasks = list(split.rankings)
-    labels = list(split.labels)
+    tasks = [ranking for ranking, _label in selected]
+    labels = [label for _ranking, label in selected]
     return _prepared(
         raw=raw,
         valid=valid,
         invalid=invalid,
         selected=selected,
-        parsed_count=len(parsed),
+        parsed_count=len(selected),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
     )
-
-
-def _validate_hotpotqa_raw(value: object, index: int) -> None:
-    # Filter-only: full ranking/label contracts run once after batch convert.
-    convert_hotpotqa_example(parse_hotpotqa_example(value, record_index=index))
 
 
 def _prepare_twowiki(
@@ -278,70 +260,52 @@ def _prepare_twowiki(
     raw = read_json(source)
     if not isinstance(raw, list):
         raise ValueError("2Wiki raw input must be a JSON list.")
-    valid, invalid = _valid_records(
+    valid, invalid = _converted_records(
         raw,
         strict=strict,
         dataset="2Wiki",
-        validate=lambda value, index: _validate_twowiki_raw(value, index),
+        convert=lambda value, index: convert_twowiki_example(
+            parse_twowiki_example(value, record_index=index)
+        ),
     )
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
-    parsed = parse_twowiki_examples(selected)
-    conversion = convert_twowiki_examples(parsed)
-    split = TwoWikiPreparedSplit(
-        rankings=tuple(conversion.ranking_records),
-        labels=tuple(conversion.label_records),
-    )
-    tasks = list(split.rankings)
-    labels = list(split.labels)
+    tasks = [ranking for ranking, _label in selected]
+    labels = [label for _ranking, label in selected]
     return _prepared(
         raw=raw,
         valid=valid,
         invalid=invalid,
         selected=selected,
-        parsed_count=len(parsed),
+        parsed_count=len(selected),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
     )
-
-
-def _validate_twowiki_raw(value: object, index: int) -> None:
-    # Filter-only: full ranking/label contracts run once after batch convert.
-    convert_twowiki_example(parse_twowiki_example(value, record_index=index))
 
 
 def _prepare_musique(
     source: Path, *, count: int | None, seed: int, offset: int, strict: bool
 ) -> PreparedSplitData:
     raw = _read_jsonl(source)
-    valid, invalid = _valid_records(
+    valid, invalid = _converted_records(
         raw,
         strict=strict,
         dataset="MuSiQue",
-        validate=lambda value, index: _validate_musique_raw(value, index),
+        convert=lambda value, index: convert_musique_example(
+            parse_musique_example(value, record_index=index)
+        ),
     )
     selected = sample_split(valid, count=count, seed=seed, offset=offset)
-    parsed = parse_musique_examples(selected)
-    conversion = convert_musique_examples(parsed)
-    split = MuSiQuePreparedSplit(
-        rankings=tuple(conversion.ranking_records),
-        labels=tuple(conversion.label_records),
-    )
-    tasks = list(split.rankings)
-    labels = list(split.labels)
+    tasks = [ranking for ranking, _label in selected]
+    labels = [label for _ranking, label in selected]
     return _prepared(
         raw=raw,
         valid=valid,
         invalid=invalid,
         selected=selected,
-        parsed_count=len(parsed),
+        parsed_count=len(selected),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
     )
-
-
-def _validate_musique_raw(value: object, index: int) -> None:
-    # Filter-only: full ranking/label contracts run once after batch convert.
-    convert_musique_example(parse_musique_example(value, record_index=index))
 
 
 def _prepare_isetrace(
@@ -392,18 +356,18 @@ def _prepare_isetrace(
     )
 
 
-def _valid_records(
+def _converted_records(
     raw: Sequence[object],
     *,
     strict: bool,
     dataset: str,
-    validate: Callable[[object, int], None],
-) -> tuple[list[object], Counter[str]]:
-    valid: list[object] = []
+    convert: Callable[[object, int], tuple[object, object]],
+) -> tuple[list[tuple[object, object]], Counter[str]]:
+    valid: list[tuple[object, object]] = []
     invalid: Counter[str] = Counter()
     for index, value in enumerate(raw):
         try:
-            validate(value, index)
+            converted = convert(value, index)
         except ValueError as error:
             if strict:
                 raise ValueError(
@@ -411,7 +375,7 @@ def _valid_records(
                 ) from error
             invalid[str(error)] += 1
             continue
-        valid.append(value)
+        valid.append(converted)
     return valid, invalid
 
 

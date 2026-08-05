@@ -69,16 +69,6 @@ class HotpotQALabelRecord(DomainModel):
         return self
 
 
-class HotpotQAPreparedSplit(DomainModel):
-    rankings: tuple[HotpotQARankingRecord, ...]
-    labels: tuple[HotpotQALabelRecord, ...]
-
-    @model_validator(mode="after")
-    def _validate_alignment(self) -> "HotpotQAPreparedSplit":
-        _validate_split_alignment(self.rankings, self.labels)
-        return self
-
-
 @dataclass(frozen=True)
 class HotpotQADocument:
     title: str
@@ -100,48 +90,11 @@ class HotpotQAExample:
     supporting_facts: tuple[HotpotQASupportingFact, ...]
 
 
-@dataclass(frozen=True)
-class ConvertedHotpotQAExample:
-    ranking_record: HotpotQARankingRecord
-    label_record: HotpotQALabelRecord
-
-
-@dataclass(frozen=True)
-class HotpotQAConversionResult:
-    ranking_records: list[HotpotQARankingRecord]
-    label_records: list[HotpotQALabelRecord]
-
-
-def _validate_split_alignment(
-    rankings: tuple[HotpotQARankingRecord, ...],
-    labels: tuple[HotpotQALabelRecord, ...],
-) -> None:
-    ranking_by_id = {record.task_id: record for record in rankings}
-    label_by_id = {record.task_id: record for record in labels}
-    if len(ranking_by_id) != len(rankings):
-        raise ValueError("HotpotQA ranking task IDs must be unique")
-    if len(label_by_id) != len(labels):
-        raise ValueError("HotpotQA label task IDs must be unique")
-    if set(ranking_by_id) != set(label_by_id):
-        raise ValueError("HotpotQA ranking and label task IDs must align")
-    for task_id, label in label_by_id.items():
-        missing = set(label.gold_evidence_sentence_ids) - ranking_by_id[
-            task_id
-        ].candidate_ids
-        if missing:
-            raise ValueError(
-                f"task_id={task_id} gold sentences do not exist: {sorted(missing)}"
-            )
-
-
 __all__ = [
-    "ConvertedHotpotQAExample",
     "HotpotQACandidateSentence",
-    "HotpotQAConversionResult",
     "HotpotQADocument",
     "HotpotQAExample",
     "HotpotQALabelRecord",
-    "HotpotQAPreparedSplit",
     "HotpotQARankingRecord",
     "HotpotQASupportingFact",
 ]

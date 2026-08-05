@@ -70,36 +70,6 @@ class MuSiQueLabelRecord(DomainModel):
         return self
 
 
-class MuSiQuePreparedSplit(DomainModel):
-    rankings: tuple[MuSiQueRankingRecord, ...]
-    labels: tuple[MuSiQueLabelRecord, ...]
-
-    @model_validator(mode="after")
-    def _validate_alignment(self) -> "MuSiQuePreparedSplit":
-        ranking_by_id = {record.task_id: record for record in self.rankings}
-        label_by_id = {record.task_id: record for record in self.labels}
-        if len(ranking_by_id) != len(self.rankings):
-            raise ValueError("MuSiQue ranking task IDs must be unique")
-        if len(label_by_id) != len(self.labels):
-            raise ValueError("MuSiQue label task IDs must be unique")
-        if set(ranking_by_id) != set(label_by_id):
-            raise ValueError("MuSiQue ranking and label task IDs must align")
-        for task_id, label in label_by_id.items():
-            valid = ranking_by_id[task_id].candidate_ids
-            missing = set(label.gold_evidence_paragraph_ids) - valid
-            if missing:
-                raise ValueError(
-                    f"task_id={task_id} gold paragraphs do not exist: {sorted(missing)}"
-                )
-            for source, target in label.gold_dependency_edges:
-                if source not in valid or target not in valid:
-                    raise ValueError(
-                        f"task_id={task_id} gold dependency edge references "
-                        "a missing candidate"
-                    )
-        return self
-
-
 @dataclass(frozen=True)
 class MuSiQueParagraph:
     idx: int
@@ -127,26 +97,11 @@ class MuSiQueExample:
     question_decomposition: tuple[MuSiQueDecompositionStep, ...]
 
 
-@dataclass(frozen=True)
-class ConvertedMuSiQueExample:
-    ranking_record: MuSiQueRankingRecord
-    label_record: MuSiQueLabelRecord
-
-
-@dataclass(frozen=True)
-class MuSiQueConversionResult:
-    ranking_records: list[MuSiQueRankingRecord]
-    label_records: list[MuSiQueLabelRecord]
-
-
 __all__ = [
-    "ConvertedMuSiQueExample",
     "MuSiQueCandidateParagraph",
-    "MuSiQueConversionResult",
     "MuSiQueDecompositionStep",
     "MuSiQueExample",
     "MuSiQueLabelRecord",
     "MuSiQueParagraph",
-    "MuSiQuePreparedSplit",
     "MuSiQueRankingRecord",
 ]

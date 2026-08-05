@@ -5,9 +5,8 @@ from typing import TypeAlias
 import pytest
 
 from graph_memory.datasets.hotpotqa import (
-    HotpotQAConversionResult,
     HotpotQARankingRecord,
-    convert_hotpotqa_examples,
+    convert_hotpotqa_example,
     parse_hotpotqa_examples,
 )
 from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
@@ -32,11 +31,10 @@ def hotpot_raw_example() -> RawHotpotQARecord:
 
 def test_supporting_facts_map_title_sentence_to_node_ids():
     parsed_examples = parse_hotpotqa_examples([hotpot_raw_example()])
-    conversion = convert_hotpotqa_examples(parsed_examples)
+    ranking, label = convert_hotpotqa_example(parsed_examples[0])
 
-    assert isinstance(conversion, HotpotQAConversionResult)
-    inputs = conversion.ranking_records
-    labels = conversion.label_records
+    inputs = [ranking]
+    labels = [label]
     assert inputs[0].task_id == "hotpot_ex1"
     assert (
         inputs[0].question
@@ -82,7 +80,7 @@ def test_hotpotqa_parse_and_convert_reject_invalid_records() -> None:
     unmapped = hotpot_raw_example()
     unmapped["supporting_facts"] = [["Missing Title", 0]]
     with pytest.raises(ValueError, match="supporting fact"):
-        convert_hotpotqa_examples(parse_hotpotqa_examples([unmapped]))
+        convert_hotpotqa_example(parse_hotpotqa_examples([unmapped])[0])
 
 
 def test_prepare_hotpotqa_drops_record_with_empty_candidate_sentence(tmp_path: Path) -> None:

@@ -70,36 +70,6 @@ class TwoWikiLabelRecord(DomainModel):
         return self
 
 
-class TwoWikiPreparedSplit(DomainModel):
-    rankings: tuple[TwoWikiRankingRecord, ...]
-    labels: tuple[TwoWikiLabelRecord, ...]
-
-    @model_validator(mode="after")
-    def _validate_alignment(self) -> "TwoWikiPreparedSplit":
-        ranking_by_id = {record.task_id: record for record in self.rankings}
-        label_by_id = {record.task_id: record for record in self.labels}
-        if len(ranking_by_id) != len(self.rankings):
-            raise ValueError("2Wiki ranking task IDs must be unique")
-        if len(label_by_id) != len(self.labels):
-            raise ValueError("2Wiki label task IDs must be unique")
-        if set(ranking_by_id) != set(label_by_id):
-            raise ValueError("2Wiki ranking and label task IDs must align")
-        for task_id, label in label_by_id.items():
-            valid = ranking_by_id[task_id].candidate_ids
-            missing = set(label.gold_evidence_sentence_ids) - valid
-            if missing:
-                raise ValueError(
-                    f"task_id={task_id} gold sentences do not exist: {sorted(missing)}"
-                )
-            for source, target in label.gold_dependency_edges:
-                if source not in valid or target not in valid:
-                    raise ValueError(
-                        f"task_id={task_id} gold dependency edge references "
-                        "a missing candidate"
-                    )
-        return self
-
-
 @dataclass(frozen=True)
 class TwoWikiDocument:
     title: str
@@ -132,27 +102,12 @@ class TwoWikiExample:
     answer_id: str | None
 
 
-@dataclass(frozen=True)
-class ConvertedTwoWikiExample:
-    ranking_record: TwoWikiRankingRecord
-    label_record: TwoWikiLabelRecord
-
-
-@dataclass(frozen=True)
-class TwoWikiConversionResult:
-    ranking_records: list[TwoWikiRankingRecord]
-    label_records: list[TwoWikiLabelRecord]
-
-
 __all__ = [
-    "ConvertedTwoWikiExample",
     "TwoWikiCandidateSentence",
-    "TwoWikiConversionResult",
     "TwoWikiDocument",
     "TwoWikiEvidenceTriple",
     "TwoWikiExample",
     "TwoWikiLabelRecord",
-    "TwoWikiPreparedSplit",
     "TwoWikiRankingRecord",
     "TwoWikiSupportingFact",
 ]

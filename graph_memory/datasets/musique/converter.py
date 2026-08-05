@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.musique.records import (
-    ConvertedMuSiQueExample,
     MuSiQueCandidateParagraph,
-    MuSiQueConversionResult,
     MuSiQueExample,
     MuSiQueLabelRecord,
     MuSiQueRankingRecord,
@@ -16,15 +13,9 @@ from graph_memory.datasets.musique.records import (
 _STEP_REFERENCE_PATTERN = re.compile(r"#(\d+)")
 
 
-def convert_musique_examples(examples: Sequence[MuSiQueExample]) -> MuSiQueConversionResult:
-    converted_examples = [convert_musique_example(example) for example in examples]
-    return MuSiQueConversionResult(
-        ranking_records=[converted_example.ranking_record for converted_example in converted_examples],
-        label_records=[converted_example.label_record for converted_example in converted_examples],
-    )
-
-
-def convert_musique_example(example: MuSiQueExample) -> ConvertedMuSiQueExample:
+def convert_musique_example(
+    example: MuSiQueExample,
+) -> tuple[MuSiQueRankingRecord, MuSiQueLabelRecord]:
     task_id: TaskId = f"musique_{example.raw_id}"
     candidate_paragraphs: list[MuSiQueCandidateParagraph] = []
     paragraph_idx_to_node_id: dict[int, NodeId] = {}
@@ -72,7 +63,7 @@ def convert_musique_example(example: MuSiQueExample) -> ConvertedMuSiQueExample:
             "unresolved_decomposition_reference_count": unresolved_reference_count,
         },
     )
-    return ConvertedMuSiQueExample(ranking_record=ranking_record, label_record=label_record)
+    return ranking_record, label_record
 
 
 def _dependency_edges(

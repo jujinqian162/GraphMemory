@@ -5,9 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.twowiki.records import (
-    ConvertedTwoWikiExample,
     TwoWikiCandidateSentence,
-    TwoWikiConversionResult,
     TwoWikiEvidenceTriple,
     TwoWikiExample,
     TwoWikiLabelRecord,
@@ -29,15 +27,9 @@ class _MappedEvidence:
     ambiguity_count: int
 
 
-def convert_twowiki_examples(examples: Sequence[TwoWikiExample]) -> TwoWikiConversionResult:
-    converted_examples = [convert_twowiki_example(example) for example in examples]
-    return TwoWikiConversionResult(
-        ranking_records=[converted_example.ranking_record for converted_example in converted_examples],
-        label_records=[converted_example.label_record for converted_example in converted_examples],
-    )
-
-
-def convert_twowiki_example(example: TwoWikiExample) -> ConvertedTwoWikiExample:
+def convert_twowiki_example(
+    example: TwoWikiExample,
+) -> tuple[TwoWikiRankingRecord, TwoWikiLabelRecord]:
     task_id: TaskId = f"2wiki_{example.raw_id}"
     candidate_sentences: list[TwoWikiCandidateSentence] = []
     title_sentence_to_node_id: dict[tuple[str, int], NodeId] = {}
@@ -112,7 +104,7 @@ def convert_twowiki_example(example: TwoWikiExample) -> ConvertedTwoWikiExample:
             "mapping_ambiguity_count": mapping_ambiguity_count,
         },
     )
-    return ConvertedTwoWikiExample(ranking_record=ranking_record, label_record=label_record)
+    return ranking_record, label_record
 
 
 def _path_label_triples(example: TwoWikiExample) -> tuple[str, tuple[TwoWikiEvidenceTriple, ...]]:

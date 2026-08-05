@@ -1,26 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.hotpotqa.records import (
-    ConvertedHotpotQAExample,
     HotpotQACandidateSentence,
-    HotpotQAConversionResult,
     HotpotQAExample,
     HotpotQALabelRecord,
     HotpotQARankingRecord,
 )
 
 
-def convert_hotpotqa_examples(examples: Sequence[HotpotQAExample]) -> HotpotQAConversionResult:
-    converted_examples = [convert_hotpotqa_example(example) for example in examples]
-    return HotpotQAConversionResult(
-        ranking_records=[converted_example.ranking_record for converted_example in converted_examples],
-        label_records=[converted_example.label_record for converted_example in converted_examples],
-    )
-
-
-def convert_hotpotqa_example(example: HotpotQAExample) -> ConvertedHotpotQAExample:
+def convert_hotpotqa_example(
+    example: HotpotQAExample,
+) -> tuple[HotpotQARankingRecord, HotpotQALabelRecord]:
     task_id: TaskId = f"hotpot_{example.raw_id}"
     candidate_sentences: list[HotpotQACandidateSentence] = []
     title_sentence_to_node_id: dict[tuple[str, int], NodeId] = {}
@@ -69,4 +60,4 @@ def convert_hotpotqa_example(example: HotpotQAExample) -> ConvertedHotpotQAExamp
         gold_evidence_sentence_ids=tuple(gold_evidence_sentence_ids),
         gold_dependency_edges=(),
     )
-    return ConvertedHotpotQAExample(ranking_record=ranking_record, label_record=label_record)
+    return ranking_record, label_record

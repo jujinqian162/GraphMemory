@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from graph_memory.datasets.hotpotqa.converter import (
     convert_hotpotqa_example,
-    convert_hotpotqa_examples,
 )
 from graph_memory.datasets.hotpotqa.parser import (
     parse_hotpotqa_example,
@@ -15,25 +14,19 @@ from graph_memory.datasets.hotpotqa.projectors import (
     HotpotQAToTextRankingRequest,
 )
 from graph_memory.datasets.hotpotqa.records import (
-    ConvertedHotpotQAExample,
     HotpotQACandidateSentence,
-    HotpotQAConversionResult,
     HotpotQADocument,
     HotpotQAExample,
     HotpotQALabelRecord,
-    HotpotQAPreparedSplit,
     HotpotQARankingRecord,
     HotpotQASupportingFact,
 )
 
 __all__ = [
-    "ConvertedHotpotQAExample",
     "HotpotQACandidateSentence",
-    "HotpotQAConversionResult",
     "HotpotQADocument",
     "HotpotQAExample",
     "HotpotQALabelRecord",
-    "HotpotQAPreparedSplit",
     "HotpotQARankingRecord",
     "HotpotQASupportingFact",
     "HotpotQAToEvidenceEvaluationRequest",
@@ -41,7 +34,6 @@ __all__ = [
     "HotpotQAToEvidenceGraphRankingRequest",
     "HotpotQAToTextRankingRequest",
     "convert_hotpotqa_example",
-    "convert_hotpotqa_examples",
     "parse_hotpotqa_example",
     "parse_hotpotqa_examples",
 ]
