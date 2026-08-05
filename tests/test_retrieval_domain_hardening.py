@@ -97,9 +97,8 @@ def test_graphrag_builder_assembles_deterministic_noun_cooccurrence_graph() -> N
 
 def test_graphrag_preserves_query_and_passage_prefixes() -> None:
     encoder = RecordingEncoder()
-    built = build_retrieval(
+    retrieval_method, _provenance, execution_requests = build_retrieval(
         GraphRAGRetrievalSettings(
-            top_k=2,
             encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
             device="cpu",
         ),
@@ -107,7 +106,7 @@ def test_graphrag_preserves_query_and_passage_prefixes() -> None:
             text_requests=[_graphrag_text_request()], dense_encoder=encoder
         ),
     )
-    built.method.rank_task(built.execution_requests[0], top_k=2)
+    retrieval_method.rank_task(execution_requests[0], top_k=2)
 
     assert encoder.calls
     assert all(

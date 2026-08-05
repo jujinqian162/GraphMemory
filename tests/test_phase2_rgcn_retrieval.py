@@ -66,11 +66,10 @@ def run_retrieval(
     if checkpoint_path is None:
         raise ValueError("checkpoint_path is required")
     settings = EvidenceRgcnRetrievalSettings(
-        top_k=top_k,
         checkpoint=Path(checkpoint_path),
         device=device,
     )
-    built = build_retrieval(
+    retrieval_method, _provenance, execution_requests = build_retrieval(
         settings,
         EvidenceRgcnBuildPayload(
             text_requests=_ranking_requests(task_inputs),
@@ -80,8 +79,8 @@ def run_retrieval(
         ),
     )
     return execute_retrieval(
-        retrieval_method=built.method,
-        requests=built.execution_requests,
+        retrieval_method=retrieval_method,
+        requests=execution_requests,
         top_k=top_k,
     )
 
@@ -281,9 +280,8 @@ def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
         method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
     )
 
-    built = build_retrieval(
+    retrieval_method, provenance, _requests = build_retrieval(
         EvidenceRgcnRetrievalSettings(
-            top_k=2,
             checkpoint=checkpoint_path,
             device="cpu",
             method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
@@ -296,11 +294,11 @@ def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
         ),
     )
 
-    assert built.method.name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
-    assert built.provenance.method is RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER
-    assert built.provenance.model == checkpoint_path
-    assert built.provenance.encoder is not None
-    assert built.provenance.encoder.model_name == "fake-encoder"
+    assert retrieval_method.name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    assert provenance.method is RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER
+    assert provenance.model == checkpoint_path
+    assert provenance.encoder is not None
+    assert provenance.encoder.model_name == "fake-encoder"
 
 
 def test_run_retrieval_passes_device_to_trainable_retriever(

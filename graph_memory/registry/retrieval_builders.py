@@ -9,7 +9,6 @@ from graph_memory.graphs.index import GraphIndex
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
-    BuiltRetrievalMethod,
     DenseEncoderSettings,
     DenseFinetunedRetrievalSettings,
     DenseRetrievalSettings,
@@ -64,7 +63,7 @@ def _require_payload(
 def build_retrieval(
     settings: RetrievalJobSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     if isinstance(settings, Bm25RetrievalSettings):
         return _build_bm25(settings, payload)
     if isinstance(settings, DenseRetrievalSettings):
@@ -85,7 +84,7 @@ def build_retrieval(
 def _build_bm25(
     settings: Bm25RetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     build_payload = _require_payload(
         payload, FlatRetrievalBuildPayload, method=settings.method
     )
@@ -99,7 +98,7 @@ def _build_bm25(
 def _build_dense(
     settings: DenseRetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     build_payload = _require_payload(
         payload, FlatRetrievalBuildPayload, method=settings.method
     )
@@ -126,7 +125,7 @@ def _build_dense(
 def _build_dense_ft(
     settings: DenseFinetunedRetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     build_payload = _require_payload(
         payload, FlatRetrievalBuildPayload, method=settings.method
     )
@@ -176,7 +175,7 @@ def _build_dense_ft(
 def _build_graphrag(
     settings: GraphRAGRetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     build_payload = _require_payload(
         payload, GraphRAGBuildPayload, method=settings.method
     )
@@ -216,7 +215,7 @@ def _build_graphrag(
 def _build_provenance_path(
     settings: ProvenancePathRetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     from graph_memory.retrieval.methods.provenance_path import ProvenancePathMethod
 
     build_payload = _require_payload(
@@ -266,7 +265,7 @@ def _build_provenance_path(
 def _build_provenance_rgcn(
     settings: ProvenanceRgcnRetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
     from graph_memory.models.graph_retriever.text_embeddings import (
         DenseGraphFeatureProvider,
@@ -340,7 +339,7 @@ def _build_provenance_rgcn(
 def _build_evidence_rgcn(
     settings: EvidenceRgcnRetrievalSettings,
     payload: object,
-) -> BuiltRetrievalMethod:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     from graph_memory.models.graph_retriever.inference import (
         CheckpointGraphRetrieverLoader,
     )
@@ -492,16 +491,16 @@ def _built(
     model: Path | None = None,
     device: str | None = None,
     encoder: DenseEncoderSettings | None = None,
-) -> BuiltRetrievalMethod:
-    return BuiltRetrievalMethod(
-        method=retrieval_method,
-        provenance=RetrievalProvenance(
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
+    return (
+        retrieval_method,
+        RetrievalProvenance(
             method=method,
             model=model,
             device=device,
             encoder=encoder,
         ),
-        execution_requests=execution_requests,
+        execution_requests,
     )
 
 

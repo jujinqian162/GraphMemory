@@ -102,7 +102,7 @@ def run_retrieve_stage(
         encoder_source=encoder_source,
         device=device,
     )
-    built = build_retrieval(
+    retrieval_method, retrieval_provenance, execution_requests = build_retrieval(
         settings,
         _build_payload(
             method,
@@ -115,11 +115,11 @@ def run_retrieve_stage(
         ),
     )
     predictions = run_retrieval(
-        retrieval_method=built.method,
-        requests=built.execution_requests,
+        retrieval_method=retrieval_method,
+        requests=execution_requests,
         top_k=top_k,
     )
-    return predictions, built.provenance
+    return predictions, retrieval_provenance
 
 
 def materialize_rankings(
@@ -270,49 +270,42 @@ def _retrieval_settings(
     device: str,
 ):
     if isinstance(method, Bm25MethodConfig):
-        return Bm25RetrievalSettings(top_k=top_k)
+        return Bm25RetrievalSettings()
     if isinstance(method, DenseMethodConfig):
         return DenseRetrievalSettings(
-            top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
             device=device,
         )
     if isinstance(method, GraphRAGMethodConfig):
         return GraphRAGRetrievalSettings(
-            top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
             config=method,
             device=device,
         )
     if isinstance(method, ProvenancePathMethodConfig):
         return ProvenancePathRetrievalSettings(
-            top_k=top_k,
             encoder=_encoder_settings(method.encoder, encoder_source),
             config=method.retrieval_config(),
             device=device,
         )
     if isinstance(method, DenseFinetuneMethodConfig):
         return DenseFinetunedRetrievalSettings(
-            top_k=top_k,
             checkpoint=_model_payload(model, "model"),
             device=device,
         )
     if isinstance(method, ProvenanceRgcnMethodConfig):
         return ProvenanceRgcnRetrievalSettings(
-            top_k=top_k,
             checkpoint=_model_payload(model, "checkpoint"),
             device=device,
         )
     if isinstance(method, RgcnMethodConfig):
         return EvidenceRgcnRetrievalSettings(
-            top_k=top_k,
             checkpoint=_model_payload(model, "checkpoint"),
             device=device,
         )
     if isinstance(method, DenseFtRgcnMethodConfig):
         return EvidenceRgcnRetrievalSettings(
             method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
-            top_k=top_k,
             checkpoint=_model_payload(model, "checkpoint"),
             device=device,
         )

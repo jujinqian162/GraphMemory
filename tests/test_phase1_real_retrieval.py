@@ -139,7 +139,6 @@ def test_retrieve_stage_runs_without_evidence_graph_artifact(
 
 def test_graphrag_builder_rejects_flat_payload() -> None:
     settings = GraphRAGRetrievalSettings(
-        top_k=2,
         encoder=DenseEncoderSettings("keyword-encoder", "", "", 8),
         device="cpu",
     )

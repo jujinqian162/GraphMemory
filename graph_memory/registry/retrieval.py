@@ -10,17 +10,15 @@ from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
-from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
+from graph_memory.retrieval.requests import TextRankingRequest
 
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-    from graph_memory.retrieval.contracts import RetrievalMethod
     from graph_memory.retrieval.signals import SeedSignalProvider
 
 @dataclass(frozen=True)
 class Bm25RetrievalSettings:
-    top_k: int
     method: Literal[RetrievalMethodId.BM25] = RetrievalMethodId.BM25
 
 
@@ -34,7 +32,6 @@ class DenseEncoderSettings:
 
 @dataclass(frozen=True)
 class DenseRetrievalSettings:
-    top_k: int
     encoder: DenseEncoderSettings
     device: str
     method: Literal[RetrievalMethodId.DENSE] = RetrievalMethodId.DENSE
@@ -42,7 +39,6 @@ class DenseRetrievalSettings:
 
 @dataclass(frozen=True)
 class GraphRAGRetrievalSettings:
-    top_k: int
     encoder: DenseEncoderSettings
     device: str
     config: GraphRAGConfig = GraphRAGConfig()
@@ -51,7 +47,6 @@ class GraphRAGRetrievalSettings:
 
 @dataclass(frozen=True)
 class ProvenancePathRetrievalSettings:
-    top_k: int
     encoder: DenseEncoderSettings
     device: str
     config: ProvenancePathConfig = ProvenancePathConfig()
@@ -62,7 +57,6 @@ class ProvenancePathRetrievalSettings:
 
 @dataclass(frozen=True)
 class EvidenceRgcnRetrievalSettings:
-    top_k: int
     checkpoint: Path
     device: str
     method: Literal[
@@ -73,7 +67,6 @@ class EvidenceRgcnRetrievalSettings:
 
 @dataclass(frozen=True)
 class ProvenanceRgcnRetrievalSettings:
-    top_k: int
     checkpoint: Path
     device: str
     method: Literal[RetrievalMethodId.PROVENANCE_RGCN] = (
@@ -83,7 +76,6 @@ class ProvenanceRgcnRetrievalSettings:
 
 @dataclass(frozen=True)
 class DenseFinetunedRetrievalSettings:
-    top_k: int
     checkpoint: Path
     device: str
     method: Literal[RetrievalMethodId.DENSE_FT] = RetrievalMethodId.DENSE_FT
@@ -106,13 +98,6 @@ class RetrievalProvenance:
     model: Path | None
     device: str | None
     encoder: DenseEncoderSettings | None
-
-
-@dataclass(frozen=True)
-class BuiltRetrievalMethod:
-    method: "RetrievalMethod"
-    provenance: RetrievalProvenance
-    execution_requests: list[RankingMethodRequest]
 
 
 @dataclass(frozen=True)
@@ -155,7 +140,6 @@ class EvidenceRgcnBuildPayload:
 
 __all__ = [
     "Bm25RetrievalSettings",
-    "BuiltRetrievalMethod",
     "DenseEncoderSettings",
     "DenseFinetunedRetrievalSettings",
     "DenseRetrievalSettings",

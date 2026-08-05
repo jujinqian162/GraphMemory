@@ -278,7 +278,6 @@ def test_tiny_mixed_provenance_training_uses_natural_dev_selection(
         candidates=dev_request.candidates,
     )
     settings = ProvenanceRgcnRetrievalSettings(
-        top_k=3,
         checkpoint=checkpoint_path,
         device="cpu",
     )
@@ -288,16 +287,20 @@ def test_tiny_mixed_provenance_training_uses_natural_dev_selection(
         graph_ids_by_task_id={dev_request.task_id: graph.graph_id},
         text_embedding_provider=DeterministicEmbeddingProvider(),
     )
-    first = build_retrieval(settings, payload)
-    second = build_retrieval(settings, payload)
+    first_method, _first_provenance, first_requests = build_retrieval(
+        settings, payload
+    )
+    second_method, _second_provenance, second_requests = build_retrieval(
+        settings, payload
+    )
     first_results = run_retrieval(
-        retrieval_method=first.method,
-        requests=first.execution_requests,
+        retrieval_method=first_method,
+        requests=first_requests,
         top_k=3,
     )
     second_results = run_retrieval(
-        retrieval_method=second.method,
-        requests=second.execution_requests,
+        retrieval_method=second_method,
+        requests=second_requests,
         top_k=3,
     )
 
