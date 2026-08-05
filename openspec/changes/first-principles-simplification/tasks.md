@@ -51,7 +51,7 @@
 ## 6. Data and Graph Domain Cleanup
 
 - [x] 6.1 Convert each evidence record once during preparation and reuse the successful conversion for validity filtering and sampling.
-- [ ] 6.2 Inline dataset projector classes into dataset selection/preparation while preserving dataset-specific parsing and label derivation.
+- [x] 6.2 Inline all evidence and ISETrace projector classes into dataset selection while preserving dataset-specific parsing, request fields, graph-node metadata, and label derivation.
 - [x] 6.3 Remove `Converted*`, `ConversionResult`, and evidence-dataset `*PreparedSplit` field-transport DTOs; direct ranking/label pairs cover all consumers.
 - [ ] 6.4 Split ISETrace flat and provenance preparation into direct branches that reuse trajectory parsing but do not introduce a representation enum or universal prepared object.
 - [x] 6.5 Inline the single-implementation evidence graph builder, context, accumulator, and rule classes into direct construction functions while preserving all four edge algorithms, deduplication, and the conversion script caller.

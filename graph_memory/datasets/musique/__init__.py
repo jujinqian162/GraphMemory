@@ -7,11 +7,6 @@ from graph_memory.datasets.musique.parser import (
     parse_musique_example,
     parse_musique_examples,
 )
-from graph_memory.datasets.musique.projectors import (
-    MuSiQueToEvidenceEvaluationRequest,
-    MuSiQueToEvidenceGraphBuildRequest,
-    MuSiQueToTextRankingRequest,
-)
 from graph_memory.datasets.musique.records import (
     MuSiQueCandidateParagraph,
     MuSiQueDecompositionStep,
@@ -28,9 +23,6 @@ __all__ = [
     "MuSiQueLabelRecord",
     "MuSiQueParagraph",
     "MuSiQueRankingRecord",
-    "MuSiQueToEvidenceEvaluationRequest",
-    "MuSiQueToEvidenceGraphBuildRequest",
-    "MuSiQueToTextRankingRequest",
     "convert_musique_example",
     "parse_musique_example",
     "parse_musique_examples",

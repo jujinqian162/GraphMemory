@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQALabelRecord,
 )
@@ -119,7 +119,7 @@ def test_dense_finetune_uses_same_text_format_as_dense_encoding_service() -> Non
         batch_size=8,
     )
 
-    text_request = HotpotQAToTextRankingRequest().project(task)
+    text_request = text_ranking_requests_for_dataset("hotpotqa", [task])[0]
     service.encode_task(
         DenseTaskEncodingRequest(
             ranking_request=text_request, node_ids=("q", "m0", "m1")

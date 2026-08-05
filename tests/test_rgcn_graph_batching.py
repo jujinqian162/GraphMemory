@@ -9,7 +9,7 @@ import torch
 from graph_memory.contracts.common import TrainPairSampleType
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.training_pairs.contracts import TrainPairRecord
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.models.frozen_embeddings import (
     FrozenTaskEmbeddings,
@@ -197,7 +197,6 @@ def _evidence_tasks(
 ]:
     base_task = tiny_task_inputs()[0]
     base_graph = tiny_graphs()[0]
-    projector = HotpotQAToTextRankingRequest()
     requests: list[TextRankingRequest] = []
     graphs: list[EvidenceGraph] = []
     pairs: list[TrainPairRecord] = []
@@ -211,7 +210,7 @@ def _evidence_tasks(
         task_id = f"evidence-batch-{index}"
         task = base_task.model_copy(update={"task_id": task_id})
         graph = base_graph.model_copy(update={"task_id": task_id})
-        requests.append(projector.project(task))
+        requests.extend(text_ranking_requests_for_dataset("hotpotqa", [task]))
         graphs.append(graph)
         labels.append(
             EvidenceLabel(

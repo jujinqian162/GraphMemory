@@ -5,11 +5,6 @@ from typing import Literal, NoReturn, TypeAlias
 
 from pydantic import TypeAdapter
 
-from graph_memory.datasets.hotpotqa.projectors import (
-    HotpotQAToEvidenceEvaluationRequest,
-    HotpotQAToEvidenceGraphBuildRequest,
-    HotpotQAToTextRankingRequest,
-)
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQALabelRecord,
     HotpotQARankingRecord,
@@ -18,19 +13,9 @@ from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceLabelRecord,
     ISETraceRankingRecord,
 )
-from graph_memory.datasets.musique.projectors import (
-    MuSiQueToEvidenceEvaluationRequest,
-    MuSiQueToEvidenceGraphBuildRequest,
-    MuSiQueToTextRankingRequest,
-)
 from graph_memory.datasets.musique.records import (
     MuSiQueLabelRecord,
     MuSiQueRankingRecord,
-)
-from graph_memory.datasets.twowiki.projectors import (
-    TwoWikiToEvidenceEvaluationRequest,
-    TwoWikiToEvidenceGraphBuildRequest,
-    TwoWikiToTextRankingRequest,
 )
 from graph_memory.datasets.twowiki.records import (
     TwoWikiLabelRecord,
@@ -43,16 +28,14 @@ from graph_memory.evaluation.requests import (
     SpanEvidenceLabel,
 )
 from graph_memory.graphs.contracts import EvidenceGraph
-from graph_memory.graphs.requests import EvidenceGraphBuildRequest
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.graphs.requests import (
+    EvidenceGraphBuildNode,
+    EvidenceGraphBuildRequest,
+)
+from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 from graph_memory.retrieval.results import RankedResult
 
-DatasetId = Literal[
-    "hotpotqa",
-    "twowiki",
-    "musique",
-    "isetrace",
-]
+DatasetId = Literal["hotpotqa", "twowiki", "musique", "isetrace"]
 DatasetRankingRecord: TypeAlias = (
     HotpotQARankingRecord
     | TwoWikiRankingRecord
@@ -77,7 +60,8 @@ _ISETRACE_LABELS = TypeAdapter(list[ISETraceLabelRecord])
 
 
 def ranking_records_for_dataset(
-    dataset: DatasetId, records: object
+    dataset: DatasetId,
+    records: object,
 ) -> list[DatasetRankingRecord]:
     if dataset == "hotpotqa":
         return list(_HOTPOT_RANKINGS.validate_python(records))
@@ -91,7 +75,8 @@ def ranking_records_for_dataset(
 
 
 def label_records_for_dataset(
-    dataset: DatasetId, labels: object
+    dataset: DatasetId,
+    labels: object,
 ) -> list[DatasetLabelRecord]:
     if dataset == "hotpotqa":
         return list(_HOTPOT_LABELS.validate_python(labels))
@@ -110,50 +95,95 @@ def text_ranking_requests_for_dataset(
     *,
     isetrace_representation: Literal["flat", "provenance"] = "flat",
 ) -> list[TextRankingRequest]:
-    validated = ranking_records_for_dataset(dataset, records)
     if dataset == "hotpotqa":
-        projector = HotpotQAToTextRankingRequest()
-        return [projector.project(record) for record in validated]
+        return [
+            _sentence_text_request(record)
+            for record in _HOTPOT_RANKINGS.validate_python(records)
+        ]
     if dataset == "twowiki":
-        projector = TwoWikiToTextRankingRequest()
-        return [projector.project(record) for record in validated]
+        return [
+            _sentence_text_request(record)
+            for record in _TWOWIKI_RANKINGS.validate_python(records)
+        ]
     if dataset == "musique":
-        projector = MuSiQueToTextRankingRequest()
-        return [projector.project(record) for record in validated]
+        return [
+            TextRankingRequest(
+                task_id=record.task_id,
+                query_text=record.question,
+                candidates=tuple(
+                    TextCandidate(
+                        item_id=paragraph.paragraph_id,
+                        text=f"{paragraph.title}. {paragraph.text}",
+                        metadata={
+                            "title": paragraph.title,
+                            "source_ref": paragraph.title,
+                            "sequence_index": paragraph.paragraph_index,
+                            "position": paragraph.position,
+                        },
+                    )
+                    for paragraph in record.candidate_paragraphs
+                ),
+            )
+            for record in _MUSIQUE_RANKINGS.validate_python(records)
+        ]
     if dataset == "isetrace":
-        candidates_attr = (
-            "provenance_candidates"
-            if isetrace_representation == "provenance"
-            else "flat_candidates"
-        )
         return [
             TextRankingRequest(
                 task_id=record.task_id,
                 query_text=record.query_text,
-                candidates=getattr(record, candidates_attr),
+                candidates=(
+                    record.provenance_candidates
+                    if isetrace_representation == "provenance"
+                    else record.flat_candidates
+                ),
             )
-            for record in _ISETRACE_RANKINGS.validate_python(validated)
+            for record in _ISETRACE_RANKINGS.validate_python(records)
         ]
     _unsupported_dataset(dataset)
 
 
 def evidence_graph_build_requests_for_dataset(
-    dataset: DatasetId, records: Sequence[object]
+    dataset: DatasetId,
+    records: Sequence[object],
 ) -> list[EvidenceGraphBuildRequest]:
-    validated = ranking_records_for_dataset(dataset, records)
     if dataset == "hotpotqa":
-        projector = HotpotQAToEvidenceGraphBuildRequest()
-        return [projector.project(record) for record in validated]
+        return [
+            _sentence_graph_request(record)
+            for record in _HOTPOT_RANKINGS.validate_python(records)
+        ]
     if dataset == "twowiki":
-        projector = TwoWikiToEvidenceGraphBuildRequest()
-        return [projector.project(record) for record in validated]
+        return [
+            _sentence_graph_request(record)
+            for record in _TWOWIKI_RANKINGS.validate_python(records)
+        ]
     if dataset == "musique":
-        projector = MuSiQueToEvidenceGraphBuildRequest()
-        return [projector.project(record) for record in validated]
+        return [
+            EvidenceGraphBuildRequest(
+                task_id=record.task_id,
+                query_text=record.question,
+                nodes=tuple(
+                    EvidenceGraphBuildNode(
+                        node_id=paragraph.paragraph_id,
+                        text=paragraph.text,
+                        node_kind="document_paragraph",
+                        source_ref=paragraph.title,
+                        group_key=f"document:{paragraph.title}",
+                        sequence_index=paragraph.paragraph_index,
+                        metadata={
+                            "title": paragraph.title,
+                            "position": paragraph.position,
+                        },
+                    )
+                    for paragraph in record.candidate_paragraphs
+                ),
+                input_visible_edges=(),
+            )
+            for record in _MUSIQUE_RANKINGS.validate_python(records)
+        ]
     if dataset == "isetrace":
         raise TypeError(
-            "isetrace uses method-native retrieval views and span evaluation; "
-            "legacy EvidenceGraph projection is unsupported"
+            "isetrace uses native provenance views and span evaluation; "
+            "EvidenceGraph construction is unsupported"
         )
     _unsupported_dataset(dataset)
 
@@ -165,25 +195,6 @@ def evidence_evaluation_request_for_dataset(
     labels: Sequence[object],
     graphs: Sequence[EvidenceGraph],
 ) -> EvidenceEvaluationRequest | SpanEvidenceEvaluationRequest:
-    validated_labels = label_records_for_dataset(dataset, labels)
-    if dataset == "hotpotqa":
-        return HotpotQAToEvidenceEvaluationRequest().project(
-            predictions=predictions,
-            labels=_HOTPOT_LABELS.validate_python(validated_labels),
-            graphs=graphs,
-        )
-    if dataset == "twowiki":
-        return TwoWikiToEvidenceEvaluationRequest().project(
-            predictions=predictions,
-            labels=_TWOWIKI_LABELS.validate_python(validated_labels),
-            graphs=graphs,
-        )
-    if dataset == "musique":
-        return MuSiQueToEvidenceEvaluationRequest().project(
-            predictions=predictions,
-            labels=_MUSIQUE_LABELS.validate_python(validated_labels),
-            graphs=graphs,
-        )
     if dataset == "isetrace":
         return SpanEvidenceEvaluationRequest(
             predictions=tuple(predictions),
@@ -192,25 +203,114 @@ def evidence_evaluation_request_for_dataset(
                     task_id=label.task_id,
                     gold_evidence_spans=label.gold_evidence_spans,
                 )
-                for label in _ISETRACE_LABELS.validate_python(validated_labels)
+                for label in _ISETRACE_LABELS.validate_python(labels)
             ),
         )
-    _unsupported_dataset(dataset)
+    return EvidenceEvaluationRequest(
+        predictions=tuple(predictions),
+        labels=tuple(evidence_labels_for_dataset(dataset, labels)),
+        graphs=tuple(graphs),
+    )
 
 
 def evidence_labels_for_dataset(
-    dataset: DatasetId, labels: Sequence[object]
+    dataset: DatasetId,
+    labels: Sequence[object],
 ) -> list[EvidenceLabel]:
+    if dataset == "hotpotqa":
+        return [
+            EvidenceLabel(
+                task_id=label.task_id,
+                gold_answer=label.gold_answer,
+                gold_evidence_item_ids=label.gold_evidence_sentence_ids,
+                gold_dependency_edges=label.gold_dependency_edges,
+            )
+            for label in _HOTPOT_LABELS.validate_python(labels)
+        ]
+    if dataset == "twowiki":
+        return [
+            EvidenceLabel(
+                task_id=label.task_id,
+                gold_answer=label.gold_answer,
+                gold_evidence_item_ids=label.gold_evidence_sentence_ids,
+                gold_dependency_edges=label.gold_dependency_edges,
+            )
+            for label in _TWOWIKI_LABELS.validate_python(labels)
+        ]
+    if dataset == "musique":
+        return [
+            EvidenceLabel(
+                task_id=label.task_id,
+                gold_answer=label.gold_answer,
+                gold_evidence_item_ids=label.gold_evidence_paragraph_ids,
+                gold_dependency_edges=label.gold_dependency_edges,
+            )
+            for label in _MUSIQUE_LABELS.validate_python(labels)
+        ]
     if dataset == "isetrace":
         raise TypeError(
             "isetrace span labels are evaluation-only; training methods are unsupported"
         )
-    request = evidence_evaluation_request_for_dataset(
-        dataset, predictions=(), labels=labels, graphs=()
+    _unsupported_dataset(dataset)
+
+
+def _sentence_text_request(
+    record: HotpotQARankingRecord | TwoWikiRankingRecord,
+) -> TextRankingRequest:
+    question_type = (
+        {"question_type": record.question_type}
+        if isinstance(record, TwoWikiRankingRecord)
+        else {}
     )
-    if not isinstance(request, EvidenceEvaluationRequest):
-        raise TypeError(f"dataset={dataset!r} does not provide node evidence labels")
-    return list(request.labels)
+    return TextRankingRequest(
+        task_id=record.task_id,
+        query_text=record.question,
+        candidates=tuple(
+            TextCandidate(
+                item_id=sentence.sentence_id,
+                text=f"{sentence.title}. {sentence.text}",
+                metadata={
+                    "title": sentence.title,
+                    "source_ref": sentence.title,
+                    "sequence_index": sentence.sentence_index,
+                    "position": sentence.position,
+                    **question_type,
+                },
+            )
+            for sentence in record.candidate_sentences
+        ),
+    )
+
+
+def _sentence_graph_request(
+    record: HotpotQARankingRecord | TwoWikiRankingRecord,
+) -> EvidenceGraphBuildRequest:
+    question_type = (
+        {"question_type": record.question_type}
+        if isinstance(record, TwoWikiRankingRecord)
+        else {}
+    )
+    return EvidenceGraphBuildRequest(
+        task_id=record.task_id,
+        query_text=record.question,
+        nodes=tuple(
+            EvidenceGraphBuildNode(
+                node_id=sentence.sentence_id,
+                text=sentence.text,
+                node_kind="document_sentence",
+                source_ref=sentence.title,
+                group_key=f"document:{sentence.title}",
+                sequence_index=sentence.sentence_index,
+                metadata={
+                    "title": sentence.title,
+                    "position": sentence.position,
+                    **question_type,
+                },
+            )
+            for sentence in record.candidate_sentences
+        ),
+        input_visible_edges=(),
+    )
 
 
 def _unsupported_dataset(dataset: object) -> NoReturn:

@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 import pytest
 
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.registry.retrieval_builders import build_retrieval
@@ -34,8 +34,7 @@ from graph_memory.retrieval.signals import RetrieverSeedSignalProvider
 
 
 def _ranking_requests(task_inputs):
-    projector = HotpotQAToTextRankingRequest()
-    return [projector.project(task_input) for task_input in task_inputs]
+    return text_ranking_requests_for_dataset("hotpotqa", task_inputs)
 
 
 class TinyTrainableRetriever:
@@ -124,7 +123,7 @@ def fake_checkpoint_providers(settings, payload):
 
 def tiny_graph_ranking_request():
     record = tiny_task_inputs()[0]
-    text_request = HotpotQAToTextRankingRequest().project(record)
+    text_request = text_ranking_requests_for_dataset("hotpotqa", [record])[0]
     signals = RetrieverSeedSignalProvider(FakeRetriever()).score_task(text_request)
     return EvidenceGraphRankingRequest(
         task_id=record.task_id,

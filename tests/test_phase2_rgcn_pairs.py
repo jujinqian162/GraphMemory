@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
+from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.datasets.hotpotqa.records import (
     HotpotQALabelRecord,
     HotpotQARankingRecord,
@@ -101,7 +101,7 @@ def tiny_graphs() -> list[EvidenceGraph]:
 
 
 def _pair_tasks() -> list[TrainPairBuildTask]:
-    request = HotpotQAToTextRankingRequest().project(tiny_task_inputs()[0])
+    request = text_ranking_requests_for_dataset("hotpotqa", [tiny_task_inputs()[0]])[0]
     raw_label = tiny_labels()[0]
     label = EvidenceLabel(
         task_id=raw_label.task_id,

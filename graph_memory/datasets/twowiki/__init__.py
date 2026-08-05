@@ -7,11 +7,6 @@ from graph_memory.datasets.twowiki.parser import (
     parse_twowiki_example,
     parse_twowiki_examples,
 )
-from graph_memory.datasets.twowiki.projectors import (
-    TwoWikiToEvidenceEvaluationRequest,
-    TwoWikiToEvidenceGraphBuildRequest,
-    TwoWikiToTextRankingRequest,
-)
 from graph_memory.datasets.twowiki.records import (
     TwoWikiCandidateSentence,
     TwoWikiDocument,
@@ -30,9 +25,6 @@ __all__ = [
     "TwoWikiLabelRecord",
     "TwoWikiRankingRecord",
     "TwoWikiSupportingFact",
-    "TwoWikiToEvidenceEvaluationRequest",
-    "TwoWikiToEvidenceGraphBuildRequest",
-    "TwoWikiToTextRankingRequest",
     "convert_twowiki_example",
     "parse_twowiki_example",
     "parse_twowiki_examples",
