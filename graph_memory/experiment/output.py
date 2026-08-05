@@ -4,12 +4,6 @@ import csv
 import shutil
 from pathlib import Path
 
-
-from graph_memory.evaluation.tables import (
-    EFFICIENCY_RESULT_COLUMNS,
-    MAIN_RESULT_COLUMNS,
-    PATH_RESULT_COLUMNS,
-)
 from graph_memory.experiment.artifacts import artifact_payload_path
 from graph_memory.experiment.config import ResolvedExperimentConfig
 from graph_memory.experiment.persistence import write_yaml_atomic
@@ -76,21 +70,6 @@ def project_run_output(
     if result.variant is not None and "Variant" not in fields:
         fields.insert(1, "Variant")
     _write_rows(destination / "metrics" / "final.metrics.csv", [final_row], fields)
-    _write_rows(
-        destination / "tables" / "main_results.csv",
-        [_select(final_row, MAIN_RESULT_COLUMNS, result.variant)],
-        _fields(MAIN_RESULT_COLUMNS, result.variant),
-    )
-    _write_rows(
-        destination / "tables" / "path_results.csv",
-        [_select(final_row, PATH_RESULT_COLUMNS, result.variant)],
-        _fields(PATH_RESULT_COLUMNS, result.variant),
-    )
-    _write_rows(
-        destination / "tables" / "efficiency_results.csv",
-        [_select(final_row, EFFICIENCY_RESULT_COLUMNS, result.variant)],
-        _fields(EFFICIENCY_RESULT_COLUMNS, result.variant),
-    )
 
     if result.model is not None:
         history = artifact_payload_path(result.model.artifact, "training_metrics")
@@ -128,24 +107,6 @@ def resolved_overrides() -> tuple[str, ...]:
     except (ValueError, AttributeError):
         return ()
     return tuple(str(value) for value in overrides)
-
-
-def _fields(columns: list[str], variant: str | None) -> list[str]:
-    fields = list(columns)
-    if variant is not None:
-        fields.insert(1, "Variant")
-    return fields
-
-
-def _select(
-    row: dict[str, object],
-    columns: list[str],
-    variant: str | None,
-) -> dict[str, object]:
-    selected = {column: row.get(column, "NA") for column in columns}
-    if variant is not None:
-        selected["Variant"] = variant
-    return selected
 
 
 def _write_rows(path: Path, rows: list[dict[str, object]], fields: list[str]) -> None:

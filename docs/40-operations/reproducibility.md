@@ -10,7 +10,7 @@ config/overrides.yaml
 workflow/summary.yaml
 assets/manifest.yaml
 metrics/final.metrics.csv
-tables/*.csv
+metrics/per_task.jsonl
 training/*          # trainable only
 debug/failure_cases.jsonl
 ```

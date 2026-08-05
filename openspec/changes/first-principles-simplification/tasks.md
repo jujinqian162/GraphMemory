@@ -12,8 +12,8 @@
 - [x] 2.2 Delete tests that instantiate result wrappers solely to test repeated request/result context, replacing them with ranking behavior and persisted-result tests.
 - [x] 2.3 Inline and delete single-use no-behavior runtime rows, graph scoring factory helpers, and the single-implementation node metric suite/factory; retain direct evidence/span evaluation functions.
 - [x] 2.4 Remove combined dataset DTOs and `combined.json`; authoritative tasks, labels, graph, origin, and source-span outputs remain.
-- [ ] 2.5 Collapse redundant result CSV projections to the retained authoritative outputs only after cache, delivery, tracking, docs, and analysis consumers are migrated.
-- [ ] 2.6 Run focused preparation/ranking/evaluation/artifact tests and record Tranche 1 net deletion.
+- [x] 2.5 Collapse redundant three-table result projections to the authoritative final metrics and per-task outputs; raw historical planning documents remain untouched.
+- [x] 2.6 Run focused preparation/ranking/evaluation/artifact tests and record Tranche 1 net deletion.
 
 ## 3. Tranche 2 - Replace Retrieval Framework with Direct Dispatch
 
