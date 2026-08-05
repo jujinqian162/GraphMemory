@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
 from collections.abc import Iterable
 from typing import Annotated, Literal, TypeAlias
 
@@ -147,20 +146,6 @@ class TemplateSupervisionRecord(DomainModel):
         return self
 
 
-class MotifCatalog(DomainModel):
-    motifs: tuple[MotifSpec, ...]
-
-    @model_validator(mode="after")
-    def _validate_catalog(self) -> "MotifCatalog":
-        motif_ids = [motif.motif_id for motif in self.motifs]
-        if len(motif_ids) != len(set(motif_ids)):
-            raise ValueError("motif IDs must be unique")
-        grouped: dict[str, list[MotifSpec]] = defaultdict(list)
-        for motif in self.motifs:
-            grouped[motif.graph_id].append(motif)
-        return self
-
-
 def motif_id(
     motif_type: str,
     participants: Iterable[str],
@@ -180,7 +165,6 @@ def motif_id(
 __all__ = [
     "LogicalDependency",
     "MotifAuthoringTarget",
-    "MotifCatalog",
     "MotifSpec",
     "MotifType",
     "QueryIntent",
