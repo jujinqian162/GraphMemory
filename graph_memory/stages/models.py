@@ -66,7 +66,6 @@ from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
 )
 from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
-from graph_memory.stages.results import ModelResult
 from graph_memory.training_pairs.contracts import TrainPairDataset
 
 
@@ -90,7 +89,7 @@ def materialize_dense_finetune_model(
     dev_prepared: DatasetArtifactRef,
     encoder_source: EncoderSourceRef,
     implementation_version: str,
-) -> ModelResult:
+) -> ModelArtifactRef:
     effective = config.model_copy(
         update={"encoder": _resolved_encoder(config.encoder, encoder_source)}
     )
@@ -190,7 +189,7 @@ def materialize_dense_finetune_model(
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
-    return ModelResult(artifact=artifact, training_history=history)
+    return artifact
 
 
 def _dense_finetune_split(
@@ -250,7 +249,7 @@ def materialize_evidence_rgcn_model(
     seed_model: ModelArtifactRef | None,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
-) -> ModelResult:
+) -> ModelArtifactRef:
     effective_encoder = _resolved_encoder(config.encoder, encoder_source)
     train_tasks = cast(
         list[object], read_json(artifact_payload_path(train_prepared, "tasks"))
@@ -388,7 +387,7 @@ def materialize_evidence_rgcn_model(
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
-    return ModelResult(artifact=artifact, training_history=history)
+    return artifact
 
 
 
@@ -402,7 +401,7 @@ def materialize_provenance_rgcn_model(
     encoder_source: EncoderSourceRef,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
-) -> ModelResult:
+) -> ModelArtifactRef:
     if config.method != "provenance_rgcn":
         raise ValueError("provenance model stage requires method=provenance_rgcn")
     effective_encoder = _resolved_encoder(config.encoder, encoder_source)
@@ -507,7 +506,7 @@ def materialize_provenance_rgcn_model(
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
-    return ModelResult(artifact=artifact, training_history=history)
+    return artifact
 
 
 def _load_provenance_split(prepared: DatasetArtifactRef):

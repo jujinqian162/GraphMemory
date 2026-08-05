@@ -21,8 +21,7 @@ from graph_memory.experiment.config import (
 )
 from graph_memory.experiment.output import project_run_output
 from graph_memory.experiment.results import FinalExperimentResult
-from graph_memory.io import write_json, write_jsonl
-from graph_memory.stages.results import EvaluationResult, RankingResult
+from graph_memory.io import write_csv, write_json, write_jsonl
 from scripts.deliver.collect_run_artifacts import collect_run_artifacts
 
 
@@ -60,7 +59,10 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         origin={"stage": "rank", "method": "bm25"},
     ) as publisher:
         write_json(publisher.workspace / "rankings.json", [{"task_id": "one"}])
-        ranking_ref = publisher.publish({"rankings": "rankings.json"})
+        ranking_ref = publisher.publish(
+            {"rankings": "rankings.json"},
+            metadata={"production_seconds": 3.0},
+        )
     assert isinstance(ranking_ref, PredictionsArtifactRef)
 
     metric_row = MetricRow.model_validate(
@@ -97,32 +99,28 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         task_identity="test-evaluate",
         origin={"stage": "evaluate", "method": "bm25"},
     ) as publisher:
-        write_json(publisher.workspace / "metrics.json", [metric_row])
+        write_csv(
+            publisher.workspace / "metrics.csv",
+            [metric_row.model_dump(mode="json", by_alias=True)],
+            list(metric_row.model_dump(mode="json", by_alias=True)),
+        )
         write_jsonl(publisher.workspace / "failure_cases.jsonl", [])
         write_jsonl(publisher.workspace / "per_task.jsonl", [])
         evaluation_ref = publisher.publish(
             {
-                "metrics": "metrics.json",
+                "metrics": "metrics.csv",
                 "failure_cases": "failure_cases.jsonl",
                 "per_task": "per_task.jsonl",
-            }
+            },
+            shape={"metric_rows": 1, "failure_cases": 0, "per_task_rows": 0},
         )
     assert isinstance(evaluation_ref, EvaluationArtifactRef)
 
-    ranking = RankingResult(
-        artifact=ranking_ref,
-        production_seconds=3.0,
-    )
-    evaluation = EvaluationResult(
-        artifact=evaluation_ref,
-        metric_rows=(metric_row,),
-        per_task_rows=(),
-    )
     return FinalExperimentResult(
         method="bm25",
         variant=None,
-        ranking=ranking,
-        evaluation=evaluation,
+        ranking=ranking_ref,
+        evaluation=evaluation_ref,
         assets=(ranking_ref, evaluation_ref),
     )
 

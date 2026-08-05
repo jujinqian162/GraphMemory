@@ -43,7 +43,7 @@
 - [x] 5.2 Retain the nine Prefect task decorators as cache/resume boundaries, and make the processed-store accessor private rather than exposing a second storage authority.
 - [x] 5.3 Remove repeated task-family binding fields from retrieval build payloads; dataset config validation and concrete request types remain the only domain-compatibility authorities.
 - [x] 5.4 Move input provisioning, MLflow recording, retrieval-runtime collection, and report publication outside method-specific scientific branches while preserving current outputs.
-- [x] 5.5 Reduce stage result DTOs to the fields consumed by orchestration/output and replace the inner retrieve/evaluate result classes with direct tuples; keep full counts, statistics, summaries, indices, model metadata, ranking provenance, metrics, per-task rows, and failures in their authoritative artifacts.
+- [x] 5.5 Delete stage result DTOs and return authoritative model, prediction, and evaluation artifact refs directly; output and tracking read runtime, metrics, per-task counts, training history, provenance, and failures from artifact metadata/payloads rather than duplicate in-memory transports.
 - [x] 5.6 Delete the optional benchmark replay and configurable failure-case-limit branches plus their config/result DTOs; report retrieval runtime from authoritative ranking execution and retain the fixed 50-row debug cap.
 - [x] 5.7 Rewrite workflow/task/config/artifact tests around direct lifecycle planning, cache/resume, tracking, authoritative final outputs, and all eight retained methods.
 - [x] 5.8 Run cache/resume, Prefect, MLflow, artifact, workflow, config-composition, Ruff, basedpyright, and full tests; Tranche 4 remains net-negative after each committed slice.

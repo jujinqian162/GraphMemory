@@ -27,7 +27,6 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import DatasetName
 from graph_memory.io import read_json, write_csv, write_jsonl
-from graph_memory.stages.results import EvaluationResult
 
 
 RANKED_RESULTS_ADAPTER = TypeAdapter(list[RankedResult])
@@ -77,7 +76,7 @@ def materialize_evaluation(
     prepared: DatasetArtifactRef,
     evidence_graphs: EvidenceGraphArtifactRef | None,
     implementation_version: str,
-) -> EvaluationResult:
+) -> EvaluationArtifactRef:
     method = str(predictions.origin["method"])
     variant_value = predictions.origin.get("variant")
     variant = variant_value if isinstance(variant_value, str) else None
@@ -148,11 +147,7 @@ def materialize_evaluation(
             },
         )
     assert isinstance(artifact, EvaluationArtifactRef)
-    return EvaluationResult(
-        artifact=artifact,
-        metric_rows=tuple(metric_rows),
-        per_task_rows=tuple(per_task_rows),
-    )
+    return artifact
 
 
 __all__ = ["materialize_evaluation", "run_evaluate_stage"]

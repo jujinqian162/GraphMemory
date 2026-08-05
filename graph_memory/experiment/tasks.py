@@ -14,6 +14,7 @@ from prefect.settings import (
 from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     DirectorySourceRef,
+    EvaluationArtifactRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
     FrozenEmbeddingsArtifactRef,
@@ -49,11 +50,6 @@ from graph_memory.stages.models import (
 from graph_memory.stages.pairs import materialize_training_pairs
 from graph_memory.stages.prepare import materialize_prepared_split
 from graph_memory.stages.retrieve import materialize_rankings
-from graph_memory.stages.results import (
-    EvaluationResult,
-    ModelResult,
-    RankingResult,
-)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -213,7 +209,7 @@ def train_dense_ft_task(
     config: DenseFinetuneMethodConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "dense-ft-train-v1",
-) -> ModelResult:
+) -> ModelArtifactRef:
     get_run_logger().info(
         "train dense-ft | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
     )
@@ -248,7 +244,7 @@ def train_evidence_rgcn_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str = "evidence-rgcn-train-v2-preencoded",
-) -> ModelResult:
+) -> ModelArtifactRef:
     get_run_logger().info(
         "train evidence-rgcn | dataset=%s epochs=%s",
         dataset,
@@ -285,7 +281,7 @@ def train_provenance_rgcn_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str = "provenance-rgcn-train-v1",
-) -> ModelResult:
+) -> ModelArtifactRef:
     get_run_logger().info(
         "train provenance-rgcn | epochs=%s", config.train.trainer.epochs
     )
@@ -316,7 +312,7 @@ def generate_rankings_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef | None,
     device: str,
     implementation_version: str = "ranking-v2-device-aware",
-) -> RankingResult:
+) -> PredictionsArtifactRef:
     get_run_logger().info(
         "generate rankings | dataset=%s method=%s top_k=%s",
         dataset,
@@ -350,7 +346,7 @@ def evaluate_rankings_task(
     top_k: int,
     failure_case_limit: int,
     implementation_version: str = "evaluation-v3-token-budget-coverage",
-) -> EvaluationResult:
+) -> EvaluationArtifactRef:
     get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(
         _processed_store(),

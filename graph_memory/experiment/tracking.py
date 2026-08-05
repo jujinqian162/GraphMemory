@@ -4,12 +4,18 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import TypeGuard
+from typing import TypeGuard, cast
 
 import mlflow
 
+from graph_memory.experiment.artifacts import (
+    ArtifactRef,
+    PredictionsArtifactRef,
+    artifact_payload_path,
+)
 from graph_memory.experiment.config import ResolvedExperimentConfig
 from graph_memory.experiment.results import FinalExperimentResult
+from graph_memory.io import read_csv
 
 
 FINAL_METRIC_KEYS = {
@@ -86,9 +92,8 @@ def log_experiment_result(
             "graph_memory.prefect_flow_run_id": prefect_flow_run_id,
         }
     )
-    metric_row = result.evaluation.metric_rows[0].model_dump(
-        mode="json", by_alias=True
-    )
+    metric_rows = read_csv(artifact_payload_path(result.evaluation, "metrics"))
+    metric_row = metric_rows[0]
     metrics: dict[str, float] = {}
     for column, value in metric_row.items():
         if column == "Method":
@@ -100,9 +105,9 @@ def log_experiment_result(
         elif column not in _KNOWN_EFFICIENCY_COLUMNS and number is not None:
             raise ValueError(f"unknown numeric final metric column={column!r}")
     metrics["final.retrieval_latency_ms_per_query"] = (
-        result.ranking.production_seconds
+        _production_seconds(result.ranking)
         * 1000.0
-        / max(1, len(result.evaluation.per_task_rows))
+        / max(1, _shape_count(result.evaluation, "per_task_rows"))
     )
     if metrics:
         mlflow.log_metrics(metrics)
@@ -114,10 +119,16 @@ def log_experiment_result(
     if result.model is not None:
         mlflow.set_tags(
             {
-                "graph_memory.training_asset_origin": result.model.artifact.digest,
+                "graph_memory.training_asset_origin": result.model.digest,
             }
         )
-        for index, record in enumerate(result.model.training_history):
+        history = [
+            cast(dict[str, object], value)
+            for value in _read_jsonl(
+                artifact_payload_path(result.model, "training_metrics")
+            )
+        ]
+        for index, record in enumerate(history):
             step_value = record.get("epoch")
             step = step_value if isinstance(step_value, int) else index
             epoch_metrics = {
@@ -128,6 +139,25 @@ def log_experiment_result(
             if epoch_metrics:
                 mlflow.log_metrics(epoch_metrics, step=step)
     mlflow.log_artifacts(str(run_output))
+
+
+def _shape_count(artifact: ArtifactRef, key: str) -> int:
+    value = artifact.shape.get(key)
+    if not isinstance(value, int):
+        raise ValueError(f"artifact shape requires integer {key!r}")
+    return value
+
+
+def _production_seconds(artifact: PredictionsArtifactRef) -> float:
+    value = artifact.metadata.get("production_seconds")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise ValueError("prediction artifact requires non-negative production_seconds")
+    return float(value)
+
+
+def _read_jsonl(path: Path) -> list[object]:
+    with path.open(encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream if line.strip()]
 
 
 def _flatten(prefix: str, value: object) -> dict[str, object]:

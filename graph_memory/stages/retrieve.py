@@ -40,7 +40,6 @@ from graph_memory.registry.retrieval_builders import (
     build_retrieval,
 )
 from graph_memory.retrieval.execution.service import run_retrieval
-from graph_memory.stages.results import RankingResult
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -111,7 +110,7 @@ def materialize_rankings(
     encoder_source: EncoderSourceRef | None,
     device: str,
     implementation_version: str,
-) -> RankingResult:
+) -> PredictionsArtifactRef:
     # Prepared tasks already passed dataset validation at materialize_prepared_split.
     task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
     graph_values = (
@@ -181,10 +180,7 @@ def materialize_rankings(
             metadata={"production_seconds": production_seconds},
         )
     assert isinstance(artifact, PredictionsArtifactRef)
-    return RankingResult(
-        artifact=artifact,
-        production_seconds=production_seconds,
-    )
+    return artifact
 
 
 def _model_checkpoint(

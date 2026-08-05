@@ -10,6 +10,7 @@ from graph_memory.experiment.artifacts import (
     DirectorySourceRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
+    ModelArtifactRef,
     identify_external_source,
 )
 from graph_memory.experiment.config import (
@@ -44,7 +45,6 @@ from graph_memory.experiment.tasks import (
     train_provenance_rgcn_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
-from graph_memory.stages.results import ModelResult
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -59,8 +59,8 @@ def run_experiment(
     overrides: tuple[str, ...] = (),
 ) -> FinalExperimentResult:
     method = config.method
-    model: ModelResult | None = None
-    dependency_models: tuple[ModelResult, ...] = ()
+    model: ModelArtifactRef | None = None
+    dependency_models: tuple[ModelArtifactRef, ...] = ()
     ranking_graphs: EvidenceGraphArtifactRef | None = None
     evaluation_graphs: EvidenceGraphArtifactRef | None = None
     ranking_encoder = None
@@ -140,7 +140,7 @@ def run_experiment(
                 config=method,
                 encoder_source=encoder_source,
             )
-            assets.extend((pairs, model.artifact))
+            assets.extend((pairs, model))
 
         elif isinstance(method, ProvenanceRgcnMethodConfig):
             train = prepared["train"]
@@ -183,7 +183,7 @@ def run_experiment(
                 (
                     pairs,
                     frozen_embeddings,
-                    model.artifact,
+                    model,
                 )
             )
 
@@ -256,7 +256,7 @@ def run_experiment(
                     test_graphs,
                     pairs,
                     frozen_embeddings,
-                    model.artifact,
+                    model,
                 )
             )
 
@@ -323,7 +323,7 @@ def run_experiment(
                 dev_prepared=dev,
                 train_graphs=train_graphs,
                 dev_graphs=dev_graphs,
-                seed_model=seed_model.artifact,
+                seed_model=seed_model,
                 dataset=config.dataset.name,
                 encoder=rgcn.encoder,
                 encoder_source=rgcn_source,
@@ -337,7 +337,7 @@ def run_experiment(
                 train_pairs=rgcn_pairs,
                 dev_prepared=dev,
                 dev_graphs=dev_graphs,
-                seed_model=seed_model.artifact,
+                seed_model=seed_model,
                 dataset=config.dataset.name,
                 method=method.method,
                 variant=method.variant,
@@ -353,10 +353,10 @@ def run_experiment(
                     dev_graphs,
                     test_graphs,
                     seed_pairs,
-                    seed_model.artifact,
+                    seed_model,
                     rgcn_pairs,
                     frozen_embeddings,
-                    model.artifact,
+                    model,
                 )
             )
 
@@ -367,7 +367,7 @@ def run_experiment(
         ranking = generate_rankings_task(
             prepared=test,
             evidence_graphs=ranking_graphs,
-            model=None if model is None else model.artifact,
+            model=None if model is None else model,
             dataset=config.dataset.name,
             method=rank_config,
             top_k=config.top_k,
@@ -376,7 +376,7 @@ def run_experiment(
             implementation_version="ranking-v9-fast-graphrag-ppr",
         )
         evaluation = evaluate_rankings_task(
-            predictions=ranking.artifact,
+            predictions=ranking,
             prepared=test,
             evidence_graphs=evaluation_graphs or ranking_graphs,
             dataset=config.dataset.name,
@@ -384,7 +384,7 @@ def run_experiment(
             failure_case_limit=50,
         )
 
-    assets.extend((ranking.artifact, evaluation.artifact))
+    assets.extend((ranking, evaluation))
     final = FinalExperimentResult(
         method=method.method,
         variant=config.variant,
@@ -401,14 +401,13 @@ def run_experiment(
         overrides=overrides,
         result=final,
     )
-    completed = final.model_copy(update={"run_output": run_output.resolve().as_posix()})
     log_experiment_result(
         config,
-        completed,
+        final,
         run_output=run_output,
         prefect_flow_run_id=str(flow_run.id),
     )
-    return completed
+    return final
 
 
 def _resolve_split_sources(

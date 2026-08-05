@@ -9,11 +9,21 @@ from hydra import compose, initialize_config_dir
 
 import graph_memory.experiment.tracking as tracking
 from graph_memory.evaluation.contracts import MetricRow
+from graph_memory.evaluation.tables import WIDE_METRIC_COLUMNS
+from graph_memory.experiment.artifacts import (
+    ArtifactKind,
+    ArtifactPublisher,
+    EvaluationArtifactRef,
+    PredictionsArtifactRef,
+    ProcessedAssetStore,
+)
 from graph_memory.experiment.config import (
     ResolvedExperimentConfig,
     parse_composed_config,
     resolve_experiment_config,
 )
+from graph_memory.experiment.results import FinalExperimentResult
+from graph_memory.io import write_csv, write_json, write_jsonl
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,50 +103,82 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
         "log_artifacts",
         lambda path: captured.setdefault("log_artifacts", []).append(path),
     )
-    result = SimpleNamespace(
+    metric_row = MetricRow.model_validate(dict(
+        method="bm25",
+        evaluation_schema="evidence_v3",
+        recall_at_2=0.0,
+        recall_at_5=0.0,
+        recall_at_10=0.75,
+        evidence_f1_at_5=0.0,
+        evidence_f1_at_10=0.0,
+        evidence_density_at_5=0.25,
+        evidence_density_at_10=0.2,
+        coverage_at_512_tokens=0.4,
+        coverage_at_1024_tokens=0.6,
+        coverage_at_2048_tokens=0.8,
+        span_f1_at_2048_tokens=0.4,
+        evidence_density_at_2048_tokens=0.3,
+        full_support_at_2048_tokens=0.6,
+        full_support_at_5=0.0,
+        full_support_at_10=0.0,
+        mrr=0.5,
+        connected_evidence_recall_at_5=0.0,
+        connected_evidence_recall_at_10=0.0,
+        query_evidence_connectivity_at_10=0.0,
+        path_recall_at_10="N/A",
+        edge_recall_at_10="N/A",
+        edge_precision_at_10="N/A",
+        edge_f1_at_10="N/A",
+        retrieval_latency_per_query=0.0,
+        index_build_time=0.0,
+        graph_construction_time=0.0,
+        memory_size="N/A",
+        avg_retrieved_nodes=0.0,
+        avg_retrieved_edges=0.0,
+    ))
+    store = ProcessedAssetStore(tmp_path / "processed")
+    with ArtifactPublisher(
+        store,
+        kind=ArtifactKind.PREDICTIONS,
+        namespace="bm25",
+        task_identity="tracking-rank",
+        origin={"stage": "rank", "method": "bm25"},
+    ) as publisher:
+        write_json(publisher.workspace / "predictions.json", [])
+        ranking = publisher.publish(
+            {"predictions": "predictions.json"},
+            metadata={"production_seconds": 0.0},
+        )
+    assert isinstance(ranking, PredictionsArtifactRef)
+    with ArtifactPublisher(
+        store,
+        kind=ArtifactKind.EVALUATION,
+        namespace="bm25",
+        task_identity="tracking-evaluate",
+        origin={"stage": "evaluate", "method": "bm25"},
+    ) as publisher:
+        write_csv(
+            publisher.workspace / "metrics.csv",
+            [metric_row.model_dump(mode="json", by_alias=True)],
+            WIDE_METRIC_COLUMNS,
+        )
+        write_jsonl(publisher.workspace / "failure_cases.jsonl", [])
+        write_jsonl(publisher.workspace / "per_task.jsonl", [])
+        evaluation = publisher.publish(
+            {
+                "metrics": "metrics.csv",
+                "failure_cases": "failure_cases.jsonl",
+                "per_task": "per_task.jsonl",
+            },
+            shape={"metric_rows": 1, "failure_cases": 0, "per_task_rows": 0},
+        )
+    assert isinstance(evaluation, EvaluationArtifactRef)
+    result = FinalExperimentResult(
         method="bm25",
         variant=None,
-        ranking=SimpleNamespace(production_seconds=0.0),
-        evaluation=SimpleNamespace(
-            metric_rows=(
-                MetricRow.model_validate(dict(
-                    method="bm25",
-                    evaluation_schema="evidence_v3",
-                    recall_at_2=0.0,
-                    recall_at_5=0.0,
-                    recall_at_10=0.75,
-                    evidence_f1_at_5=0.0,
-                    evidence_f1_at_10=0.0,
-                    evidence_density_at_5=0.25,
-                    evidence_density_at_10=0.2,
-                    coverage_at_512_tokens=0.4,
-                    coverage_at_1024_tokens=0.6,
-                    coverage_at_2048_tokens=0.8,
-                    span_f1_at_2048_tokens=0.4,
-                    evidence_density_at_2048_tokens=0.3,
-                    full_support_at_2048_tokens=0.6,
-                    full_support_at_5=0.0,
-                    full_support_at_10=0.0,
-                    mrr=0.5,
-                    connected_evidence_recall_at_5=0.0,
-                    connected_evidence_recall_at_10=0.0,
-                    query_evidence_connectivity_at_10=0.0,
-                    path_recall_at_10="N/A",
-                    edge_recall_at_10="N/A",
-                    edge_precision_at_10="N/A",
-                    edge_f1_at_10="N/A",
-                    retrieval_latency_per_query=0.0,
-                    index_build_time=0.0,
-                    graph_construction_time=0.0,
-                    memory_size="N/A",
-                    avg_retrieved_nodes=0.0,
-                    avg_retrieved_edges=0.0,
-                )),
-            ),
-            per_task_rows=(),
-        ),
-        assets=(),
-        model=None,
+        ranking=ranking,
+        evaluation=evaluation,
+        assets=(ranking, evaluation),
     )
     run_output = tmp_path / "run"
     run_output.mkdir()
