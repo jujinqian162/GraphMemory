@@ -566,12 +566,19 @@ def resolve_experiment_config(
     if isinstance(config.dataset, ISETraceDatasetConfig):
         natural_source = _absolute_path(root, config.dataset.natural_query_source)
         for split_name in split_names:
+            policy = getattr(config.profile.splits, split_name)
+            count = (
+                policy.count
+                if config.profile.name != "full"
+                and isinstance(policy, FixedCountPolicy)
+                else None
+            )
             resolved_splits[split_name] = ResolvedRawSplitConfig(
                 kind="raw",
                 source=natural_source,
                 offset=0,
                 capacity=None,
-                count=None,
+                count=count,
             )
     else:
         for split_name in split_names:

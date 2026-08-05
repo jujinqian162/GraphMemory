@@ -105,10 +105,8 @@ def prepare_isetrace_benchmark(
         template_trajectory_ids = frozenset()
     else:
         assert trajectory_splits is not None
-        if count is not None or offset != 0:
-            raise ValueError(
-                "ISETrace trajectory splits do not support count/offset caps"
-            )
+        if offset != 0:
+            raise ValueError("ISETrace trajectory splits do not support offsets")
         natural_by_split, template_by_split = allocate_trajectory_splits(
             [
                 matched_contexts[example.id][0].trajectory_id
@@ -127,6 +125,18 @@ def prepare_isetrace_benchmark(
         for example in valid_examples
         if matched_contexts[example.id][0].trajectory_id in natural_trajectory_ids
     ]
+    if split is not None and count is not None:
+        available = len(split_pool) + len(template_trajectory_ids)
+        if count > available:
+            raise ValueError(
+                "insufficient ISETrace task pool: "
+                f"requested={count} available={available} split={split}"
+            )
+        requested_natural = min(count, len(split_pool))
+        requested_template = count - requested_natural
+        template_trajectory_ids = frozenset(
+            sorted(template_trajectory_ids)[:requested_template]
+        )
     if requested_natural is not None and requested_natural > len(split_pool):
         raise ValueError(
             "insufficient ISETrace natural query pool: "

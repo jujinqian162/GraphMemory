@@ -14,14 +14,14 @@ trajectories:
     test: {natural: 1207, template: 0}
 ```
 
-The numbers count trajectories, not queries:
+The numbers count trajectories, not queries. For `profile=full`, they define the complete scientific split:
 
 - `natural: N` selects N trajectories and keeps every valid authored natural query resolved to those trajectories.
 - `template: N` selects N trajectories and creates one template query per trajectory.
 - Natural and template selections may overlap inside one split.
 - The union of selected trajectories is disjoint across train, dev, and test.
 
-Selection is deterministic from `split_seed`. If the configured counts require more trajectories than the valid natural-query source covers, preparation fails with requested and available counts; adjust the config for that corpus.
+For bounded execution profiles, the resolved profile count caps the total materialized tasks after this trajectory-level ownership is established. In particular, `profile=smoke` materializes one task per required split while preserving disjoint split ownership; it does not evaluate the full test corpus.
 
 Test is natural-only and requires `natural > 0, template = 0`.
 

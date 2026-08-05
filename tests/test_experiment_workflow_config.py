@@ -117,6 +117,18 @@ def test_isetrace_accepts_template_only_train_and_dev_counts() -> None:
     }
 
 
+def test_isetrace_smoke_profile_caps_each_split_to_one_task() -> None:
+    resolved = resolve_experiment_config(
+        parse_composed_config(
+            _compose("dataset=isetrace", "profile=smoke", "method=provenance_path")
+        ),
+        repository_root=ROOT,
+    )
+
+    assert {split.count for split in resolved.dataset.splits.values()} == {1}
+    assert _prepare_config(resolved, "test").count == 1
+
+
 def test_isetrace_dense_ft_uses_effective_text_only_sampling() -> None:
     composed = parse_composed_config(
         _compose("dataset=isetrace", "method=dense_ft", "profile=full")

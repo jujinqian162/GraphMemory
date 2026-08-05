@@ -194,6 +194,50 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
     assert not (graph_ids_by_split["dev"] & graph_ids_by_split["test"])
 
 
+def test_profile_cap_limits_fixed_isetrace_split_to_total_tasks(
+    tmp_path: Path,
+) -> None:
+    raw_trajectories = [_raw_trajectory(index) for index in range(3)]
+    trajectories = [
+        adapt_isetrace_record(
+            parse_isetrace_record(raw), source_revision="fixture-revision"
+        )
+        for raw in raw_trajectories
+    ]
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(
+        "".join(json.dumps(raw) + "\n" for raw in raw_trajectories),
+        encoding="utf-8",
+    )
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(
+        "".join(
+            _query(trajectory, query_id=f"query:{index}:0").model_dump_json() + "\n"
+            for index, trajectory in enumerate(trajectories)
+        ),
+        encoding="utf-8",
+    )
+
+    for split in ("train", "dev", "test"):
+        benchmark, summary = prepare_isetrace_benchmark(
+            query_path,
+            trajectory_path,
+            source_revision="fixture-revision",
+            count=1,
+            seed=13,
+            offset=0,
+            strict=True,
+            split=split,
+            trajectory_splits=_trajectory_splits(template=(1, 1, 0)),
+            chunking=_CHUNKING,
+            tokenizer=CharacterOffsetTokenizer(),
+        )
+        assert len(benchmark.rankings) == 1
+        assert summary["queries_selected"] == 1
+        assert summary["natural_queries_selected"] == 1
+        assert summary["template_queries_selected"] == 0
+
+
 def test_mixed_preparation_retains_natural_queries_and_keeps_test_natural_only(
     tmp_path: Path,
 ) -> None:

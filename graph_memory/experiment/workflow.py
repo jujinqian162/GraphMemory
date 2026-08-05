@@ -462,7 +462,7 @@ def _prepare_config(
     return PrepareSplitConfig(
         dataset=config.dataset.name,
         split=split,
-        count=None if config.dataset.name == "isetrace" else split_config.count,
+        count=split_config.count,
         offset=split_config.offset,
         seed=sampling_seed,
         strict_invalid_examples=config.dataset.strict_invalid_examples,
