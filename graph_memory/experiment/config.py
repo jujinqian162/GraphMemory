@@ -24,7 +24,7 @@ from graph_memory.models.dense_finetune.training import (
 from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
 from graph_memory.training_pairs.config import NegativeSamplingConfig
-from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
 

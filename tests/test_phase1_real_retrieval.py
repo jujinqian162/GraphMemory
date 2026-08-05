@@ -12,12 +12,6 @@ from graph_memory.experiment.config import (
     GraphRAGMethodConfig,
     MethodConfig,
 )
-from graph_memory.registry.retrieval_builders import build_retrieval
-from graph_memory.registry.retrieval import (
-    DenseEncoderSettings,
-    FlatRetrievalBuildPayload,
-    GraphRAGRetrievalSettings,
-)
 from graph_memory.stages.retrieve import run_retrieve_stage
 
 
@@ -135,16 +129,3 @@ def test_retrieve_stage_runs_without_evidence_graph_artifact(
     assert provenance.method.value == expected_method
     assert len(predictions[0].ranked_nodes) == 3
     assert len(predictions[0].retrieved_subgraph.nodes) == 2
-
-
-def test_graphrag_builder_rejects_flat_payload() -> None:
-    settings = GraphRAGRetrievalSettings(
-        encoder=DenseEncoderSettings("keyword-encoder", "", "", 8),
-        device="cpu",
-    )
-
-    with pytest.raises(TypeError, match="GraphRAGBuildPayload"):
-        build_retrieval(
-            settings,
-            FlatRetrievalBuildPayload(text_requests=[]),
-        )

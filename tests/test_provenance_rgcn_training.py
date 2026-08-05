@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from graph_memory.experiment.config import ProvenanceRgcnMethodConfig
 from graph_memory.models.graph_retriever.checkpoint import (
     load_rgcn_checkpoint,
     save_rgcn_checkpoint,
@@ -9,10 +10,6 @@ from graph_memory.models.graph_retriever.checkpoint import (
 from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.registry.retrieval_builders import build_retrieval
-from graph_memory.registry.retrieval import (
-    ProvenanceRgcnBuildPayload,
-    ProvenanceRgcnRetrievalSettings,
-)
 from graph_memory.models.graph_retriever.provenance import (
     provenance_train_pair_task,
     provenance_training_label,
@@ -277,21 +274,27 @@ def test_tiny_mixed_provenance_training_uses_natural_dev_selection(
         query_text=dev_request.query_text,
         candidates=dev_request.candidates,
     )
-    settings = ProvenanceRgcnRetrievalSettings(
-        checkpoint=checkpoint_path,
-        device="cpu",
+    method_config = ProvenanceRgcnMethodConfig.model_construct(
+        method="provenance_rgcn",
+        variant="full_rgcn",
     )
-    payload = ProvenanceRgcnBuildPayload(
+    first_method, _first_provenance, first_requests = build_retrieval(
+        method_config,
         text_requests=[text_request],
         provenance_graphs=[graph],
         graph_ids_by_task_id={dev_request.task_id: graph.graph_id},
+        checkpoint=checkpoint_path,
         text_embedding_provider=DeterministicEmbeddingProvider(),
-    )
-    first_method, _first_provenance, first_requests = build_retrieval(
-        settings, payload
+        device="cpu",
     )
     second_method, _second_provenance, second_requests = build_retrieval(
-        settings, payload
+        method_config,
+        text_requests=[text_request],
+        provenance_graphs=[graph],
+        graph_ids_by_task_id={dev_request.task_id: graph.graph_id},
+        checkpoint=checkpoint_path,
+        text_embedding_provider=DeterministicEmbeddingProvider(),
+        device="cpu",
     )
     first_results = run_retrieval(
         retrieval_method=first_method,

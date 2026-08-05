@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal, get_args
 
 from graph_memory.experiment.config import ClosedModel, EvidenceRgcnVariant
-from graph_memory.registry.retrieval import RetrievalMethodId
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
 
 InspectionKind = Literal[
     "methods",

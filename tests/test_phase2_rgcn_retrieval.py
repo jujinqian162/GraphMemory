@@ -11,17 +11,17 @@ from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.registry.retrieval import (
-    EvidenceRgcnBuildPayload,
-    EvidenceRgcnRetrievalSettings,
-    RetrievalMethodId,
+from graph_memory.experiment.config import (
+    DenseFtRgcnMethodConfig,
+    RgcnMethodConfig,
 )
 from graph_memory.models.graph_retriever.inference import (
     CheckpointGraphRetrieverLoader,
 )
+from graph_memory.retrieval.methods.ids import RetrievalMethodId
+from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.requests import EvidenceGraphRankingRequest
-from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from tests.rgcn_fixtures import (
     FakeRetriever,
     FakeTextEmbeddingProvider,
@@ -65,18 +65,46 @@ def run_retrieval(
         raise ValueError(f"Unsupported test method: {method}")
     if checkpoint_path is None:
         raise ValueError("checkpoint_path is required")
-    settings = EvidenceRgcnRetrievalSettings(
-        checkpoint=Path(checkpoint_path),
-        device=device,
-    )
     retrieval_method, _provenance, execution_requests = build_retrieval(
-        settings,
-        EvidenceRgcnBuildPayload(
-            text_requests=_ranking_requests(task_inputs),
-            evidence_graphs=graphs,
-            text_embedding_provider=text_embedding_provider,
-            seed_signal_provider=seed_signal_provider,
+        RgcnMethodConfig.model_validate(
+            {
+                "method": "dense_rgcn_graph_retriever",
+                "variant": "full_rgcn",
+                "encoder": {
+                    "model_name": "fake-encoder",
+                    "query_prefix": "query: ",
+                    "passage_prefix": "passage: ",
+                    "batch_size": 64,
+                },
+                "pairs": {
+                    "random_seed": 13,
+                    "easy_random_per_positive": 1,
+                    "hard_bm25_per_positive": 1,
+                    "hard_dense_per_positive": 0,
+                    "hard_graph_neighbor_per_positive": 1,
+                    "hard_pool_size": 10,
+                },
+                "train": {
+                    "model": {
+                        "hidden_dim": 8,
+                        "num_layers": 1,
+                        "dropout": 0.0,
+                        "ablation": "full_rgcn",
+                    },
+                    "trainer": {**tiny_training_config().model_dump(), "device": device},
+                    "selection": {
+                        "best_metric": "dev_composite",
+                        "higher_is_better": True,
+                    },
+                },
+            }
         ),
+        text_requests=_ranking_requests(task_inputs),
+        checkpoint=Path(checkpoint_path),
+        evidence_graphs=graphs,
+        text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
+        device=device,
     )
     return execute_retrieval(
         retrieval_method=retrieval_method,
@@ -108,13 +136,13 @@ def write_tiny_checkpoint(
     )
 
 
-def fake_checkpoint_providers(settings, payload):
+def fake_checkpoint_providers(checkpoint_path, method_id, **kwargs):
     return (
         FakeTextEmbeddingProvider(),
         RetrieverSeedSignalProvider(FakeRetriever()),
         load_rgcn_checkpoint(
-            settings.checkpoint,
-            expected_method=settings.method.value,
+            checkpoint_path,
+            expected_method=method_id.value,
             map_location="cpu",
         ),
     )
@@ -281,17 +309,16 @@ def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
     )
 
     retrieval_method, provenance, _requests = build_retrieval(
-        EvidenceRgcnRetrievalSettings(
-            checkpoint=checkpoint_path,
-            device="cpu",
-            method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+        DenseFtRgcnMethodConfig.model_construct(
+            method="dense_ft_rgcn_graph_retriever",
+            variant="full_rgcn",
         ),
-        EvidenceRgcnBuildPayload(
-            text_requests=_ranking_requests(tiny_task_inputs()),
-            evidence_graphs=tiny_graphs(),
-            text_embedding_provider=FakeTextEmbeddingProvider(),
-            seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
-        ),
+        text_requests=_ranking_requests(tiny_task_inputs()),
+        checkpoint=checkpoint_path,
+        evidence_graphs=tiny_graphs(),
+        text_embedding_provider=FakeTextEmbeddingProvider(),
+        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
+        device="cpu",
     )
 
     assert retrieval_method.name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value

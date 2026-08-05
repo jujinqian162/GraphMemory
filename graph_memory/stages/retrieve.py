@@ -28,39 +28,20 @@ from graph_memory.experiment.artifacts import (
     artifact_payload_path,
 )
 from graph_memory.experiment.config import (
-    Bm25MethodConfig,
     DatasetName,
-    DenseEncoderConfig,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
-    DenseMethodConfig,
-    GraphRAGMethodConfig,
     MethodConfig,
     ProvenancePathMethodConfig,
     ProvenanceRgcnMethodConfig,
     RgcnMethodConfig,
 )
 from graph_memory.io import read_json, write_json
-from graph_memory.registry.retrieval_builders import build_retrieval
-from graph_memory.registry.retrieval import (
-    Bm25RetrievalSettings,
-    DenseEncoderSettings,
-    DenseFinetunedRetrievalSettings,
-    DenseRetrievalSettings,
-    EvidenceRgcnBuildPayload,
-    EvidenceRgcnRetrievalSettings,
-    FlatRetrievalBuildPayload,
-    GraphRAGBuildPayload,
-    GraphRAGRetrievalSettings,
-    ProvenancePathBuildPayload,
-    ProvenancePathRetrievalSettings,
-    ProvenanceRgcnBuildPayload,
-    ProvenanceRgcnRetrievalSettings,
-    RetrievalMethodId,
+from graph_memory.registry.retrieval_builders import (
     RetrievalProvenance,
+    build_retrieval,
 )
 from graph_memory.retrieval.execution.service import run_retrieval
-from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.stages.results import RankingResult
 
 
@@ -95,24 +76,22 @@ def run_retrieve_stage(
             else "flat"
         ),
     )
-    settings = _retrieval_settings(
-        method,
-        top_k=top_k,
-        model=model,
-        encoder_source=encoder_source,
-        device=device,
-    )
+    graph_ids_by_task_id = None
+    if isinstance(method, (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig)):
+        records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
+        graph_ids_by_task_id = {
+            record.task_id: record.graph_id for record in records
+        }
     retrieval_method, retrieval_provenance, execution_requests = build_retrieval(
-        settings,
-        _build_payload(
-            method,
-            dataset=dataset,
-            text_requests=text_requests,
-            evidence_graphs=evidence_graphs or [],
-            provenance_graphs=provenance_graphs or [],
-            task_inputs=task_inputs,
-            dense_encoder=dense_encoder,
-        ),
+        method,
+        text_requests=text_requests,
+        device=device,
+        encoder_model_name=_encoder_model_name(encoder_source),
+        checkpoint=_model_checkpoint(method, model),
+        evidence_graphs=evidence_graphs,
+        provenance_graphs=provenance_graphs,
+        graph_ids_by_task_id=graph_ids_by_task_id,
+        dense_encoder=dense_encoder,
     )
     predictions = run_retrieval(
         retrieval_method=retrieval_method,
@@ -210,127 +189,30 @@ def materialize_rankings(
     )
 
 
-def _build_payload(
+def _model_checkpoint(
     method: MethodConfig,
-    *,
-    dataset: DatasetName,
-    text_requests: list[TextRankingRequest],
-    evidence_graphs: list[EvidenceGraph],
-    provenance_graphs: list[ProvenanceGraph],
-    task_inputs: Sequence[object],
-    dense_encoder: SentenceEncoder | None,
-) -> object:
-    if isinstance(method, (Bm25MethodConfig, DenseMethodConfig)) or (
-        isinstance(method, DenseFinetuneMethodConfig)
-    ):
-        return FlatRetrievalBuildPayload(
-            text_requests=text_requests,
-            dense_encoder=dense_encoder,
-        )
-    if isinstance(method, GraphRAGMethodConfig):
-        return GraphRAGBuildPayload(
-            text_requests=text_requests,
-            dense_encoder=dense_encoder,
-        )
-    if isinstance(method, ProvenancePathMethodConfig):
-        records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
-        return ProvenancePathBuildPayload(
-            text_requests=text_requests,
-            provenance_graphs=provenance_graphs,
-            graph_ids_by_task_id={
-                record.task_id: record.graph_id for record in records
-            },
-            dense_encoder=dense_encoder,
-        )
-    if isinstance(method, ProvenanceRgcnMethodConfig):
-        records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
-        return ProvenanceRgcnBuildPayload(
-            text_requests=text_requests,
-            provenance_graphs=provenance_graphs,
-            graph_ids_by_task_id={
-                record.task_id: record.graph_id for record in records
-            },
-            dense_encoder=dense_encoder,
-        )
-    if isinstance(method, (RgcnMethodConfig, DenseFtRgcnMethodConfig)):
-        return EvidenceRgcnBuildPayload(
-            text_requests=text_requests,
-            evidence_graphs=evidence_graphs,
-            dense_encoder=dense_encoder,
-        )
-    raise TypeError(f"unsupported method config={type(method).__name__}")
-
-
-def _retrieval_settings(
-    method: MethodConfig,
-    *,
-    top_k: int,
     model: ModelArtifactRef | None,
-    encoder_source: EncoderSourceRef | None,
-    device: str,
-):
-    if isinstance(method, Bm25MethodConfig):
-        return Bm25RetrievalSettings()
-    if isinstance(method, DenseMethodConfig):
-        return DenseRetrievalSettings(
-            encoder=_encoder_settings(method.encoder, encoder_source),
-            device=device,
-        )
-    if isinstance(method, GraphRAGMethodConfig):
-        return GraphRAGRetrievalSettings(
-            encoder=_encoder_settings(method.encoder, encoder_source),
-            config=method,
-            device=device,
-        )
-    if isinstance(method, ProvenancePathMethodConfig):
-        return ProvenancePathRetrievalSettings(
-            encoder=_encoder_settings(method.encoder, encoder_source),
-            config=method.retrieval_config(),
-            device=device,
-        )
+) -> Path | None:
     if isinstance(method, DenseFinetuneMethodConfig):
-        return DenseFinetunedRetrievalSettings(
-            checkpoint=_model_payload(model, "model"),
-            device=device,
-        )
-    if isinstance(method, ProvenanceRgcnMethodConfig):
-        return ProvenanceRgcnRetrievalSettings(
-            checkpoint=_model_payload(model, "checkpoint"),
-            device=device,
-        )
-    if isinstance(method, RgcnMethodConfig):
-        return EvidenceRgcnRetrievalSettings(
-            checkpoint=_model_payload(model, "checkpoint"),
-            device=device,
-        )
-    if isinstance(method, DenseFtRgcnMethodConfig):
-        return EvidenceRgcnRetrievalSettings(
-            method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
-            checkpoint=_model_payload(model, "checkpoint"),
-            device=device,
-        )
-    raise TypeError(f"unsupported method config={type(method).__name__}")
+        return _model_payload(model, "model")
+    if isinstance(
+        method,
+        (ProvenanceRgcnMethodConfig, RgcnMethodConfig, DenseFtRgcnMethodConfig),
+    ):
+        return _model_payload(model, "checkpoint")
+    return None
+
+
+def _encoder_model_name(source: EncoderSourceRef | None) -> str | None:
+    if isinstance(source, (FileSourceRef, DirectorySourceRef)):
+        return source.uri
+    return None
 
 
 def _model_payload(model: ModelArtifactRef | None, role: str) -> Path:
     if model is None:
         raise ValueError(f"trainable retrieval requires model payload role={role}")
     return artifact_payload_path(model, role)
-
-
-def _encoder_settings(
-    config: DenseEncoderConfig,
-    source: EncoderSourceRef | None,
-) -> DenseEncoderSettings:
-    model_name = config.model_name
-    if isinstance(source, (FileSourceRef, DirectorySourceRef)):
-        model_name = source.uri
-    return DenseEncoderSettings(
-        model_name=model_name,
-        query_prefix=config.query_prefix,
-        passage_prefix=config.passage_prefix,
-        batch_size=config.batch_size,
-    )
 
 
 def _provenance_json(provenance: RetrievalProvenance) -> dict[str, JsonValue]:

@@ -22,7 +22,7 @@
 - [x] 3.3 Delete `RetrievalExecutionTask`; pass each concrete request directly to the retrieval loop and keep task/candidate checks at assembly/persistence boundaries.
 - [x] 3.4 Delete `ScorePipelineMethod`; make BM25 and Dense concrete rank functions/methods return the existing retrieval result directly while preserving Dense batch encoding.
 - [x] 3.5 Remove the thin evidence `TrainableGraphRetrievalMethod` adapter by making `GraphRetrieverInference` implement the retrieval protocol directly; retain the provenance-specific tensorization adapter.
-- [x] 3.6 Remove retrieval registry/spec exports and rewrite implementation-shape tests around all eight methods' ranking behavior and provenance metadata; retain temporary settings/payload inputs until stage dispatch is inlined.
+- [x] 3.6 Remove retrieval registry/spec/settings/payload exports and rewrite implementation-shape tests around all eight methods' ranking behavior and provenance metadata; direct `MethodConfig` dispatch now owns construction inputs.
 - [x] 3.7 Run retrieval, graph inference, evaluation, config-composition, and full tests; record Tranche 2 net deletion.
 
 ## 4. Tranche 3 - Flatten Training and Configuration Projections

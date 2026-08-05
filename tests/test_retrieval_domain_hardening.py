@@ -4,12 +4,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from graph_memory.experiment.config import DenseEncoderConfig, GraphRAGMethodConfig
 from graph_memory.registry.retrieval_builders import build_retrieval
-from graph_memory.registry.retrieval import (
-    DenseEncoderSettings,
-    GraphRAGBuildPayload,
-    GraphRAGRetrievalSettings,
-)
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.graphrag.index import build_graphrag_request
 from graph_memory.retrieval.requests import (
@@ -98,13 +94,24 @@ def test_graphrag_builder_assembles_deterministic_noun_cooccurrence_graph() -> N
 def test_graphrag_preserves_query_and_passage_prefixes() -> None:
     encoder = RecordingEncoder()
     retrieval_method, _provenance, execution_requests = build_retrieval(
-        GraphRAGRetrievalSettings(
-            encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),
-            device="cpu",
+        GraphRAGMethodConfig(
+            method="graphrag",
+            encoder=DenseEncoderConfig(
+                model_name="recording",
+                query_prefix="Q::",
+                passage_prefix="P::",
+                batch_size=7,
+            ),
+            text_unit_size=48,
+            text_unit_overlap=8,
+            min_node_frequency=1,
+            min_edge_weight_percentile=0.0,
+            remove_ego_node=False,
+            seed_top_s=5,
         ),
-        GraphRAGBuildPayload(
-            text_requests=[_graphrag_text_request()], dense_encoder=encoder
-        ),
+        text_requests=[_graphrag_text_request()],
+        dense_encoder=encoder,
+        device="cpu",
     )
     retrieval_method.rank_task(execution_requests[0], top_k=2)
 

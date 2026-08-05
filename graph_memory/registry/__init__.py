@@ -1,1 +1,1 @@
-"""Static retrieval settings and construction helpers."""
+"""Closed static retrieval construction."""
