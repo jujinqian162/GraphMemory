@@ -8,11 +8,10 @@ from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.compat import StrEnum
-from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
 
 if TYPE_CHECKING:
     from graph_memory.embeddings import SentenceEncoder
@@ -129,7 +128,7 @@ class RetrievalProvenance:
 class BuiltRetrievalMethod:
     method: "RetrievalMethod"
     provenance: RetrievalProvenance
-    execution_tasks: list[RetrievalExecutionTask]
+    execution_requests: list[RankingMethodRequest]
 
 
 @dataclass(frozen=True)
@@ -217,8 +216,8 @@ class RetrievalRegistry:
         _require_payload(payload, spec.payload_type, method=settings.method.value)
         built = spec.build(settings, payload)
         family = _payload_family(payload)
-        for task in built.execution_tasks:
-            self.validate_request(settings.method, task.method_request, family)
+        for request in built.execution_requests:
+            self.validate_request(settings.method, request, family)
         return built
 
 

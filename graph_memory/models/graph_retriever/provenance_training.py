@@ -204,7 +204,7 @@ def _predict_provenance_dev_from_batches(
                 )
     predictions = [
         assemble_ranked_result(
-            text_request=_as_text_request(request),
+            request=request,
             method=RetrievalMethodId.PROVENANCE_RGCN,
             ranked_nodes=sorted(
                 scores_by_task_id[request.task_id],

@@ -107,7 +107,7 @@ def test_graphrag_preserves_query_and_passage_prefixes() -> None:
             text_requests=[_graphrag_text_request()], dense_encoder=encoder
         ),
     )
-    built.method.rank_task(built.execution_tasks[0].method_request, top_k=2)
+    built.method.rank_task(built.execution_requests[0], top_k=2)
 
     assert encoder.calls
     assert all(

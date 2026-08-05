@@ -3,7 +3,7 @@ from __future__ import annotations
 from graph_memory.graphs.contracts import GraphEdge
 from graph_memory.retrieval.contracts import NativeRetrievalTrace, RankedNode
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
-from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
+from graph_memory.retrieval.requests import RankingMethodRequest, TextCandidate
 from graph_memory.retrieval.results import (
     RankedNodeRecord,
     RankedResult,
@@ -15,7 +15,7 @@ from graph_memory.text.tokens import content_tokens
 
 def assemble_ranked_result(
     *,
-    text_request: TextRankingRequest,
+    request: RankingMethodRequest,
     method: str,
     ranked_nodes: list[RankedNode] | tuple[RankedNode, ...],
     top_k: int,
@@ -27,11 +27,11 @@ def assemble_ranked_result(
         ranked_node.node_id for ranked_node in ranked_nodes[:top_k]
     )
     candidate_by_id = {
-        candidate.item_id: candidate for candidate in text_request.candidates
+        candidate.item_id: candidate for candidate in request.candidates
     }
     ranked_node_ids = tuple(item.node_id for item in ranked_nodes)
     observed = set(ranked_node_ids)
-    valid = text_request.candidate_ids
+    valid = frozenset(candidate_by_id)
     if observed != valid or len(ranked_node_ids) != len(valid):
         missing = sorted(valid - observed)
         extra = sorted(observed - valid)
@@ -43,7 +43,7 @@ def assemble_ranked_result(
         native_trace.validate_candidate_context(valid)
 
     return RankedResult(
-        task_id=text_request.task_id,
+        task_id=request.task_id,
         method=RetrievalMethodId(method),
         ranked_nodes=tuple(
             RankedNodeRecord(
@@ -59,7 +59,7 @@ def assemble_ranked_result(
             edges=tuple(retrieved_edges),
         ),
         latency_ms=latency_ms,
-        input_tokens=_approx_input_tokens(text_request),
+        input_tokens=_approx_input_tokens(request),
         metadata=(
             RankedResultMetadata(native_trace=native_trace)
             if native_trace is not None
@@ -75,11 +75,11 @@ def _candidate_token_count(candidate: TextCandidate) -> int:
     return len(content_tokens(candidate.text))
 
 
-def _approx_input_tokens(text_request: TextRankingRequest) -> int:
-    query_tokens = content_tokens(text_request.query_text)
+def _approx_input_tokens(request: RankingMethodRequest) -> int:
+    query_tokens = content_tokens(request.query_text)
     memory_tokens = [
         token
-        for candidate in text_request.candidates
+        for candidate in request.candidates
         for token in content_tokens(candidate.text)
     ]
     return len(query_tokens) + len(memory_tokens)

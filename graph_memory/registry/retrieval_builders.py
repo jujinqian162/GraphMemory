@@ -30,7 +30,6 @@ from graph_memory.registry.retrieval import (
     SeedRetrievalSettings,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod
-from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
 from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
@@ -45,6 +44,7 @@ from graph_memory.retrieval.requests import (
     GraphRAGKnowledgeGraph,
     ProvenancePathRequest,
     ProvenanceRgcnRequest,
+    RankingMethodRequest,
     TextRankingRequest,
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
@@ -152,7 +152,7 @@ def _build_bm25(
     return _built(
         ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever()),
         method=settings.method,
-        execution_tasks=_text_execution_tasks(build_payload.text_requests),
+        execution_requests=_text_requests(build_payload.text_requests),
     )
 
 
@@ -179,7 +179,7 @@ def _build_dense(
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,
-        execution_tasks=_text_execution_tasks(build_payload.text_requests),
+        execution_requests=_text_requests(build_payload.text_requests),
     )
 
 
@@ -230,7 +230,7 @@ def _build_dense_ft(
             passage_prefix=metadata.passage_prefix,
             batch_size=metadata.batch_size,
         ),
-        execution_tasks=_text_execution_tasks(build_payload.text_requests),
+        execution_requests=_text_requests(build_payload.text_requests),
     )
 
 
@@ -243,7 +243,7 @@ def _build_graphrag(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
     graph_by_candidate_ids: dict[tuple[str, ...], GraphRAGKnowledgeGraph] = {}
-    execution_tasks: list[RetrievalExecutionTask] = []
+    execution_requests: list[RankingMethodRequest] = []
     for request in build_payload.text_requests:
         candidate_ids = tuple(candidate.item_id for candidate in request.candidates)
         graph = graph_by_candidate_ids.get(candidate_ids)
@@ -253,14 +253,11 @@ def _build_graphrag(
                 config=settings.config,
             )
             graph_by_candidate_ids[candidate_ids] = graph
-        execution_tasks.append(
-            RetrievalExecutionTask(
-                text_request=request,
-                method_request=build_graphrag_request(
-                    request,
-                    settings.config,
-                    knowledge_graph=graph,
-                ),
+        execution_requests.append(
+            build_graphrag_request(
+                request,
+                settings.config,
+                knowledge_graph=graph,
             )
         )
     return _built(
@@ -271,7 +268,7 @@ def _build_graphrag(
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,
-        execution_tasks=execution_tasks,
+        execution_requests=execution_requests,
     )
 
 
@@ -293,7 +290,7 @@ def _build_provenance_path(
     request_ids = {request.task_id for request in build_payload.text_requests}
     if set(build_payload.graph_ids_by_task_id) != request_ids:
         raise ValueError("provenance path task-to-graph bindings must cover requests")
-    execution_tasks: list[RetrievalExecutionTask] = []
+    execution_requests: list[RankingMethodRequest] = []
     for request in build_payload.text_requests:
         graph_id = build_payload.graph_ids_by_task_id[request.task_id]
         try:
@@ -303,15 +300,12 @@ def _build_provenance_path(
                 f"provenance path task={request.task_id} references "
                 f"missing graph={graph_id}"
             ) from error
-        execution_tasks.append(
-            RetrievalExecutionTask(
-                text_request=request,
-                method_request=ProvenancePathRequest(
-                    task_id=request.task_id,
-                    query_text=request.query_text,
-                    candidates=request.candidates,
-                    graph=graph,
-                ),
+        execution_requests.append(
+            ProvenancePathRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+                graph=graph,
             )
         )
     return _built(
@@ -322,7 +316,7 @@ def _build_provenance_path(
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,
-        execution_tasks=execution_tasks,
+        execution_requests=execution_requests,
     )
 
 
@@ -365,7 +359,7 @@ def _build_provenance_rgcn(
     request_ids = {request.task_id for request in build_payload.text_requests}
     if set(build_payload.graph_ids_by_task_id) != request_ids:
         raise ValueError("provenance R-GCN task-to-graph bindings must cover requests")
-    execution_tasks: list[RetrievalExecutionTask] = []
+    execution_requests: list[RankingMethodRequest] = []
     for request in build_payload.text_requests:
         graph_id = build_payload.graph_ids_by_task_id[request.task_id]
         try:
@@ -375,15 +369,12 @@ def _build_provenance_rgcn(
                 f"provenance R-GCN task={request.task_id} references "
                 f"missing graph={graph_id}"
             ) from error
-        execution_tasks.append(
-            RetrievalExecutionTask(
-                text_request=request,
-                method_request=ProvenanceRgcnRequest(
-                    task_id=request.task_id,
-                    query_text=request.query_text,
-                    candidates=request.candidates,
-                    graph=graph,
-                ),
+        execution_requests.append(
+            ProvenanceRgcnRequest(
+                task_id=request.task_id,
+                query_text=request.query_text,
+                candidates=request.candidates,
+                graph=graph,
             )
         )
     return _built(
@@ -397,7 +388,7 @@ def _build_provenance_rgcn(
             passage_prefix=checkpoint.model_config.passage_prefix,
             batch_size=checkpoint.model_config.encoder_batch_size,
         ),
-        execution_tasks=execution_tasks,
+        execution_requests=execution_requests,
     )
 
 
@@ -432,7 +423,7 @@ def _build_evidence_rgcn(
             passage_prefix=checkpoint.model_config.passage_prefix,
             batch_size=checkpoint.model_config.encoder_batch_size,
         ),
-        execution_tasks=_evidence_execution_tasks(
+        execution_requests=_evidence_requests(
             build_payload.text_requests,
             graph_index,
             _initial_scores_from_seed_signal_provider(seed_signal_provider),
@@ -550,7 +541,7 @@ def _built(
     retrieval_method: RetrievalMethod,
     *,
     method: RetrievalMethodId,
-    execution_tasks: list[RetrievalExecutionTask],
+    execution_requests: list[RankingMethodRequest],
     model: Path | None = None,
     device: str | None = None,
     encoder: DenseEncoderSettings | None = None,
@@ -563,25 +554,22 @@ def _built(
             device=device,
             encoder=encoder,
         ),
-        execution_tasks=execution_tasks,
+        execution_requests=execution_requests,
     )
 
 
-def _text_execution_tasks(
+def _text_requests(
     text_requests: list[TextRankingRequest],
-) -> list[RetrievalExecutionTask]:
-    return [
-        RetrievalExecutionTask(text_request=request, method_request=request)
-        for request in text_requests
-    ]
+) -> list[RankingMethodRequest]:
+    return list(text_requests)
 
 
-def _evidence_execution_tasks(
+def _evidence_requests(
     text_requests: list[TextRankingRequest],
     graph_index: GraphIndex,
     initial_scores_for_request: Callable[[TextRankingRequest], dict[str, float]],
-) -> list[RetrievalExecutionTask]:
-    tasks: list[RetrievalExecutionTask] = []
+) -> list[RankingMethodRequest]:
+    requests: list[RankingMethodRequest] = []
     for request in text_requests:
         evidence_request = EvidenceGraphRankingRequest(
             task_id=request.task_id,
@@ -590,13 +578,8 @@ def _evidence_execution_tasks(
             graph=graph_index.get_required(request.task_id),
             initial_scores=initial_scores_for_request(request),
         )
-        tasks.append(
-            RetrievalExecutionTask(
-                text_request=request,
-                method_request=evidence_request,
-            )
-        )
-    return tasks
+        requests.append(evidence_request)
+    return requests
 
 
 def _initial_scores_from_seed_signal_provider(

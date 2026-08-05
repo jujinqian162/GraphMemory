@@ -121,7 +121,7 @@ def run_retrieve_stage(
     )
     predictions = run_retrieval(
         retrieval_method=built.method,
-        tasks=built.execution_tasks,
+        requests=built.execution_requests,
         top_k=top_k,
     )
     return RetrieveStageResult(predictions=predictions, provenance=built.provenance)

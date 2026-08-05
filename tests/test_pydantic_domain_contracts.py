@@ -14,7 +14,6 @@ from graph_memory.contracts.model import (
 )
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.retrieval.contracts import RetrievalMethodResult
-from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
@@ -102,13 +101,7 @@ def test_invalid_first_result_stops_retrieval_before_second_task() -> None:
     with pytest.raises(ValueError, match="include every candidate"):
         run_retrieval(
             retrieval_method=method,
-            tasks=[
-                RetrievalExecutionTask(
-                    text_request=request,
-                    method_request=request,
-                )
-                for request in requests
-            ],
+            requests=list(requests),
             top_k=1,
         )
 

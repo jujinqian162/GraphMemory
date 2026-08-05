@@ -294,12 +294,12 @@ def test_tiny_mixed_provenance_training_uses_natural_dev_selection(
     second = Registry.retrieval.build(settings, payload)
     first_results = run_retrieval(
         retrieval_method=first.method,
-        tasks=first.execution_tasks,
+        requests=first.execution_requests,
         top_k=3,
     )
     second_results = run_retrieval(
         retrieval_method=second.method,
-        tasks=second.execution_tasks,
+        requests=second.execution_requests,
         top_k=3,
     )
 

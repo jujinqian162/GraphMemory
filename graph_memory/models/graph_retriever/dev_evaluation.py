@@ -107,7 +107,7 @@ def predict_dev_from_batches(
         )
         retrieved_edges = induced_edges(visible_graph, top_node_ids)
         prediction = assemble_ranked_result(
-            text_request=request,
+            request=request,
             method=model_config.method_name,
             ranked_nodes=ranked_nodes,
             top_k=10,
