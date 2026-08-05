@@ -17,25 +17,25 @@
 
 ## 3. Tranche 2 - Replace Retrieval Framework with Direct Dispatch
 
-- [ ] 3.1 Move concrete construction logic for BM25, Dense, Dense-FT, GraphRAG, provenance path, provenance R-GCN, and both evidence R-GCN methods behind one explicit retrieval-stage dispatch.
+- [x] 3.1 Move concrete construction logic for BM25, Dense, Dense-FT, GraphRAG, provenance path, provenance R-GCN, and both evidence R-GCN methods behind one explicit static dispatch in `build_retrieval`.
 - [x] 3.2 Delete `RetrievalRegistry`, `RetrievalBuilderSpec`, settings-to-payload maps, and builder registration tables without introducing a replacement registry or plan.
 - [x] 3.3 Delete `RetrievalExecutionTask`; pass each concrete request directly to the retrieval loop and keep task/candidate checks at assembly/persistence boundaries.
 - [x] 3.4 Delete `ScorePipelineMethod`; make BM25 and Dense concrete rank functions/methods return the existing retrieval result directly while preserving Dense batch encoding.
 - [ ] 3.5 Remove thin evidence trainable-graph adapters where direct `GraphRetrieverInference` calls preserve behavior; retain the provenance-specific tensorization adapter.
-- [ ] 3.6 Remove registry/settings/payload exports and rewrite implementation-shape tests around all eight methods' ranking behavior and provenance metadata.
-- [ ] 3.7 Run retrieval, graph inference, evaluation, config-composition, and full tests; record Tranche 2 net deletion.
+- [x] 3.6 Remove retrieval registry/spec exports and rewrite implementation-shape tests around all eight methods' ranking behavior and provenance metadata; retain temporary settings/payload inputs until stage dispatch is inlined.
+- [x] 3.7 Run retrieval, graph inference, evaluation, config-composition, and full tests; record Tranche 2 net deletion.
 
 ## 4. Tranche 3 - Flatten Training and Configuration Projections
 
 - [x] 4.1 Make model materializers call concrete Dense-FT, evidence R-GCN, and provenance R-GCN training functions directly.
 - [x] 4.2 Delete `stages/train_payloads.py`, `stages/trainers.py`, trainer protocols, train dependency carriers, single-implementation stage trainer wrappers, and unused public training injection hooks that only forward arguments.
-- [ ] 4.3 Inline graph scoring model construction and delete `GraphScoringModelFactory` while preserving checkpoint model configuration and inference loading.
+- [x] 4.3 Inline graph scoring factory construction and delete `GraphScoringModelFactory` while preserving `build_model_from_config`, checkpoint model configuration, and inference loading.
 - [x] 4.4 Replace negative-sampler protocol/context/factory dispatch with direct calls to the existing four sampling algorithms inside pair construction.
 - [x] 4.5 Remove train-stage and ranking config projections that only copy method fields; concrete stage algorithms consume the parsed method configuration or its existing effective R-GCN subsection directly.
 - [x] 4.6 Fix one-valued protocol choices at their concrete boundary, including the current AdamW/no-scheduler behavior, without changing numerical results.
 - [x] 4.7 Reduce checkpoints to inference-required model state plus model/training provenance; invalidate the historical internal checkpoint schema as version 4.
-- [ ] 4.8 Rewrite payload/factory/config-shape tests as Dense-FT and both graph-family training, selection, checkpoint-load, and seeded-R-GCN behavior tests.
-- [ ] 4.9 Run training-pair, Dense-FT, R-GCN, config-composition, checkpoint, and full tests; record Tranche 3 net deletion.
+- [x] 4.8 Rewrite payload/factory/config-shape tests as Dense-FT and both graph-family training, selection, checkpoint-load, and seeded-R-GCN behavior tests.
+- [x] 4.9 Run training-pair, Dense-FT, R-GCN, config-composition, checkpoint, and full tests; record Tranche 3 net deletion.
 
 ## 5. Tranche 4 - Express Experiment Orchestration Once
 
