@@ -2,7 +2,7 @@
 
 - [x] 1.1 Record the baseline full-test result, production/test line counts, and module counts for experiment, stages, registry, retrieval, models, training pairs, and evaluation.
 - [x] 1.2 Inventory every production and test caller of result envelopes/batches, execution tasks, retrieval registries/builders, training payloads/trainers, model factories, sampler protocols, and config projection helpers.
-- [ ] 1.3 Record representative prepared-data, model metadata/checkpoint, ranking, metric, per-task, manifest, cache, and tracking shapes currently protected by tests.
+- [x] 1.3 Record representative shapes in behavior tests for prepared payload roles/counts, strict model metadata/checkpoints, ranked predictions/provenance, metrics/per-task/failures, manifests, content-based cache keys, and MLflow tags/metrics/assets.
 - [x] 1.4 Add or identify behavior tests for all eight methods and both graph domains before deleting implementation-shape tests.
 - [x] 1.5 Establish a per-tranche net-line-count check and require every completed tranche to reduce production plus test code after replacements.
 
