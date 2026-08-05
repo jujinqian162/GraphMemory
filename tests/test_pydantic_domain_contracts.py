@@ -99,7 +99,7 @@ def test_invalid_first_result_stops_retrieval_before_second_task() -> None:
     )
     method = _InvalidFirstMethod()
 
-    with pytest.raises(ValidationError, match="include every candidate"):
+    with pytest.raises(ValueError, match="include every candidate"):
         run_retrieval(
             retrieval_method=method,
             tasks=[

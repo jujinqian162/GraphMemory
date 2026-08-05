@@ -22,7 +22,6 @@ from graph_memory.registry.retrieval import (
 from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
-from graph_memory.retrieval.results import RankedResultBatch
 from tests.rgcn_fixtures import (
     FakeRetriever,
     FakeTextEmbeddingProvider,
@@ -263,10 +262,6 @@ def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
     )
 
-    RankedResultBatch(
-        results=tuple(predictions),
-        requests=tuple(_ranking_requests(tiny_task_inputs())),
-    )
     assert predictions[0].method == "dense_rgcn_graph_retriever"
     assert predictions[0].retrieved_subgraph.nodes == tuple(
         ranked_node.node_id for ranked_node in predictions[0].ranked_nodes[:2]

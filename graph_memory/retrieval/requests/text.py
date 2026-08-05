@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from pydantic import model_validator
 
 from graph_memory.contracts.model import DomainModel, NonEmptyStr
 from graph_memory.trajectories import SourceSpan
-
-if TYPE_CHECKING:
-    from graph_memory.embeddings.contracts import SentenceEncoder
 
 JsonScalar = str | int | float | bool | None
 
@@ -52,17 +48,8 @@ class TextRankingRequest(DomainModel):
         return frozenset(candidate.item_id for candidate in self.candidates)
 
 
-@dataclass(frozen=True)
-class DenseRuntime:
-    """Opaque runtime dependency bundle, not a persisted artifact contract."""
-
-    config: DenseConfigLike
-    encoder: SentenceEncoder | None = None
-
-
 __all__ = [
     "DenseConfigLike",
-    "DenseRuntime",
     "JsonScalar",
     "TextCandidate",
     "TextRankingRequest",

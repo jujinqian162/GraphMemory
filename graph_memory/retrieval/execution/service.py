@@ -7,11 +7,7 @@ from tqdm.auto import tqdm
 from graph_memory.retrieval.contracts import RetrievalMethod
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.execution.results import assemble_ranked_result
-from graph_memory.retrieval.results import (
-    RankedResult,
-    RankedResultBatch,
-    RankedResultEnvelope,
-)
+from graph_memory.retrieval.results import RankedResult
 
 
 def run_retrieval(
@@ -37,11 +33,6 @@ def run_retrieval(
             retrieved_edges=result.trace.retrieved_edges,
             native_trace=result.trace.native_trace,
         )
-        RankedResultEnvelope(request=task.text_request, result=prediction)
         predictions.append(prediction)
 
-    RankedResultBatch(
-        requests=tuple(task.text_request for task in tasks),
-        results=tuple(predictions),
-    )
     return predictions

@@ -19,7 +19,6 @@ from graph_memory.retrieval.requests.provenance_path import (
 )
 from graph_memory.retrieval.requests.text import (
     DenseConfigLike,
-    DenseRuntime,
     JsonScalar,
     TextCandidate,
     TextRankingRequest,
@@ -35,7 +34,6 @@ RankingMethodRequest: TypeAlias = (
 
 __all__ = [
     "DenseConfigLike",
-    "DenseRuntime",
     "EvidenceGraphRankingRequest",
     "ExecutionProvenanceRankingRequest",
     "GraphRAGEntity",

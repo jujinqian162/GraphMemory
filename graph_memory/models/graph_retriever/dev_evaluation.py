@@ -24,7 +24,6 @@ from graph_memory.models.graph_retriever.internals.neural import EvidenceScoring
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.requests import TextRankingRequest
-from graph_memory.retrieval.results import RankedResultEnvelope
 from graph_memory.retrieval.signals import SeedSignalProvider
 
 
@@ -116,7 +115,6 @@ def predict_dev_from_batches(
             retrieved_edges=retrieved_edges,
             native_trace=None,
         )
-        RankedResultEnvelope(request=request, result=prediction)
         predictions.append(prediction)
         if not set(labels_by_task_id[task_id].gold_evidence_item_ids):
             raise ValueError(

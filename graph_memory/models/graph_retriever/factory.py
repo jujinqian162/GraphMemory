@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.internals.neural import (
     EvidenceScoringModel,
@@ -10,17 +8,6 @@ from graph_memory.models.graph_retriever.internals.neural import (
     SharedRelationTransform,
     TypedRelationTransform,
 )
-
-
-@dataclass(frozen=True)
-class GraphScoringModelFactory:
-    """
-    Factory for reconstructing trainable graph scoring models.
-    可训练图评分模型的重建工厂。
-    """
-
-    def build(self, model_config: RgcnModelConfig) -> EvidenceScoringModel:
-        return build_model_from_config(model_config)
 
 
 def build_model_from_config(model_config: RgcnModelConfig) -> EvidenceScoringModel:

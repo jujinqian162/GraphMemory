@@ -16,7 +16,7 @@ from graph_memory.models.graph_retriever.batching import (
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.records import RgcnModelConfig
 from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
-from graph_memory.models.graph_retriever.factory import GraphScoringModelFactory
+from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.retrieval.contracts import (
     RankedNode,
     RetrievalMethodResult,
@@ -118,8 +118,6 @@ class CheckpointGraphRetrieverLoader:
     加载 checkpoint-backed graph retriever inference，不依赖 training 生命周期。
     """
 
-    model_factory: GraphScoringModelFactory = GraphScoringModelFactory()
-
     def load(
         self,
         checkpoint_path: str | Path,
@@ -141,7 +139,7 @@ class CheckpointGraphRetrieverLoader:
             expected_method=expected_method,
             map_location=device,
         )
-        model = self.model_factory.build(checkpoint.model_config).to(device)
+        model = build_model_from_config(checkpoint.model_config).to(device)
         model.load_state_dict(checkpoint.payload["model_state_dict"])
         model.eval()
 

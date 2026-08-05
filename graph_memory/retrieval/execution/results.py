@@ -29,6 +29,19 @@ def assemble_ranked_result(
     candidate_by_id = {
         candidate.item_id: candidate for candidate in text_request.candidates
     }
+    ranked_node_ids = tuple(item.node_id for item in ranked_nodes)
+    observed = set(ranked_node_ids)
+    valid = text_request.candidate_ids
+    if observed != valid or len(ranked_node_ids) != len(valid):
+        missing = sorted(valid - observed)
+        extra = sorted(observed - valid)
+        raise ValueError(
+            "ranking must include every candidate exactly once; "
+            f"missing={missing} extra={extra}"
+        )
+    if native_trace is not None:
+        native_trace.validate_candidate_context(valid)
+
     return RankedResult(
         task_id=text_request.task_id,
         method=RetrievalMethodId(method),
