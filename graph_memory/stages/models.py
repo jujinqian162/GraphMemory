@@ -40,8 +40,9 @@ from graph_memory.experiment.artifacts import (
 from graph_memory.experiment.config import (
     DatasetName,
     DenseEncoderConfig,
-    DenseFinetuneStageConfig,
-    RgcnTrainStageConfig,
+    DenseFinetuneMethodConfig,
+    ProvenanceRgcnMethodConfig,
+    RgcnStageConfig,
 )
 from graph_memory.io import read_json, write_jsonl
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
@@ -83,7 +84,7 @@ def materialize_dense_finetune_model(
     store: ProcessedAssetStore,
     *,
     dataset: DatasetName,
-    config: DenseFinetuneStageConfig,
+    config: DenseFinetuneMethodConfig,
     train_prepared: DatasetArtifactRef,
     train_pairs: TrainingPairsArtifactRef,
     dev_prepared: DatasetArtifactRef,
@@ -246,7 +247,9 @@ def materialize_evidence_rgcn_model(
     store: ProcessedAssetStore,
     *,
     dataset: DatasetName,
-    config: RgcnTrainStageConfig,
+    method: str,
+    variant: str,
+    config: RgcnStageConfig,
     train_prepared: DatasetArtifactRef,
     train_graphs: EvidenceGraphArtifactRef,
     train_pairs: TrainingPairsArtifactRef,
@@ -257,8 +260,6 @@ def materialize_evidence_rgcn_model(
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
 ) -> ModelResult:
-    method = config.method
-    variant = config.variant
     effective_encoder = _resolved_encoder(config.encoder, encoder_source)
     train_tasks = cast(
         list[object], read_json(artifact_payload_path(train_prepared, "tasks"))
@@ -413,7 +414,7 @@ def materialize_evidence_rgcn_model(
 def materialize_provenance_rgcn_model(
     store: ProcessedAssetStore,
     *,
-    config: RgcnTrainStageConfig,
+    config: ProvenanceRgcnMethodConfig,
     train_prepared: DatasetArtifactRef,
     train_pairs: TrainingPairsArtifactRef,
     dev_prepared: DatasetArtifactRef,

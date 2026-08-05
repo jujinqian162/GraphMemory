@@ -10,7 +10,7 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     DenseMethodConfig,
     GraphRAGMethodConfig,
-    RankingMethodConfig,
+    MethodConfig,
 )
 from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.registry.retrieval import (
@@ -85,15 +85,15 @@ def _encoder_config() -> DenseEncoderConfig:
     )
 
 
-def _bm25_method() -> RankingMethodConfig:
+def _bm25_method() -> MethodConfig:
     return Bm25MethodConfig(method="bm25")
 
 
-def _dense_method() -> RankingMethodConfig:
+def _dense_method() -> MethodConfig:
     return DenseMethodConfig(method="dense", encoder=_encoder_config())
 
 
-def _graphrag_method() -> RankingMethodConfig:
+def _graphrag_method() -> MethodConfig:
     return GraphRAGMethodConfig(
         method="graphrag",
         encoder=_encoder_config(),

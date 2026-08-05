@@ -31,7 +31,7 @@
 - [x] 4.2 Delete `stages/train_payloads.py`, `stages/trainers.py`, trainer protocols, train dependency carriers, single-implementation stage trainer wrappers, and unused public training injection hooks that only forward arguments.
 - [ ] 4.3 Inline graph scoring model construction and delete `GraphScoringModelFactory` while preserving checkpoint model configuration and inference loading.
 - [x] 4.4 Replace negative-sampler protocol/context/factory dispatch with direct calls to the existing four sampling algorithms inside pair construction.
-- [ ] 4.5 Remove `effective`, train-stage, R-GCN train-stage, and ranking config projections that only copy method fields; make each concrete algorithm consume the single parsed owner.
+- [x] 4.5 Remove train-stage and ranking config projections that only copy method fields; concrete stage algorithms consume the parsed method configuration or its existing effective R-GCN subsection directly.
 - [x] 4.6 Fix one-valued protocol choices at their concrete boundary, including the current AdamW/no-scheduler behavior, without changing numerical results.
 - [x] 4.7 Reduce checkpoints to inference-required model state plus model/training provenance; invalidate the historical internal checkpoint schema as version 4.
 - [ ] 4.8 Rewrite payload/factory/config-shape tests as Dense-FT and both graph-family training, selection, checkpoint-load, and seeded-R-GCN behavior tests.

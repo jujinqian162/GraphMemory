@@ -338,17 +338,6 @@ class RgcnStageConfig(ClosedModel):
         return self.model_copy(update={"pairs": pairs, "train": train})
 
 
-class RgcnTrainStageConfig(ClosedModel):
-    method: Literal[
-        "dense_rgcn_graph_retriever",
-        "dense_ft_rgcn_graph_retriever",
-        "provenance_rgcn",
-    ]
-    variant: EvidenceRgcnVariant
-    encoder: DenseEncoderConfig
-    train: RgcnTrainConfig
-
-
 class RgcnMethodConfig(RgcnStageConfig):
     method: Literal["dense_rgcn_graph_retriever"]
     variant: EvidenceRgcnVariant = "full_rgcn"
@@ -356,15 +345,6 @@ class RgcnMethodConfig(RgcnStageConfig):
     def effective(self) -> RgcnMethodConfig:
         stage = super().for_variant(self.variant)
         return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
-
-    def train_stage(self) -> RgcnTrainStageConfig:
-        effective = self.effective()
-        return RgcnTrainStageConfig(
-            method=self.method,
-            variant=self.variant,
-            encoder=effective.encoder,
-            train=effective.train,
-        )
 
 
 DenseRgcnMethodConfig = RgcnMethodConfig
@@ -377,15 +357,6 @@ class ProvenanceRgcnMethodConfig(RgcnStageConfig):
     def effective(self) -> "ProvenanceRgcnMethodConfig":
         stage = super().for_variant(self.variant)
         return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
-
-    def train_stage(self) -> RgcnTrainStageConfig:
-        effective = self.effective()
-        return RgcnTrainStageConfig(
-            method=self.method,
-            variant=self.variant,
-            encoder=effective.encoder,
-            train=effective.train,
-        )
 
 
 class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
@@ -406,13 +377,10 @@ class DenseFinetuneTrainConfig(ClosedModel):
     selection: DenseFinetuneSelectionConfig
 
 
-class DenseFinetuneStageConfig(ClosedModel):
+class DenseFinetuneMethodConfig(ClosedModel):
     method: Literal["dense_ft"]
     encoder: DenseEncoderConfig
     train: DenseFinetuneTrainConfig
-
-
-class DenseFinetuneMethodConfig(DenseFinetuneStageConfig):
     pairs: PairSamplingConfig
 
     def effective_for_dataset(self, dataset: DatasetName) -> DenseFinetuneMethodConfig:
@@ -426,13 +394,6 @@ class DenseFinetuneMethodConfig(DenseFinetuneStageConfig):
             }
         )
 
-    def train_stage(self) -> DenseFinetuneStageConfig:
-        return DenseFinetuneStageConfig(
-            method=self.method,
-            encoder=self.encoder,
-            train=self.train,
-        )
-
 
 class DenseFtRgcnMethodConfig(ClosedModel):
     method: Literal["dense_ft_rgcn_graph_retriever"]
@@ -442,15 +403,6 @@ class DenseFtRgcnMethodConfig(ClosedModel):
 
     def effective_rgcn(self) -> RgcnStageConfig:
         return self.rgcn.for_variant(self.variant)
-
-    def rgcn_train_stage(self) -> RgcnTrainStageConfig:
-        effective = self.effective_rgcn()
-        return RgcnTrainStageConfig(
-            method=self.method,
-            variant=self.variant,
-            encoder=effective.encoder,
-            train=effective.train,
-        )
 
 
 MethodConfig: TypeAlias = Annotated[
@@ -466,45 +418,6 @@ MethodConfig: TypeAlias = Annotated[
     ],
     Field(discriminator="method"),
 ]
-
-
-class TrainableRankingConfig(ClosedModel):
-    method: Literal[
-        "dense_ft",
-        "dense_rgcn_graph_retriever",
-        "dense_ft_rgcn_graph_retriever",
-        "provenance_rgcn",
-    ]
-    variant: str | None = None
-
-
-RankingMethodConfig: TypeAlias = Annotated[
-    Union[
-        Bm25MethodConfig,
-        DenseMethodConfig,
-        GraphRAGMethodConfig,
-        ProvenancePathMethodConfig,
-        TrainableRankingConfig,
-    ],
-    Field(discriminator="method"),
-]
-
-
-def ranking_config(method: MethodConfig) -> RankingMethodConfig:
-    if isinstance(
-        method,
-        (
-            Bm25MethodConfig,
-            DenseMethodConfig,
-            GraphRAGMethodConfig,
-            ProvenancePathMethodConfig,
-        ),
-    ):
-        return method
-    return TrainableRankingConfig(
-        method=method.method,
-        variant=getattr(method, "variant", None),
-    )
 
 
 class PairBuildConfig(ClosedModel):
@@ -815,7 +728,6 @@ __all__ = [
     "DatasetName",
     "DenseEncoderConfig",
     "DenseFinetuneMethodConfig",
-    "DenseFinetuneStageConfig",
     "DenseFinetuneTrainConfig",
     "DenseFinetuneTrainerConfig",
     "DenseFtRgcnMethodConfig",
@@ -846,21 +758,17 @@ __all__ = [
     "ProvenanceRgcnMethodConfig",
     "ProvenanceRgcnVariant",
     "PrepareSplitConfig",
-    "RankingMethodConfig",
     "ResolvedExperimentConfig",
     "ResolvedSplitConfig",
     "RgcnMethodConfig",
     "RgcnModelConfig",
     "RgcnStageConfig",
-    "RgcnTrainStageConfig",
     "RgcnTrainConfig",
     "RgcnTrainerConfig",
     "ScientificFloat",
     "ScientificInt",
     "SplitName",
     "TrackingConfig",
-    "TrainableRankingConfig",
-    "ranking_config",
     "resolve_experiment_config",
     "parse_composed_config",
 ]

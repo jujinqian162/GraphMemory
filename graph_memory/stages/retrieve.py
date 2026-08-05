@@ -31,11 +31,14 @@ from graph_memory.experiment.config import (
     Bm25MethodConfig,
     DatasetName,
     DenseEncoderConfig,
+    DenseFinetuneMethodConfig,
+    DenseFtRgcnMethodConfig,
     DenseMethodConfig,
     GraphRAGMethodConfig,
+    MethodConfig,
     ProvenancePathMethodConfig,
-    RankingMethodConfig,
-    TrainableRankingConfig,
+    ProvenanceRgcnMethodConfig,
+    RgcnMethodConfig,
 )
 from graph_memory.io import read_json, write_json
 from graph_memory.registry.retrieval_builders import build_retrieval
@@ -75,7 +78,7 @@ class RetrieveStageResult:
 
 
 def run_retrieve_stage(
-    method: RankingMethodConfig,
+    method: MethodConfig,
     *,
     dataset: DatasetName,
     top_k: int,
@@ -94,8 +97,7 @@ def run_retrieve_stage(
             "provenance"
             if isinstance(method, ProvenancePathMethodConfig)
             or (
-                isinstance(method, TrainableRankingConfig)
-                and method.method == "provenance_rgcn"
+                isinstance(method, ProvenanceRgcnMethodConfig)
             )
             else "flat"
         ),
@@ -131,7 +133,7 @@ def materialize_rankings(
     store: ProcessedAssetStore,
     *,
     dataset: DatasetName,
-    method: RankingMethodConfig,
+    method: MethodConfig,
     top_k: int,
     prepared: DatasetArtifactRef,
     evidence_graphs: EvidenceGraphArtifactRef | None,
@@ -153,11 +155,7 @@ def materialize_rankings(
         PROVENANCE_GRAPHS_ADAPTER.validate_python(
             read_json(artifact_payload_path(prepared, "provenance_graphs"))
         )
-        if isinstance(method, ProvenancePathMethodConfig)
-        or (
-            isinstance(method, TrainableRankingConfig)
-            and method.method == "provenance_rgcn"
-        )
+        if isinstance(method, (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig))
         else []
     )
     started = time.perf_counter()
@@ -222,7 +220,7 @@ def materialize_rankings(
 
 
 def _build_payload(
-    method: RankingMethodConfig,
+    method: MethodConfig,
     *,
     dataset: DatasetName,
     text_requests: list[TextRankingRequest],
@@ -232,7 +230,7 @@ def _build_payload(
     dense_encoder: SentenceEncoder | None,
 ) -> object:
     if isinstance(method, (Bm25MethodConfig, DenseMethodConfig)) or (
-        isinstance(method, TrainableRankingConfig) and method.method == "dense_ft"
+        isinstance(method, DenseFinetuneMethodConfig)
     ):
         return FlatRetrievalBuildPayload(
             text_requests=text_requests,
@@ -255,10 +253,7 @@ def _build_payload(
             },
             dense_encoder=dense_encoder,
         )
-    if (
-        isinstance(method, TrainableRankingConfig)
-        and method.method == "provenance_rgcn"
-    ):
+    if isinstance(method, ProvenanceRgcnMethodConfig):
         records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
         return ProvenanceRgcnBuildPayload(
             text_requests=text_requests,
@@ -268,10 +263,7 @@ def _build_payload(
             },
             dense_encoder=dense_encoder,
         )
-    if isinstance(method, TrainableRankingConfig) and method.method in {
-        "dense_rgcn_graph_retriever",
-        "dense_ft_rgcn_graph_retriever",
-    }:
+    if isinstance(method, (RgcnMethodConfig, DenseFtRgcnMethodConfig)):
         return EvidenceRgcnBuildPayload(
             text_requests=text_requests,
             evidence_graphs=evidence_graphs,
@@ -281,7 +273,7 @@ def _build_payload(
 
 
 def _retrieval_settings(
-    method: RankingMethodConfig,
+    method: MethodConfig,
     *,
     top_k: int,
     model: ModelArtifactRef | None,
@@ -310,33 +302,31 @@ def _retrieval_settings(
             config=method.retrieval_config(),
             device=device,
         )
-    if isinstance(method, TrainableRankingConfig):
-        if method.method == "dense_ft":
-            return DenseFinetunedRetrievalSettings(
-                top_k=top_k,
-                checkpoint=_model_payload(model, "model"),
-                device=device,
-            )
-        if method.method == "provenance_rgcn":
-            return ProvenanceRgcnRetrievalSettings(
-                top_k=top_k,
-                checkpoint=_model_payload(model, "checkpoint"),
-                device=device,
-            )
-        if method.method == "dense_rgcn_graph_retriever":
-            return EvidenceRgcnRetrievalSettings(
-                top_k=top_k,
-                checkpoint=_model_payload(model, "checkpoint"),
-                device=device,
-            )
-        if method.method == "dense_ft_rgcn_graph_retriever":
-            return EvidenceRgcnRetrievalSettings(
-                method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
-                top_k=top_k,
-                checkpoint=_model_payload(model, "checkpoint"),
-                device=device,
-            )
-        raise TypeError(f"unsupported trainable method={method.method!r}")
+    if isinstance(method, DenseFinetuneMethodConfig):
+        return DenseFinetunedRetrievalSettings(
+            top_k=top_k,
+            checkpoint=_model_payload(model, "model"),
+            device=device,
+        )
+    if isinstance(method, ProvenanceRgcnMethodConfig):
+        return ProvenanceRgcnRetrievalSettings(
+            top_k=top_k,
+            checkpoint=_model_payload(model, "checkpoint"),
+            device=device,
+        )
+    if isinstance(method, RgcnMethodConfig):
+        return EvidenceRgcnRetrievalSettings(
+            top_k=top_k,
+            checkpoint=_model_payload(model, "checkpoint"),
+            device=device,
+        )
+    if isinstance(method, DenseFtRgcnMethodConfig):
+        return EvidenceRgcnRetrievalSettings(
+            method=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
+            top_k=top_k,
+            checkpoint=_model_payload(model, "checkpoint"),
+            device=device,
+        )
     raise TypeError(f"unsupported method config={type(method).__name__}")
 
 

@@ -18,6 +18,7 @@ from graph_memory.experiment.config import (
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
     GraphRAGMethodConfig,
+    MethodConfig,
     PairBuildConfig,
     ProvenancePathMethodConfig,
     ProvenanceRgcnMethodConfig,
@@ -25,7 +26,6 @@ from graph_memory.experiment.config import (
     ResolvedExperimentConfig,
     RgcnMethodConfig,
     SplitName,
-    ranking_config,
 )
 from graph_memory.experiment.output import project_run_output
 from graph_memory.experiment.inputs import ensure_inputs
@@ -144,7 +144,7 @@ def run_experiment(
                 train_pairs=pairs.artifact,
                 dev_prepared=dev.artifact,
                 dataset=config.dataset.name,
-                config=effective_method.train_stage(),
+                config=effective_method,
                 encoder_source=encoder_source,
             )
             assets.extend((pairs.artifact, model.artifact))
@@ -197,7 +197,7 @@ def run_experiment(
                 train_prepared=train.artifact,
                 train_pairs=pairs.artifact,
                 dev_prepared=dev.artifact,
-                config=method.train_stage(),
+                config=effective,
                 encoder_source=encoder_source,
                 frozen_embeddings=frozen_embeddings.artifact,
             )
@@ -278,7 +278,9 @@ def run_experiment(
                 dev_graphs=dev_graphs.artifact,
                 seed_model=None,
                 dataset=config.dataset.name,
-                config=method.train_stage(),
+                method=effective.method,
+                variant=effective.variant,
+                config=effective,
                 encoder_source=encoder_source,
                 frozen_embeddings=frozen_embeddings.artifact,
             )
@@ -347,7 +349,7 @@ def run_experiment(
                 train_pairs=seed_pairs.artifact,
                 dev_prepared=dev.artifact,
                 dataset=config.dataset.name,
-                config=method.seed.train_stage(),
+                config=method.seed,
                 encoder_source=seed_source,
             )
 
@@ -386,7 +388,9 @@ def run_experiment(
                 dev_graphs=dev_graphs.artifact,
                 seed_model=seed_model.artifact,
                 dataset=config.dataset.name,
-                config=method.rgcn_train_stage(),
+                method=method.method,
+                variant=method.variant,
+                config=method.rgcn.for_variant(method.variant),
                 encoder_source=rgcn_source,
                 frozen_embeddings=frozen_embeddings.artifact,
             )
@@ -411,7 +415,7 @@ def run_experiment(
         else:
             raise ValueError(f"unsupported final method={type(method).__name__}")
 
-        rank_config = ranking_config(method)
+        rank_config: MethodConfig = method
         ranking = generate_rankings_task(
             prepared=test.artifact,
             evidence_graphs=ranking_graphs,
