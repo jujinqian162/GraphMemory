@@ -46,19 +46,11 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class DenseEncoderSettings:
-    model_name: str
-    query_prefix: str
-    passage_prefix: str
-    batch_size: int
-
-
-@dataclass(frozen=True)
 class RetrievalProvenance:
     method: RetrievalMethodId
     model: Path | None
     device: str | None
-    encoder: DenseEncoderSettings | None
+    encoder: DenseEncoderConfig | None
 
 
 def build_retrieval(
@@ -163,7 +155,7 @@ def _build_dense_ft(
             raise RuntimeError(
                 "sentence-transformers is required for dense-ft retrieval."
             ) from error
-    encoder_settings = DenseEncoderSettings(
+    encoder_settings = DenseEncoderConfig(
         model_name=metadata.base_model,
         query_prefix=metadata.query_prefix,
         passage_prefix=metadata.passage_prefix,
@@ -400,8 +392,8 @@ def _evidence_rgcn_providers(
 def _encoder_settings(
     config: DenseEncoderConfig,
     model_name: str | None,
-) -> DenseEncoderSettings:
-    return DenseEncoderSettings(
+) -> DenseEncoderConfig:
+    return DenseEncoderConfig(
         model_name=model_name or config.model_name,
         query_prefix=config.query_prefix,
         passage_prefix=config.passage_prefix,
@@ -409,9 +401,9 @@ def _encoder_settings(
     )
 
 
-def _checkpoint_encoder(checkpoint: RgcnCheckpoint) -> DenseEncoderSettings:
+def _checkpoint_encoder(checkpoint: RgcnCheckpoint) -> DenseEncoderConfig:
     model_config = checkpoint.model_config
-    return DenseEncoderSettings(
+    return DenseEncoderConfig(
         model_name=model_config.encoder_model,
         query_prefix=model_config.query_prefix,
         passage_prefix=model_config.passage_prefix,
@@ -420,7 +412,7 @@ def _checkpoint_encoder(checkpoint: RgcnCheckpoint) -> DenseEncoderSettings:
 
 
 def _resolve_encoder(
-    settings: DenseEncoderSettings,
+    settings: DenseEncoderConfig,
     encoder: SentenceEncoder | None,
     *,
     device: str,
@@ -439,7 +431,7 @@ def _resolve_encoder(
 
 
 def _build_dense_ranker(
-    settings: DenseEncoderSettings,
+    settings: DenseEncoderConfig,
     encoder: SentenceEncoder | None,
     *,
     device: str,
@@ -497,7 +489,7 @@ def _built(
     execution_requests: list[RankingMethodRequest],
     model: Path | None = None,
     device: str | None = None,
-    encoder: DenseEncoderSettings | None = None,
+    encoder: DenseEncoderConfig | None = None,
 ) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     return (
         retrieval_method,
@@ -547,7 +539,6 @@ def _required_checkpoint(checkpoint: Path | None, method: str) -> Path:
 
 
 __all__ = [
-    "DenseEncoderSettings",
     "RetrievalProvenance",
     "build_retrieval",
 ]
