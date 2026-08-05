@@ -70,6 +70,27 @@ def run_experiment(
 
     with prefect_storage_settings(refresh_cache=config.cache.refresh):
         split_sources = _resolve_split_sources(config)
+        trajectory_source = _trajectory_source(config)
+        requires_training = isinstance(
+            method,
+            (
+                DenseFinetuneMethodConfig,
+                ProvenanceRgcnMethodConfig,
+                RgcnMethodConfig,
+                DenseFtRgcnMethodConfig,
+            ),
+        )
+        prepared = {
+            split: prepare_split_task(
+                source=split_sources[split],
+                config=_prepare_config(config, split),
+                trajectory_source=trajectory_source,
+            )
+            for split in (("train", "dev", "test") if requires_training else ("test",))
+        }
+        test = prepared["test"]
+        assets.extend(result.artifact for result in prepared.values())
+
         if isinstance(
             method,
             (
@@ -79,35 +100,12 @@ def run_experiment(
                 ProvenancePathMethodConfig,
             ),
         ):
-            trajectory_source = _trajectory_source(config)
-            test = prepare_split_task(
-                source=split_sources["test"],
-                config=_prepare_config(config, "test"),
-                trajectory_source=trajectory_source,
-            )
-            assets.append(test.artifact)
             if not isinstance(method, Bm25MethodConfig):
                 ranking_encoder = resolve_encoder_source(method.encoder)
 
         elif isinstance(method, DenseFinetuneMethodConfig):
-            trajectory_source = _trajectory_source(config)
-            train = prepare_split_task(
-                source=split_sources["train"],
-                config=_prepare_config(config, "train"),
-                trajectory_source=trajectory_source,
-            )
-            dev = prepare_split_task(
-                source=split_sources["dev"],
-                config=_prepare_config(config, "dev"),
-                trajectory_source=trajectory_source,
-            )
-            test = prepare_split_task(
-                source=split_sources["test"],
-                config=_prepare_config(config, "test"),
-                trajectory_source=trajectory_source,
-            )
-            assets.extend((train.artifact, dev.artifact, test.artifact))
-
+            train = prepared["train"]
+            dev = prepared["dev"]
             encoder_source = resolve_encoder_source(method.encoder)
             effective_pairs = method.pairs
             train_graphs = None
@@ -145,22 +143,8 @@ def run_experiment(
             assets.extend((pairs.artifact, model.artifact))
 
         elif isinstance(method, ProvenanceRgcnMethodConfig):
-            trajectory_source = _trajectory_source(config)
-            train = prepare_split_task(
-                source=split_sources["train"],
-                config=_prepare_config(config, "train"),
-                trajectory_source=trajectory_source,
-            )
-            dev = prepare_split_task(
-                source=split_sources["dev"],
-                config=_prepare_config(config, "dev"),
-                trajectory_source=trajectory_source,
-            )
-            test = prepare_split_task(
-                source=split_sources["test"],
-                config=_prepare_config(config, "test"),
-                trajectory_source=trajectory_source,
-            )
+            train = prepared["train"]
+            dev = prepared["dev"]
             encoder_source = resolve_encoder_source(method.encoder)
             pairs = build_training_pairs_task(
                 prepared=train.artifact,
@@ -197,9 +181,6 @@ def run_experiment(
             )
             assets.extend(
                 (
-                    train.artifact,
-                    dev.artifact,
-                    test.artifact,
                     pairs.artifact,
                     frozen_embeddings.artifact,
                     model.artifact,
@@ -207,18 +188,8 @@ def run_experiment(
             )
 
         elif isinstance(method, RgcnMethodConfig):
-            train = prepare_split_task(
-                source=split_sources["train"],
-                config=_prepare_config(config, "train"),
-            )
-            dev = prepare_split_task(
-                source=split_sources["dev"],
-                config=_prepare_config(config, "dev"),
-            )
-            test = prepare_split_task(
-                source=split_sources["test"],
-                config=_prepare_config(config, "test"),
-            )
+            train = prepared["train"]
+            dev = prepared["dev"]
             train_graphs = build_evidence_graphs_task(
                 prepared=train.artifact,
                 dataset=config.dataset.name,
@@ -280,9 +251,6 @@ def run_experiment(
             ranking_graphs = test_graphs.artifact
             assets.extend(
                 (
-                    train.artifact,
-                    dev.artifact,
-                    test.artifact,
                     train_graphs.artifact,
                     dev_graphs.artifact,
                     test_graphs.artifact,
@@ -293,18 +261,8 @@ def run_experiment(
             )
 
         elif isinstance(method, DenseFtRgcnMethodConfig):
-            train = prepare_split_task(
-                source=split_sources["train"],
-                config=_prepare_config(config, "train"),
-            )
-            dev = prepare_split_task(
-                source=split_sources["dev"],
-                config=_prepare_config(config, "dev"),
-            )
-            test = prepare_split_task(
-                source=split_sources["test"],
-                config=_prepare_config(config, "test"),
-            )
+            train = prepared["train"]
+            dev = prepared["dev"]
             train_graphs = build_evidence_graphs_task(
                 prepared=train.artifact,
                 dataset=config.dataset.name,
@@ -391,9 +349,6 @@ def run_experiment(
             ranking_graphs = test_graphs.artifact
             assets.extend(
                 (
-                    train.artifact,
-                    dev.artifact,
-                    test.artifact,
                     train_graphs.artifact,
                     dev_graphs.artifact,
                     test_graphs.artifact,

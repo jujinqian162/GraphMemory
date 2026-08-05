@@ -39,7 +39,7 @@
 
 ## 5. Tranche 4 - Express Experiment Orchestration Once
 
-- [ ] 5.1 Collapse repeated method branches in `experiment/workflow.py` into the direct prepare, optional graph/pairs/encoding, optional train, rank, evaluate, and output lifecycle.
+- [x] 5.1 Collapse split preparation in `experiment/workflow.py` into one direct train/dev/test lifecycle, followed by optional graph/pairs/encoding/train, rank, evaluate, and output steps.
 - [ ] 5.2 Delete Prefect task transport wrappers that add no cache/resume boundary; retain only demonstrably required task decorators as thin direct calls.
 - [ ] 5.3 Remove repeated method/stage/artifact binding authorities so workflow and stage materializers consume the same parsed config and filesystem paths.
 - [x] 5.4 Move input provisioning, MLflow recording, retrieval-runtime collection, and report publication outside method-specific scientific branches while preserving current outputs.
