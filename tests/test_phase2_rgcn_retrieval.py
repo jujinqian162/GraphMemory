@@ -14,7 +14,6 @@ from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.registry import Registry
 from graph_memory.registry.retrieval import (
     EvidenceRgcnBuildPayload,
     EvidenceRgcnRetrievalSettings,
@@ -245,14 +244,12 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
     assert all(edge.edge_type != "bridge" for edge in retrieved_edges)
 
 
-def test_trainable_method_is_registered_and_run_retrieval_accepts_checkpoint(
+def test_trainable_method_runs_from_static_retrieval_dispatch(
     tmp_path: Path,
 ):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
 
-    definition = Registry.methods.get("dense_rgcn_graph_retriever")
-    assert definition.identifier is RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER
     predictions = run_retrieval(
         method="dense_rgcn_graph_retriever",
         task_inputs=tiny_task_inputs(),

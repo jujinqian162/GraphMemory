@@ -676,20 +676,18 @@ def _check_dataset_method_compatibility(
     dataset: DatasetName,
     method: MethodConfig,
 ) -> None:
-    from graph_memory.registry import Registry
-    from graph_memory.registry.retrieval import RetrievalTaskFamily
-
-    family = (
-        RetrievalTaskFamily.EXECUTION_PROVENANCE
-        if dataset == "isetrace"
-        else RetrievalTaskFamily.EVIDENCE_RETRIEVAL
+    is_provenance = dataset == "isetrace"
+    provenance_only = isinstance(
+        method, (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig)
     )
-    method_id = RetrievalMethodId(method.method)
-    supported = Registry.methods.get(method_id).supported_families
-    if family not in supported:
+    evidence_only = isinstance(method, (RgcnMethodConfig, DenseFtRgcnMethodConfig))
+    if provenance_only and not is_provenance:
         raise ValueError(
-            f"dataset={dataset!r} uses family={family.value!r}, but "
-            f"method={method_id.value!r} does not support that family."
+            f"dataset={dataset!r} does not support provenance method={method.method!r}."
+        )
+    if evidence_only and is_provenance:
+        raise ValueError(
+            f"dataset={dataset!r} does not support evidence method={method.method!r}."
         )
 
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 
-import pytest
 import torch
 
 from graph_memory.datasets.isetrace import adapt_isetrace_record, parse_isetrace_record
@@ -24,9 +23,6 @@ from graph_memory.models.graph_retriever.provenance import (
     tensorize_provenance_ranking_task,
     tensorize_provenance_ranking_tasks,
 )
-from graph_memory.registry import Registry
-from graph_memory.registry.retrieval import RetrievalTaskFamily
-from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import ProvenanceRgcnRequest, TextRankingRequest
 from tests.isetrace_fixtures import isetrace_record
 
@@ -72,32 +68,6 @@ def _model_config(*, num_layers: int = 2):
         num_layers=num_layers,
         dropout=0.0,
     )
-
-
-def test_provenance_rgcn_registry_supports_only_execution_provenance() -> None:
-    _graph, request = _graph_and_request(
-        task_id="registry-task", query_text="Which output is relevant?"
-    )
-    definition = Registry.methods.get(RetrievalMethodId.PROVENANCE_RGCN)
-
-    assert definition.identifier is RetrievalMethodId.PROVENANCE_RGCN
-    assert definition.request_type is ProvenanceRgcnRequest
-    assert definition.supported_families == frozenset(
-        {RetrievalTaskFamily.EXECUTION_PROVENANCE}
-    )
-    Registry.methods.validate_request(
-        RetrievalMethodId.PROVENANCE_RGCN,
-        request,
-        RetrievalTaskFamily.EXECUTION_PROVENANCE,
-    )
-    with pytest.raises(TypeError, match="does not support"):
-        Registry.methods.validate_request(
-            RetrievalMethodId.PROVENANCE_RGCN,
-            request,
-            RetrievalTaskFamily.EVIDENCE_RETRIEVAL,
-        )
-    with pytest.raises(ValueError, match="Unsupported retrieval method"):
-        Registry.methods.get("provenance_graph_retriever")
 
 
 def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> None:
