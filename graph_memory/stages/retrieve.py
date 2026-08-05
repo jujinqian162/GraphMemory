@@ -58,7 +58,6 @@ from graph_memory.registry.retrieval import (
     ProvenanceRgcnRetrievalSettings,
     RetrievalMethodId,
     RetrievalProvenance,
-    RetrievalTaskFamily,
 )
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -226,13 +225,11 @@ def _build_payload(
     ):
         return FlatRetrievalBuildPayload(
             text_requests=text_requests,
-            task_family=_task_family(dataset),
             dense_encoder=dense_encoder,
         )
     if isinstance(method, GraphRAGMethodConfig):
         return GraphRAGBuildPayload(
             text_requests=text_requests,
-            task_family=_task_family(dataset),
             dense_encoder=dense_encoder,
         )
     if isinstance(method, ProvenancePathMethodConfig):
@@ -341,12 +338,6 @@ def _encoder_settings(
         passage_prefix=config.passage_prefix,
         batch_size=config.batch_size,
     )
-
-
-def _task_family(dataset: DatasetName) -> RetrievalTaskFamily:
-    if dataset == "isetrace":
-        return RetrievalTaskFamily.EXECUTION_PROVENANCE
-    return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
 
 
 def _provenance_json(provenance: RetrievalProvenance) -> dict[str, JsonValue]:

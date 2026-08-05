@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.provenance import ProvenanceGraph
-from graph_memory.compat import StrEnum
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
@@ -18,11 +17,6 @@ if TYPE_CHECKING:
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
     from graph_memory.retrieval.contracts import RetrievalMethod
     from graph_memory.retrieval.signals import SeedSignalProvider
-
-class RetrievalTaskFamily(StrEnum):
-    EVIDENCE_RETRIEVAL = "evidence_retrieval"
-    EXECUTION_PROVENANCE = "execution_provenance"
-
 
 @dataclass(frozen=True)
 class Bm25RetrievalSettings:
@@ -124,14 +118,12 @@ class BuiltRetrievalMethod:
 @dataclass(frozen=True)
 class FlatRetrievalBuildPayload:
     text_requests: list[TextRankingRequest]
-    task_family: RetrievalTaskFamily = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     dense_encoder: "SentenceEncoder | None" = None
 
 
 @dataclass(frozen=True)
 class GraphRAGBuildPayload:
     text_requests: list[TextRankingRequest]
-    task_family: RetrievalTaskFamily = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
     dense_encoder: "SentenceEncoder | None" = None
 
 
@@ -140,9 +132,6 @@ class ProvenancePathBuildPayload:
     text_requests: list[TextRankingRequest]
     provenance_graphs: list[ProvenanceGraph]
     graph_ids_by_task_id: Mapping[str, str]
-    task_family: Literal[RetrievalTaskFamily.EXECUTION_PROVENANCE] = (
-        RetrievalTaskFamily.EXECUTION_PROVENANCE
-    )
     dense_encoder: "SentenceEncoder | None" = None
 
 
@@ -153,9 +142,6 @@ class ProvenanceRgcnBuildPayload:
     graph_ids_by_task_id: Mapping[str, str]
     dense_encoder: "SentenceEncoder | None" = None
     text_embedding_provider: "TextEmbeddingProvider | None" = None
-    task_family: Literal[RetrievalTaskFamily.EXECUTION_PROVENANCE] = (
-        RetrievalTaskFamily.EXECUTION_PROVENANCE
-    )
 
 
 @dataclass(frozen=True)
@@ -185,5 +171,4 @@ __all__ = [
     "RetrievalJobSettings",
     "RetrievalMethodId",
     "RetrievalProvenance",
-    "RetrievalTaskFamily",
 ]

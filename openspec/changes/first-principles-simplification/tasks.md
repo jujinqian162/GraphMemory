@@ -41,7 +41,7 @@
 
 - [x] 5.1 Collapse split preparation in `experiment/workflow.py` into one direct train/dev/test lifecycle, followed by optional graph/pairs/encoding/train, rank, evaluate, and output steps.
 - [ ] 5.2 Delete Prefect task transport wrappers that add no cache/resume boundary; retain only demonstrably required task decorators as thin direct calls.
-- [ ] 5.3 Remove repeated method/stage/artifact binding authorities so workflow and stage materializers consume the same parsed config and filesystem paths.
+- [x] 5.3 Remove repeated task-family binding fields from retrieval build payloads; dataset config validation and concrete request types remain the only domain-compatibility authorities.
 - [x] 5.4 Move input provisioning, MLflow recording, retrieval-runtime collection, and report publication outside method-specific scientific branches while preserving current outputs.
 - [x] 5.5 Reduce stage result DTOs to the fields consumed by orchestration/output and replace the inner retrieve/evaluate result classes with direct tuples; keep full counts, statistics, summaries, indices, model metadata, ranking provenance, metrics, per-task rows, and failures in their authoritative artifacts.
 - [x] 5.6 Delete the optional benchmark replay and configurable failure-case-limit branches plus their config/result DTOs; report retrieval runtime from authoritative ranking execution and retain the fixed 50-row debug cap.
