@@ -8,7 +8,6 @@ from graph_memory.query_synthesis.provenance import (
     enumerate_template_supervision,
     extract_motifs,
     render_template_supervision,
-    select_template_supervision,
 )
 from graph_memory.query_synthesis.provenance.authoring import (
     parse_task_intents,
@@ -194,47 +193,6 @@ def test_template_queries_do_not_leak_internal_graph_or_hidden_identifiers() -> 
         not any(value and value in record.query_text for value in forbidden)
         for record in records
     )
-
-
-def test_template_selection_is_owned_deterministic_and_fails_when_insufficient() -> (
-    None
-):
-    _trajectory, graph, _motifs = _trajectory_graph_and_motifs()
-    records = enumerate_template_supervision((graph,))
-
-    first = select_template_supervision(
-        records,
-        eligible_graph_ids=frozenset({graph.graph_id}),
-        requested_count=2,
-        split="train",
-        split_seed=13,
-    )
-    second = select_template_supervision(
-        records,
-        eligible_graph_ids=frozenset({graph.graph_id}),
-        requested_count=2,
-        split="train",
-        split_seed=13,
-    )
-    assert first == second
-    assert all(record.graph_id == graph.graph_id for record in first)
-
-    with pytest.raises(ValueError, match=r"requested=\d+ available=\d+"):
-        select_template_supervision(
-            records,
-            eligible_graph_ids=frozenset({graph.graph_id}),
-            requested_count=len(records) + 1,
-            split="dev",
-            split_seed=13,
-        )
-    with pytest.raises(ValueError, match="natural-only"):
-        select_template_supervision(
-            records,
-            eligible_graph_ids=frozenset({graph.graph_id}),
-            requested_count=1,
-            split="test",
-            split_seed=13,
-        )
 
 
 def test_authoring_helpers_render_and_parse_one_canonical_task_text() -> None:

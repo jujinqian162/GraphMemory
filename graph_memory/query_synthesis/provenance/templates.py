@@ -135,39 +135,6 @@ def enumerate_template_supervision(
     return tuple(sorted(records, key=lambda item: item.task_id))
 
 
-def select_template_supervision(
-    records: Iterable[TemplateSupervisionRecord],
-    *,
-    eligible_graph_ids: frozenset[str],
-    requested_count: int,
-    split: str,
-    split_seed: int,
-) -> tuple[TemplateSupervisionRecord, ...]:
-    if split == "test":
-        if requested_count:
-            raise ValueError("ISETrace test split is natural-only")
-        return ()
-    if split not in {"train", "dev"}:
-        raise ValueError(f"unsupported template split={split!r}")
-    if requested_count < 0:
-        raise ValueError("requested template count cannot be negative")
-    eligible = tuple(
-        record for record in records if record.graph_id in eligible_graph_ids
-    )
-    if requested_count > len(eligible):
-        raise ValueError(
-            "insufficient ISETrace template pool: "
-            f"requested={requested_count} available={len(eligible)} split={split}"
-        )
-    ordered = sorted(
-        eligible,
-        key=lambda record: hashlib.sha256(
-            f"{split_seed}\0{split}\0{record.task_id}".encode()
-        ).hexdigest(),
-    )
-    return tuple(ordered[:requested_count])
-
-
 def _render_query(
     graph: ProvenanceGraph,
     motif: MotifSpec,
@@ -242,5 +209,4 @@ __all__ = [
     "enumerate_template_supervision",
     "render_call_result_supervision",
     "render_template_supervision",
-    "select_template_supervision",
 ]

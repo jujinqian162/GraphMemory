@@ -55,7 +55,7 @@
 - [x] 6.3 Remove `Converted*`, `ConversionResult`, and evidence-dataset `*PreparedSplit` field-transport DTOs; direct ranking/label pairs cover all consumers.
 - [ ] 6.4 Split ISETrace flat and provenance preparation into direct branches that reuse trajectory parsing but do not introduce a representation enum or universal prepared object.
 - [x] 6.5 Inline the single-implementation evidence graph builder, context, accumulator, and rule classes into direct construction functions while preserving all four edge algorithms, deduplication, and the conversion script caller.
-- [ ] 6.6 Inline single-implementation provenance extractors and remove unused query-synthesis catalog/selector exports while preserving source-span and motif semantics.
+- [x] 6.6 Remove the unused `MotifCatalog` and template-selection public export/test while preserving active motif extraction, template enumeration, source spans, and authoring semantics.
 - [ ] 6.7 Run dataset label, ISETrace trajectory/span, graph construction, provenance tensorization, and full tests; record domain-cleanup net deletion.
 
 ## 7. Documentation and OpenSpec Consolidation
