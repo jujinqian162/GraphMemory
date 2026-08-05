@@ -62,19 +62,6 @@ class ISETraceLabelRecord(DomainModel):
         return self
 
 
-class CombinedISETraceBenchmarkRecord(DomainModel):
-    ranking: ISETraceRankingRecord
-    label: ISETraceLabelRecord
-
-    @model_validator(mode="after")
-    def _validate_alignment(self) -> "CombinedISETraceBenchmarkRecord":
-        if self.ranking.task_id != self.label.task_id:
-            raise ValueError("combined ISETrace task IDs must align")
-        if self.ranking.graph_id != self.label.graph_id:
-            raise ValueError("combined ISETrace graph IDs must align")
-        return self
-
-
 class ISETracePreparedBenchmark(DomainModel):
     rankings: tuple[ISETraceRankingRecord, ...]
     labels: tuple[ISETraceLabelRecord, ...]
@@ -115,7 +102,6 @@ class ISETracePreparedBenchmark(DomainModel):
 
 
 __all__ = [
-    "CombinedISETraceBenchmarkRecord",
     "ISETraceLabelRecord",
     "ISETracePreparedBenchmark",
     "ISETraceQueryMetadata",

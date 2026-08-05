@@ -69,17 +69,6 @@ class HotpotQALabelRecord(DomainModel):
         return self
 
 
-class CombinedHotpotQARecord(DomainModel):
-    task_id: NonEmptyStr
-    question: NonEmptyStr
-    candidate_sentences: tuple[HotpotQACandidateSentence, ...]
-    gold_answer: NonEmptyStr
-    gold_evidence_sentence_ids: tuple[NonEmptyStr, ...]
-    gold_dependency_edges: tuple[tuple[NonEmptyStr, NonEmptyStr], ...]
-    metadata: dict[str, JsonValue] | None = None
-    debug: dict[str, JsonValue] | None = None
-
-
 class HotpotQAPreparedSplit(DomainModel):
     rankings: tuple[HotpotQARankingRecord, ...]
     labels: tuple[HotpotQALabelRecord, ...]
@@ -146,7 +135,6 @@ def _validate_split_alignment(
 
 
 __all__ = [
-    "CombinedHotpotQARecord",
     "ConvertedHotpotQAExample",
     "HotpotQACandidateSentence",
     "HotpotQAConversionResult",

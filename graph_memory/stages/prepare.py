@@ -11,19 +11,14 @@ from pydantic import BaseModel, JsonValue
 
 from graph_memory.datasets.hotpotqa import (
     HotpotQAPreparedSplit,
-    combined_hotpotqa_records,
     convert_hotpotqa_example,
     convert_hotpotqa_examples,
     parse_hotpotqa_example,
     parse_hotpotqa_examples,
 )
-from graph_memory.datasets.isetrace import (
-    combined_isetrace_records,
-    prepare_isetrace_benchmark,
-)
+from graph_memory.datasets.isetrace import prepare_isetrace_benchmark
 from graph_memory.datasets.musique import (
     MuSiQuePreparedSplit,
-    combined_musique_records,
     convert_musique_example,
     convert_musique_examples,
     parse_musique_example,
@@ -32,7 +27,6 @@ from graph_memory.datasets.musique import (
 from graph_memory.datasets.splits import sample_split
 from graph_memory.datasets.twowiki import (
     TwoWikiPreparedSplit,
-    combined_twowiki_records,
     convert_twowiki_example,
     convert_twowiki_examples,
     parse_twowiki_example,
@@ -61,7 +55,6 @@ from graph_memory.text.chunking import TokenChunkingConfig
 class PreparedSplitData:
     task_inputs: list[object]
     task_labels: list[object]
-    combined: list[object]
     counts: dict[str, JsonValue]
     provenance_graphs: list[object] | None = None
     query_metadata: list[object] | None = None
@@ -197,15 +190,10 @@ def materialize_prepared_split(
             publisher.workspace / "labels.json",
             [_json_record(record) for record in prepared.task_labels],
         )
-        write_json(
-            publisher.workspace / "combined.json",
-            [_json_record(record) for record in prepared.combined],
-        )
         write_json(publisher.workspace / "counts.json", prepared.counts)
         payloads = {
             "tasks": "tasks.json",
             "labels": "labels.json",
-            "combined": "combined.json",
             "counts": "counts.json",
         }
         if prepared.provenance_graphs is not None:
@@ -276,7 +264,6 @@ def _prepare_hotpotqa(
         parsed_count=len(parsed),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
-        combined=cast(list[object], combined_hotpotqa_records(tasks, labels)),
     )
 
 
@@ -314,7 +301,6 @@ def _prepare_twowiki(
         parsed_count=len(parsed),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
-        combined=cast(list[object], combined_twowiki_records(tasks, labels)),
     )
 
 
@@ -350,7 +336,6 @@ def _prepare_musique(
         parsed_count=len(parsed),
         tasks=cast(list[object], tasks),
         labels=cast(list[object], labels),
-        combined=cast(list[object], combined_musique_records(tasks, labels)),
     )
 
 
@@ -391,7 +376,6 @@ def _prepare_isetrace(
     )
     rankings = list(benchmark.rankings)
     labels = list(benchmark.labels)
-    combined = combined_isetrace_records(benchmark.rankings, benchmark.labels)
     counts = cast(dict[str, JsonValue], summary.to_dict())
     counts["parsed_examples"] = len(rankings)
     counts["task_inputs"] = len(rankings)
@@ -399,7 +383,6 @@ def _prepare_isetrace(
     return PreparedSplitData(
         task_inputs=cast(list[object], rankings),
         task_labels=cast(list[object], labels),
-        combined=cast(list[object], combined),
         counts=counts,
         provenance_graphs=cast(list[object], list(benchmark.provenance_graphs)),
         query_metadata=cast(list[object], list(benchmark.query_metadata)),
@@ -441,7 +424,6 @@ def _prepared(
     parsed_count: int,
     tasks: list[object],
     labels: list[object],
-    combined: list[object],
 ) -> PreparedSplitData:
     counts: dict[str, JsonValue] = {
         "raw_examples": len(raw),
@@ -456,7 +438,7 @@ def _prepared(
             1 for label in labels if _has_dependency_edges(label)
         ),
     }
-    return PreparedSplitData(tasks, labels, combined, counts)
+    return PreparedSplitData(tasks, labels, counts)
 
 
 def _json_record(record: object) -> object:

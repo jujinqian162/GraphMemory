@@ -15,7 +15,6 @@ from graph_memory.datasets.isetrace.adapter import (
     iter_canonical_trajectories,
 )
 from graph_memory.datasets.isetrace.benchmark_records import (
-    CombinedISETraceBenchmarkRecord,
     ISETraceLabelRecord,
     ISETracePreparedBenchmark,
     ISETraceQueryMetadata,
@@ -216,7 +215,6 @@ def prepare_isetrace_benchmark(
             graph_id=graph_id,
             gold_evidence_spans=spans,
         )
-        CombinedISETraceBenchmarkRecord(ranking=ranking, label=label)
         rankings.append(ranking)
         labels.append(label)
         query_metadata.append(
@@ -261,7 +259,6 @@ def prepare_isetrace_benchmark(
             graph_id=template.graph_id,
             gold_evidence_spans=tuple(positive_spans),
         )
-        CombinedISETraceBenchmarkRecord(ranking=ranking, label=label)
         rankings.append(ranking)
         labels.append(label)
         query_metadata.append(
@@ -459,20 +456,6 @@ def _trajectory_identity_files(source: Path) -> tuple[Path, ...]:
             f"ISETrace trajectory directory contains no JSONL shards: {source}"
         )
     return files
-
-
-def combined_isetrace_records(
-    rankings: tuple[ISETraceRankingRecord, ...],
-    labels: tuple[ISETraceLabelRecord, ...],
-) -> list[CombinedISETraceBenchmarkRecord]:
-    label_by_id = {label.task_id: label for label in labels}
-    return [
-        CombinedISETraceBenchmarkRecord(
-            ranking=ranking,
-            label=label_by_id[ranking.task_id],
-        )
-        for ranking in rankings
-    ]
 
 
 def _read_queries(
@@ -729,6 +712,5 @@ def _resolve_gold_spans(
 __all__ = [
     "ISETraceBenchmarkSummary",
     "allocate_trajectory_splits",
-    "combined_isetrace_records",
     "prepare_isetrace_benchmark",
 ]

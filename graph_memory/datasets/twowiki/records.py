@@ -70,18 +70,6 @@ class TwoWikiLabelRecord(DomainModel):
         return self
 
 
-class CombinedTwoWikiRecord(DomainModel):
-    task_id: NonEmptyStr
-    question: NonEmptyStr
-    question_type: NonEmptyStr
-    candidate_sentences: tuple[TwoWikiCandidateSentence, ...]
-    gold_answer: NonEmptyStr
-    gold_evidence_sentence_ids: tuple[NonEmptyStr, ...]
-    gold_dependency_edges: tuple[tuple[NonEmptyStr, NonEmptyStr], ...]
-    metadata: dict[str, JsonValue]
-    debug: dict[str, JsonValue] | None = None
-
-
 class TwoWikiPreparedSplit(DomainModel):
     rankings: tuple[TwoWikiRankingRecord, ...]
     labels: tuple[TwoWikiLabelRecord, ...]
@@ -157,7 +145,6 @@ class TwoWikiConversionResult:
 
 
 __all__ = [
-    "CombinedTwoWikiRecord",
     "ConvertedTwoWikiExample",
     "TwoWikiCandidateSentence",
     "TwoWikiConversionResult",

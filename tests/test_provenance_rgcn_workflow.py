@@ -73,7 +73,6 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
     prepared = PreparedSplitData(
         task_inputs=[ranking],
         task_labels=[label],
-        combined=[],
         counts={
             "natural_queries_selected": 0,
             "template_queries_selected": 1,
@@ -117,7 +116,6 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
     assert {
         "tasks",
         "labels",
-        "combined",
         "counts",
         "provenance_graphs",
         "query_metadata",

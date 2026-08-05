@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from graph_memory.datasets.musique.converter import (
-    combined_musique_records,
     convert_musique_example,
     convert_musique_examples,
 )
@@ -16,7 +15,6 @@ from graph_memory.datasets.musique.projectors import (
     MuSiQueToTextRankingRequest,
 )
 from graph_memory.datasets.musique.records import (
-    CombinedMuSiQueRecord,
     ConvertedMuSiQueExample,
     MuSiQueCandidateParagraph,
     MuSiQueConversionResult,
@@ -29,7 +27,6 @@ from graph_memory.datasets.musique.records import (
 )
 
 __all__ = [
-    "CombinedMuSiQueRecord",
     "ConvertedMuSiQueExample",
     "MuSiQueCandidateParagraph",
     "MuSiQueConversionResult",
@@ -43,7 +40,6 @@ __all__ = [
     "MuSiQueToEvidenceGraphBuildRequest",
     "MuSiQueToEvidenceGraphRankingRequest",
     "MuSiQueToTextRankingRequest",
-    "combined_musique_records",
     "convert_musique_example",
     "convert_musique_examples",
     "parse_musique_example",

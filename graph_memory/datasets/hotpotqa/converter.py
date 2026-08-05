@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from graph_memory.contracts.common import NodeId, TaskId
 from graph_memory.datasets.hotpotqa.records import (
-    CombinedHotpotQARecord,
     ConvertedHotpotQAExample,
     HotpotQACandidateSentence,
     HotpotQAConversionResult,
@@ -19,24 +18,6 @@ def convert_hotpotqa_examples(examples: Sequence[HotpotQAExample]) -> HotpotQACo
         ranking_records=[converted_example.ranking_record for converted_example in converted_examples],
         label_records=[converted_example.label_record for converted_example in converted_examples],
     )
-
-
-def combined_hotpotqa_records(
-    ranking_records: Sequence[HotpotQARankingRecord],
-    label_records: Sequence[HotpotQALabelRecord],
-) -> list[CombinedHotpotQARecord]:
-    labels_by_task_id = {record.task_id: record for record in label_records}
-    return [
-        CombinedHotpotQARecord.model_validate(
-            {
-                **record.model_dump(mode="python", exclude_none=True),
-                **labels_by_task_id[record.task_id].model_dump(
-                    mode="python", exclude_none=True
-                ),
-            }
-        )
-        for record in ranking_records
-    ]
 
 
 def convert_hotpotqa_example(example: HotpotQAExample) -> ConvertedHotpotQAExample:

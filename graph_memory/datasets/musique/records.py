@@ -70,18 +70,6 @@ class MuSiQueLabelRecord(DomainModel):
         return self
 
 
-class CombinedMuSiQueRecord(DomainModel):
-    task_id: NonEmptyStr
-    question: NonEmptyStr
-    candidate_paragraphs: tuple[MuSiQueCandidateParagraph, ...]
-    gold_answer: NonEmptyStr
-    gold_answer_aliases: tuple[str, ...]
-    gold_evidence_paragraph_ids: tuple[NonEmptyStr, ...]
-    gold_dependency_edges: tuple[tuple[NonEmptyStr, NonEmptyStr], ...]
-    metadata: dict[str, JsonValue]
-    debug: dict[str, JsonValue] | None = None
-
-
 class MuSiQuePreparedSplit(DomainModel):
     rankings: tuple[MuSiQueRankingRecord, ...]
     labels: tuple[MuSiQueLabelRecord, ...]
@@ -152,7 +140,6 @@ class MuSiQueConversionResult:
 
 
 __all__ = [
-    "CombinedMuSiQueRecord",
     "ConvertedMuSiQueExample",
     "MuSiQueCandidateParagraph",
     "MuSiQueConversionResult",

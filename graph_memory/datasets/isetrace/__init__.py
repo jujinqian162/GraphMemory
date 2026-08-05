@@ -9,11 +9,9 @@ from graph_memory.datasets.isetrace.adapter import (
 from graph_memory.datasets.isetrace.benchmark_adapter import (
     ISETraceBenchmarkSummary,
     allocate_trajectory_splits,
-    combined_isetrace_records,
     prepare_isetrace_benchmark,
 )
 from graph_memory.datasets.isetrace.benchmark_records import (
-    CombinedISETraceBenchmarkRecord,
     ISETraceLabelRecord,
     ISETracePreparedBenchmark,
     ISETraceQueryMetadata,
@@ -26,7 +24,6 @@ from graph_memory.datasets.isetrace.training import (
 )
 
 __all__ = [
-    "CombinedISETraceBenchmarkRecord",
     "ISETraceAdaptationError",
     "ISETraceBenchmarkSummary",
     "ISETraceIngestionSummary",
@@ -39,7 +36,6 @@ __all__ = [
     "adapt_isetrace_record",
     "adapt_provenance_training_split",
     "allocate_trajectory_splits",
-    "combined_isetrace_records",
     "iter_canonical_trajectories",
     "iter_isetrace_records",
     "parse_isetrace_record",
