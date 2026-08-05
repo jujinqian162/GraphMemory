@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from graph_memory.experiment.artifacts import (
@@ -22,28 +20,24 @@ class _StageResult(BaseModel):
 
 
 class PreparedSplitResult(_StageResult):
-    stage: Literal["prepare"] = "prepare"
     split: SplitName
     artifact: DatasetArtifactRef
     counts: dict[str, JsonValue]
 
 
 class EvidenceGraphResult(_StageResult):
-    stage: Literal["evidence_graphs"] = "evidence_graphs"
     split: SplitName
     artifact: EvidenceGraphArtifactRef
     statistics: dict[str, JsonValue]
 
 
 class TrainingPairsResult(_StageResult):
-    stage: Literal["pairs"] = "pairs"
     artifact: TrainingPairsArtifactRef
     summary: dict[str, JsonValue]
 
 
 class FrozenEmbeddingsResult(_StageResult):
-    stage: Literal["encode"] = "encode"
-    family: Literal["evidence", "provenance"]
+    family: str = Field(min_length=1)
     artifact: FrozenEmbeddingsArtifactRef
     embedding_dim: int = Field(gt=0)
     row_count: int = Field(gt=0)
@@ -51,7 +45,6 @@ class FrozenEmbeddingsResult(_StageResult):
 
 
 class ModelResult(_StageResult):
-    stage: Literal["train"] = "train"
     method: str = Field(min_length=1)
     artifact: ModelArtifactRef
     training_history: tuple[dict[str, JsonValue], ...] = ()
@@ -59,7 +52,6 @@ class ModelResult(_StageResult):
 
 
 class RankingResult(_StageResult):
-    stage: Literal["rank"] = "rank"
     method: str = Field(min_length=1)
     artifact: PredictionsArtifactRef
     provenance: dict[str, JsonValue]
@@ -67,7 +59,6 @@ class RankingResult(_StageResult):
 
 
 class EvaluationResult(_StageResult):
-    stage: Literal["evaluate"] = "evaluate"
     method: str = Field(min_length=1)
     artifact: EvaluationArtifactRef
     metric_rows: tuple[MetricRow, ...]
@@ -76,7 +67,6 @@ class EvaluationResult(_StageResult):
 
 
 class BenchmarkResult(_StageResult):
-    stage: Literal["benchmark"] = "benchmark"
     warmup: int = Field(ge=0)
     repetitions: int = Field(gt=0)
     metrics: dict[str, float]
