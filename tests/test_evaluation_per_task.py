@@ -4,7 +4,10 @@ import statistics
 
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
-from graph_memory.evaluation.suites import evidence_metric_suite
+from graph_memory.evaluation.suites import (
+    evaluate_evidence,
+    evaluate_evidence_with_per_task,
+)
 
 
 def _prediction(task_id: str, ranked: list[str]) -> RankedResult:
@@ -45,8 +48,7 @@ def _request() -> EvidenceEvaluationRequest:
 
 
 def test_per_task_rows_are_keyed_by_task_id_matching_predictions() -> None:
-    suite = evidence_metric_suite()
-    _, per_task = suite.evaluate_with_per_task(_request())
+    _, per_task = evaluate_evidence_with_per_task(_request())
 
     task_ids = [row.task_id for row in per_task]
     assert task_ids == ["t1", "t2"]
@@ -54,8 +56,7 @@ def test_per_task_rows_are_keyed_by_task_id_matching_predictions() -> None:
 
 
 def test_per_task_metrics_average_to_aggregate() -> None:
-    suite = evidence_metric_suite()
-    aggregate, per_task = suite.evaluate_with_per_task(_request())
+    aggregate, per_task = evaluate_evidence_with_per_task(_request())
 
     for metric in ("Recall@2", "Recall@5", "Recall@10", "MRR", "Full Support@5"):
         averaged = statistics.fmean(
@@ -66,7 +67,6 @@ def test_per_task_metrics_average_to_aggregate() -> None:
 
 
 def test_plain_evaluate_still_returns_only_aggregate() -> None:
-    suite = evidence_metric_suite()
-    rows = suite.evaluate(_request())
+    rows = evaluate_evidence(_request())
     assert len(rows) == 1
     assert "task_id" not in type(rows[0]).model_fields

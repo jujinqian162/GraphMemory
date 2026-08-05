@@ -9,7 +9,10 @@ from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.evaluation.contracts import FailureCase, MetricRow, PerTaskMetricRow
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.selection import evidence_evaluation_request_for_dataset
-from graph_memory.evaluation.suites import evidence_metric_suite
+from graph_memory.evaluation.suites import (
+    build_evidence_failure_cases,
+    evaluate_evidence_with_per_task,
+)
 from graph_memory.evaluation.span_suite import SpanEvidenceMetricSuite
 from graph_memory.evaluation.requests import SpanEvidenceEvaluationRequest
 from graph_memory.evaluation.tables import WIDE_METRIC_COLUMNS
@@ -63,9 +66,8 @@ def run_evaluate_stage(
             limit=failure_case_limit,
         )
     else:
-        node_suite = evidence_metric_suite()
-        metric_rows, per_task_rows = node_suite.evaluate_with_per_task(request)
-        failure_cases = node_suite.build_failure_cases(
+        metric_rows, per_task_rows = evaluate_evidence_with_per_task(request)
+        failure_cases = build_evidence_failure_cases(
             request,
             top_k=top_k,
             limit=failure_case_limit,

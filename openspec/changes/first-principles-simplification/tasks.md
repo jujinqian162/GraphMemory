@@ -10,7 +10,7 @@
 
 - [x] 2.1 Replace `RankedResultEnvelope` and `RankedResultBatch` production uses with direct `RankedResult` assembly and one boundary consistency check.
 - [x] 2.2 Delete tests that instantiate result wrappers solely to test repeated request/result context, replacing them with ranking behavior and persisted-result tests.
-- [x] 2.3 Inline and delete single-use no-behavior runtime rows and graph scoring factory helpers proven unused by production callers; defer metric suite/service cleanup to the dedicated evaluation pass.
+- [x] 2.3 Inline and delete single-use no-behavior runtime rows, graph scoring factory helpers, and the single-implementation node metric suite/factory; retain direct evidence/span evaluation functions.
 - [x] 2.4 Remove combined dataset DTOs and `combined.json`; authoritative tasks, labels, graph, origin, and source-span outputs remain.
 - [ ] 2.5 Collapse redundant result CSV projections to the retained authoritative outputs only after cache, delivery, tracking, docs, and analysis consumers are migrated.
 - [ ] 2.6 Run focused preparation/ranking/evaluation/artifact tests and record Tranche 1 net deletion.
