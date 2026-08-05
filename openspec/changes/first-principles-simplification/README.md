@@ -44,7 +44,7 @@ Compared with baseline commit `2258c25`:
 | Production Python modules | 175 | 160 | -15 |
 | Production classes | 353 | 281 | -72 |
 
-Across review range `8a1234f..HEAD`, the final diff is 4,103 insertions and 6,321 deletions, a net reduction of 2,218 lines.
+Across review range `8a1234f..HEAD`, the final diff is 4,157 insertions and 6,323 deletions, a net reduction of 2,166 lines.
 
 ### Residual Risks
 
