@@ -45,7 +45,6 @@ from graph_memory.models.graph_retriever.provenance import (
     provenance_embedding_request,
 )
 from graph_memory.retrieval.requests import ProvenanceRgcnRequest
-from graph_memory.stages.results import FrozenEmbeddingsResult
 
 
 EncoderSourceRef = FileSourceRef | DirectorySourceRef | RevisionSourceRef
@@ -79,7 +78,7 @@ def materialize_frozen_rgcn_embeddings(
     chunk_size: int,
     implementation_version: str,
     sentence_transformer: Any | None = None,
-) -> FrozenEmbeddingsResult:
+) -> FrozenEmbeddingsArtifactRef:
     family: EncodingFamily = (
         "provenance" if dataset == "isetrace" else "evidence"
     )
@@ -174,7 +173,7 @@ def materialize_frozen_rgcn_embeddings(
             metadata={"family": family},
         )
     assert isinstance(artifact, FrozenEmbeddingsArtifactRef)
-    return FrozenEmbeddingsResult(artifact=artifact)
+    return artifact
 
 
 def resolve_encoding_devices(enable_gpupool: bool, device: str) -> tuple[str, ...]:

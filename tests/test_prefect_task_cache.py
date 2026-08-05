@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from types import SimpleNamespace
 
 from hydra import compose, initialize_config_dir
 from prefect import flow
@@ -81,10 +80,7 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch.setattr(
         experiment_workflow,
         "prepare_split_task",
-        lambda *, source, config, trajectory_source=None: SimpleNamespace(
-            artifact=object(),
-            split=config.split,
-        ),
+        lambda *, source, config, trajectory_source=None: object(),
     )
     monkeypatch.setattr(
         experiment_workflow,
@@ -94,7 +90,7 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
 
     def capture_graph(**kwargs):
         observed["built_graph"] = True
-        return SimpleNamespace(artifact=graph_artifact)
+        return graph_artifact
 
     def capture_pairs(**kwargs):
         observed["evidence_graphs"] = kwargs["evidence_graphs"]
@@ -169,18 +165,18 @@ def test_provenance_rgcn_flow_plans_trainable_lifecycle_without_evidence_graphs(
     def prepare(**kwargs):
         prepared_splits.append(kwargs["config"].split)
         assert kwargs["trajectory_source"] is not None
-        return SimpleNamespace(artifact=object(), split=kwargs["config"].split)
+        return object()
 
     def pairs(**kwargs):
         observed["pair_graphs"] = kwargs["evidence_graphs"]
-        return SimpleNamespace(artifact=object())
+        return object()
 
     def encode(**kwargs):
         observed["encode_graphs"] = (
             kwargs["train_graphs"],
             kwargs["dev_graphs"],
         )
-        return SimpleNamespace(artifact=object())
+        return object()
 
     def train(**kwargs):
         observed["trained"] = True

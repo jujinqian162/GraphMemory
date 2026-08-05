@@ -51,12 +51,8 @@ from graph_memory.stages.prepare import materialize_prepared_split
 from graph_memory.stages.retrieve import materialize_rankings
 from graph_memory.stages.results import (
     EvaluationResult,
-    EvidenceGraphResult,
-    FrozenEmbeddingsResult,
     ModelResult,
-    PreparedSplitResult,
     RankingResult,
-    TrainingPairsResult,
 )
 
 
@@ -90,7 +86,7 @@ def prepare_split_task(
     config: PrepareSplitConfig,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
     implementation_version: str = "prepare-v8-prefix-test-full-template-pool",
-) -> PreparedSplitResult:
+) -> DatasetArtifactRef:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",
         config.dataset,
@@ -125,7 +121,7 @@ def build_evidence_graphs_task(
     split: SplitName,
     graph: GraphBuildConfig,
     implementation_version: str = "evidence-graphs-v2-isetrace",
-) -> EvidenceGraphResult:
+) -> EvidenceGraphArtifactRef:
     get_run_logger().info("build evidence graphs | dataset=%s split=%s", dataset, split)
     return materialize_evidence_graphs(
         _processed_store(),
@@ -149,7 +145,7 @@ def build_training_pairs_task(
     config: PairBuildConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     implementation_version: str = "training-pairs-v1",
-) -> TrainingPairsResult:
+) -> TrainingPairsArtifactRef:
     get_run_logger().info("build training pairs | dataset=%s", dataset)
     return materialize_training_pairs(
         _processed_store(),
@@ -180,7 +176,7 @@ def encode_frozen_rgcn_embeddings_task(
     device: str,
     chunk_size: int,
     implementation_version: str = "frozen-rgcn-embeddings-v1",
-) -> FrozenEmbeddingsResult:
+) -> FrozenEmbeddingsArtifactRef:
     get_run_logger().info(
         "encode frozen R-GCN embeddings | dataset=%s device=%s gpupool=%s",
         dataset,

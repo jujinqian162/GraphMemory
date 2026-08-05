@@ -116,7 +116,7 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         implementation_version="provenance-artifact-test-v1",
     )
 
-    roles = {payload.role for payload in result.artifact.payloads}
+    roles = {payload.role for payload in result.payloads}
     assert {
         "tasks",
         "labels",
@@ -125,5 +125,5 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         "query_metadata",
         "template_supervision",
     } <= roles
-    counts = read_json(artifact_payload_path(result.artifact, "counts"))
+    counts = read_json(artifact_payload_path(result, "counts"))
     assert counts["template_queries_selected"] == 1

@@ -89,7 +89,7 @@ def run_experiment(
             for split in (("train", "dev", "test") if requires_training else ("test",))
         }
         test = prepared["test"]
-        assets.extend(result.artifact for result in prepared.values())
+        assets.extend(prepared.values())
 
         if isinstance(
             method,
@@ -111,17 +111,17 @@ def run_experiment(
             train_graphs = None
             if effective_pairs.hard_graph_neighbor_per_positive > 0:
                 train_graphs = build_evidence_graphs_task(
-                    prepared=train.artifact,
+                    prepared=train,
                     dataset=config.dataset.name,
-                    split=train.split,
+                    split="train",
                     graph=config.graph,
                 )
-                assets.append(train_graphs.artifact)
+                assets.append(train_graphs)
 
             pairs = build_training_pairs_task(
-                prepared=train.artifact,
+                prepared=train,
                 evidence_graphs=(
-                    None if train_graphs is None else train_graphs.artifact
+                    None if train_graphs is None else train_graphs
                 ),
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
@@ -133,21 +133,21 @@ def run_experiment(
                 encoder_source=encoder_source,
             )
             model = train_dense_ft_task(
-                train_prepared=train.artifact,
-                train_pairs=pairs.artifact,
-                dev_prepared=dev.artifact,
+                train_prepared=train,
+                train_pairs=pairs,
+                dev_prepared=dev,
                 dataset=config.dataset.name,
                 config=method,
                 encoder_source=encoder_source,
             )
-            assets.extend((pairs.artifact, model.artifact))
+            assets.extend((pairs, model.artifact))
 
         elif isinstance(method, ProvenanceRgcnMethodConfig):
             train = prepared["train"]
             dev = prepared["dev"]
             encoder_source = resolve_encoder_source(method.encoder)
             pairs = build_training_pairs_task(
-                prepared=train.artifact,
+                prepared=train,
                 evidence_graphs=None,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
@@ -159,8 +159,8 @@ def run_experiment(
                 encoder_source=encoder_source,
             )
             frozen_embeddings = encode_frozen_rgcn_embeddings_task(
-                train_prepared=train.artifact,
-                dev_prepared=dev.artifact,
+                train_prepared=train,
+                dev_prepared=dev,
                 train_graphs=None,
                 dev_graphs=None,
                 seed_model=None,
@@ -172,17 +172,17 @@ def run_experiment(
                 chunk_size=config.encoding.chunk_size,
             )
             model = train_provenance_rgcn_task(
-                train_prepared=train.artifact,
-                train_pairs=pairs.artifact,
-                dev_prepared=dev.artifact,
+                train_prepared=train,
+                train_pairs=pairs,
+                dev_prepared=dev,
                 config=method,
                 encoder_source=encoder_source,
-                frozen_embeddings=frozen_embeddings.artifact,
+                frozen_embeddings=frozen_embeddings,
             )
             assets.extend(
                 (
-                    pairs.artifact,
-                    frozen_embeddings.artifact,
+                    pairs,
+                    frozen_embeddings,
                     model.artifact,
                 )
             )
@@ -191,27 +191,27 @@ def run_experiment(
             train = prepared["train"]
             dev = prepared["dev"]
             train_graphs = build_evidence_graphs_task(
-                prepared=train.artifact,
+                prepared=train,
                 dataset=config.dataset.name,
-                split=train.split,
+                split="train",
                 graph=config.graph,
             )
             dev_graphs = build_evidence_graphs_task(
-                prepared=dev.artifact,
+                prepared=dev,
                 dataset=config.dataset.name,
-                split=dev.split,
+                split="dev",
                 graph=config.graph,
             )
             test_graphs = build_evidence_graphs_task(
-                prepared=test.artifact,
+                prepared=test,
                 dataset=config.dataset.name,
-                split=test.split,
+                split="test",
                 graph=config.graph,
             )
             encoder_source = resolve_encoder_source(method.encoder)
             pairs = build_training_pairs_task(
-                prepared=train.artifact,
-                evidence_graphs=train_graphs.artifact,
+                prepared=train,
+                evidence_graphs=train_graphs,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
                     method=method.method,
@@ -222,10 +222,10 @@ def run_experiment(
                 encoder_source=encoder_source,
             )
             frozen_embeddings = encode_frozen_rgcn_embeddings_task(
-                train_prepared=train.artifact,
-                dev_prepared=dev.artifact,
-                train_graphs=train_graphs.artifact,
-                dev_graphs=dev_graphs.artifact,
+                train_prepared=train,
+                dev_prepared=dev,
+                train_graphs=train_graphs,
+                dev_graphs=dev_graphs,
                 seed_model=None,
                 dataset=config.dataset.name,
                 encoder=method.encoder,
@@ -235,27 +235,27 @@ def run_experiment(
                 chunk_size=config.encoding.chunk_size,
             )
             model = train_evidence_rgcn_task(
-                train_prepared=train.artifact,
-                train_graphs=train_graphs.artifact,
-                train_pairs=pairs.artifact,
-                dev_prepared=dev.artifact,
-                dev_graphs=dev_graphs.artifact,
+                train_prepared=train,
+                train_graphs=train_graphs,
+                train_pairs=pairs,
+                dev_prepared=dev,
+                dev_graphs=dev_graphs,
                 seed_model=None,
                 dataset=config.dataset.name,
                 method=method.method,
                 variant=method.variant,
                 config=method,
                 encoder_source=encoder_source,
-                frozen_embeddings=frozen_embeddings.artifact,
+                frozen_embeddings=frozen_embeddings,
             )
-            ranking_graphs = test_graphs.artifact
+            ranking_graphs = test_graphs
             assets.extend(
                 (
-                    train_graphs.artifact,
-                    dev_graphs.artifact,
-                    test_graphs.artifact,
-                    pairs.artifact,
-                    frozen_embeddings.artifact,
+                    train_graphs,
+                    dev_graphs,
+                    test_graphs,
+                    pairs,
+                    frozen_embeddings,
                     model.artifact,
                 )
             )
@@ -264,28 +264,28 @@ def run_experiment(
             train = prepared["train"]
             dev = prepared["dev"]
             train_graphs = build_evidence_graphs_task(
-                prepared=train.artifact,
+                prepared=train,
                 dataset=config.dataset.name,
-                split=train.split,
+                split="train",
                 graph=config.graph,
             )
             dev_graphs = build_evidence_graphs_task(
-                prepared=dev.artifact,
+                prepared=dev,
                 dataset=config.dataset.name,
-                split=dev.split,
+                split="dev",
                 graph=config.graph,
             )
             test_graphs = build_evidence_graphs_task(
-                prepared=test.artifact,
+                prepared=test,
                 dataset=config.dataset.name,
-                split=test.split,
+                split="test",
                 graph=config.graph,
             )
 
             seed_source = resolve_encoder_source(method.seed.encoder)
             seed_pairs = build_training_pairs_task(
-                prepared=train.artifact,
-                evidence_graphs=train_graphs.artifact,
+                prepared=train,
+                evidence_graphs=train_graphs,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
                     method=method.seed.method,
@@ -296,9 +296,9 @@ def run_experiment(
                 encoder_source=seed_source,
             )
             seed_model = train_dense_ft_task(
-                train_prepared=train.artifact,
-                train_pairs=seed_pairs.artifact,
-                dev_prepared=dev.artifact,
+                train_prepared=train,
+                train_pairs=seed_pairs,
+                dev_prepared=dev,
                 dataset=config.dataset.name,
                 config=method.seed,
                 encoder_source=seed_source,
@@ -307,8 +307,8 @@ def run_experiment(
             rgcn = method.rgcn
             rgcn_source = resolve_encoder_source(rgcn.encoder)
             rgcn_pairs = build_training_pairs_task(
-                prepared=train.artifact,
-                evidence_graphs=train_graphs.artifact,
+                prepared=train,
+                evidence_graphs=train_graphs,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
                     method=method.method,
@@ -319,10 +319,10 @@ def run_experiment(
                 encoder_source=rgcn_source,
             )
             frozen_embeddings = encode_frozen_rgcn_embeddings_task(
-                train_prepared=train.artifact,
-                dev_prepared=dev.artifact,
-                train_graphs=train_graphs.artifact,
-                dev_graphs=dev_graphs.artifact,
+                train_prepared=train,
+                dev_prepared=dev,
+                train_graphs=train_graphs,
+                dev_graphs=dev_graphs,
                 seed_model=seed_model.artifact,
                 dataset=config.dataset.name,
                 encoder=rgcn.encoder,
@@ -332,30 +332,30 @@ def run_experiment(
                 chunk_size=config.encoding.chunk_size,
             )
             model = train_evidence_rgcn_task(
-                train_prepared=train.artifact,
-                train_graphs=train_graphs.artifact,
-                train_pairs=rgcn_pairs.artifact,
-                dev_prepared=dev.artifact,
-                dev_graphs=dev_graphs.artifact,
+                train_prepared=train,
+                train_graphs=train_graphs,
+                train_pairs=rgcn_pairs,
+                dev_prepared=dev,
+                dev_graphs=dev_graphs,
                 seed_model=seed_model.artifact,
                 dataset=config.dataset.name,
                 method=method.method,
                 variant=method.variant,
                 config=method.rgcn,
                 encoder_source=rgcn_source,
-                frozen_embeddings=frozen_embeddings.artifact,
+                frozen_embeddings=frozen_embeddings,
             )
             dependency_models = (seed_model,)
-            ranking_graphs = test_graphs.artifact
+            ranking_graphs = test_graphs
             assets.extend(
                 (
-                    train_graphs.artifact,
-                    dev_graphs.artifact,
-                    test_graphs.artifact,
-                    seed_pairs.artifact,
+                    train_graphs,
+                    dev_graphs,
+                    test_graphs,
+                    seed_pairs,
                     seed_model.artifact,
-                    rgcn_pairs.artifact,
-                    frozen_embeddings.artifact,
+                    rgcn_pairs,
+                    frozen_embeddings,
                     model.artifact,
                 )
             )
@@ -365,7 +365,7 @@ def run_experiment(
 
         rank_config: MethodConfig = method
         ranking = generate_rankings_task(
-            prepared=test.artifact,
+            prepared=test,
             evidence_graphs=ranking_graphs,
             model=None if model is None else model.artifact,
             dataset=config.dataset.name,
@@ -377,7 +377,7 @@ def run_experiment(
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking.artifact,
-            prepared=test.artifact,
+            prepared=test,
             evidence_graphs=evaluation_graphs or ranking_graphs,
             dataset=config.dataset.name,
             top_k=config.top_k,

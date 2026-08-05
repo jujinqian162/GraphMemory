@@ -37,7 +37,6 @@ from graph_memory.experiment.config import (
     SplitName,
 )
 from graph_memory.io import read_json, write_json
-from graph_memory.stages.results import PreparedSplitResult
 from graph_memory.text.chunking import TokenChunkingConfig
 
 def prepare_evidence_split(
@@ -91,7 +90,7 @@ def materialize_prepared_split(
     trajectory_splits: ISETraceTrajectorySplitCounts | None = None,
     chunking: ISETraceChunkingConfig | None = None,
     implementation_version: str,
-) -> PreparedSplitResult:
+) -> DatasetArtifactRef:
     if dataset == "isetrace":
         if (
             trajectory_source is None
@@ -214,7 +213,7 @@ def materialize_prepared_split(
             },
         )
     assert isinstance(artifact, DatasetArtifactRef)
-    return PreparedSplitResult(split=split, artifact=artifact)
+    return artifact
 
 
 def _prepare_hotpotqa(

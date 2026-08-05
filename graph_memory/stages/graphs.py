@@ -23,7 +23,6 @@ from graph_memory.graphs.config import GraphBuildConfig as DomainGraphBuildConfi
 from graph_memory.graphs.construction.builder import build_graphs
 from graph_memory.graphs.statistics import graph_statistics
 from graph_memory.io import read_json, write_json
-from graph_memory.stages.results import EvidenceGraphResult
 
 
 def build_evidence_graph_data(
@@ -63,7 +62,7 @@ def materialize_evidence_graphs(
     prepared: DatasetArtifactRef,
     config: GraphBuildConfig,
     implementation_version: str,
-) -> EvidenceGraphResult:
+) -> EvidenceGraphArtifactRef:
     graphs, statistics = build_evidence_graph_data(dataset, prepared, config)
     with ArtifactPublisher(
         store,
@@ -92,7 +91,7 @@ def materialize_evidence_graphs(
             metadata={"split": split},
         )
     assert isinstance(artifact, EvidenceGraphArtifactRef)
-    return EvidenceGraphResult(artifact=artifact)
+    return artifact
 
 
 __all__ = ["build_evidence_graph_data", "materialize_evidence_graphs"]

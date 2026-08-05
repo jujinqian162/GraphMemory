@@ -42,7 +42,6 @@ from graph_memory.query_synthesis.provenance.contracts import (
     TemplateSupervisionRecord,
 )
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
-from graph_memory.stages.results import TrainingPairsResult
 from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.training_pairs.contracts import TrainPairRecord
@@ -126,7 +125,7 @@ def materialize_training_pairs(
     config: PairBuildConfig,
     encoder_source: EncoderSourceRef,
     implementation_version: str,
-) -> TrainingPairsResult:
+) -> TrainingPairsArtifactRef:
     pairs, summary = build_training_pair_data(
         dataset,
         prepared,
@@ -160,7 +159,7 @@ def materialize_training_pairs(
             shape={"pairs": len(pairs)},
         )
     assert isinstance(artifact, TrainingPairsArtifactRef)
-    return TrainingPairsResult(artifact=artifact)
+    return artifact
 
 
 def _pair_tasks(
