@@ -18,10 +18,6 @@ from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceLabelRecord,
     ISETraceRankingRecord,
 )
-from graph_memory.datasets.isetrace.projectors import (
-    ISETraceToSpanEvidenceEvaluationRequest,
-    ISETraceToTextRankingRequest,
-)
 from graph_memory.datasets.musique.projectors import (
     MuSiQueToEvidenceEvaluationRequest,
     MuSiQueToEvidenceGraphBuildRequest,
@@ -44,6 +40,7 @@ from graph_memory.evaluation.requests import (
     EvidenceEvaluationRequest,
     EvidenceLabel,
     SpanEvidenceEvaluationRequest,
+    SpanEvidenceLabel,
 )
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.requests import EvidenceGraphBuildRequest
@@ -124,11 +121,16 @@ def text_ranking_requests_for_dataset(
         projector = MuSiQueToTextRankingRequest()
         return [projector.project(record) for record in validated]
     if dataset == "isetrace":
-        projector = ISETraceToTextRankingRequest()
+        candidates_attr = (
+            "provenance_candidates"
+            if isetrace_representation == "provenance"
+            else "flat_candidates"
+        )
         return [
-            projector.project(
-                record,
-                representation=isetrace_representation,
+            TextRankingRequest(
+                task_id=record.task_id,
+                query_text=record.query_text,
+                candidates=getattr(record, candidates_attr),
             )
             for record in _ISETRACE_RANKINGS.validate_python(validated)
         ]
@@ -183,9 +185,15 @@ def evidence_evaluation_request_for_dataset(
             graphs=graphs,
         )
     if dataset == "isetrace":
-        return ISETraceToSpanEvidenceEvaluationRequest().project(
-            predictions=predictions,
-            labels=_ISETRACE_LABELS.validate_python(validated_labels),
+        return SpanEvidenceEvaluationRequest(
+            predictions=tuple(predictions),
+            labels=tuple(
+                SpanEvidenceLabel(
+                    task_id=label.task_id,
+                    gold_evidence_spans=label.gold_evidence_spans,
+                )
+                for label in _ISETRACE_LABELS.validate_python(validated_labels)
+            ),
         )
     _unsupported_dataset(dataset)
 
