@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import TypeVar, cast
 
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
-from graph_memory.registry.methods import MethodRegistry
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     BuiltRetrievalMethod,
@@ -23,10 +22,9 @@ from graph_memory.registry.retrieval import (
     ProvenancePathRetrievalSettings,
     ProvenanceRgcnBuildPayload,
     ProvenanceRgcnRetrievalSettings,
-    RetrievalBuilderSpec,
+    RetrievalJobSettings,
     RetrievalMethodId,
     RetrievalProvenance,
-    RetrievalRegistry,
     SeedRetrievalSettings,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod
@@ -48,62 +46,42 @@ from graph_memory.retrieval.requests import (
 )
 from graph_memory.retrieval.signals import SeedSignalProvider
 
+PayloadT = TypeVar("PayloadT")
 
-def build_retrieval_registry(method_registry: MethodRegistry) -> RetrievalRegistry:
-    return RetrievalRegistry(
-        validate_request=method_registry.validate_request,
-        builders={
-            Bm25RetrievalSettings: RetrievalBuilderSpec(
-                Bm25RetrievalSettings,
-                FlatRetrievalBuildPayload,
-                lambda settings, deps: _build_bm25(
-                    cast(Bm25RetrievalSettings, settings), deps
-                ),
-            ),
-            DenseRetrievalSettings: RetrievalBuilderSpec(
-                DenseRetrievalSettings,
-                FlatRetrievalBuildPayload,
-                lambda settings, deps: _build_dense(
-                    cast(DenseRetrievalSettings, settings), deps
-                ),
-            ),
-            DenseFinetunedRetrievalSettings: RetrievalBuilderSpec(
-                DenseFinetunedRetrievalSettings,
-                FlatRetrievalBuildPayload,
-                lambda settings, deps: _build_dense_ft(
-                    cast(DenseFinetunedRetrievalSettings, settings), deps
-                ),
-            ),
-            GraphRAGRetrievalSettings: RetrievalBuilderSpec(
-                GraphRAGRetrievalSettings,
-                GraphRAGBuildPayload,
-                lambda settings, deps: _build_graphrag(
-                    cast(GraphRAGRetrievalSettings, settings), deps
-                ),
-            ),
-            ProvenancePathRetrievalSettings: RetrievalBuilderSpec(
-                ProvenancePathRetrievalSettings,
-                ProvenancePathBuildPayload,
-                lambda settings, deps: _build_provenance_path(
-                    cast(ProvenancePathRetrievalSettings, settings), deps
-                ),
-            ),
-            ProvenanceRgcnRetrievalSettings: RetrievalBuilderSpec(
-                ProvenanceRgcnRetrievalSettings,
-                ProvenanceRgcnBuildPayload,
-                lambda settings, deps: _build_provenance_rgcn(
-                    cast(ProvenanceRgcnRetrievalSettings, settings), deps
-                ),
-            ),
-            EvidenceRgcnRetrievalSettings: RetrievalBuilderSpec(
-                EvidenceRgcnRetrievalSettings,
-                EvidenceRgcnBuildPayload,
-                lambda settings, deps: _build_evidence_rgcn(
-                    cast(EvidenceRgcnRetrievalSettings, settings), deps
-                ),
-            ),
-        },
+
+def _require_payload(
+    payload: object,
+    expected_type: type[PayloadT],
+    *,
+    method: RetrievalMethodId,
+) -> PayloadT:
+    if isinstance(payload, expected_type):
+        return payload
+    raise TypeError(
+        f"{method.value} expected {expected_type.__name__}, "
+        f"got {type(payload).__name__}."
     )
+
+
+def build_retrieval(
+    settings: RetrievalJobSettings,
+    payload: object,
+) -> BuiltRetrievalMethod:
+    if isinstance(settings, Bm25RetrievalSettings):
+        return _build_bm25(settings, payload)
+    if isinstance(settings, DenseRetrievalSettings):
+        return _build_dense(settings, payload)
+    if isinstance(settings, DenseFinetunedRetrievalSettings):
+        return _build_dense_ft(settings, payload)
+    if isinstance(settings, GraphRAGRetrievalSettings):
+        return _build_graphrag(settings, payload)
+    if isinstance(settings, ProvenancePathRetrievalSettings):
+        return _build_provenance_path(settings, payload)
+    if isinstance(settings, ProvenanceRgcnRetrievalSettings):
+        return _build_provenance_rgcn(settings, payload)
+    if isinstance(settings, EvidenceRgcnRetrievalSettings):
+        return _build_evidence_rgcn(settings, payload)
+    raise TypeError(f"Unsupported retrieval settings: {type(settings).__name__}.")
 
 
 def seed_retrieval_settings_for_method(
@@ -146,8 +124,9 @@ def _build_bm25(
     settings: Bm25RetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    # Payload type already checked by RetrievalRegistry.build.
-    build_payload = cast(FlatRetrievalBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, FlatRetrievalBuildPayload, method=settings.method
+    )
     return _built(
         BM25TaskRetriever(),
         method=settings.method,
@@ -159,7 +138,9 @@ def _build_dense(
     settings: DenseRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = cast(FlatRetrievalBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, FlatRetrievalBuildPayload, method=settings.method
+    )
     dense_retriever = DenseTaskRetriever(
         config=DenseConfig(
             model_name=settings.encoder.model_name,
@@ -184,7 +165,9 @@ def _build_dense_ft(
     settings: DenseFinetunedRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = cast(FlatRetrievalBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, FlatRetrievalBuildPayload, method=settings.method
+    )
     metadata = load_dense_ft_model_metadata(settings.checkpoint)
     encoder = build_payload.dense_encoder
     if encoder is None:
@@ -232,7 +215,9 @@ def _build_graphrag(
     settings: GraphRAGRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    build_payload = cast(GraphRAGBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, GraphRAGBuildPayload, method=settings.method
+    )
     dense_ranker = _build_dense_ranker(
         settings.encoder, build_payload.dense_encoder, device=settings.device
     )
@@ -272,7 +257,9 @@ def _build_provenance_path(
 ) -> BuiltRetrievalMethod:
     from graph_memory.retrieval.methods.provenance_path import ProvenancePathMethod
 
-    build_payload = cast(ProvenancePathBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, ProvenancePathBuildPayload, method=settings.method
+    )
     dense_ranker = _build_dense_ranker(
         settings.encoder,
         build_payload.dense_encoder,
@@ -326,7 +313,9 @@ def _build_provenance_rgcn(
         ProvenanceRgcnRetrievalMethod,
     )
 
-    build_payload = cast(ProvenanceRgcnBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, ProvenanceRgcnBuildPayload, method=settings.method
+    )
     checkpoint = load_rgcn_checkpoint(
         settings.checkpoint,
         expected_method=RetrievalMethodId.PROVENANCE_RGCN,
@@ -394,7 +383,9 @@ def _build_evidence_rgcn(
         TrainableGraphRetrievalMethod,
     )
 
-    build_payload = cast(EvidenceRgcnBuildPayload, payload)
+    build_payload = _require_payload(
+        payload, EvidenceRgcnBuildPayload, method=settings.method
+    )
     graph_index = GraphIndex.from_graphs(build_payload.evidence_graphs)
     text_embedding_provider, seed_signal_provider, checkpoint = (
         _evidence_rgcn_providers(settings, build_payload)
@@ -589,6 +580,6 @@ def _initial_scores_from_seed_signal_provider(
 
 
 __all__ = [
-    "build_retrieval_registry",
+    "build_retrieval",
     "seed_retrieval_settings_for_method",
 ]

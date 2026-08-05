@@ -10,6 +10,7 @@ from graph_memory.datasets.hotpotqa.projectors import (
 )
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
+from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
@@ -71,7 +72,7 @@ def run_retrieval(
         checkpoint=Path(checkpoint_path),
         device=device,
     )
-    built = Registry.retrieval.build(
+    built = build_retrieval(
         settings,
         EvidenceRgcnBuildPayload(
             text_requests=_ranking_requests(task_inputs),
@@ -284,7 +285,7 @@ def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
         method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
     )
 
-    built = Registry.retrieval.build(
+    built = build_retrieval(
         EvidenceRgcnRetrievalSettings(
             top_k=2,
             checkpoint=checkpoint_path,

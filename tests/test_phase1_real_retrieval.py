@@ -12,7 +12,7 @@ from graph_memory.experiment.config import (
     GraphRAGMethodConfig,
     RankingMethodConfig,
 )
-from graph_memory.registry import Registry
+from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.registry.retrieval import (
     DenseEncoderSettings,
     FlatRetrievalBuildPayload,
@@ -145,7 +145,7 @@ def test_graphrag_builder_rejects_flat_payload() -> None:
     )
 
     with pytest.raises(TypeError, match="GraphRAGBuildPayload"):
-        Registry.retrieval.build(
+        build_retrieval(
             settings,
             FlatRetrievalBuildPayload(text_requests=[]),
         )

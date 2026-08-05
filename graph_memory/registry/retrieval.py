@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.provenance import ProvenanceGraph
@@ -18,9 +18,6 @@ if TYPE_CHECKING:
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
     from graph_memory.retrieval.contracts import RetrievalMethod
     from graph_memory.retrieval.signals import SeedSignalProvider
-
-PayloadT = TypeVar("PayloadT")
-
 
 class RetrievalTaskFamily(StrEnum):
     EVIDENCE_RETRIEVAL = "evidence_retrieval"
@@ -177,66 +174,6 @@ class EvidenceRgcnBuildPayload:
     seed_signal_provider: "SeedSignalProvider | None" = None
 
 
-def _require_payload(
-    payload: object,
-    expected_type: type[PayloadT],
-    *,
-    method: str,
-) -> PayloadT:
-    if isinstance(payload, expected_type):
-        return payload
-    raise TypeError(
-        f"{method} expected {expected_type.__name__}, got {type(payload).__name__}."
-    )
-
-
-@dataclass(frozen=True)
-class RetrievalBuilderSpec:
-    settings_type: type[object]
-    payload_type: type[object]
-    build: Callable[[RetrievalJobSettings, object], BuiltRetrievalMethod]
-
-
-@dataclass(frozen=True)
-class RetrievalRegistry:
-    builders: Mapping[type[object], RetrievalBuilderSpec]
-    validate_request: Callable[
-        [str | RetrievalMethodId, object, RetrievalTaskFamily], None
-    ]
-
-    def build(
-        self, settings: RetrievalJobSettings, payload: object
-    ) -> BuiltRetrievalMethod:
-        try:
-            spec = self.builders[type(settings)]
-        except KeyError as error:
-            raise ValueError(
-                f"Unsupported retrieval settings type: {type(settings).__name__}"
-            ) from error
-        _require_payload(payload, spec.payload_type, method=settings.method.value)
-        built = spec.build(settings, payload)
-        family = _payload_family(payload)
-        for request in built.execution_requests:
-            self.validate_request(settings.method, request, family)
-        return built
-
-
-def _payload_family(payload: object) -> RetrievalTaskFamily:
-    if isinstance(
-        payload,
-        (
-            FlatRetrievalBuildPayload,
-            GraphRAGBuildPayload,
-            ProvenancePathBuildPayload,
-            ProvenanceRgcnBuildPayload,
-        ),
-    ):
-        return payload.task_family
-    if isinstance(payload, EvidenceRgcnBuildPayload):
-        return RetrievalTaskFamily.EVIDENCE_RETRIEVAL
-    raise TypeError(f"Unknown retrieval payload type: {type(payload).__name__}.")
-
-
 __all__ = [
     "Bm25RetrievalSettings",
     "BuiltRetrievalMethod",
@@ -252,11 +189,9 @@ __all__ = [
     "ProvenancePathRetrievalSettings",
     "ProvenanceRgcnBuildPayload",
     "ProvenanceRgcnRetrievalSettings",
-    "RetrievalBuilderSpec",
     "RetrievalJobSettings",
     "RetrievalMethodId",
     "RetrievalProvenance",
-    "RetrievalRegistry",
     "RetrievalTaskFamily",
     "SeedRetrievalSettings",
 ]

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from graph_memory.registry import Registry
+from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.registry.retrieval import (
     DenseEncoderSettings,
     GraphRAGBuildPayload,
@@ -97,7 +97,7 @@ def test_graphrag_builder_assembles_deterministic_noun_cooccurrence_graph() -> N
 
 def test_graphrag_preserves_query_and_passage_prefixes() -> None:
     encoder = RecordingEncoder()
-    built = Registry.retrieval.build(
+    built = build_retrieval(
         GraphRAGRetrievalSettings(
             top_k=2,
             encoder=DenseEncoderSettings("recording", "Q::", "P::", 7),

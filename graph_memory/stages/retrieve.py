@@ -38,7 +38,7 @@ from graph_memory.experiment.config import (
     TrainableRankingConfig,
 )
 from graph_memory.io import read_json, write_json
-from graph_memory.registry import Registry
+from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.registry.retrieval import (
     Bm25RetrievalSettings,
     DenseEncoderSettings,
@@ -107,7 +107,7 @@ def run_retrieve_stage(
         encoder_source=encoder_source,
         device=device,
     )
-    built = Registry.retrieval.build(
+    built = build_retrieval(
         settings,
         _build_payload(
             method,

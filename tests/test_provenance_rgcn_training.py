@@ -8,7 +8,7 @@ from graph_memory.models.graph_retriever.checkpoint import (
 )
 from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.registry import Registry
+from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.registry.retrieval import (
     ProvenanceRgcnBuildPayload,
     ProvenanceRgcnRetrievalSettings,
@@ -290,8 +290,8 @@ def test_tiny_mixed_provenance_training_uses_natural_dev_selection(
         graph_ids_by_task_id={dev_request.task_id: graph.graph_id},
         text_embedding_provider=DeterministicEmbeddingProvider(),
     )
-    first = Registry.retrieval.build(settings, payload)
-    second = Registry.retrieval.build(settings, payload)
+    first = build_retrieval(settings, payload)
+    second = build_retrieval(settings, payload)
     first_results = run_retrieval(
         retrieval_method=first.method,
         requests=first.execution_requests,
