@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from graph_memory.experiment.artifacts import ArtifactRef
 from graph_memory.stages.results import (
-    BenchmarkResult,
     EvaluationResult,
     ModelResult,
     RankingResult,
@@ -22,7 +21,6 @@ class FinalExperimentResult(_ResultModel):
     evaluation: EvaluationResult
     model: ModelResult | None = None
     dependency_models: tuple[ModelResult, ...] = ()
-    benchmark: BenchmarkResult | None = None
     assets: tuple[ArtifactRef, ...]
     run_output: str | None = None
 

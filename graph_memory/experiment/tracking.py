@@ -99,8 +99,11 @@ def log_experiment_result(
             metrics[metric_key] = number
         elif column not in _KNOWN_EFFICIENCY_COLUMNS and number is not None:
             raise ValueError(f"unknown numeric final metric column={column!r}")
-    if result.benchmark is not None:
-        metrics.update(result.benchmark.metrics)
+    metrics["final.retrieval_latency_ms_per_query"] = (
+        result.ranking.production_seconds
+        * 1000.0
+        / max(1, len(result.evaluation.per_task_rows))
+    )
     if metrics:
         mlflow.log_metrics(metrics)
 

@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import statistics
-import time
 from pathlib import Path
-from typing import cast
 
 from prefect import task
-from pydantic import TypeAdapter
 from prefect.cache_policies import TASK_SOURCE
 from prefect.logging import get_run_logger
 from prefect.settings import (
@@ -15,8 +11,6 @@ from prefect.settings import (
     temporary_settings,
 )
 
-from graph_memory.graphs.contracts import EvidenceGraph
-from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.experiment.artifacts import (
     DatasetArtifactRef,
     DirectorySourceRef,
@@ -28,7 +22,6 @@ from graph_memory.experiment.artifacts import (
     ProcessedAssetStore,
     RevisionSourceRef,
     TrainingPairsArtifactRef,
-    artifact_payload_path,
     identify_external_source,
     identify_immutable_revision,
 )
@@ -41,12 +34,10 @@ from graph_memory.experiment.config import (
     MethodConfig,
     PairBuildConfig,
     PrepareSplitConfig,
-    ProvenancePathMethodConfig,
     ProvenanceRgcnMethodConfig,
     RgcnStageConfig,
     SplitName,
 )
-from graph_memory.io import read_json
 from graph_memory.stages.encodings import materialize_frozen_rgcn_embeddings
 from graph_memory.stages.evaluate import materialize_evaluation
 from graph_memory.stages.graphs import materialize_evidence_graphs
@@ -57,8 +48,8 @@ from graph_memory.stages.models import (
 )
 from graph_memory.stages.pairs import materialize_training_pairs
 from graph_memory.stages.prepare import materialize_prepared_split
+from graph_memory.stages.retrieve import materialize_rankings
 from graph_memory.stages.results import (
-    BenchmarkResult,
     EvaluationResult,
     EvidenceGraphResult,
     FrozenEmbeddingsResult,
@@ -67,12 +58,10 @@ from graph_memory.stages.results import (
     RankingResult,
     TrainingPairsResult,
 )
-from graph_memory.stages.retrieve import materialize_rankings, run_retrieve_stage
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_ROOT = REPOSITORY_ROOT / "data" / "processed"
-_PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
 SCIENTIFIC_CACHE_POLICY = ScientificInputs() + TASK_SOURCE
 SCIENTIFIC_RESULT_STORAGE = PROCESSED_ROOT / "prefect" / "results"
 
@@ -379,77 +368,6 @@ def evaluate_rankings_task(
     )
 
 
-@task(
-    name="benchmark-retrieval",
-    persist_result=False,
-)
-def benchmark_retrieval_task(
-    prepared: DatasetArtifactRef,
-    evidence_graphs: EvidenceGraphArtifactRef | None,
-    model: ModelArtifactRef | None,
-    dataset: DatasetName,
-    method: MethodConfig,
-    top_k: int,
-    encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef | None,
-    device: str,
-    warmup: int,
-    repetitions: int,
-) -> BenchmarkResult:
-    get_run_logger().info(
-        "benchmark retrieval | dataset=%s warmup=%s repetitions=%s",
-        dataset,
-        warmup,
-        repetitions,
-    )
-    task_inputs = read_json(artifact_payload_path(prepared, "tasks"))
-    graph_values = (
-        cast(
-            list[EvidenceGraph],
-            read_json(artifact_payload_path(evidence_graphs, "graphs")),
-        )
-        if evidence_graphs is not None
-        else []
-    )
-    provenance_graph_values = (
-        _PROVENANCE_GRAPHS_ADAPTER.validate_python(
-            read_json(artifact_payload_path(prepared, "provenance_graphs"))
-        )
-        if isinstance(method, ProvenancePathMethodConfig)
-        else []
-    )
-    durations: list[float] = []
-    for index in range(warmup + repetitions):
-        started = time.perf_counter()
-        _ = run_retrieve_stage(
-            method,
-            dataset=dataset,
-            top_k=top_k,
-            task_inputs=task_inputs,
-            evidence_graphs=graph_values,
-            provenance_graphs=provenance_graph_values,
-            model=model,
-            encoder_source=encoder_source,
-            device=device,
-        )
-        elapsed = time.perf_counter() - started
-        if index >= warmup:
-            durations.append(elapsed)
-    if not durations:
-        raise ValueError("benchmark requires at least one measured repetition")
-    query_count = max(1, len(task_inputs))
-    mean_seconds = statistics.fmean(durations)
-    return BenchmarkResult(
-        warmup=warmup,
-        repetitions=repetitions,
-        metrics={
-            "benchmark.retrieval_seconds_mean": mean_seconds,
-            "benchmark.retrieval_latency_ms_per_query": (
-                mean_seconds * 1000.0 / query_count
-            ),
-        },
-    )
-
-
 def resolve_encoder_source(
     encoder: DenseEncoderConfig,
     *,
@@ -472,7 +390,6 @@ __all__ = [
     "PROCESSED_ROOT",
     "SCIENTIFIC_CACHE_POLICY",
     "SCIENTIFIC_RESULT_STORAGE",
-    "benchmark_retrieval_task",
     "build_evidence_graphs_task",
     "build_training_pairs_task",
     "encode_frozen_rgcn_embeddings_task",

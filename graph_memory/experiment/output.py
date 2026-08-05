@@ -37,11 +37,6 @@ def project_run_output(
             "profile": config.profile,
             "seed": config.seed,
             "cache_refresh": config.cache.refresh,
-            "benchmark": (
-                None
-                if result.benchmark is None
-                else result.benchmark.model_dump(mode="json")
-            ),
         },
     )
     write_yaml_atomic(
@@ -58,10 +53,9 @@ def project_run_output(
             f"one final method requires exactly one metric row, got {len(metric_rows)}"
         )
     final_row: dict[str, object] = dict(metric_rows[0])
-    if result.benchmark is not None:
-        final_row["Retrieval Latency / Query"] = result.benchmark.metrics[
-            "benchmark.retrieval_latency_ms_per_query"
-        ]
+    final_row["Retrieval Latency / Query"] = (
+        result.ranking.production_seconds / max(1, len(result.evaluation.per_task_rows))
+    )
     final_row["Method"] = result.method
     if result.variant is not None:
         final_row["Variant"] = result.variant
@@ -94,7 +88,7 @@ def project_run_output(
         destination / "workflow" / "ranking_origin.yaml",
         {
             "production_seconds": result.ranking.production_seconds,
-            "current_runtime_logged": result.benchmark is not None,
+            "current_runtime_logged": True,
         },
     )
 

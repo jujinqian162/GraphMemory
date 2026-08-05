@@ -66,14 +66,7 @@ class EvaluationResult(_StageResult):
     failure_case_count: int = Field(ge=0)
 
 
-class BenchmarkResult(_StageResult):
-    warmup: int = Field(ge=0)
-    repetitions: int = Field(gt=0)
-    metrics: dict[str, float]
-
-
 __all__ = [
-    "BenchmarkResult",
     "EvaluationResult",
     "EvidenceGraphResult",
     "FrozenEmbeddingsResult",

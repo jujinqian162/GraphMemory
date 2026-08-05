@@ -27,11 +27,10 @@ from graph_memory.experiment.config import (
     RgcnMethodConfig,
     SplitName,
 )
-from graph_memory.experiment.output import project_run_output
 from graph_memory.experiment.inputs import ensure_inputs
+from graph_memory.experiment.output import project_run_output
 from graph_memory.experiment.results import FinalExperimentResult
 from graph_memory.experiment.tasks import (
-    benchmark_retrieval_task,
     build_evidence_graphs_task,
     build_training_pairs_task,
     encode_frozen_rgcn_embeddings_task,
@@ -45,10 +44,7 @@ from graph_memory.experiment.tasks import (
     train_provenance_rgcn_task,
 )
 from graph_memory.experiment.tracking import log_experiment_result
-from graph_memory.stages.results import (
-    BenchmarkResult,
-    ModelResult,
-)
+from graph_memory.stages.results import ModelResult
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -432,20 +428,6 @@ def run_experiment(
             top_k=config.top_k,
             failure_case_limit=config.evaluation.failure_case_limit,
         )
-        benchmark: BenchmarkResult | None = None
-        if config.benchmark.enabled:
-            benchmark = benchmark_retrieval_task(
-                prepared=test.artifact,
-                evidence_graphs=ranking_graphs,
-                model=None if model is None else model.artifact,
-                dataset=config.dataset.name,
-                method=rank_config,
-                top_k=config.top_k,
-                encoder_source=ranking_encoder,
-                device=config.device,
-                warmup=config.benchmark.warmup,
-                repetitions=config.benchmark.repetitions,
-            )
 
     assets.extend((ranking.artifact, evaluation.artifact))
     final = FinalExperimentResult(
@@ -455,7 +437,6 @@ def run_experiment(
         dependency_models=dependency_models,
         ranking=ranking,
         evaluation=evaluation,
-        benchmark=benchmark,
         assets=_unique_assets(assets),
     )
     project_run_output(

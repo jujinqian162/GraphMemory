@@ -96,6 +96,7 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
     result = SimpleNamespace(
         method="bm25",
         variant=None,
+        ranking=SimpleNamespace(production_seconds=0.0),
         evaluation=SimpleNamespace(
             metric_rows=(
                 MetricRow.model_validate(dict(
@@ -131,9 +132,9 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
                     avg_retrieved_nodes=0.0,
                     avg_retrieved_edges=0.0,
                 )),
-            )
+            ),
+            per_task_rows=(),
         ),
-        benchmark=None,
         assets=(),
         model=None,
     )
@@ -162,7 +163,7 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
     assert metrics["final.span_f1_at_2048_tokens"] == 0.4
     assert metrics["final.evidence_density_at_2048_tokens"] == 0.3
     assert metrics["final.full_support_at_2048_tokens"] == 0.6
-    assert "final.retrieval_latency_ms_per_query" not in metrics
+    assert metrics["final.retrieval_latency_ms_per_query"] == 0.0
     assert {path for _, path in captured["log_dict"]} == {"assets/manifest.json"}
     assert captured["log_artifacts"] == [str(run_output)]
 

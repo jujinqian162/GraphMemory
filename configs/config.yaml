@@ -17,10 +17,6 @@ cache:
 encoding:
   enable_gpupool: false
   chunk_size: 100000
-benchmark:
-  enabled: false
-  warmup: 1
-  repetitions: 5
 graph:
   max_query_overlap: 20
   max_entity_neighbors: 10

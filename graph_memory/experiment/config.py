@@ -462,12 +462,6 @@ class EncodingConfig(ClosedModel):
     chunk_size: PositiveInt
 
 
-class BenchmarkConfig(ClosedModel):
-    enabled: StrictBool = False
-    warmup: NonNegativeInt = 1
-    repetitions: PositiveInt = 5
-
-
 class EvaluationConfig(ClosedModel):
     failure_case_limit: NonNegativeInt = 50
 
@@ -489,7 +483,6 @@ class ExperimentConfig(ClosedModel):
     top_k: PositiveInt
     cache: CacheConfig
     encoding: EncodingConfig
-    benchmark: BenchmarkConfig
     graph: GraphBuildConfig
     evaluation: EvaluationConfig
     tracking: TrackingConfig
@@ -538,7 +531,6 @@ class ResolvedExperimentConfig(ClosedModel):
     top_k: PositiveInt
     cache: CacheConfig
     encoding: EncodingConfig
-    benchmark: BenchmarkConfig
     graph: GraphBuildConfig
     evaluation: EvaluationConfig
     tracking: ResolvedTrackingConfig
@@ -657,7 +649,6 @@ def resolve_experiment_config(
         top_k=config.top_k,
         cache=config.cache,
         encoding=config.encoding,
-        benchmark=config.benchmark,
         graph=config.graph,
         evaluation=config.evaluation,
         tracking=ResolvedTrackingConfig(
@@ -726,7 +717,6 @@ def _absolute_path(root: Path, value: Path) -> Path:
 
 __all__ = [
     "AllAvailableCountPolicy",
-    "BenchmarkConfig",
     "Bm25MethodConfig",
     "CacheConfig",
     "ClosedModel",
