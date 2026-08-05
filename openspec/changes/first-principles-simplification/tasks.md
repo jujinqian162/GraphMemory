@@ -30,7 +30,7 @@
 - [x] 4.1 Make model materializers call concrete Dense-FT, evidence R-GCN, and provenance R-GCN training functions directly.
 - [x] 4.2 Delete `stages/train_payloads.py`, `stages/trainers.py`, trainer protocols, train dependency carriers, single-implementation stage trainer wrappers, and unused public training injection hooks that only forward arguments.
 - [ ] 4.3 Inline graph scoring model construction and delete `GraphScoringModelFactory` while preserving checkpoint model configuration and inference loading.
-- [ ] 4.4 Replace negative-sampler protocol/context/factory dispatch with direct calls to the existing four sampling algorithms inside pair construction.
+- [x] 4.4 Replace negative-sampler protocol/context/factory dispatch with direct calls to the existing four sampling algorithms inside pair construction.
 - [ ] 4.5 Remove `effective`, train-stage, R-GCN train-stage, and ranking config projections that only copy method fields; make each concrete algorithm consume the single parsed owner.
 - [ ] 4.6 Fix one-valued protocol choices at their concrete boundary, including the current optimizer/scheduler and selection-metric behavior, without changing numerical results.
 - [ ] 4.7 Reduce checkpoints to inference-required state only where no resume or analysis consumer exists; document intentional invalidation of historical internal checkpoint schema.
