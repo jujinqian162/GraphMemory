@@ -16,6 +16,7 @@ import mlflow
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
+from graph_memory.experiment.artifacts import artifact_csv_rows
 from graph_memory.experiment.config import (
     parse_composed_config,
     resolve_experiment_config,
@@ -54,11 +55,11 @@ def main(composed: DictConfig) -> None:
     else:
         mlflow.end_run(status="FINISHED")
 
-    metric_row = result.evaluation.metric_rows[0]
+    metric_row = artifact_csv_rows(result.evaluation, "metrics")[0]
     print(
         f"run={config.name} method={result.method} "
         f"variant={result.variant or 'none'} "
-        f"recall@10={metric_row.recall_at_10}"
+        f"recall@10={metric_row['Recall@10']}"
     )
 
 
