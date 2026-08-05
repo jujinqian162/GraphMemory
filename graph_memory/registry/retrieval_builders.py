@@ -32,7 +32,6 @@ from graph_memory.registry.retrieval import (
 from graph_memory.retrieval.contracts import RetrievalMethod
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
-from graph_memory.retrieval.methods.flat.method import ScorePipelineMethod
 from graph_memory.retrieval.methods.graphrag import (
     GraphRAGMethod,
     build_graphrag_knowledge_graph,
@@ -150,7 +149,7 @@ def _build_bm25(
     # Payload type already checked by RetrievalRegistry.build.
     build_payload = cast(FlatRetrievalBuildPayload, payload)
     return _built(
-        ScorePipelineMethod(name=settings.method.value, retriever=BM25TaskRetriever()),
+        BM25TaskRetriever(),
         method=settings.method,
         execution_requests=_text_requests(build_payload.text_requests),
     )
@@ -161,21 +160,19 @@ def _build_dense(
     payload: object,
 ) -> BuiltRetrievalMethod:
     build_payload = cast(FlatRetrievalBuildPayload, payload)
-    return _built(
-        ScorePipelineMethod(
-            name=settings.method.value,
-            retriever=DenseTaskRetriever(
-                config=DenseConfig(
-                    model_name=settings.encoder.model_name,
-                    query_prefix=settings.encoder.query_prefix,
-                    passage_prefix=settings.encoder.passage_prefix,
-                    batch_size=settings.encoder.batch_size,
-                    device=settings.device,
-                ),
-                encoder=build_payload.dense_encoder,
-                device=settings.device,
-            ),
+    dense_retriever = DenseTaskRetriever(
+        config=DenseConfig(
+            model_name=settings.encoder.model_name,
+            query_prefix=settings.encoder.query_prefix,
+            passage_prefix=settings.encoder.passage_prefix,
+            batch_size=settings.encoder.batch_size,
+            device=settings.device,
         ),
+        encoder=build_payload.dense_encoder,
+        device=settings.device,
+    )
+    return _built(
+        dense_retriever,
         method=settings.method,
         device=settings.device,
         encoder=settings.encoder,
@@ -205,19 +202,16 @@ def _build_dense_ft(
             raise RuntimeError(
                 "sentence-transformers is required for dense-ft retrieval."
             ) from error
-    method = ScorePipelineMethod(
-        name=settings.method.value,
-        retriever=DenseTaskRetriever(
-            config=DenseConfig(
-                device=settings.device,
-                model_name=str(settings.checkpoint),
-                query_prefix=metadata.query_prefix,
-                passage_prefix=metadata.passage_prefix,
-                batch_size=metadata.batch_size,
-            ),
-            encoder=encoder,
+    method = DenseTaskRetriever(
+        config=DenseConfig(
             device=settings.device,
+            model_name=str(settings.checkpoint),
+            query_prefix=metadata.query_prefix,
+            passage_prefix=metadata.passage_prefix,
+            batch_size=metadata.batch_size,
         ),
+        encoder=encoder,
+        device=settings.device,
     )
     return _built(
         method,

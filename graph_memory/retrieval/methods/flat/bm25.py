@@ -2,13 +2,27 @@ from __future__ import annotations
 
 from rank_bm25 import BM25Okapi
 
-from graph_memory.retrieval.contracts import RankedNode
-from graph_memory.retrieval.requests import TextRankingRequest
+from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
+from graph_memory.retrieval.requests import RankingMethodRequest, TextRankingRequest
 from graph_memory.text.tokens import content_tokens
 
 
 class BM25TaskRetriever:
     method_name = "bm25"
+
+    @property
+    def name(self) -> str:
+        return self.method_name
+
+    def rank_task(
+        self, request: RankingMethodRequest, *, top_k: int
+    ) -> RetrievalMethodResult:
+        _ = top_k
+        if not isinstance(request, TextRankingRequest):
+            raise TypeError(
+                f"bm25 requires TextRankingRequest, got {type(request).__name__}."
+            )
+        return RetrievalMethodResult(ranked_nodes=tuple(self.rank(request)))
 
     def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         corpus_tokens = [content_tokens(candidate.text) for candidate in request.candidates]

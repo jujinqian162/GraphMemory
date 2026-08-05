@@ -11,8 +11,12 @@ from graph_memory.embeddings import (
     SentenceEncoder,
     load_sentence_transformer,
 )
-from graph_memory.retrieval.contracts import RankedNode
-from graph_memory.retrieval.requests import DenseConfigLike, TextRankingRequest
+from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
+from graph_memory.retrieval.requests import (
+    DenseConfigLike,
+    RankingMethodRequest,
+    TextRankingRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,10 @@ class DenseConfig:
 
 class DenseTaskRetriever:
     method_name = "dense"
+
+    @property
+    def name(self) -> str:
+        return self.method_name
 
     def __init__(
         self,
@@ -56,6 +64,16 @@ class DenseTaskRetriever:
             passage_prefix=self.config.passage_prefix,
             batch_size=self.config.batch_size,
         )
+
+    def rank_task(
+        self, request: RankingMethodRequest, *, top_k: int
+    ) -> RetrievalMethodResult:
+        _ = top_k
+        if not isinstance(request, TextRankingRequest):
+            raise TypeError(
+                f"dense requires TextRankingRequest, got {type(request).__name__}."
+            )
+        return RetrievalMethodResult(ranked_nodes=tuple(self.rank(request)))
 
     def rank(self, request: TextRankingRequest) -> list[RankedNode]:
         return self.rank_with_query_vector(request)[0]
