@@ -27,11 +27,9 @@ from graph_memory.registry.retrieval import (
     RetrievalMethodId,
     RetrievalProvenance,
     RetrievalRegistry,
-    SeedRetrieverBuildPayload,
     SeedRetrievalSettings,
-    _require_payload,
 )
-from graph_memory.retrieval.contracts import RetrievalMethod, SeedRanker
+from graph_memory.retrieval.contracts import RetrievalMethod
 from graph_memory.retrieval.execution.requests import RetrievalExecutionTask
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
 from graph_memory.retrieval.methods.flat.dense import DenseConfig, DenseTaskRetriever
@@ -166,13 +164,16 @@ def _build_dense(
     return _built(
         ScorePipelineMethod(
             name=settings.method.value,
-            retriever=_build_seed_retriever(
-                SeedRetrievalSettings(
-                    method=RetrievalMethodId.DENSE,
-                    encoder=settings.encoder,
+            retriever=DenseTaskRetriever(
+                config=DenseConfig(
+                    model_name=settings.encoder.model_name,
+                    query_prefix=settings.encoder.query_prefix,
+                    passage_prefix=settings.encoder.passage_prefix,
+                    batch_size=settings.encoder.batch_size,
                     device=settings.device,
                 ),
-                SeedRetrieverBuildPayload(dense_encoder=build_payload.dense_encoder),
+                encoder=build_payload.dense_encoder,
+                device=settings.device,
             ),
         ),
         method=settings.method,
@@ -563,32 +564,6 @@ def _built(
             encoder=encoder,
         ),
         execution_tasks=execution_tasks,
-    )
-
-
-def _build_seed_retriever(
-    settings: SeedRetrievalSettings,
-    payload: object,
-) -> SeedRanker:
-    build_payload = _require_payload(
-        payload, SeedRetrieverBuildPayload, method=settings.method.value
-    )
-    if settings.method is RetrievalMethodId.BM25:
-        return BM25TaskRetriever()
-    if settings.encoder is None:
-        raise ValueError("Dense seed retrieval requires encoder settings.")
-    if settings.device is None:
-        raise ValueError("Dense seed retrieval requires an explicit device.")
-    return DenseTaskRetriever(
-        config=DenseConfig(
-            model_name=settings.encoder.model_name,
-            query_prefix=settings.encoder.query_prefix,
-            passage_prefix=settings.encoder.passage_prefix,
-            batch_size=settings.encoder.batch_size,
-            device=settings.device,
-        ),
-        encoder=build_payload.dense_encoder,
-        device=settings.device,
     )
 
 

@@ -133,11 +133,6 @@ class BuiltRetrievalMethod:
 
 
 @dataclass(frozen=True)
-class SeedRetrieverBuildPayload:
-    dense_encoder: "SentenceEncoder | None" = None
-
-
-@dataclass(frozen=True)
 class FlatRetrievalBuildPayload:
     text_requests: list[TextRankingRequest]
     task_family: RetrievalTaskFamily = RetrievalTaskFamily.EVIDENCE_RETRIEVAL
@@ -264,6 +259,5 @@ __all__ = [
     "RetrievalProvenance",
     "RetrievalRegistry",
     "RetrievalTaskFamily",
-    "SeedRetrieverBuildPayload",
     "SeedRetrievalSettings",
 ]
