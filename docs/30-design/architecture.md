@@ -1,10 +1,9 @@
 # Architecture
 
 ```text
-dataset adapter
+dataset selection
   -> concrete retrieval request
-  -> Registry validation
-  -> method builder
+  -> one explicit static method dispatch
   -> ranking + optional native_trace
 ```
 
@@ -13,14 +12,14 @@ dataset adapter
 ```text
 graph_memory/
   contracts/          low-level scalar/model primitives and shared IDs
-  datasets/           dataset-owned Pydantic records and projectors
+  datasets/           dataset-owned Pydantic records and direct selection
   trajectories/       dataset-neutral ordered Agent execution events
   graphs/             evidence plus query-independent provenance graphs
   query_synthesis/    internal motif planning and v7 authoring contracts
   embeddings/         frozen dense encoders
   retrieval/          requests, flat and GraphRAG methods
   models/             dense_finetune, shared graph_retriever R-GCN runtime
-  registry/           method IDs, settings, builders
+  registry/           static retrieval settings and construction dispatch
   stages/             prepare, graphs, pairs, models, retrieve, evaluate
   experiment/         Hydra job, Prefect Flow, artifacts, tracking
   evaluation/         Pydantic labels, metric rows, suites, and tables
@@ -30,14 +29,14 @@ graph_memory/
 
 ## Ownership rules
 
-- `datasets/` owns closed Pydantic source/prepared records and dataset adapters; it does not own cross-dataset canonical trajectory semantics.
+- `datasets/` owns closed Pydantic source/prepared records and direct dataset selection; it does not own cross-dataset canonical trajectory semantics.
 - `trajectories/` owns canonical ordered message/tool event contracts and stable source-span anchors.
 - `graphs/contracts.py` owns the closed `EvidenceGraph` model; `graphs/provenance/` owns the separate query-independent provenance graph, deterministic builder, and logical output-dependency projection shared by motifs, pair adaptation, and provenance retrieval.
 - `query_synthesis/provenance/` owns internal motif/source planning plus the four-field v7 authoring contract and deterministic handle/span helpers. It exposes no legacy answer/support query labels, template catalog, or generation-provenance envelope.
 - `retrieval/requests/` owns the closed request union; `retrieval/results.py` owns ranked results and request/result aggregates.
 - GraphRAG owns its text-derived entity graph end-to-end. It splits retrieval candidates into private small text units, extracts deterministic noun/structured phrases, builds a pruned co-occurrence graph, and projects query-personalized PageRank scores back to the original candidates. GraphRAG never receives the native provenance graph.
 - `models/graph_retriever/` owns one R-GCN encoder, scorer, disconnected-union batcher, optimizer loop, and checkpoint format. Evidence and provenance use domain-specific tensorization adapters around that shared runtime.
-- `registry/` owns public IDs, request/family compatibility, and builders. Workflow scheduling stays in `experiment/workflow.py`, not Registry metadata.
+- `registry/retrieval_builders.py` is a closed static dispatch for the eight repository-owned methods. It has no runtime registry, plugin metadata, request/family compatibility table, or builder registration layer.
 - `experiment/` schedules stages from real artifact dependencies of the selected method/variant.
 - `training_pairs/`, `evaluation/`, and each model package own their Pydantic artifact/config contracts. There is no central validation package.
 - Root `io.py` / `compat.py` are thin ports only.
@@ -62,7 +61,7 @@ Project-owned JSON is validated immediately at the consuming stage boundary with
 experiment/run.py  (one method, optional one R-GCN variant)
   -> graph_memory/experiment/workflow.py  (one Prefect Flow)
   -> graph_memory/stages/*
-  -> registry builders + domain packages
+  -> static retrieval dispatch + concrete domain packages
   -> runs/<name>/  (output-only reports + asset refs)
   -> data/processed/  (reusable scientific assets)
 ```

@@ -10,7 +10,7 @@
 | `ProvenancePathRequest` | training-free provenance path |
 | `ProvenanceRgcnRequest` | trainable provenance R-GCN |
 
-No generic graph request. Cross-domain routing is rejected at Registry validation.
+No generic graph request. Config resolution rejects unsupported dataset/method combinations, and each concrete method rejects the wrong request type at its direct boundary.
 
 ## Method matrix
 
@@ -25,7 +25,7 @@ No generic graph request. Cross-domain routing is rejected at Registry validatio
 | `dense_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 | `dense_ft_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 
-The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. On ISETrace, BM25, Dense, Dense-FT, and GraphRAG share the same flat trajectory chunks; Dense-FT maps exact gold spans to overlapping chunks and never receives a provenance graph. `ProvenancePathRequest` and `ProvenanceRgcnRequest` are current, label-free method requests over the query-independent graph. The `provenance_rgcn` identity is not a compatibility alias: Registry accepts it only for execution provenance and loads only a strict current checkpoint whose method and model config match.
+The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. On ISETrace, BM25, Dense, Dense-FT, and GraphRAG share the same flat trajectory chunks; Dense-FT maps exact gold spans to overlapping chunks and never receives a provenance graph. `ProvenancePathRequest` and `ProvenanceRgcnRequest` are current, label-free method requests over the query-independent graph. The `provenance_rgcn` identity is not a compatibility alias: config resolution permits it only for execution provenance, and loading requires a strict current checkpoint whose method and model config match.
 
 ## Results
 

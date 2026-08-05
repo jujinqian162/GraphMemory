@@ -15,7 +15,7 @@ The evidence workflow remains runnable. The revision-pinned ISETrace corpus has 
 |---|---|---|
 | `EvidenceGraph` | dataset stage | evidence R-GCN only |
 | GraphRAG entity graph | GraphRAG method (private) | GraphRAG only |
-| `ProvenanceGraph` | canonical trajectory projector | motif synthesis + `provenance_path` + `provenance_rgcn` |
+| `ProvenanceGraph` | canonical trajectory builder | motif synthesis + `provenance_path` + `provenance_rgcn` |
 
 ## Research boundary
 
