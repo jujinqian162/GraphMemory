@@ -94,7 +94,6 @@ def run_experiment(
                 ranking_encoder = resolve_encoder_source(method.encoder)
 
         elif isinstance(method, DenseFinetuneMethodConfig):
-            effective_method = method.effective_for_dataset(config.dataset.name)
             trajectory_source = _trajectory_source(config)
             train = prepare_split_task(
                 source=split_sources["train"],
@@ -113,8 +112,8 @@ def run_experiment(
             )
             assets.extend((train.artifact, dev.artifact, test.artifact))
 
-            encoder_source = resolve_encoder_source(effective_method.encoder)
-            effective_pairs = effective_method.pairs
+            encoder_source = resolve_encoder_source(method.encoder)
+            effective_pairs = method.pairs
             train_graphs = None
             if effective_pairs.hard_graph_neighbor_per_positive > 0:
                 train_graphs = build_evidence_graphs_task(
@@ -132,9 +131,9 @@ def run_experiment(
                 ),
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
-                    method=effective_method.method,
+                    method=method.method,
                     sampling=effective_pairs,
-                    encoder=effective_method.encoder,
+                    encoder=method.encoder,
                     device=config.device,
                 ),
                 encoder_source=encoder_source,
@@ -144,7 +143,7 @@ def run_experiment(
                 train_pairs=pairs.artifact,
                 dev_prepared=dev.artifact,
                 dataset=config.dataset.name,
-                config=effective_method,
+                config=method,
                 encoder_source=encoder_source,
             )
             assets.extend((pairs.artifact, model.artifact))
@@ -166,16 +165,15 @@ def run_experiment(
                 config=_prepare_config(config, "test"),
                 trajectory_source=trajectory_source,
             )
-            effective = method.effective()
-            encoder_source = resolve_encoder_source(effective.encoder)
+            encoder_source = resolve_encoder_source(method.encoder)
             pairs = build_training_pairs_task(
                 prepared=train.artifact,
                 evidence_graphs=None,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
-                    method=effective.method,
-                    sampling=effective.pairs,
-                    encoder=effective.encoder,
+                    method=method.method,
+                    sampling=method.pairs,
+                    encoder=method.encoder,
                     device=config.device,
                 ),
                 encoder_source=encoder_source,
@@ -187,7 +185,7 @@ def run_experiment(
                 dev_graphs=None,
                 seed_model=None,
                 dataset=config.dataset.name,
-                encoder=effective.encoder,
+                encoder=method.encoder,
                 encoder_source=encoder_source,
                 enable_gpupool=config.encoding.enable_gpupool,
                 device=config.device,
@@ -197,7 +195,7 @@ def run_experiment(
                 train_prepared=train.artifact,
                 train_pairs=pairs.artifact,
                 dev_prepared=dev.artifact,
-                config=effective,
+                config=method,
                 encoder_source=encoder_source,
                 frozen_embeddings=frozen_embeddings.artifact,
             )
@@ -243,16 +241,15 @@ def run_experiment(
                 split=test.split,
                 graph=config.graph,
             )
-            effective = method.effective()
-            encoder_source = resolve_encoder_source(effective.encoder)
+            encoder_source = resolve_encoder_source(method.encoder)
             pairs = build_training_pairs_task(
                 prepared=train.artifact,
                 evidence_graphs=train_graphs.artifact,
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
-                    method=effective.method,
-                    sampling=effective.pairs,
-                    encoder=effective.encoder,
+                    method=method.method,
+                    sampling=method.pairs,
+                    encoder=method.encoder,
                     device=config.device,
                 ),
                 encoder_source=encoder_source,
@@ -264,7 +261,7 @@ def run_experiment(
                 dev_graphs=dev_graphs.artifact,
                 seed_model=None,
                 dataset=config.dataset.name,
-                encoder=effective.encoder,
+                encoder=method.encoder,
                 encoder_source=encoder_source,
                 enable_gpupool=config.encoding.enable_gpupool,
                 device=config.device,
@@ -278,9 +275,9 @@ def run_experiment(
                 dev_graphs=dev_graphs.artifact,
                 seed_model=None,
                 dataset=config.dataset.name,
-                method=effective.method,
-                variant=effective.variant,
-                config=effective,
+                method=method.method,
+                variant=method.variant,
+                config=method,
                 encoder_source=encoder_source,
                 frozen_embeddings=frozen_embeddings.artifact,
             )
@@ -353,7 +350,7 @@ def run_experiment(
                 encoder_source=seed_source,
             )
 
-            rgcn = method.effective_rgcn()
+            rgcn = method.rgcn
             rgcn_source = resolve_encoder_source(rgcn.encoder)
             rgcn_pairs = build_training_pairs_task(
                 prepared=train.artifact,
@@ -390,7 +387,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 method=method.method,
                 variant=method.variant,
-                config=method.rgcn.for_variant(method.variant),
+                config=method.rgcn,
                 encoder_source=rgcn_source,
                 frozen_embeddings=frozen_embeddings.artifact,
             )

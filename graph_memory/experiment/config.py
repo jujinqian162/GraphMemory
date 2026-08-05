@@ -636,11 +636,7 @@ def resolve_experiment_config(
         trajectories = None
         chunking = None
 
-    resolved_method = (
-        config.method.effective_for_dataset(config.dataset.name)
-        if isinstance(config.method, DenseFinetuneMethodConfig)
-        else config.method
-    )
+    resolved_method = _resolve_method_config(config.method, config.dataset.name)
     return ResolvedExperimentConfig(
         name=config.name,
         dataset=ResolvedDatasetConfig(
@@ -670,6 +666,19 @@ def resolve_experiment_config(
             experiment_name=config.tracking.experiment_name,
         ),
     )
+
+
+def _resolve_method_config(
+    method: MethodConfig,
+    dataset: DatasetName,
+) -> MethodConfig:
+    if isinstance(method, DenseFinetuneMethodConfig):
+        return method.effective_for_dataset(dataset)
+    if isinstance(method, (RgcnMethodConfig, ProvenanceRgcnMethodConfig)):
+        return method.effective()
+    if isinstance(method, DenseFtRgcnMethodConfig):
+        return method.model_copy(update={"rgcn": method.effective_rgcn()})
+    return method
 
 
 def _check_dataset_method_compatibility(
