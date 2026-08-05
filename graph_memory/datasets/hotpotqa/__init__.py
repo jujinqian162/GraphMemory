@@ -10,7 +10,6 @@ from graph_memory.datasets.hotpotqa.parser import (
 from graph_memory.datasets.hotpotqa.projectors import (
     HotpotQAToEvidenceEvaluationRequest,
     HotpotQAToEvidenceGraphBuildRequest,
-    HotpotQAToEvidenceGraphRankingRequest,
     HotpotQAToTextRankingRequest,
 )
 from graph_memory.datasets.hotpotqa.records import (
@@ -31,7 +30,6 @@ __all__ = [
     "HotpotQASupportingFact",
     "HotpotQAToEvidenceEvaluationRequest",
     "HotpotQAToEvidenceGraphBuildRequest",
-    "HotpotQAToEvidenceGraphRankingRequest",
     "HotpotQAToTextRankingRequest",
     "convert_hotpotqa_example",
     "parse_hotpotqa_example",

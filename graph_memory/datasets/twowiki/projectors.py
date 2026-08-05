@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.retrieval.results import RankedResult
@@ -13,11 +13,7 @@ from graph_memory.graphs.requests import (
     EvidenceGraphBuildNode,
     EvidenceGraphBuildRequest,
 )
-from graph_memory.retrieval.requests import (
-    EvidenceGraphRankingRequest,
-    TextCandidate,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 
 
 class TwoWikiToTextRankingRequest:
@@ -71,24 +67,6 @@ class TwoWikiToEvidenceGraphBuildRequest:
         )
 
 
-class TwoWikiToEvidenceGraphRankingRequest:
-    def project(
-        self,
-        record: TwoWikiRankingRecord,
-        graph: EvidenceGraph,
-        initial_scores: Mapping[str, float],
-    ) -> EvidenceGraphRankingRequest:
-        record = TwoWikiRankingRecord.model_validate(record)
-        text_request = TwoWikiToTextRankingRequest().project(record)
-        return EvidenceGraphRankingRequest(
-            task_id=record.task_id,
-            query_text=record.question,
-            candidates=text_request.candidates,
-            graph=graph,
-            initial_scores=dict(initial_scores),
-        )
-
-
 class TwoWikiToEvidenceEvaluationRequest:
     def project(
         self,
@@ -126,6 +104,5 @@ def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
 __all__ = [
     "TwoWikiToEvidenceEvaluationRequest",
     "TwoWikiToEvidenceGraphBuildRequest",
-    "TwoWikiToEvidenceGraphRankingRequest",
     "TwoWikiToTextRankingRequest",
 ]

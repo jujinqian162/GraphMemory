@@ -10,7 +10,6 @@ from graph_memory.datasets.twowiki.parser import (
 from graph_memory.datasets.twowiki.projectors import (
     TwoWikiToEvidenceEvaluationRequest,
     TwoWikiToEvidenceGraphBuildRequest,
-    TwoWikiToEvidenceGraphRankingRequest,
     TwoWikiToTextRankingRequest,
 )
 from graph_memory.datasets.twowiki.records import (
@@ -33,7 +32,6 @@ __all__ = [
     "TwoWikiSupportingFact",
     "TwoWikiToEvidenceEvaluationRequest",
     "TwoWikiToEvidenceGraphBuildRequest",
-    "TwoWikiToEvidenceGraphRankingRequest",
     "TwoWikiToTextRankingRequest",
     "convert_twowiki_example",
     "parse_twowiki_example",

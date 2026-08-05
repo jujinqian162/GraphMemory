@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.retrieval.results import RankedResult
@@ -13,11 +13,7 @@ from graph_memory.graphs.requests import (
     EvidenceGraphBuildNode,
     EvidenceGraphBuildRequest,
 )
-from graph_memory.retrieval.requests import (
-    EvidenceGraphRankingRequest,
-    TextCandidate,
-    TextRankingRequest,
-)
+from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 
 
 class MuSiQueToTextRankingRequest:
@@ -69,24 +65,6 @@ class MuSiQueToEvidenceGraphBuildRequest:
         )
 
 
-class MuSiQueToEvidenceGraphRankingRequest:
-    def project(
-        self,
-        record: MuSiQueRankingRecord,
-        graph: EvidenceGraph,
-        initial_scores: Mapping[str, float],
-    ) -> EvidenceGraphRankingRequest:
-        record = MuSiQueRankingRecord.model_validate(record)
-        text_request = MuSiQueToTextRankingRequest().project(record)
-        return EvidenceGraphRankingRequest(
-            task_id=record.task_id,
-            query_text=record.question,
-            candidates=text_request.candidates,
-            graph=graph,
-            initial_scores=dict(initial_scores),
-        )
-
-
 class MuSiQueToEvidenceEvaluationRequest:
     def project(
         self,
@@ -124,6 +102,5 @@ def _dependency_edge(edge: Sequence[str]) -> tuple[str, str]:
 __all__ = [
     "MuSiQueToEvidenceEvaluationRequest",
     "MuSiQueToEvidenceGraphBuildRequest",
-    "MuSiQueToEvidenceGraphRankingRequest",
     "MuSiQueToTextRankingRequest",
 ]

@@ -4,10 +4,7 @@ from pathlib import Path
 import torch
 import pytest
 
-from graph_memory.datasets.hotpotqa.projectors import (
-    HotpotQAToEvidenceGraphRankingRequest,
-    HotpotQAToTextRankingRequest,
-)
+from graph_memory.datasets.hotpotqa.projectors import HotpotQAToTextRankingRequest
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.registry.retrieval_builders import build_retrieval
@@ -23,6 +20,7 @@ from graph_memory.models.graph_retriever.inference import (
     CheckpointGraphRetrieverLoader,
 )
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
+from graph_memory.retrieval.requests import EvidenceGraphRankingRequest
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from tests.rgcn_fixtures import (
     FakeRetriever,
@@ -128,10 +126,12 @@ def tiny_graph_ranking_request():
     record = tiny_task_inputs()[0]
     text_request = HotpotQAToTextRankingRequest().project(record)
     signals = RetrieverSeedSignalProvider(FakeRetriever()).score_task(text_request)
-    return HotpotQAToEvidenceGraphRankingRequest().project(
-        record,
-        tiny_graphs()[0],
-        {signal.node_id: signal.score for signal in signals},
+    return EvidenceGraphRankingRequest(
+        task_id=record.task_id,
+        query_text=record.question,
+        candidates=text_request.candidates,
+        graph=tiny_graphs()[0],
+        initial_scores={signal.node_id: signal.score for signal in signals},
     )
 
 
