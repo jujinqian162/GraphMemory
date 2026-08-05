@@ -25,7 +25,6 @@ from graph_memory.registry.retrieval import (
     RetrievalJobSettings,
     RetrievalMethodId,
     RetrievalProvenance,
-    SeedRetrievalSettings,
 )
 from graph_memory.retrieval.contracts import RetrievalMethod
 from graph_memory.retrieval.methods.flat.bm25 import BM25TaskRetriever
@@ -36,7 +35,6 @@ from graph_memory.retrieval.methods.graphrag import (
     build_graphrag_request,
 )
 from graph_memory.retrieval.requests import (
-    DenseConfigLike,
     EvidenceGraphRankingRequest,
     GraphRAGKnowledgeGraph,
     ProvenancePathRequest,
@@ -82,42 +80,6 @@ def build_retrieval(
     if isinstance(settings, EvidenceRgcnRetrievalSettings):
         return _build_evidence_rgcn(settings, payload)
     raise TypeError(f"Unsupported retrieval settings: {type(settings).__name__}.")
-
-
-def seed_retrieval_settings_for_method(
-    *,
-    method: RetrievalMethodId,
-    device: str,
-    dense_config: DenseConfigLike | None = None,
-) -> SeedRetrievalSettings:
-    if method is RetrievalMethodId.BM25:
-        return SeedRetrievalSettings(
-            method=RetrievalMethodId.BM25,
-            device=device,
-        )
-    if method is RetrievalMethodId.DENSE:
-        return SeedRetrievalSettings(
-            method=RetrievalMethodId.DENSE,
-            encoder=_dense_encoder_settings(dense_config),
-            device=device,
-        )
-    raise ValueError(f"Unsupported seed retrieval method: {method.value}")
-
-
-def _dense_encoder_settings(config: DenseConfigLike | None) -> DenseEncoderSettings:
-    if config is None:
-        return DenseEncoderSettings(
-            model_name="intfloat/e5-base-v2",
-            query_prefix="query: ",
-            passage_prefix="passage: ",
-            batch_size=64,
-        )
-    return DenseEncoderSettings(
-        model_name=config.model_name,
-        query_prefix=config.query_prefix,
-        passage_prefix=config.passage_prefix,
-        batch_size=config.batch_size,
-    )
 
 
 def _build_bm25(
@@ -579,7 +541,4 @@ def _initial_scores_from_seed_signal_provider(
     return initial_scores
 
 
-__all__ = [
-    "build_retrieval",
-    "seed_retrieval_settings_for_method",
-]
+__all__ = ["build_retrieval"]

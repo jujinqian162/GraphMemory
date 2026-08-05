@@ -67,13 +67,6 @@ class ProvenancePathRetrievalSettings:
 
 
 @dataclass(frozen=True)
-class SeedRetrievalSettings:
-    method: Literal[RetrievalMethodId.BM25, RetrievalMethodId.DENSE]
-    device: str | None
-    encoder: DenseEncoderSettings | None = None
-
-
-@dataclass(frozen=True)
 class EvidenceRgcnRetrievalSettings:
     top_k: int
     checkpoint: Path
@@ -193,5 +186,4 @@ __all__ = [
     "RetrievalMethodId",
     "RetrievalProvenance",
     "RetrievalTaskFamily",
-    "SeedRetrievalSettings",
 ]
