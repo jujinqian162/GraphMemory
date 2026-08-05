@@ -54,7 +54,7 @@
 - [ ] 6.2 Inline dataset projector classes into dataset selection/preparation while preserving dataset-specific parsing and label derivation.
 - [x] 6.3 Remove `Converted*`, `ConversionResult`, and evidence-dataset `*PreparedSplit` field-transport DTOs; direct ranking/label pairs cover all consumers.
 - [ ] 6.4 Split ISETrace flat and provenance preparation into direct branches that reuse trajectory parsing but do not introduce a representation enum or universal prepared object.
-- [ ] 6.5 Inline single-implementation evidence graph rule/builder/context scaffolding while preserving all four edge algorithms, deduplication, and the conversion script caller.
+- [x] 6.5 Inline the single-implementation evidence graph builder, context, accumulator, and rule classes into direct construction functions while preserving all four edge algorithms, deduplication, and the conversion script caller.
 - [ ] 6.6 Inline single-implementation provenance extractors and remove unused query-synthesis catalog/selector exports while preserving source-span and motif semantics.
 - [ ] 6.7 Run dataset label, ISETrace trajectory/span, graph construction, provenance tensorization, and full tests; record domain-cleanup net deletion.
 
