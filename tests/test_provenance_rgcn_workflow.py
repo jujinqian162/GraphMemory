@@ -12,6 +12,7 @@ from graph_memory.datasets.isetrace.benchmark_records import (
 from graph_memory.experiment.artifacts import (
     FileSourceRef,
     ProcessedAssetStore,
+    artifact_payload_path,
     identify_external_source,
 )
 from graph_memory.experiment.config import (
@@ -19,6 +20,7 @@ from graph_memory.experiment.config import (
     ISETraceTrajectoryOriginCounts,
     ISETraceTrajectorySplitCounts,
 )
+from graph_memory.io import read_json
 from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
 from graph_memory.stages.prepare import materialize_prepared_split
 from tests.test_provenance_rgcn_tensorization import _graph_and_request
@@ -123,4 +125,5 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         "query_metadata",
         "template_supervision",
     } <= roles
-    assert result.counts["template_queries_selected"] == 1
+    counts = read_json(artifact_payload_path(result.artifact, "counts"))
+    assert counts["template_queries_selected"] == 1

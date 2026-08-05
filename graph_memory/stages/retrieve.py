@@ -212,9 +212,7 @@ def materialize_rankings(
         )
     assert isinstance(artifact, PredictionsArtifactRef)
     return RankingResult(
-        method=method_name,
         artifact=artifact,
-        provenance=provenance,
         production_seconds=production_seconds,
     )
 

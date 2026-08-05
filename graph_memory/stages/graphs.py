@@ -92,11 +92,7 @@ def materialize_evidence_graphs(
             metadata={"split": split},
         )
     assert isinstance(artifact, EvidenceGraphArtifactRef)
-    return EvidenceGraphResult(
-        split=split,
-        artifact=artifact,
-        statistics=statistics,
-    )
+    return EvidenceGraphResult(artifact=artifact)
 
 
 __all__ = ["build_evidence_graph_data", "materialize_evidence_graphs"]

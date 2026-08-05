@@ -214,11 +214,7 @@ def materialize_prepared_split(
             },
         )
     assert isinstance(artifact, DatasetArtifactRef)
-    return PreparedSplitResult(
-        split=split,
-        artifact=artifact,
-        counts=counts,
-    )
+    return PreparedSplitResult(split=split, artifact=artifact)
 
 
 def _prepare_hotpotqa(

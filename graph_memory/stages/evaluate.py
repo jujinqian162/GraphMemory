@@ -161,11 +161,9 @@ def materialize_evaluation(
         )
     assert isinstance(artifact, EvaluationArtifactRef)
     return EvaluationResult(
-        method=method,
         artifact=artifact,
         metric_rows=tuple(result.metric_rows),
         per_task_rows=tuple(result.per_task_rows),
-        failure_case_count=len(result.failure_cases),
     )
 
 

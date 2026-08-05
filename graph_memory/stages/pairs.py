@@ -160,7 +160,7 @@ def materialize_training_pairs(
             shape={"pairs": len(pairs)},
         )
     assert isinstance(artifact, TrainingPairsArtifactRef)
-    return TrainingPairsResult(artifact=artifact, summary=summary)
+    return TrainingPairsResult(artifact=artifact)
 
 
 def _pair_tasks(

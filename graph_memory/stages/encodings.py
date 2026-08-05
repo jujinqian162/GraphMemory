@@ -174,13 +174,7 @@ def materialize_frozen_rgcn_embeddings(
             metadata={"family": family},
         )
     assert isinstance(artifact, FrozenEmbeddingsArtifactRef)
-    return FrozenEmbeddingsResult(
-        family=family,
-        artifact=artifact,
-        embedding_dim=embedding_dim,
-        row_count=len(texts),
-        task_count=len(groups),
-    )
+    return FrozenEmbeddingsResult(artifact=artifact)
 
 
 def resolve_encoding_devices(enable_gpupool: bool, device: str) -> tuple[str, ...]:

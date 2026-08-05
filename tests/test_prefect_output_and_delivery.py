@@ -110,17 +110,13 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
     assert isinstance(evaluation_ref, EvaluationArtifactRef)
 
     ranking = RankingResult(
-        method="bm25",
         artifact=ranking_ref,
-        provenance={"method": "bm25"},
         production_seconds=3.0,
     )
     evaluation = EvaluationResult(
-        method="bm25",
         artifact=evaluation_ref,
         metric_rows=(metric_row,),
         per_task_rows=(),
-        failure_case_count=0,
     )
     return FinalExperimentResult(
         method="bm25",

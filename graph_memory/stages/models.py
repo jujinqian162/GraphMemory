@@ -190,16 +190,7 @@ def materialize_dense_finetune_model(
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
-    return ModelResult(
-        method=config.method,
-        artifact=artifact,
-        training_history=history,
-        metadata={
-            "selected_metric_name": result.selected_metric_name,
-            "selected_metric_value": result.selected_metric_value,
-            "selection_query_origin": result.selection_query_origin,
-        },
-    )
+    return ModelResult(artifact=artifact, training_history=history)
 
 
 def _dense_finetune_split(
@@ -397,17 +388,7 @@ def materialize_evidence_rgcn_model(
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
-    return ModelResult(
-        method=method,
-        artifact=artifact,
-        training_history=history,
-        metadata={
-            "variant": variant,
-            "best_epoch": result.best_epoch,
-            "global_step": result.global_step,
-            "best_dev_metric": result.best_dev_metric,
-        },
-    )
+    return ModelResult(artifact=artifact, training_history=history)
 
 
 
@@ -526,20 +507,7 @@ def materialize_provenance_rgcn_model(
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
-    metadata: dict[str, JsonValue] = {
-        "variant": config.variant,
-        "best_epoch": result.best_epoch,
-        "global_step": result.global_step,
-        "best_dev_metric": result.best_dev_metric,
-        "selection_query_origin": selection_query_origin,
-        "selection_metric": selection_metric,
-    }
-    return ModelResult(
-        method=config.method,
-        artifact=artifact,
-        training_history=history,
-        metadata=metadata,
-    )
+    return ModelResult(artifact=artifact, training_history=history)
 
 
 def _load_provenance_split(prepared: DatasetArtifactRef):
