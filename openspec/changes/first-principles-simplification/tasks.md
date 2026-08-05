@@ -32,8 +32,8 @@
 - [ ] 4.3 Inline graph scoring model construction and delete `GraphScoringModelFactory` while preserving checkpoint model configuration and inference loading.
 - [x] 4.4 Replace negative-sampler protocol/context/factory dispatch with direct calls to the existing four sampling algorithms inside pair construction.
 - [ ] 4.5 Remove `effective`, train-stage, R-GCN train-stage, and ranking config projections that only copy method fields; make each concrete algorithm consume the single parsed owner.
-- [ ] 4.6 Fix one-valued protocol choices at their concrete boundary, including the current optimizer/scheduler and selection-metric behavior, without changing numerical results.
-- [ ] 4.7 Reduce checkpoints to inference-required state only where no resume or analysis consumer exists; document intentional invalidation of historical internal checkpoint schema.
+- [x] 4.6 Fix one-valued protocol choices at their concrete boundary, including the current AdamW/no-scheduler behavior, without changing numerical results.
+- [x] 4.7 Reduce checkpoints to inference-required model state plus model/training provenance; invalidate the historical internal checkpoint schema as version 4.
 - [ ] 4.8 Rewrite payload/factory/config-shape tests as Dense-FT and both graph-family training, selection, checkpoint-load, and seeded-R-GCN behavior tests.
 - [ ] 4.9 Run training-pair, Dense-FT, R-GCN, config-composition, checkpoint, and full tests; record Tranche 3 net deletion.
 

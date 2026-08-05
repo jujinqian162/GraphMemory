@@ -70,8 +70,6 @@ class RgcnTrainingResult:
     training_config: RgcnTrainingConfig
     metric_records: list[MetricRecord]
     best_model_state_dict: dict[str, Tensor]
-    optimizer_state_dict: dict[str, object]
-    scheduler_state_dict: dict[str, object]
     best_epoch: int
     global_step: int
     best_dev_metric: float
@@ -215,7 +213,6 @@ def train_materialized_graph_retriever(
     run_device = torch.device(device)
     model = build_model_from_config(model_config).to(run_device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_config.learning_rate)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
     train_loader = build_evidence_dataloader(
         train_tasks,
         per_device_graph_batch_size=training_config.per_device_graph_batch_size,
@@ -288,7 +285,6 @@ def train_materialized_graph_retriever(
                 model.parameters(), training_config.max_grad_norm
             )
             optimizer.step()
-            scheduler.step()
             global_step += 1
             optimizer_step_count += 1
             task_count = moved_batch.graph_batch.task_count
@@ -367,8 +363,6 @@ def train_materialized_graph_retriever(
         training_config=training_config,
         metric_records=metric_records,
         best_model_state_dict=best_state,
-        optimizer_state_dict=optimizer.state_dict(),
-        scheduler_state_dict=scheduler.state_dict(),
         best_epoch=best_epoch,
         global_step=global_step,
         best_dev_metric=best_metric,

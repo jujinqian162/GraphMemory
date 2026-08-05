@@ -103,8 +103,6 @@ def write_tiny_checkpoint(
         path,
         method_name=method_name,
         model=model,
-        optimizer_state_dict={},
-        scheduler_state_dict={},
         epoch=1,
         global_step=1,
         best_dev_metric=1.0,
@@ -166,7 +164,7 @@ def test_evidence_checkpoint_uses_explicit_graph_batch_schema(tmp_path: Path) ->
 
     checkpoint = load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
 
-    assert checkpoint.payload["schema_version"] == 3
+    assert checkpoint.payload["schema_version"] == 4
     training = checkpoint.payload["training_config"]
     assert "batch_size" not in training
     assert training["per_device_graph_batch_size"] == 1

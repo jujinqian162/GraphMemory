@@ -21,16 +21,14 @@ from graph_memory.models.graph_retriever.config.records import (
 )
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 
-RGCN_CHECKPOINT_SCHEMA_VERSION = 3
+RGCN_CHECKPOINT_SCHEMA_VERSION = 4
 OpaqueState = SkipValidation[dict[str, object]]
 
 
 class RgcnCheckpointEnvelope(DomainModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     method_name: RetrievalMethodId
     model_state_dict: OpaqueState
-    optimizer_state_dict: OpaqueState
-    scheduler_state_dict: OpaqueState
     epoch: NonNegativeInt
     global_step: NonNegativeInt
     best_dev_metric: FiniteFloat
@@ -66,8 +64,6 @@ def save_rgcn_checkpoint(
     *,
     method_name: str,
     model: nn.Module,
-    optimizer_state_dict: dict[str, Any],
-    scheduler_state_dict: dict[str, Any],
     epoch: int,
     global_step: int,
     best_dev_metric: float,
@@ -79,8 +75,6 @@ def save_rgcn_checkpoint(
         schema_version=RGCN_CHECKPOINT_SCHEMA_VERSION,
         method_name=method_id,
         model_state_dict=cast(dict[str, object], dict(model.state_dict())),
-        optimizer_state_dict=cast(dict[str, object], optimizer_state_dict),
-        scheduler_state_dict=cast(dict[str, object], scheduler_state_dict),
         epoch=epoch,
         global_step=global_step,
         best_dev_metric=float(best_dev_metric),
