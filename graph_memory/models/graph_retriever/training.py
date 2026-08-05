@@ -44,7 +44,6 @@ from graph_memory.retrieval.signals import SeedSignalProvider
 
 
 MetricRecord: TypeAlias = dict[str, object]
-CheckpointCallback: TypeAlias = Callable[["RgcnTrainingResult"], None]
 
 
 @dataclass(frozen=True)
@@ -94,7 +93,6 @@ def train_graph_retriever(
     dev_text_embedding_provider: TextEmbeddingProvider | None = None,
     dev_seed_signal_provider: SeedSignalProvider | None = None,
     selection_settings: RgcnSelectionSettings = RgcnSelectionSettings(),
-    checkpoint_callback: CheckpointCallback | None = None,
     device: str | torch.device,
 ) -> RgcnTrainingResult:
     """
@@ -190,7 +188,6 @@ def train_graph_retriever(
         training_config=training_config,
         dev_evaluation_callback=evaluate_dev_epoch,
         selection_settings=selection_settings,
-        checkpoint_callback=checkpoint_callback,
         device=device,
         progress_desc="evidence-rgcn epochs",
     )
@@ -205,7 +202,6 @@ def train_materialized_graph_retriever(
     training_config: RgcnTrainingConfig,
     dev_evaluation_callback: DevEvaluationCallback,
     selection_settings: RgcnSelectionSettings = RgcnSelectionSettings(),
-    checkpoint_callback: CheckpointCallback | None = None,
     device: str | torch.device,
     progress_desc: str = "rgcn epochs",
 ) -> RgcnTrainingResult:
@@ -377,8 +373,6 @@ def train_materialized_graph_retriever(
         global_step=global_step,
         best_dev_metric=best_metric,
     )
-    if checkpoint_callback is not None:
-        checkpoint_callback(result)
     return result
 
 

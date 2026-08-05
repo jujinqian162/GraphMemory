@@ -30,7 +30,6 @@ from graph_memory.models.graph_retriever.selection import (
     build_selection_metrics,
 )
 from graph_memory.models.graph_retriever.training import (
-    CheckpointCallback,
     RgcnDevEpochEvaluation,
     RgcnTrainingResult,
     train_materialized_graph_retriever,
@@ -57,7 +56,6 @@ def train_provenance_graph_retriever(
     training_config: RgcnTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
     dev_text_embedding_provider: TextEmbeddingProvider | None = None,
-    checkpoint_callback: CheckpointCallback | None = None,
     device: str | torch.device,
 ) -> RgcnTrainingResult:
     """Adapt provenance tasks to the shared R-GCN optimizer and dev loop."""
@@ -171,7 +169,6 @@ def train_provenance_graph_retriever(
         selection_settings=RgcnSelectionSettings(
             best_metric="dev_recall_at_5", higher_is_better=True
         ),
-        checkpoint_callback=checkpoint_callback,
         device=device,
         progress_desc="provenance-rgcn epochs",
     )

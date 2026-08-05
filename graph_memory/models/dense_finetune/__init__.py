@@ -20,7 +20,6 @@ from graph_memory.models.dense_finetune.metadata import (
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
     DenseFinetuneSelectionSettings,
-    DenseFinetuneTrainerRequest,
     DenseFinetuneTrainerSettings,
     DenseFinetuneTrainingResult,
     train_dense_finetune,
@@ -38,7 +37,6 @@ __all__ = [
     "DenseFinetuneRunConfig",
     "DenseFinetuneSelectionMetadata",
     "DenseFinetuneSelectionSettings",
-    "DenseFinetuneTrainerRequest",
     "DenseFinetuneTrainerSettings",
     "DenseFinetuneTrainingResult",
     "build_dense_finetune_examples",

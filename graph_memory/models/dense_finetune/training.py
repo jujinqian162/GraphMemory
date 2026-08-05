@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -104,10 +104,6 @@ class DenseFinetuneTrainingResult:
     selected_metric_name: str
     selected_metric_value: float | None
     selection_query_origin: str | None = None
-
-
-DenseFinetuneModelFactory = Callable[[str, str], DenseFinetuneModel]
-DenseFinetuneTrainerFactory = Callable[[DenseFinetuneTrainerRequest], DenseFinetuneTrainer]
 
 
 @dataclass(frozen=True)
@@ -344,8 +340,6 @@ def train_dense_finetune(
     dev_query_origins: Mapping[str, str] | None = None,
     output_dir: Path,
     model_dir: Path,
-    model_factory: DenseFinetuneModelFactory | None = None,
-    trainer_factory: DenseFinetuneTrainerFactory | None = None,
 ) -> DenseFinetuneTrainingResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     model_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -386,8 +380,8 @@ def train_dense_finetune(
         selection_query_origin = None
         selected_metric_name = config.selection.best_metric
         effective_config = config
-    model = (model_factory or _load_sentence_transformer)(config.base_model, config.trainer.device)
-    trainer = (trainer_factory or _build_sentence_transformers_fit_runner)(
+    model = _load_sentence_transformer(config.base_model, config.trainer.device)
+    trainer = _build_sentence_transformers_fit_runner(
         DenseFinetuneTrainerRequest(
             model=model,
             train_rows=examples.rows,
