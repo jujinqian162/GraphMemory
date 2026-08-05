@@ -25,6 +25,7 @@ from graph_memory.retrieval.contracts import (
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import (
     EvidenceGraphRankingRequest,
+    RankingMethodRequest,
     TextRankingRequest,
 )
 from graph_memory.retrieval.signals import (
@@ -49,8 +50,13 @@ class GraphRetrieverInference:
     device: torch.device
 
     def rank_task(
-        self, request: EvidenceGraphRankingRequest, *, top_k: int
+        self, request: RankingMethodRequest, *, top_k: int
     ) -> RetrievalMethodResult:
+        if not isinstance(request, EvidenceGraphRankingRequest):
+            raise TypeError(
+                f"{self.name} requires EvidenceGraphRankingRequest, "
+                f"got {type(request).__name__}."
+            )
         graph = request.graph
         text_request = TextRankingRequest(
             task_id=request.task_id,

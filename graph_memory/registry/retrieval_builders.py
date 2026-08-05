@@ -379,8 +379,8 @@ def _build_evidence_rgcn(
     settings: EvidenceRgcnRetrievalSettings,
     payload: object,
 ) -> BuiltRetrievalMethod:
-    from graph_memory.retrieval.methods.trainable_graph import (
-        TrainableGraphRetrievalMethod,
+    from graph_memory.models.graph_retriever.inference import (
+        CheckpointGraphRetrieverLoader,
     )
 
     build_payload = _require_payload(
@@ -390,7 +390,7 @@ def _build_evidence_rgcn(
     text_embedding_provider, seed_signal_provider, checkpoint = (
         _evidence_rgcn_providers(settings, build_payload)
     )
-    method = TrainableGraphRetrievalMethod.from_checkpoint(
+    method = CheckpointGraphRetrieverLoader().load(
         settings.checkpoint,
         text_embedding_provider=text_embedding_provider,
         seed_signal_provider=seed_signal_provider,

@@ -20,7 +20,9 @@ from graph_memory.registry.retrieval import (
     EvidenceRgcnRetrievalSettings,
     RetrievalMethodId,
 )
-from graph_memory.retrieval.methods.trainable_graph import TrainableGraphRetrievalMethod
+from graph_memory.models.graph_retriever.inference import (
+    CheckpointGraphRetrieverLoader,
+)
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from tests.rgcn_fixtures import (
@@ -137,7 +139,7 @@ def tiny_graph_ranking_request():
 def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Path):
     checkpoint_path = tmp_path / "best.pt"
     write_tiny_checkpoint(checkpoint_path)
-    retriever = TrainableGraphRetrievalMethod.from_checkpoint(
+    retriever = CheckpointGraphRetrieverLoader().load(
         checkpoint_path,
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
@@ -230,7 +232,7 @@ def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
         ablation_name="wo_bridge",
     )
     write_tiny_checkpoint(checkpoint_path, model_config=model_config)
-    retriever = TrainableGraphRetrievalMethod.from_checkpoint(
+    retriever = CheckpointGraphRetrieverLoader().load(
         checkpoint_path,
         text_embedding_provider=FakeTextEmbeddingProvider(),
         seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
@@ -312,13 +314,13 @@ def test_run_retrieval_passes_device_to_trainable_retriever(
     write_tiny_checkpoint(checkpoint_path)
     captured: dict[str, object] = {}
 
-    def fake_from_checkpoint(checkpoint_path_arg, *, device="cpu", **kwargs):
+    def fake_from_checkpoint(_loader, checkpoint_path_arg, *, device="cpu", **kwargs):
         captured["checkpoint_path"] = checkpoint_path_arg
         captured["device"] = device
         return TinyTrainableRetriever()
 
     monkeypatch.setattr(
-        TrainableGraphRetrievalMethod, "from_checkpoint", fake_from_checkpoint
+        CheckpointGraphRetrieverLoader, "load", fake_from_checkpoint
     )
     monkeypatch.setattr(
         retrieval_builders, "_evidence_rgcn_providers", fake_checkpoint_providers
