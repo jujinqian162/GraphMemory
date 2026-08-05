@@ -322,10 +322,10 @@ def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
     )
 
     assert retrieval_method.name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
-    assert provenance.method is RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER
-    assert provenance.model == checkpoint_path
-    assert provenance.encoder is not None
-    assert provenance.encoder.model_name == "fake-encoder"
+    assert provenance["method"] == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
+    assert provenance["model"] == checkpoint_path.as_posix()
+    assert provenance["encoder"] is not None
+    assert provenance["encoder"]["model_name"] == "fake-encoder"
 
 
 def test_run_retrieval_passes_device_to_trainable_retriever(

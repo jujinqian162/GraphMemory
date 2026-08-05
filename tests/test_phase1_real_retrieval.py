@@ -126,6 +126,6 @@ def test_retrieve_stage_runs_without_evidence_graph_artifact(
         dense_encoder=KeywordEncoder() if needs_encoder else None,
     )
 
-    assert provenance.method.value == expected_method
+    assert provenance["method"] == expected_method
     assert len(predictions[0].ranked_nodes) == 3
     assert len(predictions[0].retrieved_subgraph.nodes) == 2

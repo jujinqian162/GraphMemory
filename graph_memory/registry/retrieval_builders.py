@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypedDict, cast
+
+from graph_memory.contracts.common import JsonValue as RecursiveJsonValue
 
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.experiment.config import (
@@ -45,12 +46,11 @@ if TYPE_CHECKING:
     from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 
 
-@dataclass(frozen=True)
-class RetrievalProvenance:
-    method: RetrievalMethodId
-    model: Path | None
+class RetrievalProvenance(TypedDict):
+    method: str
+    model: str | None
     device: str | None
-    encoder: DenseEncoderConfig | None
+    encoder: dict[str, RecursiveJsonValue] | None
 
 
 def build_retrieval(
@@ -494,10 +494,10 @@ def _built(
     return (
         retrieval_method,
         RetrievalProvenance(
-            method=method,
-            model=model,
+            method=method.value,
+            model=None if model is None else model.as_posix(),
             device=device,
-            encoder=encoder,
+            encoder=None if encoder is None else encoder.model_dump(mode="json"),
         ),
         execution_requests,
     )

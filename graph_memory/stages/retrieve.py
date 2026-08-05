@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from dataclasses import asdict
 from pathlib import Path
-from typing import cast
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.provenance import ProvenanceGraph
@@ -143,7 +141,7 @@ def materialize_rankings(
         device=device,
     )
     production_seconds = time.perf_counter() - started
-    provenance = _provenance_json(retrieval_provenance)
+    provenance = retrieval_provenance
     method_name = method.method
     variant = getattr(method, "variant", None)
     with ArtifactPublisher(
@@ -213,13 +211,6 @@ def _model_payload(model: ModelArtifactRef | None, role: str) -> Path:
     if model is None:
         raise ValueError(f"trainable retrieval requires model payload role={role}")
     return artifact_payload_path(model, role)
-
-
-def _provenance_json(provenance: RetrievalProvenance) -> dict[str, JsonValue]:
-    value = asdict(provenance)
-    value["method"] = provenance.method.value
-    value["model"] = None if provenance.model is None else provenance.model.as_posix()
-    return cast(dict[str, JsonValue], value)
 
 
 def _encoder_identity(source: EncoderSourceRef) -> str:
