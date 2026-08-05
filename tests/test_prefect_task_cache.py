@@ -21,7 +21,7 @@ from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
     DenseEncoderConfig,
     PairBuildConfig,
-    PairSamplingConfig,
+    NegativeSamplingConfig,
     PrepareSplitConfig,
     parse_composed_config,
     resolve_experiment_config,
@@ -212,7 +212,7 @@ def test_provenance_rgcn_flow_plans_trainable_lifecycle_without_evidence_graphs(
 
 
 def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
-    sampling = PairSamplingConfig(
+    sampling = NegativeSamplingConfig(
         random_seed=13,
         easy_random_per_positive=1,
         hard_bm25_per_positive=1,

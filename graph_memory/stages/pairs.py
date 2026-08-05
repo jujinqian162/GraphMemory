@@ -35,7 +35,6 @@ from graph_memory.experiment.config import (
     DatasetName,
     DenseEncoderConfig,
     PairBuildConfig,
-    PairSamplingConfig,
 )
 from graph_memory.io import read_json, write_json
 from graph_memory.models.graph_retriever.provenance import provenance_train_pair_task
@@ -45,6 +44,7 @@ from graph_memory.query_synthesis.provenance.contracts import (
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.stages.results import TrainingPairsResult
 from graph_memory.training_pairs import build_train_pairs
+from graph_memory.training_pairs.config import NegativeSamplingConfig
 from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.training_pairs.requests import TrainPairBuildTask
 
@@ -219,7 +219,7 @@ def _pair_tasks(
 
 
 def _dense_config(
-    sampling: PairSamplingConfig,
+    sampling: NegativeSamplingConfig,
     *,
     encoder: DenseEncoderConfig,
     encoder_source: EncoderSourceRef,

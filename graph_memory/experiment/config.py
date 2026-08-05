@@ -107,13 +107,10 @@ class RawDatasetSplitConfig(DatasetSplitBase):
     kind: Literal["raw"]
 
 
-DatasetSplitConfig: TypeAlias = RawDatasetSplitConfig
-
-
 class DatasetSplitsConfig(ClosedModel):
-    train: DatasetSplitConfig | None = None
-    dev: DatasetSplitConfig | None = None
-    test: DatasetSplitConfig
+    train: RawDatasetSplitConfig | None = None
+    dev: RawDatasetSplitConfig | None = None
+    test: RawDatasetSplitConfig
 
 
 class ISETraceChunkingConfig(ClosedModel):
@@ -277,10 +274,6 @@ class ProvenancePathMethodConfig(ClosedModel):
         )
 
 
-class PairSamplingConfig(NegativeSamplingConfig):
-    pass
-
-
 class RgcnModelConfig(ClosedModel):
     hidden_dim: PositiveInt
     num_layers: NonNegativeInt
@@ -292,21 +285,17 @@ class RgcnTrainerConfig(RgcnTrainingConfig):
     device: Device
 
 
-class ModelSelectionConfig(RgcnSelectionSettings):
-    pass
-
-
 class RgcnTrainConfig(ClosedModel):
     model: RgcnModelConfig
     trainer: RgcnTrainerConfig
-    selection: ModelSelectionConfig
+    selection: RgcnSelectionSettings
 
 
 def _effective_rgcn_parts(
-    pairs: PairSamplingConfig,
+    pairs: NegativeSamplingConfig,
     train: RgcnTrainConfig,
     variant: EvidenceRgcnVariant,
-) -> tuple[PairSamplingConfig, RgcnTrainConfig]:
+) -> tuple[NegativeSamplingConfig, RgcnTrainConfig]:
     if variant == "full_rgcn":
         return pairs, train
     if variant == "wo_hard_negatives":
@@ -330,7 +319,7 @@ def _effective_rgcn_parts(
 
 class RgcnStageConfig(ClosedModel):
     encoder: DenseEncoderConfig
-    pairs: PairSamplingConfig
+    pairs: NegativeSamplingConfig
     train: RgcnTrainConfig
 
     def for_variant(self, variant: EvidenceRgcnVariant) -> RgcnStageConfig:
@@ -347,9 +336,6 @@ class RgcnMethodConfig(RgcnStageConfig):
         return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
 
 
-DenseRgcnMethodConfig = RgcnMethodConfig
-
-
 class ProvenanceRgcnMethodConfig(RgcnStageConfig):
     method: Literal["provenance_rgcn"]
     variant: ProvenanceRgcnVariant = "full_rgcn"
@@ -359,29 +345,21 @@ class ProvenanceRgcnMethodConfig(RgcnStageConfig):
         return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
 
 
-class DenseFinetuneDataConfig(DenseFinetuneDataSettings):
-    pass
-
-
 class DenseFinetuneTrainerConfig(DenseFinetuneTrainerSettings):
     device: Device
 
 
-class DenseFinetuneSelectionConfig(DenseFinetuneSelectionSettings):
-    pass
-
-
 class DenseFinetuneTrainConfig(ClosedModel):
-    data: DenseFinetuneDataConfig
+    data: DenseFinetuneDataSettings
     trainer: DenseFinetuneTrainerConfig
-    selection: DenseFinetuneSelectionConfig
+    selection: DenseFinetuneSelectionSettings
 
 
 class DenseFinetuneMethodConfig(ClosedModel):
     method: Literal["dense_ft"]
     encoder: DenseEncoderConfig
     train: DenseFinetuneTrainConfig
-    pairs: PairSamplingConfig
+    pairs: NegativeSamplingConfig
 
     def effective_for_dataset(self, dataset: DatasetName) -> DenseFinetuneMethodConfig:
         if dataset != "isetrace":
@@ -427,7 +405,7 @@ class PairBuildConfig(ClosedModel):
         "dense_ft_rgcn_graph_retriever",
         "provenance_rgcn",
     ]
-    sampling: PairSamplingConfig
+    sampling: NegativeSamplingConfig
     encoder: DenseEncoderConfig
     device: Device
 
@@ -491,9 +469,6 @@ class ResolvedRawSplitConfig(ClosedModel):
     count: PositiveInt | None = None
 
 
-ResolvedSplitConfig: TypeAlias = ResolvedRawSplitConfig
-
-
 class ResolvedDatasetConfig(ClosedModel):
     name: DatasetName
     strict_invalid_examples: StrictBool
@@ -502,7 +477,7 @@ class ResolvedDatasetConfig(ClosedModel):
     source_revision: str | None = None
     trajectories: ISETraceTrajectoriesConfig | None = None
     chunking: ISETraceChunkingConfig | None = None
-    splits: dict[SplitName, ResolvedSplitConfig]
+    splits: dict[SplitName, ResolvedRawSplitConfig]
 
 
 class ResolvedTrackingConfig(ClosedModel):
@@ -562,7 +537,7 @@ def resolve_experiment_config(
 ) -> ResolvedExperimentConfig:
     root = repository_root.resolve()
     split_names: tuple[SplitName, ...] = ("train", "dev", "test")
-    resolved_splits: dict[SplitName, ResolvedSplitConfig] = {}
+    resolved_splits: dict[SplitName, ResolvedRawSplitConfig] = {}
     if isinstance(config.dataset, ISETraceDatasetConfig):
         natural_source = _absolute_path(root, config.dataset.natural_query_source)
         for split_name in split_names:
@@ -693,7 +668,7 @@ def _check_dataset_method_compatibility(
 
 def _require_method_splits(
     method: MethodConfig,
-    splits: dict[SplitName, ResolvedSplitConfig],
+    splits: dict[SplitName, ResolvedRawSplitConfig],
 ) -> None:
     required: set[SplitName] = {"test"}
     if isinstance(
@@ -729,7 +704,6 @@ __all__ = [
     "DenseFinetuneTrainerConfig",
     "DenseFtRgcnMethodConfig",
     "DenseMethodConfig",
-    "DenseRgcnMethodConfig",
     "Device",
     "EncodingConfig",
     "ExperimentConfig",
@@ -742,10 +716,8 @@ __all__ = [
     "ISETraceTrajectoryOriginCounts",
     "ISETraceTrajectorySplitCounts",
     "MethodConfig",
-    "ModelSelectionConfig",
     "NonNegativeFloat",
     "NonNegativeInt",
-    "PairSamplingConfig",
     "PairBuildConfig",
     "PositiveFloat",
     "PositiveInt",
@@ -755,7 +727,6 @@ __all__ = [
     "ProvenanceRgcnVariant",
     "PrepareSplitConfig",
     "ResolvedExperimentConfig",
-    "ResolvedSplitConfig",
     "RgcnMethodConfig",
     "RgcnModelConfig",
     "RgcnStageConfig",
