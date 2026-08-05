@@ -9,13 +9,13 @@ from typing import TypeGuard, cast
 import mlflow
 
 from graph_memory.experiment.artifacts import (
-    ArtifactRef,
-    PredictionsArtifactRef,
+    artifact_csv_rows,
     artifact_payload_path,
+    artifact_shape_count,
+    prediction_production_seconds,
 )
 from graph_memory.experiment.config import ResolvedExperimentConfig
 from graph_memory.experiment.results import FinalExperimentResult
-from graph_memory.io import read_csv
 
 
 FINAL_METRIC_KEYS = {
@@ -92,7 +92,7 @@ def log_experiment_result(
             "graph_memory.prefect_flow_run_id": prefect_flow_run_id,
         }
     )
-    metric_rows = read_csv(artifact_payload_path(result.evaluation, "metrics"))
+    metric_rows = artifact_csv_rows(result.evaluation, "metrics")
     metric_row = metric_rows[0]
     metrics: dict[str, float] = {}
     for column, value in metric_row.items():
@@ -105,9 +105,9 @@ def log_experiment_result(
         elif column not in _KNOWN_EFFICIENCY_COLUMNS and number is not None:
             raise ValueError(f"unknown numeric final metric column={column!r}")
     metrics["final.retrieval_latency_ms_per_query"] = (
-        _production_seconds(result.ranking)
+        prediction_production_seconds(result.ranking)
         * 1000.0
-        / max(1, _shape_count(result.evaluation, "per_task_rows"))
+        / max(1, artifact_shape_count(result.evaluation, "per_task_rows"))
     )
     if metrics:
         mlflow.log_metrics(metrics)
@@ -139,20 +139,6 @@ def log_experiment_result(
             if epoch_metrics:
                 mlflow.log_metrics(epoch_metrics, step=step)
     mlflow.log_artifacts(str(run_output))
-
-
-def _shape_count(artifact: ArtifactRef, key: str) -> int:
-    value = artifact.shape.get(key)
-    if not isinstance(value, int):
-        raise ValueError(f"artifact shape requires integer {key!r}")
-    return value
-
-
-def _production_seconds(artifact: PredictionsArtifactRef) -> float:
-    value = artifact.metadata.get("production_seconds")
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-        raise ValueError("prediction artifact requires non-negative production_seconds")
-    return float(value)
 
 
 def _read_jsonl(path: Path) -> list[object]:

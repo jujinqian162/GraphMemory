@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -333,6 +334,30 @@ class ArtifactPublisher:
             )
         raise ProcessedAssetError(f"declared payload has unsupported type: {path}")
 
+def artifact_csv_rows(
+    reference: EvaluationArtifactRef,
+    role: str,
+) -> list[dict[str, str]]:
+    with artifact_payload_path(reference, role).open(
+        encoding="utf-8", newline=""
+    ) as stream:
+        return list(csv.DictReader(stream))
+
+
+def artifact_shape_count(reference: ArtifactRef, key: str) -> int:
+    value = reference.shape.get(key)
+    if not isinstance(value, int):
+        raise ValueError(f"artifact shape requires integer {key!r}")
+    return value
+
+
+def prediction_production_seconds(reference: PredictionsArtifactRef) -> float:
+    value = reference.metadata.get("production_seconds")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise ValueError("prediction artifact requires non-negative production_seconds")
+    return float(value)
+
+
 @validate_call
 def identify_external_source(
     path: str | Path,
@@ -476,7 +501,10 @@ __all__ = [
     "ProcessedAssetStore",
     "RevisionSourceRef",
     "TrainingPairsArtifactRef",
+    "artifact_csv_rows",
     "artifact_payload_path",
+    "artifact_shape_count",
     "identify_external_source",
     "identify_immutable_revision",
+    "prediction_production_seconds",
 ]

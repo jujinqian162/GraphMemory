@@ -5,10 +5,10 @@ import shutil
 from pathlib import Path
 
 from graph_memory.experiment.artifacts import (
-    ArtifactRef,
-    EvaluationArtifactRef,
-    PredictionsArtifactRef,
+    artifact_csv_rows,
     artifact_payload_path,
+    artifact_shape_count,
+    prediction_production_seconds,
 )
 from graph_memory.experiment.config import ResolvedExperimentConfig
 from graph_memory.experiment.persistence import write_yaml_atomic
@@ -49,15 +49,15 @@ def project_run_output(
         {"assets": [asset.model_dump(mode="json") for asset in result.assets]},
     )
 
-    metric_rows = _read_csv(result.evaluation)
+    metric_rows = artifact_csv_rows(result.evaluation, "metrics")
     if len(metric_rows) != 1:
         raise ValueError(
             f"one final method requires exactly one metric row, got {len(metric_rows)}"
         )
     final_row: dict[str, object] = dict(metric_rows[0])
     final_row["Retrieval Latency / Query"] = (
-        _production_seconds(result.ranking)
-        / max(1, _shape_count(result.evaluation, "per_task_rows"))
+        prediction_production_seconds(result.ranking)
+        / max(1, artifact_shape_count(result.evaluation, "per_task_rows"))
     )
     final_row["Method"] = result.method
     if result.variant is not None:
@@ -90,30 +90,10 @@ def project_run_output(
     write_yaml_atomic(
         destination / "workflow" / "ranking_origin.yaml",
         {
-            "production_seconds": _production_seconds(result.ranking),
+            "production_seconds": prediction_production_seconds(result.ranking),
             "current_runtime_logged": True,
         },
     )
-
-
-def _read_csv(artifact: EvaluationArtifactRef) -> list[dict[str, str]]:
-    path = artifact_payload_path(artifact, "metrics")
-    with path.open(encoding="utf-8", newline="") as stream:
-        return list(csv.DictReader(stream))
-
-
-def _shape_count(artifact: ArtifactRef, key: str) -> int:
-    value = artifact.shape.get(key)
-    if not isinstance(value, int):
-        raise ValueError(f"artifact shape requires integer {key!r}")
-    return value
-
-
-def _production_seconds(artifact: PredictionsArtifactRef) -> float:
-    value = artifact.metadata.get("production_seconds")
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-        raise ValueError("prediction artifact requires non-negative production_seconds")
-    return float(value)
 
 
 def resolved_overrides() -> tuple[str, ...]:
