@@ -76,7 +76,7 @@ def prefect_storage_settings(*, refresh_cache: bool):
     )
 
 
-def processed_store() -> ProcessedAssetStore:
+def _processed_store() -> ProcessedAssetStore:
     return ProcessedAssetStore(PROCESSED_ROOT)
 
 
@@ -98,7 +98,7 @@ def prepare_split_task(
         config.count,
     )
     return materialize_prepared_split(
-        processed_store(),
+        _processed_store(),
         dataset=config.dataset,
         split=config.split,
         source=source,
@@ -128,7 +128,7 @@ def build_evidence_graphs_task(
 ) -> EvidenceGraphResult:
     get_run_logger().info("build evidence graphs | dataset=%s split=%s", dataset, split)
     return materialize_evidence_graphs(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         split=split,
         prepared=prepared,
@@ -152,7 +152,7 @@ def build_training_pairs_task(
 ) -> TrainingPairsResult:
     get_run_logger().info("build training pairs | dataset=%s", dataset)
     return materialize_training_pairs(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         prepared=prepared,
         evidence_graphs=evidence_graphs,
@@ -188,7 +188,7 @@ def encode_frozen_rgcn_embeddings_task(
         enable_gpupool,
     )
     return materialize_frozen_rgcn_embeddings(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         encoder=encoder,
         encoder_source=encoder_source,
@@ -222,7 +222,7 @@ def train_dense_ft_task(
         "train dense-ft | dataset=%s epochs=%s", dataset, config.train.trainer.epochs
     )
     return materialize_dense_finetune_model(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         config=config,
         train_prepared=train_prepared,
@@ -259,7 +259,7 @@ def train_evidence_rgcn_task(
         config.train.trainer.epochs,
     )
     return materialize_evidence_rgcn_model(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         method=method,
         variant=variant,
@@ -294,7 +294,7 @@ def train_provenance_rgcn_task(
         "train provenance-rgcn | epochs=%s", config.train.trainer.epochs
     )
     return materialize_provenance_rgcn_model(
-        processed_store(),
+        _processed_store(),
         config=config,
         train_prepared=train_prepared,
         train_pairs=train_pairs,
@@ -328,7 +328,7 @@ def generate_rankings_task(
         top_k,
     )
     return materialize_rankings(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         method=method,
         top_k=top_k,
@@ -357,7 +357,7 @@ def evaluate_rankings_task(
 ) -> EvaluationResult:
     get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(
-        processed_store(),
+        _processed_store(),
         dataset=dataset,
         top_k=top_k,
         failure_case_limit=failure_case_limit,
@@ -397,7 +397,6 @@ __all__ = [
     "generate_rankings_task",
     "prepare_split_task",
     "prefect_storage_settings",
-    "processed_store",
     "resolve_encoder_source",
     "train_dense_ft_task",
     "train_evidence_rgcn_task",
