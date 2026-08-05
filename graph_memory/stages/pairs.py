@@ -30,6 +30,7 @@ from graph_memory.experiment.artifacts import (
     RevisionSourceRef,
     TrainingPairsArtifactRef,
     artifact_payload_path,
+    immutable_source_identity,
 )
 from graph_memory.experiment.config import (
     DatasetName,
@@ -145,7 +146,7 @@ def materialize_training_pairs(
             "sampling_config": config.sampling.model_dump(mode="json"),
             "prepared_digest": prepared.digest,
             "graph_digest": None if evidence_graphs is None else evidence_graphs.digest,
-            "encoder_identity": _encoder_identity(encoder_source),
+            "encoder_identity": immutable_source_identity(encoder_source),
             "implementation_version": implementation_version,
         },
     ) as publisher:
@@ -238,12 +239,6 @@ def _dense_config(
         batch_size=encoder.batch_size,
         device=device,
     )
-
-
-def _encoder_identity(reference: EncoderSourceRef) -> str:
-    if isinstance(reference, (FileSourceRef, DirectorySourceRef)):
-        return reference.digest
-    return reference.revision
 
 
 __all__ = [

@@ -30,6 +30,7 @@ from graph_memory.experiment.artifacts import (
     ProcessedAssetStore,
     RevisionSourceRef,
     artifact_payload_path,
+    immutable_source_identity,
 )
 from graph_memory.experiment.config import DatasetName, DenseEncoderConfig
 from graph_memory.graphs.contracts import EvidenceGraph
@@ -123,7 +124,11 @@ def materialize_frozen_rgcn_embeddings(
             "dev_prepared_digest": dev_prepared.digest,
             "train_graph_digest": None if train_graphs is None else train_graphs.digest,
             "dev_graph_digest": None if dev_graphs is None else dev_graphs.digest,
-            "encoder_identity": _encoder_identity(encoder_source),
+            "encoder_identity": (
+                f"{encoder_source.uri}@{encoder_source.revision}"
+                if isinstance(encoder_source, RevisionSourceRef)
+                else immutable_source_identity(encoder_source)
+            ),
             "seed_model_digest": None if seed_model is None else seed_model.digest,
             "query_prefix": encoder.query_prefix,
             "passage_prefix": encoder.passage_prefix,
@@ -373,12 +378,6 @@ def _effective_model_name(
     if isinstance(encoder_source, (FileSourceRef, DirectorySourceRef)):
         return encoder_source.uri
     return encoder.model_name
-
-
-def _encoder_identity(source: EncoderSourceRef) -> str:
-    if isinstance(source, (FileSourceRef, DirectorySourceRef)):
-        return source.digest
-    return f"{source.uri}@{source.revision}"
 
 
 __all__ = [

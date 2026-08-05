@@ -358,6 +358,14 @@ def prediction_production_seconds(reference: PredictionsArtifactRef) -> float:
     return float(value)
 
 
+def immutable_source_identity(
+    reference: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
+) -> str:
+    if isinstance(reference, (FileSourceRef, DirectorySourceRef)):
+        return reference.digest
+    return reference.revision
+
+
 @validate_call
 def identify_external_source(
     path: str | Path,
@@ -506,5 +514,6 @@ __all__ = [
     "artifact_shape_count",
     "identify_external_source",
     "identify_immutable_revision",
+    "immutable_source_identity",
     "prediction_production_seconds",
 ]

@@ -36,6 +36,7 @@ from graph_memory.experiment.artifacts import (
     RevisionSourceRef,
     TrainingPairsArtifactRef,
     artifact_payload_path,
+    immutable_source_identity,
 )
 from graph_memory.experiment.config import (
     DatasetName,
@@ -132,7 +133,7 @@ def materialize_dense_finetune_model(
             "prepared_digest": train_prepared.digest,
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
-            "encoder_identity": _encoder_identity(encoder_source),
+            "encoder_identity": immutable_source_identity(encoder_source),
             "implementation_version": implementation_version,
         },
     ) as publisher:
@@ -331,7 +332,7 @@ def materialize_evidence_rgcn_model(
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
             "dev_graph_digest": dev_graphs.digest,
-            "encoder_identity": _encoder_identity(encoder_source),
+            "encoder_identity": immutable_source_identity(encoder_source),
             "seed_model_digest": None if seed_model is None else seed_model.digest,
             "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
@@ -453,7 +454,7 @@ def materialize_provenance_rgcn_model(
             "prepared_digest": train_prepared.digest,
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
-            "encoder_identity": _encoder_identity(encoder_source),
+            "encoder_identity": immutable_source_identity(encoder_source),
             "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
         },
@@ -589,12 +590,6 @@ def _resolved_encoder(
     if isinstance(source, RevisionSourceRef):
         return encoder
     return encoder.model_copy(update={"model_name": source.uri})
-
-
-def _encoder_identity(source: EncoderSourceRef) -> str:
-    if isinstance(source, (FileSourceRef, DirectorySourceRef)):
-        return source.digest
-    return source.revision
 
 
 __all__ = [

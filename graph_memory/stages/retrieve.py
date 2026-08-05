@@ -24,6 +24,7 @@ from graph_memory.experiment.artifacts import (
     ProcessedAssetStore,
     RevisionSourceRef,
     artifact_payload_path,
+    immutable_source_identity,
 )
 from graph_memory.experiment.config import (
     DatasetName,
@@ -158,7 +159,7 @@ def materialize_rankings(
             "graph_digest": None if evidence_graphs is None else evidence_graphs.digest,
             "model_digest": None if model is None else model.digest,
             "encoder_identity": (
-                None if encoder_source is None else _encoder_identity(encoder_source)
+                None if encoder_source is None else immutable_source_identity(encoder_source)
             ),
             "implementation_version": implementation_version,
         },
@@ -207,12 +208,6 @@ def _model_payload(model: ModelArtifactRef | None, role: str) -> Path:
     if model is None:
         raise ValueError(f"trainable retrieval requires model payload role={role}")
     return artifact_payload_path(model, role)
-
-
-def _encoder_identity(source: EncoderSourceRef) -> str:
-    if isinstance(source, (FileSourceRef, DirectorySourceRef)):
-        return source.digest
-    return source.revision
 
 
 __all__ = ["materialize_rankings", "run_retrieve_stage"]
