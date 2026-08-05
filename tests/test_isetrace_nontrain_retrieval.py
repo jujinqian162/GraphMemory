@@ -824,7 +824,7 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
     task_inputs = [item.model_dump(mode="json") for item in benchmark.rankings]
     labels: list[object] = [item.model_dump(mode="json") for item in benchmark.labels]
     for method in methods:
-        result = run_retrieve_stage(
+        predictions, _provenance = run_retrieve_stage(
             method,
             dataset="isetrace",
             top_k=3,
@@ -838,38 +838,36 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
                 None if isinstance(method, Bm25MethodConfig) else KeywordEncoder()
             ),
         )
-        assert len(result.predictions) == 1
+        assert len(predictions) == 1
         expected_candidates = (
             benchmark.rankings[0].provenance_candidates
             if isinstance(method, ProvenancePathMethodConfig)
             else benchmark.rankings[0].flat_candidates
         )
-        assert len(result.predictions[0].ranked_nodes) == len(expected_candidates)
-        evaluation = run_evaluate_stage(
+        assert len(predictions[0].ranked_nodes) == len(expected_candidates)
+        metric_rows, _failure_cases, _per_task_rows = run_evaluate_stage(
             dataset="isetrace",
             top_k=3,
             failure_case_limit=10,
-            predictions=result.predictions,
+            predictions=predictions,
             labels=labels,
             graphs=[],
         )
+        metric = metric_rows[0]
+        assert metric.evaluation_schema == "execution_provenance_span_v7"
+        assert metric.evidence_density_at_10 != "N/A"
+        assert metric.coverage_at_512_tokens != "N/A"
+        assert metric.coverage_at_1024_tokens != "N/A"
+        assert metric.coverage_at_2048_tokens != "N/A"
         assert (
-            evaluation.metric_rows[0].evaluation_schema
-            == "execution_provenance_span_v7"
+            metric.coverage_at_512_tokens
+            <= metric.coverage_at_1024_tokens
+            <= metric.coverage_at_2048_tokens
         )
-        assert evaluation.metric_rows[0].evidence_density_at_10 != "N/A"
-        assert evaluation.metric_rows[0].coverage_at_512_tokens != "N/A"
-        assert evaluation.metric_rows[0].coverage_at_1024_tokens != "N/A"
-        assert evaluation.metric_rows[0].coverage_at_2048_tokens != "N/A"
-        assert (
-            evaluation.metric_rows[0].coverage_at_512_tokens
-            <= evaluation.metric_rows[0].coverage_at_1024_tokens
-            <= evaluation.metric_rows[0].coverage_at_2048_tokens
-        )
-        assert evaluation.metric_rows[0].full_support_at_2048_tokens != "N/A"
-        assert evaluation.metric_rows[0].connected_evidence_recall_at_10 != "N/A"
-        assert evaluation.metric_rows[0].path_recall_at_10 == "N/A"
-        assert evaluation.metric_rows[0].edge_recall_at_10 == "N/A"
+        assert metric.full_support_at_2048_tokens != "N/A"
+        assert metric.connected_evidence_recall_at_10 != "N/A"
+        assert metric.path_recall_at_10 == "N/A"
+        assert metric.edge_recall_at_10 == "N/A"
 
 
 def test_graphrag_runs_noun_graph_ppr_and_projects_to_candidates() -> None:

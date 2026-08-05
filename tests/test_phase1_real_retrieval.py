@@ -120,7 +120,7 @@ def test_retrieve_stage_runs_without_evidence_graph_artifact(
     expected_method: str,
     needs_encoder: bool,
 ) -> None:
-    result = run_retrieve_stage(
+    predictions, provenance = run_retrieve_stage(
         method_factory(),
         dataset="hotpotqa",
         top_k=2,
@@ -132,9 +132,9 @@ def test_retrieve_stage_runs_without_evidence_graph_artifact(
         dense_encoder=KeywordEncoder() if needs_encoder else None,
     )
 
-    assert result.provenance.method.value == expected_method
-    assert len(result.predictions[0].ranked_nodes) == 3
-    assert len(result.predictions[0].retrieved_subgraph.nodes) == 2
+    assert provenance.method.value == expected_method
+    assert len(predictions[0].ranked_nodes) == 3
+    assert len(predictions[0].retrieved_subgraph.nodes) == 2
 
 
 def test_graphrag_builder_rejects_flat_payload() -> None:

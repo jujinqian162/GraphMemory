@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import cast
 
 from pydantic import TypeAdapter
@@ -35,13 +34,6 @@ RANKED_RESULTS_ADAPTER = TypeAdapter(list[RankedResult])
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
 
 
-@dataclass(frozen=True)
-class EvaluateStageResult:
-    metric_rows: list[MetricRow]
-    failure_cases: list[FailureCase]
-    per_task_rows: list[PerTaskMetricRow]
-
-
 def run_evaluate_stage(
     *,
     dataset: DatasetName,
@@ -50,7 +42,7 @@ def run_evaluate_stage(
     predictions: list[RankedResult],
     labels: list[object],
     graphs: list[EvidenceGraph],
-) -> EvaluateStageResult:
+) -> tuple[list[MetricRow], list[FailureCase], list[PerTaskMetricRow]]:
     request = evidence_evaluation_request_for_dataset(
         dataset,
         predictions=predictions,
@@ -72,11 +64,7 @@ def run_evaluate_stage(
             top_k=top_k,
             limit=failure_case_limit,
         )
-    return EvaluateStageResult(
-        metric_rows=metric_rows,
-        failure_cases=failure_cases,
-        per_task_rows=per_task_rows,
-    )
+    return metric_rows, failure_cases, per_task_rows
 
 
 def materialize_evaluation(
@@ -104,7 +92,7 @@ def materialize_evaluation(
         if evidence_graphs is not None
         else []
     )
-    result = run_evaluate_stage(
+    metric_rows, failure_cases, per_task_rows = run_evaluate_stage(
         dataset=dataset,
         top_k=top_k,
         failure_case_limit=failure_case_limit,
@@ -132,19 +120,19 @@ def materialize_evaluation(
             publisher.workspace / "metrics.csv",
             [
                 row.model_dump(mode="json", by_alias=True)
-                for row in result.metric_rows
+                for row in metric_rows
             ],
             WIDE_METRIC_COLUMNS,
         )
         write_jsonl(
             publisher.workspace / "failure_cases.jsonl",
-            [row.model_dump(mode="json") for row in result.failure_cases],
+            [row.model_dump(mode="json") for row in failure_cases],
         )
         write_jsonl(
             publisher.workspace / "per_task.jsonl",
             [
                 row.model_dump(mode="json", by_alias=True)
-                for row in result.per_task_rows
+                for row in per_task_rows
             ],
         )
         artifact = publisher.publish(
@@ -154,17 +142,17 @@ def materialize_evaluation(
                 "per_task": "per_task.jsonl",
             },
             shape={
-                "metric_rows": len(result.metric_rows),
-                "failure_cases": len(result.failure_cases),
-                "per_task_rows": len(result.per_task_rows),
+                "metric_rows": len(metric_rows),
+                "failure_cases": len(failure_cases),
+                "per_task_rows": len(per_task_rows),
             },
         )
     assert isinstance(artifact, EvaluationArtifactRef)
     return EvaluationResult(
         artifact=artifact,
-        metric_rows=tuple(result.metric_rows),
-        per_task_rows=tuple(result.per_task_rows),
+        metric_rows=tuple(metric_rows),
+        per_task_rows=tuple(per_task_rows),
     )
 
 
-__all__ = ["EvaluateStageResult", "materialize_evaluation", "run_evaluate_stage"]
+__all__ = ["materialize_evaluation", "run_evaluate_stage"]

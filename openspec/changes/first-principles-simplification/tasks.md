@@ -43,7 +43,7 @@
 - [ ] 5.2 Delete Prefect task transport wrappers that add no cache/resume boundary; retain only demonstrably required task decorators as thin direct calls.
 - [ ] 5.3 Remove repeated method/stage/artifact binding authorities so workflow and stage materializers consume the same parsed config and filesystem paths.
 - [x] 5.4 Move input provisioning, MLflow recording, retrieval-runtime collection, and report publication outside method-specific scientific branches while preserving current outputs.
-- [x] 5.5 Reduce stage result DTOs to the fields consumed by orchestration/output; keep full counts, statistics, summaries, indices, model metadata, ranking provenance, metrics, per-task rows, and failures in their authoritative artifacts.
+- [x] 5.5 Reduce stage result DTOs to the fields consumed by orchestration/output and replace the inner retrieve/evaluate result classes with direct tuples; keep full counts, statistics, summaries, indices, model metadata, ranking provenance, metrics, per-task rows, and failures in their authoritative artifacts.
 - [x] 5.6 Delete the optional benchmark replay and configurable failure-case-limit branches plus their config/result DTOs; report retrieval runtime from authoritative ranking execution and retain the fixed 50-row debug cap.
 - [ ] 5.7 Rewrite workflow/task/config/artifact filename tests around plan execution, cache/resume, tracking, final outputs, and all eight retained methods.
 - [ ] 5.8 Run cache/resume, Prefect, MLflow, artifact, workflow, config-composition, and full tests; record Tranche 4 net deletion.

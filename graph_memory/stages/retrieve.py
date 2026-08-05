@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -71,12 +71,6 @@ PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
 ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
 
 
-@dataclass(frozen=True)
-class RetrieveStageResult:
-    predictions: list[RankedResult]
-    provenance: RetrievalProvenance
-
-
 def run_retrieve_stage(
     method: MethodConfig,
     *,
@@ -89,7 +83,7 @@ def run_retrieve_stage(
     device: str,
     dense_encoder: SentenceEncoder | None = None,
     provenance_graphs: list[ProvenanceGraph] | None = None,
-) -> RetrieveStageResult:
+) -> tuple[list[RankedResult], RetrievalProvenance]:
     text_requests = text_ranking_requests_for_dataset(
         dataset,
         task_inputs,
@@ -126,7 +120,7 @@ def run_retrieve_stage(
         requests=built.execution_requests,
         top_k=top_k,
     )
-    return RetrieveStageResult(predictions=predictions, provenance=built.provenance)
+    return predictions, built.provenance
 
 
 def materialize_rankings(
@@ -159,7 +153,7 @@ def materialize_rankings(
         else []
     )
     started = time.perf_counter()
-    result = run_retrieve_stage(
+    predictions, retrieval_provenance = run_retrieve_stage(
         method,
         dataset=dataset,
         top_k=top_k,
@@ -171,7 +165,7 @@ def materialize_rankings(
         device=device,
     )
     production_seconds = time.perf_counter() - started
-    provenance = _provenance_json(result.provenance)
+    provenance = _provenance_json(retrieval_provenance)
     method_name = method.method
     variant = getattr(method, "variant", None)
     with ArtifactPublisher(
@@ -198,7 +192,7 @@ def materialize_rankings(
             publisher.workspace / "predictions.json",
             [
                 prediction.model_dump(mode="json", exclude_none=True)
-                for prediction in result.predictions
+                for prediction in predictions
             ],
         )
         write_json(publisher.workspace / "provenance.json", provenance)
@@ -207,7 +201,7 @@ def materialize_rankings(
                 "predictions": "predictions.json",
                 "provenance": "provenance.json",
             },
-            shape={"predictions": len(result.predictions)},
+            shape={"predictions": len(predictions)},
             metadata={"production_seconds": production_seconds},
         )
     assert isinstance(artifact, PredictionsArtifactRef)
@@ -368,4 +362,4 @@ def _encoder_identity(source: EncoderSourceRef) -> str:
     return source.revision
 
 
-__all__ = ["RetrieveStageResult", "materialize_rankings", "run_retrieve_stage"]
+__all__ = ["materialize_rankings", "run_retrieve_stage"]
