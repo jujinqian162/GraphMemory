@@ -462,10 +462,6 @@ class EncodingConfig(ClosedModel):
     chunk_size: PositiveInt
 
 
-class EvaluationConfig(ClosedModel):
-    failure_case_limit: NonNegativeInt = 50
-
-
 class TrackingConfig(ClosedModel):
     database: Path
     artifact_root: Path
@@ -484,7 +480,6 @@ class ExperimentConfig(ClosedModel):
     cache: CacheConfig
     encoding: EncodingConfig
     graph: GraphBuildConfig
-    evaluation: EvaluationConfig
     tracking: TrackingConfig
 
 
@@ -532,7 +527,6 @@ class ResolvedExperimentConfig(ClosedModel):
     cache: CacheConfig
     encoding: EncodingConfig
     graph: GraphBuildConfig
-    evaluation: EvaluationConfig
     tracking: ResolvedTrackingConfig
 
     @property
@@ -650,7 +644,6 @@ def resolve_experiment_config(
         cache=config.cache,
         encoding=config.encoding,
         graph=config.graph,
-        evaluation=config.evaluation,
         tracking=ResolvedTrackingConfig(
             database=_absolute_path(root, config.tracking.database),
             artifact_root=_absolute_path(root, config.tracking.artifact_root),
@@ -732,7 +725,6 @@ __all__ = [
     "DenseRgcnMethodConfig",
     "Device",
     "EncodingConfig",
-    "EvaluationConfig",
     "ExperimentConfig",
     "FixedCountPolicy",
     "GraphBuildConfig",

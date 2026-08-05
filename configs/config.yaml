@@ -22,8 +22,6 @@ graph:
   max_entity_neighbors: 10
   max_bridge_edges: 50
   use_spacy: false
-evaluation:
-  failure_case_limit: 50
 tracking:
   database: runs/.mlflow/tracking.db
   artifact_root: runs/.mlflow/artifacts

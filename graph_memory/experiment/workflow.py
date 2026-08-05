@@ -381,7 +381,7 @@ def run_experiment(
             evidence_graphs=evaluation_graphs or ranking_graphs,
             dataset=config.dataset.name,
             top_k=config.top_k,
-            failure_case_limit=config.evaluation.failure_case_limit,
+            failure_case_limit=50,
         )
 
     assets.extend((ranking.artifact, evaluation.artifact))

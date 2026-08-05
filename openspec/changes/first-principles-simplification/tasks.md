@@ -44,7 +44,7 @@
 - [ ] 5.3 Remove repeated method/stage/artifact binding authorities so workflow and stage materializers consume the same parsed config and filesystem paths.
 - [x] 5.4 Move input provisioning, MLflow recording, retrieval-runtime collection, and report publication outside method-specific scientific branches while preserving current outputs.
 - [ ] 5.5 Reduce prepared/model/result artifact type hierarchies without deleting digest, origin, revision, manifest, ranking, metric, per-task, failure-case, or model provenance required by current workflows.
-- [x] 5.6 Delete the optional benchmark replay branch and its config/result DTOs; report retrieval runtime from the authoritative ranking execution while retaining runtime-only encoding controls.
+- [x] 5.6 Delete the optional benchmark replay and configurable failure-case-limit branches plus their config/result DTOs; report retrieval runtime from authoritative ranking execution and retain the fixed 50-row debug cap.
 - [ ] 5.7 Rewrite workflow/task/config/artifact filename tests around plan execution, cache/resume, tracking, final outputs, and all eight retained methods.
 - [ ] 5.8 Run cache/resume, Prefect, MLflow, artifact, workflow, config-composition, and full tests; record Tranche 4 net deletion.
 
