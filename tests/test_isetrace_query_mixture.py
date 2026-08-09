@@ -16,7 +16,9 @@ from graph_memory.datasets.isetrace import (
 from graph_memory.datasets.isetrace.registration import ISETRACE_REVISION
 from graph_memory.query_synthesis.provenance.authoring import (
     AuthoringGold,
+    AuthoringQueryMetadataRecord,
     AuthoringQueryRecord,
+    authoring_metadata_path,
 )
 from graph_memory.text.chunking import TokenChunkingConfig
 from tests.isetrace_fixtures import isetrace_record
@@ -192,6 +194,98 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
     assert not (graph_ids_by_split["train"] & graph_ids_by_split["dev"])
     assert not (graph_ids_by_split["train"] & graph_ids_by_split["test"])
     assert not (graph_ids_by_split["dev"] & graph_ids_by_split["test"])
+
+
+def test_natural_memory_modes_are_loaded_from_authoring_metadata(
+    tmp_path: Path,
+) -> None:
+    raw = _raw_trajectory(0)
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(raw), source_revision="fixture-revision"
+    )
+    trajectory_path = tmp_path / "trajectories.jsonl"
+    trajectory_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    queries = [
+        _query(trajectory, query_id="query:direct"),
+        _query(trajectory, query_id="query:linked"),
+    ]
+    query_path = tmp_path / "queries.jsonl"
+    query_path.write_text(
+        "".join(query.model_dump_json() + "\n" for query in queries),
+        encoding="utf-8",
+    )
+    metadata_path = authoring_metadata_path(query_path)
+    metadata_path.write_text(
+        "".join(
+            record.model_dump_json() + "\n"
+            for record in (
+                AuthoringQueryMetadataRecord(
+                    query_id="query:direct",
+                    task_key="task:direct",
+                    trajectory_id=trajectory.trajectory_id,
+                    memory_mode="direct_recall",
+                ),
+                AuthoringQueryMetadataRecord(
+                    query_id="query:linked",
+                    task_key="task:linked",
+                    trajectory_id=trajectory.trajectory_id,
+                    memory_mode="linked_recall",
+                ),
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    benchmark, summary = prepare_isetrace_benchmark(
+        query_path,
+        trajectory_path,
+        source_revision="fixture-revision",
+        count=None,
+        seed=13,
+        offset=0,
+        strict=True,
+        split="test",
+        trajectory_splits=_trajectory_splits(natural=(0, 0, 1)),
+        chunking=_CHUNKING,
+        tokenizer=CharacterOffsetTokenizer(),
+        authoring_metadata_source=metadata_path,
+    )
+
+    assert {
+        item.task_id: item.memory_mode for item in benchmark.query_metadata
+    } == {
+        "query:direct": "direct_recall",
+        "query:linked": "linked_recall",
+    }
+    assert summary["authoring_metadata_records"] == 2
+
+    metadata_path.write_text(
+        AuthoringQueryMetadataRecord(
+            query_id="query:direct",
+            task_key="task:direct",
+            trajectory_id=trajectory.trajectory_id,
+            memory_mode="direct_recall",
+        ).model_dump_json()
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        ValueError, match="authoring queries and metadata must align exactly"
+    ):
+        prepare_isetrace_benchmark(
+            query_path,
+            trajectory_path,
+            source_revision="fixture-revision",
+            count=None,
+            seed=13,
+            offset=0,
+            strict=True,
+            split="test",
+            trajectory_splits=_trajectory_splits(natural=(0, 0, 1)),
+            chunking=_CHUNKING,
+            tokenizer=CharacterOffsetTokenizer(),
+            authoring_metadata_source=metadata_path,
+        )
 
 
 def test_profile_cap_limits_fixed_isetrace_split_to_total_tasks(

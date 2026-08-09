@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Annotated, Protocol
+from pathlib import Path
+from typing import Annotated, Literal, Protocol, TypeAlias
 
 from pydantic import Field, StrictStr, StringConstraints, model_validator
 
@@ -14,6 +15,7 @@ from graph_memory.graphs.provenance import (
     ProvenanceGraph,
     output_content,
 )
+from graph_memory.query_synthesis.provenance.contracts import QueryIntent
 from graph_memory.trajectories import CanonicalTrajectory, SourceSpan
 
 _SOURCE_HANDLE = Annotated[
@@ -30,6 +32,11 @@ _EXPECTED_PREFIX = {
     "tool_call": "A",
     "tool_output": "E",
 }
+MemoryQueryMode: TypeAlias = Literal[
+    "direct_recall",
+    "linked_recall",
+    "multi_fact_recall",
+]
 
 
 @dataclass(frozen=True)
@@ -78,6 +85,25 @@ class AuthoringQueryRecord(DomainModel):
                 )
             unique_quote_start(source.text, item.quote, source=item.source)
         return self
+
+
+class AuthoringQueryMetadataRecord(DomainModel):
+    query_id: NonEmptyStr
+    task_key: NonEmptyStr
+    trajectory_id: NonEmptyStr
+    memory_mode: MemoryQueryMode
+
+
+def authoring_metadata_path(query_source: Path) -> Path:
+    return query_source.with_suffix(query_source.suffix + ".metadata.jsonl")
+
+
+def memory_mode_for_query_intent(query_intent: QueryIntent) -> MemoryQueryMode:
+    if query_intent in {"call_result", "downstream_result"}:
+        return "direct_recall"
+    if query_intent in {"upstream_source", "artifact_origin", "artifact_use"}:
+        return "linked_recall"
+    return "multi_fact_recall"
 
 
 def parse_task_sections(text: str) -> tuple[AuthoringSource, ...]:
@@ -280,9 +306,13 @@ def _message_index(graph: ProvenanceGraph, node_id: str) -> int:
 
 __all__ = [
     "AuthoringGold",
+    "AuthoringQueryMetadataRecord",
     "AuthoringQueryRecord",
     "AuthoringSource",
+    "MemoryQueryMode",
     "ResolvedAuthoringGold",
+    "authoring_metadata_path",
+    "memory_mode_for_query_intent",
     "parse_task_intents",
     "parse_task_sections",
     "parse_task_sources",

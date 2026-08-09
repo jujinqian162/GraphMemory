@@ -81,7 +81,8 @@ def prepare_split_task(
     source: FileSourceRef,
     config: PrepareSplitConfig,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
-    implementation_version: str = "prepare-v8-prefix-test-full-template-pool",
+    authoring_metadata_source: FileSourceRef | None = None,
+    implementation_version: str = "prepare-v9-isetrace-memory-mode",
 ) -> DatasetArtifactRef:
     get_run_logger().info(
         "prepare split | dataset=%s split=%s count=%s",
@@ -95,6 +96,7 @@ def prepare_split_task(
         split=config.split,
         source=source,
         trajectory_source=trajectory_source,
+        authoring_metadata_source=authoring_metadata_source,
         count=config.count,
         seed=config.seed,
         offset=config.offset,
@@ -345,7 +347,7 @@ def evaluate_rankings_task(
     dataset: DatasetName,
     top_k: int,
     failure_case_limit: int,
-    implementation_version: str = "evaluation-v3-token-budget-coverage",
+    implementation_version: str = "evaluation-v4-isetrace-memory-mode",
 ) -> EvaluationArtifactRef:
     get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(

@@ -21,7 +21,7 @@ import urllib.request
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeAlias, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import Field, StringConstraints, model_validator
 from tqdm import tqdm
@@ -39,10 +39,13 @@ from graph_memory.graphs.provenance import (
 )
 from graph_memory.query_synthesis.provenance import (
     AuthoringGold,
+    AuthoringQueryMetadataRecord,
     AuthoringQueryRecord,
+    MemoryQueryMode,
     MotifAuthoringTarget,
     MotifSpec,
     extract_motifs,
+    memory_mode_for_query_intent,
 )
 from graph_memory.query_synthesis.provenance.authoring import (
     ResolvedAuthoringGold,
@@ -64,11 +67,6 @@ DEFAULT_REVISION = "e40e04d41c04e4eb4bae181ebdd41b61c688081b"
 DEFAULT_SOURCE = Path("data/isetrace/raw/trajectories")
 AUTHORING_SEED = 13
 MAX_EVIDENCE_QUOTE_CHARS = 1200
-MemoryQueryMode: TypeAlias = Literal[
-    "direct_recall",
-    "linked_recall",
-    "multi_fact_recall",
-]
 _MEMORY_MODE_WEIGHTS: dict[MemoryQueryMode, int] = {
     "direct_recall": 3,
     "linked_recall": 5,
@@ -260,11 +258,7 @@ class LlmResponseEnvelope(DomainModel):
     items: tuple[LlmResponseItem, ...] = Field(min_length=1, max_length=12)
 
 
-class GeneratedQueryMetadata(DomainModel):
-    query_id: NonEmptyStr
-    task_key: NonEmptyStr
-    trajectory_id: NonEmptyStr
-    memory_mode: MemoryQueryMode
+GeneratedQueryMetadata = AuthoringQueryMetadataRecord
 
 
 _OUTPUT_SCHEMA: dict[str, object] = LlmResponseEnvelope.model_json_schema()
@@ -421,15 +415,7 @@ def _source_aliases(tasks: Sequence[PlannedTask]) -> dict[str, str]:
 
 
 def _memory_mode(target: MotifAuthoringTarget) -> MemoryQueryMode:
-    if target.query_intent in {"call_result", "downstream_result"}:
-        return "direct_recall"
-    if target.query_intent in {
-        "upstream_source",
-        "artifact_origin",
-        "artifact_use",
-    }:
-        return "linked_recall"
-    return "multi_fact_recall"
+    return memory_mode_for_query_intent(target.query_intent)
 
 
 def _authoring_brief(task: PlannedTask, aliases: dict[str, str]) -> str:
@@ -649,6 +635,9 @@ def _request_body(
         },
         "max_output_tokens": 8000,
         "store": False,
+        # Some Responses-compatible gateways default to SSE when omitted. The
+        # authoring pipeline consumes one complete JSON response per request.
+        "stream": False,
         "prompt_cache_key": prompt_cache_key,
     }
     request_identity = {
@@ -1072,32 +1061,97 @@ def _state_paths(output: Path) -> tuple[Path, ...]:
     )
 
 
+def _write_run_manifest(path: Path, identity: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(identity, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _scientific_run_identity(identity: dict[str, object]) -> dict[str, object]:
+    """Normalize legacy manifests while keeping API routing operational."""
+
+    normalized = dict(identity)
+    normalized.pop("base_url", None)
+    normalized["schema_version"] = 2
+    return normalized
+
+
 def _initialize_run_manifest(
     output: Path,
     *,
     identity: dict[str, object],
-) -> None:
+) -> str | None:
+    """Validate scientific identity and migrate legacy endpoint-bound manifests."""
+
     manifest_path = output.with_suffix(output.suffix + ".run.json")
     if manifest_path.exists():
         observed = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if observed != identity:
+        if not isinstance(observed, dict):
+            raise ValueError(f"invalid run manifest: {manifest_path}")
+        if _scientific_run_identity(observed) != identity:
             raise ValueError(
                 f"resume configuration differs from {manifest_path}; "
-                "use the original settings or a new --output"
+                "use the original scientific settings or a new --output"
             )
-        return
+        legacy_base_url = observed.get("base_url")
+        if legacy_base_url is not None and not isinstance(legacy_base_url, str):
+            raise ValueError(f"invalid base_url in legacy run manifest: {manifest_path}")
+        if observed != identity:
+            _write_run_manifest(manifest_path, identity)
+        return legacy_base_url
     if any(path.exists() and path.stat().st_size for path in _state_paths(output)):
         raise ValueError(
             f"existing output has no resumable run manifest: {output}; "
             "use a new --output or remove the old authoring artifacts"
         )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(identity, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(manifest_path)
+    _write_run_manifest(manifest_path, identity)
+    return None
+
+
+def _record_endpoint_segment(
+    output: Path,
+    *,
+    model_id: str,
+    base_url: str,
+    selection_start: int,
+    legacy_base_url: str | None = None,
+) -> None:
+    """Append endpoint provenance without making routing part of run identity."""
+
+    history_path = output.with_suffix(output.suffix + ".endpoint-history.jsonl")
+    existing = _read_jsonl(history_path)
+    if legacy_base_url is not None and not existing:
+        _append_jsonl(
+            history_path,
+            {
+                "kind": "endpoint_segment",
+                "model_id": model_id,
+                "base_url": legacy_base_url.rstrip("/"),
+                "selection_start": 0,
+            },
+        )
+        existing = _read_jsonl(history_path)
+    current = {
+        "kind": "endpoint_segment",
+        "model_id": model_id,
+        "base_url": base_url.rstrip("/"),
+        "selection_start": selection_start,
+    }
+    if existing and existing[-1] == current:
+        return
+    if existing:
+        previous = existing[-1]
+        if (
+            isinstance(previous, dict)
+            and previous.get("model_id") == current["model_id"]
+            and previous.get("base_url") == current["base_url"]
+        ):
+            return
+    _append_jsonl(history_path, current)
 
 
 def _generate_chunk(
@@ -1145,9 +1199,16 @@ def _generate_chunk(
             cache_hits += int(cache_hit)
             items = _response_items(response)
             item_by_key = {item.task_key: item for item in items}
+        except RuntimeError as error:
+            # Transport/API retry exhaustion must stop the run. Treating it as a
+            # content rejection would commit the trajectory and make resume skip it.
+            raise RuntimeError(
+                "authoring API failed after transport retries for tasks "
+                f"{', '.join(task.task_key for task in active)}: {error}"
+            ) from error
         except Exception as error:
             LOGGER.warning(
-                "Authoring API response failed on attempt %s/%s for tasks %s: %s",
+                "Authoring response validation failed on attempt %s/%s for tasks %s: %s",
                 authoring_attempt,
                 validation_retries + 1,
                 ", ".join(task.task_key for task in active),
@@ -1255,7 +1316,7 @@ def _run_identity(
     settings: RuntimeSettings,
 ) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "prompt_version": PROMPT_VERSION,
         "source_revision": args.source_revision,
         "source_files": list(corpus.files),
@@ -1265,7 +1326,6 @@ def _run_identity(
         "queries_per_task": args.queries_per_task,
         "include_call_result": args.include_call_result,
         "model_id": settings.model_id,
-        "base_url": settings.base_url.rstrip("/"),
     }
 
 
@@ -1330,7 +1390,7 @@ def run(args: argparse.Namespace) -> int:
         return _dry_run(args, selected)
 
     assert settings is not None
-    _initialize_run_manifest(
+    legacy_base_url = _initialize_run_manifest(
         args.output,
         identity=_run_identity(args, corpus=corpus, settings=settings),
     )
@@ -1341,6 +1401,13 @@ def run(args: argparse.Namespace) -> int:
         for index, ref in enumerate(selected)
         if not outputs.trajectory_is_completed(index, ref)
     ]
+    _record_endpoint_segment(
+        args.output,
+        model_id=settings.model_id,
+        base_url=settings.base_url,
+        selection_start=(pending[0][0] if pending else len(selected)),
+        legacy_base_url=legacy_base_url,
+    )
     initial_queries = outputs.query_count
     cache_hits = 0
     rejected_trajectories = 0

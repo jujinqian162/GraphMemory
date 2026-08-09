@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import cast
 
 from pydantic import TypeAdapter
 
+from graph_memory.datasets.isetrace.benchmark_records import ISETraceQueryMetadata
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.evaluation.contracts import FailureCase, MetricRow, PerTaskMetricRow
 from graph_memory.retrieval.results import RankedResult
@@ -31,6 +33,7 @@ from graph_memory.io import read_json, write_csv, write_jsonl
 
 RANKED_RESULTS_ADAPTER = TypeAdapter(list[RankedResult])
 EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
+ISETRACE_QUERY_METADATA_ADAPTER = TypeAdapter(list[ISETraceQueryMetadata])
 
 
 def run_evaluate_stage(
@@ -41,6 +44,7 @@ def run_evaluate_stage(
     predictions: list[RankedResult],
     labels: list[object],
     graphs: list[EvidenceGraph],
+    query_metadata: Sequence[ISETraceQueryMetadata] = (),
 ) -> tuple[list[MetricRow], list[FailureCase], list[PerTaskMetricRow]]:
     request = evidence_evaluation_request_for_dataset(
         dataset,
@@ -63,7 +67,34 @@ def run_evaluate_stage(
             top_k=top_k,
             limit=failure_case_limit,
         )
+    if dataset == "isetrace" and query_metadata:
+        per_task_rows = _attach_isetrace_query_metadata(
+            per_task_rows,
+            query_metadata=query_metadata,
+        )
     return metric_rows, failure_cases, per_task_rows
+
+
+def _attach_isetrace_query_metadata(
+    rows: Sequence[PerTaskMetricRow],
+    *,
+    query_metadata: Sequence[ISETraceQueryMetadata],
+) -> list[PerTaskMetricRow]:
+    metadata_by_id = {item.task_id: item for item in query_metadata}
+    if len(metadata_by_id) != len(query_metadata):
+        raise ValueError("ISETrace evaluation query metadata task IDs must be unique")
+    row_ids = {row.task_id for row in rows}
+    if set(metadata_by_id) != row_ids:
+        raise ValueError("ISETrace evaluation rows and query metadata must align")
+    return [
+        row.model_copy(
+            update={
+                "query_origin": metadata_by_id[row.task_id].query_origin,
+                "memory_mode": metadata_by_id[row.task_id].memory_mode,
+            }
+        )
+        for row in rows
+    ]
 
 
 def materialize_evaluation(
@@ -91,6 +122,13 @@ def materialize_evaluation(
         if evidence_graphs is not None
         else []
     )
+    query_metadata = (
+        ISETRACE_QUERY_METADATA_ADAPTER.validate_python(
+            read_json(artifact_payload_path(prepared, "query_metadata"))
+        )
+        if dataset == "isetrace"
+        else []
+    )
     metric_rows, failure_cases, per_task_rows = run_evaluate_stage(
         dataset=dataset,
         top_k=top_k,
@@ -98,6 +136,7 @@ def materialize_evaluation(
         predictions=prediction_values,
         labels=labels,
         graphs=graphs,
+        query_metadata=query_metadata,
     )
     with ArtifactPublisher(
         store,

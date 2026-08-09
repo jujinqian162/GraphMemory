@@ -14,6 +14,7 @@ from graph_memory.datasets.isetrace import (
 )
 from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceLabelRecord,
+    ISETraceQueryMetadata,
     ISETraceRankingRecord,
 )
 from graph_memory.datasets.isetrace.training import adapt_flat_dense_training_split
@@ -845,15 +846,25 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
             else benchmark.rankings[0].flat_candidates
         )
         assert len(predictions[0].ranked_nodes) == len(expected_candidates)
-        metric_rows, _failure_cases, _per_task_rows = run_evaluate_stage(
+        metric_rows, _failure_cases, per_task_rows = run_evaluate_stage(
             dataset="isetrace",
             top_k=3,
             failure_case_limit=10,
             predictions=predictions,
             labels=labels,
             graphs=[],
+            query_metadata=(
+                ISETraceQueryMetadata(
+                    task_id=benchmark.rankings[0].task_id,
+                    graph_id=benchmark.rankings[0].graph_id,
+                    query_origin="natural",
+                    memory_mode="linked_recall",
+                ),
+            ),
         )
         metric = metric_rows[0]
+        assert per_task_rows[0].query_origin == "natural"
+        assert per_task_rows[0].memory_mode == "linked_recall"
         assert metric.evaluation_schema == "execution_provenance_span_v7"
         assert metric.evidence_density_at_10 != "N/A"
         assert metric.coverage_at_512_tokens != "N/A"

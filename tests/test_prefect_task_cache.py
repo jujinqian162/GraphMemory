@@ -80,7 +80,7 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch.setattr(
         experiment_workflow,
         "prepare_split_task",
-        lambda *, source, config, trajectory_source=None: object(),
+        lambda *, source, config, trajectory_source=None, authoring_metadata_source=None: object(),
     )
     monkeypatch.setattr(
         experiment_workflow,

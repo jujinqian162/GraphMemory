@@ -82,6 +82,7 @@ def materialize_prepared_split(
     split: SplitName,
     source: FileSourceRef,
     trajectory_source: FileSourceRef | DirectorySourceRef | None = None,
+    authoring_metadata_source: FileSourceRef | None = None,
     count: int | None,
     seed: int,
     offset: int,
@@ -94,13 +95,15 @@ def materialize_prepared_split(
     if dataset == "isetrace":
         if (
             trajectory_source is None
+            or authoring_metadata_source is None
             or source_revision is None
             or trajectory_splits is None
             or chunking is None
         ):
             raise ValueError(
-                "isetrace preparation requires trajectory_source, source_revision, "
-                "trajectory_splits, and chunking"
+                "isetrace preparation requires trajectory_source, "
+                "authoring_metadata_source, source_revision, trajectory_splits, "
+                "and chunking"
             )
         benchmark, summary = prepare_isetrace_benchmark(
             Path(source.uri),
@@ -118,6 +121,7 @@ def materialize_prepared_split(
                 overlap_tokens=chunking.overlap_tokens,
                 reserved_tokens=chunking.reserved_tokens,
             ),
+            authoring_metadata_source=Path(authoring_metadata_source.uri),
         )
         task_inputs: list[object] = list(benchmark.rankings)
         task_labels: list[object] = list(benchmark.labels)
@@ -152,6 +156,11 @@ def materialize_prepared_split(
             "dataset": dataset,
             "split": split,
             "source_digest": source.digest,
+            "authoring_metadata_digest": (
+                None
+                if authoring_metadata_source is None
+                else authoring_metadata_source.digest
+            ),
             "trajectory_source_digest": (
                 None if trajectory_source is None else trajectory_source.digest
             ),

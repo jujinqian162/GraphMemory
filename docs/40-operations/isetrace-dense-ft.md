@@ -11,7 +11,7 @@
 - Dev ranking is task-local: each query is compared only with chunks from its own trajectory.
 - Mixed dev selects the best checkpoint by natural Recall@5; template-only dev uses template Recall@5.
 - Training batches contain at most one example from each trajectory to avoid trajectory-local in-batch false negatives.
-- Test is fixed to the first 2,000 resolvable natural queries in authoring-file order (1,207 trajectories) and uses exact-span Recall, MRR, token-budget Coverage, Full Support, span F1, and evidence density. Path/edge metrics remain unavailable.
+- Test is fixed to the first 2,000 resolvable natural queries in authoring-file order (1,207 trajectories) and uses exact-span Recall, MRR, token-budget Coverage, Full Support, span F1, and evidence density. The content-addressed authoring metadata sidecar supplies `memory_mode`, which is preserved in per-task evaluation rows for RQ2 stratification but never exposed to the retriever. Path/edge metrics remain unavailable.
 
 ## Default mixed run
 

@@ -20,6 +20,7 @@ from graph_memory.experiment.config import (
     DenseEncoderConfig,
     ResolvedExperimentConfig,
 )
+from graph_memory.query_synthesis.provenance import authoring_metadata_path
 
 LOGGER = logging.getLogger("experiment.inputs")
 
@@ -62,6 +63,12 @@ def ensure_dataset(
     ]
     if config.dataset.trajectory_source is not None:
         sources.append(_resolve(config.dataset.trajectory_source, repository_root))
+    if config.dataset.natural_query_source is not None:
+        sources.append(
+            authoring_metadata_path(
+                _resolve(config.dataset.natural_query_source, repository_root)
+            )
+        )
     entry = _DATASET_REGISTRY_KEYS.get(config.dataset.name)
     if all(source.exists() for source in sources):
         return

@@ -179,6 +179,20 @@ def test_output_schema_requests_only_query_and_exact_gold() -> None:
     assert queries["maxItems"] == 3
 
 
+def test_request_body_explicitly_disables_gateway_streaming() -> None:
+    body, _digest, _cache_key = authoring._request_body(
+        packet={"tasks": []},
+        settings=RuntimeSettings(
+            model_id="test-model",
+            api_key="secret",
+            base_url="https://example.test/v1",
+        ),
+    )
+
+    assert body["stream"] is False
+    assert body["store"] is False
+
+
 def test_v7_exact_quote_maps_argument_source_to_span() -> None:
     task = _planned_tasks()[0]
     aliases = authoring._source_aliases((task,))
@@ -313,6 +327,32 @@ def test_response_cache_avoids_duplicate_api_calls(tmp_path: Path, monkeypatch) 
     assert first_hit is False
     assert second_hit is True
     assert len(calls) == 1
+
+
+def test_exhausted_api_failure_aborts_chunk_for_safe_resume(
+    tmp_path: Path, monkeypatch
+) -> None:
+    task = _planned_tasks()[0]
+
+    def fail_cached_response(*args, **kwargs):
+        raise RuntimeError("Responses API HTTP 426: WebSocket upgrade required")
+
+    monkeypatch.setattr(authoring, "_cached_response", fail_cached_response)
+
+    with pytest.raises(RuntimeError, match="authoring API failed after transport retries"):
+        _generate_chunk(
+            [task],
+            settings=RuntimeSettings(
+                model_id="test-model",
+                api_key="secret",
+                base_url="https://example.test/v1",
+            ),
+            cache_dir=tmp_path,
+            timeout=1.0,
+            api_retries=0,
+            validation_retries=2,
+            seen_queries=set(),
+        )
 
 
 def _model_response(item: dict[str, object], *, response_id: str) -> dict[str, object]:
@@ -525,6 +565,108 @@ def test_authoring_cli_defaults_are_trajectory_based(tmp_path: Path) -> None:
     assert args.per_trajectory == 2
     assert args.tasks_per_call == 2
     assert args.queries_per_task == 1
+
+
+def test_run_identity_allows_endpoint_changes_but_not_model_changes(
+    tmp_path: Path,
+) -> None:
+    args = authoring.parse_args(
+        [
+            "--source",
+            str(tmp_path),
+            "--source-revision",
+            REVISION,
+            "--output",
+            str(tmp_path / "queries.jsonl"),
+        ]
+    )
+    corpus = authoring.ScannedCorpus(
+        refs=(),
+        files=({"path": "fixture", "bytes": 0, "records": 0, "sha256": "a" * 64},),
+    )
+    first = authoring._run_identity(
+        args,
+        corpus=corpus,
+        settings=RuntimeSettings(
+            model_id="gpt-test", api_key="first", base_url="https://first.test/v1"
+        ),
+    )
+    second = authoring._run_identity(
+        args,
+        corpus=corpus,
+        settings=RuntimeSettings(
+            model_id="gpt-test", api_key="second", base_url="https://second.test/v1"
+        ),
+    )
+    changed_model = authoring._run_identity(
+        args,
+        corpus=corpus,
+        settings=RuntimeSettings(
+            model_id="other-model", api_key="second", base_url="https://second.test/v1"
+        ),
+    )
+
+    assert first == second
+    assert "base_url" not in first
+    assert first["schema_version"] == 2
+    assert first != changed_model
+
+
+def test_legacy_endpoint_manifest_migrates_and_records_segments(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "queries.jsonl"
+    identity: dict[str, object] = {
+        "schema_version": 2,
+        "prompt_version": PROMPT_VERSION,
+        "source_revision": REVISION,
+        "source_files": [],
+        "shuffle_seed": 13,
+        "per_trajectory": 2,
+        "tasks_per_call": 2,
+        "queries_per_task": 1,
+        "include_call_result": False,
+        "model_id": "gpt-test",
+    }
+    legacy = {
+        **identity,
+        "schema_version": 1,
+        "base_url": "https://first.test/v1",
+    }
+    manifest = output.with_suffix(output.suffix + ".run.json")
+    manifest.write_text(json.dumps(legacy), encoding="utf-8")
+
+    legacy_endpoint = authoring._initialize_run_manifest(output, identity=identity)
+    authoring._record_endpoint_segment(
+        output,
+        model_id="gpt-test",
+        base_url="https://second.test/v1/",
+        selection_start=6000,
+        legacy_base_url=legacy_endpoint,
+    )
+    authoring._record_endpoint_segment(
+        output,
+        model_id="gpt-test",
+        base_url="https://second.test/v1",
+        selection_start=7000,
+    )
+
+    assert json.loads(manifest.read_text(encoding="utf-8")) == identity
+    history_path = output.with_suffix(output.suffix + ".endpoint-history.jsonl")
+    assert [json.loads(line) for line in history_path.read_text().splitlines()] == [
+        {
+            "kind": "endpoint_segment",
+            "model_id": "gpt-test",
+            "base_url": "https://first.test/v1",
+            "selection_start": 0,
+        },
+        {
+            "kind": "endpoint_segment",
+            "model_id": "gpt-test",
+            "base_url": "https://second.test/v1",
+            "selection_start": 6000,
+        },
+    ]
 
 
 def test_raw_trajectory_shuffle_is_deterministic_and_prefix_stable(

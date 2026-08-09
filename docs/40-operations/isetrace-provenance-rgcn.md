@@ -21,7 +21,7 @@ Natural positives are provenance content candidates whose exact source spans ove
 
 Pair construction reuses easy-random, BM25-hard, Dense-hard, and graph-neighbor samplers over the provenance candidate universe. A task with no positive candidate fails before optimization.
 
-Query origin, motif identity, and template audit fields remain in prepared sidecars. They are never copied into retrieval requests, candidates, persisted graphs, embeddings, or numeric model features.
+Query origin and `memory_mode` remain in prepared sidecars and are copied into per-task evaluation rows for reproducible stratified analysis. Motif identity and template audit fields remain preparation-only. None of these fields are copied into retrieval requests, candidates, persisted graphs, embeddings, or numeric model features. The natural authoring metadata sidecar is a required content-addressed preparation input.
 
 ## Graph policy
 

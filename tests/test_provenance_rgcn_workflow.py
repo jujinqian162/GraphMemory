@@ -55,6 +55,7 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         task_id=request.task_id,
         graph_id=graph.graph_id,
         query_origin="template",
+        memory_mode="direct_recall",
     )
     template = TemplateSupervisionRecord(
         task_id=request.task_id,
@@ -97,6 +98,7 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         split="train",
         source=source,
         trajectory_source=source,
+        authoring_metadata_source=source,
         count=None,
         seed=13,
         offset=0,
@@ -127,3 +129,6 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
     } <= roles
     counts = read_json(artifact_payload_path(result, "counts"))
     assert counts["template_queries_selected"] == 1
+    assert result.origin["authoring_metadata_digest"] == source.digest
+    query_metadata = read_json(artifact_payload_path(result, "query_metadata"))
+    assert query_metadata[0]["memory_mode"] == "direct_recall"

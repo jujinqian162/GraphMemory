@@ -29,6 +29,7 @@ from graph_memory.experiment.config import (
     SplitName,
 )
 from graph_memory.experiment.inputs import ensure_inputs
+from graph_memory.query_synthesis.provenance import authoring_metadata_path
 from graph_memory.experiment.output import project_run_output
 from graph_memory.experiment.results import FinalExperimentResult
 from graph_memory.experiment.tasks import (
@@ -71,6 +72,7 @@ def run_experiment(
     with prefect_storage_settings(refresh_cache=config.cache.refresh):
         split_sources = _resolve_split_sources(config)
         trajectory_source = _trajectory_source(config)
+        authoring_metadata_source = _authoring_metadata_source(config)
         requires_training = isinstance(
             method,
             (
@@ -85,6 +87,7 @@ def run_experiment(
                 source=split_sources[split],
                 config=_prepare_config(config, split),
                 trajectory_source=trajectory_source,
+                authoring_metadata_source=authoring_metadata_source,
             )
             for split in (("train", "dev", "test") if requires_training else ("test",))
         }
@@ -430,6 +433,21 @@ def _direct_split_source(
     )
     if not isinstance(source, FileSourceRef):
         raise TypeError(f"raw split source must be a file: {source.uri}")
+    return source
+
+
+def _authoring_metadata_source(
+    config: ResolvedExperimentConfig,
+) -> FileSourceRef | None:
+    query_source = config.dataset.natural_query_source
+    if query_source is None:
+        return None
+    source = identify_external_source(
+        authoring_metadata_path(query_source),
+        repository_root=REPOSITORY_ROOT,
+    )
+    if not isinstance(source, FileSourceRef):
+        raise TypeError(f"authoring metadata source must be a file: {source.uri}")
     return source
 
 

@@ -1,6 +1,10 @@
 from graph_memory.query_synthesis.provenance.authoring import (
     AuthoringGold,
+    AuthoringQueryMetadataRecord,
     AuthoringQueryRecord,
+    MemoryQueryMode,
+    authoring_metadata_path,
+    memory_mode_for_query_intent,
 )
 from graph_memory.query_synthesis.provenance.contracts import (
     LogicalDependency,
@@ -19,15 +23,19 @@ from graph_memory.query_synthesis.provenance.templates import (
 
 __all__ = [
     "AuthoringGold",
+    "AuthoringQueryMetadataRecord",
     "AuthoringQueryRecord",
     "LogicalDependency",
+    "MemoryQueryMode",
     "MotifAuthoringTarget",
     "MotifSpec",
     "MotifType",
     "QueryIntent",
     "TemplateSupervisionRecord",
+    "authoring_metadata_path",
     "enumerate_template_supervision",
     "extract_motifs",
+    "memory_mode_for_query_intent",
     "render_call_result_supervision",
     "render_template_supervision",
 ]

@@ -27,7 +27,9 @@ from graph_memory.datasets.isetrace.retrieval_views import (
 from graph_memory.datasets.splits import sample_split
 from graph_memory.graphs.provenance import ProvenanceGraph, build_provenance_graph
 from graph_memory.query_synthesis.provenance import (
+    AuthoringQueryMetadataRecord,
     enumerate_template_supervision,
+    memory_mode_for_query_intent,
     render_call_result_supervision,
 )
 from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
@@ -47,6 +49,7 @@ from graph_memory.text.chunking import (
 from graph_memory.trajectories import CanonicalTrajectory, SourceSpan
 
 _QUERY_ADAPTER = TypeAdapter(AuthoringQueryRecord)
+_QUERY_METADATA_ADAPTER = TypeAdapter(AuthoringQueryMetadataRecord)
 NaturalSplitName: TypeAlias = Literal["train", "dev", "test"]
 _NATURAL_SPLITS: tuple[NaturalSplitName, ...] = ("train", "dev", "test")
 
@@ -73,6 +76,7 @@ def prepare_isetrace_benchmark(
         overlap_tokens=64,
     ),
     tokenizer: OffsetTokenizer | None = None,
+    authoring_metadata_source: Path | None = None,
 ) -> tuple[ISETracePreparedBenchmark, ISETraceBenchmarkSummary]:
     summary = ISETraceBenchmarkSummary()
     _validate_authoring_source_identity(
@@ -81,6 +85,15 @@ def prepare_isetrace_benchmark(
         source_revision=source_revision,
     )
     examples = _read_queries(query_source, strict=strict, summary=summary)
+    authoring_metadata = (
+        _read_authoring_query_metadata(
+            authoring_metadata_source,
+            query_ids={example.id for example in examples},
+            summary=summary,
+        )
+        if authoring_metadata_source is not None
+        else {}
+    )
     matched_contexts, trajectory_ids = _match_query_contexts(
         trajectory_source,
         examples=examples,
@@ -227,11 +240,18 @@ def prepare_isetrace_benchmark(
         )
         rankings.append(ranking)
         labels.append(label)
+        authored = authoring_metadata.get(example.id)
+        if authored is not None and authored.trajectory_id != graph_id:
+            raise ValueError(
+                f"query={example.id!r} authoring metadata trajectory changed: "
+                f"recorded={authored.trajectory_id!r} resolved={graph_id!r}"
+            )
         query_metadata.append(
             ISETraceQueryMetadata(
                 task_id=example.id,
                 graph_id=graph_id,
                 query_origin="natural",
+                memory_mode=None if authored is None else authored.memory_mode,
             )
         )
 
@@ -276,6 +296,7 @@ def prepare_isetrace_benchmark(
                 task_id=template.task_id,
                 graph_id=template.graph_id,
                 query_origin="template",
+                memory_mode=memory_mode_for_query_intent(template.query_intent),
             )
         )
 
@@ -497,6 +518,40 @@ def _read_queries(
 
 _SourceMapping = dict[str, tuple[str, str, str]]
 _MatchedContext = tuple[CanonicalTrajectory, _SourceMapping]
+
+
+def _read_authoring_query_metadata(
+    source: Path,
+    *,
+    query_ids: set[str],
+    summary: ISETraceBenchmarkSummary,
+) -> dict[str, AuthoringQueryMetadataRecord]:
+    records: dict[str, AuthoringQueryMetadataRecord] = {}
+    with source.open("r", encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = _QUERY_METADATA_ADAPTER.validate_json(line)
+            except (ValidationError, ValueError) as error:
+                raise ValueError(
+                    f"invalid ISETrace authoring metadata at {source}:{line_number}: "
+                    f"{error}"
+                ) from error
+            if record.query_id in records:
+                raise ValueError(
+                    f"duplicate ISETrace authoring metadata query_id={record.query_id!r}"
+                )
+            records[record.query_id] = record
+    if set(records) != query_ids:
+        missing = sorted(query_ids - set(records))
+        extra = sorted(set(records) - query_ids)
+        raise ValueError(
+            "ISETrace authoring queries and metadata must align exactly: "
+            f"missing={missing[:5]} extra={extra[:5]}"
+        )
+    summary["authoring_metadata_records"] = len(records)
+    return records
 
 
 def _match_query_contexts(

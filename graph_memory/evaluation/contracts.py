@@ -10,6 +10,7 @@ from graph_memory.contracts.model import (
     NonEmptyStr,
     NonNegativeFiniteFloat,
 )
+from graph_memory.query_synthesis.provenance.authoring import MemoryQueryMode
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 
 UnitMetric = Annotated[FiniteFloat, Field(ge=0.0, le=1.0)]
@@ -133,6 +134,8 @@ class TaskMetricRow(DomainModel):
 
 class PerTaskMetricRow(TaskMetricRow):
     task_id: NonEmptyStr
+    query_origin: Literal["natural", "template"] | None = None
+    memory_mode: MemoryQueryMode | None = None
     query_intent: NonEmptyStr | None = None
     motif_type: NonEmptyStr | None = None
     review_status: NonEmptyStr | None = None

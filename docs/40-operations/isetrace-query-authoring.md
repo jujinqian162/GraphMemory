@@ -97,7 +97,7 @@ API_KEY=...
 BASE_URL=...
 ```
 
-The script uses the OpenAI Responses protocol with strict JSON Schema, `store=false`, request-digest caching, bounded API retries, and bounded validation rewrites. Changing the model, prompt, schema, packet, or endpoint creates a new cache identity.
+The script uses the OpenAI Responses protocol with strict JSON Schema, `store=false`, explicit `stream=false`, request-digest caching, bounded API retries, and bounded validation rewrites. Explicit non-streaming mode is required because some compatible gateways otherwise return Server-Sent Events rather than one JSON response. Changing the model, prompt, schema, or packet changes the scientific run identity. API routing is operational: the same model may resume through a different endpoint. Because the endpoint remains part of each request-cache digest, responses are never silently reused across endpoints.
 
 ## Inspect v7 packets without network access
 
@@ -128,16 +128,17 @@ uv run python scripts/generate_isetrace_llm_queries.py \
 
 `--limit` counts shuffled raw trajectories, not tasks or accepted queries. The query count is intentionally variable because a trajectory may have fewer than two eligible tasks and the model or deterministic validator may reject a task. Defaults are `--per-trajectory 2`, `--tasks-per-call 2`, and `--queries-per-task 1`. The progress bar is trajectory-based and continuously displays the current accepted-query count.
 
-Accepted records, metadata, rejections, and trajectory completion markers are appended and fsynced during the run. Reusing the same `--output` resumes the same run. For example, after completing `--limit 300`, rerunning with `--limit 3000` skips the completed first 300 shuffled trajectories and processes only the remaining 2700. `--limit` is deliberately excluded from the run identity; source digests, seed, prompt/model identity, and scientific authoring options must remain unchanged. Use a new output path when any of those inputs change.
+Accepted records, metadata, rejections, and trajectory completion markers are appended and fsynced during the run. Reusing the same `--output` resumes the same run. For example, after completing `--limit 300`, rerunning with `--limit 3000` skips the completed first 300 shuffled trajectories and processes only the remaining 2700. `--limit` and `BASE_URL` are deliberately excluded from the scientific run identity; source digests, seed, prompt/model identity, and scientific authoring options must remain unchanged. Endpoint changes are recorded as append-only selection-index segments. Use a new output path when a scientific input, especially `MODEL_ID`, changes. Exhausting transport/API retries aborts the run before the active trajectory receives a completion marker, so a later invocation can safely retry it; semantic model rejections and local validation exhaustion remain ordinary per-task rejections.
 
 Outputs:
 
 - `isetrace-v7-raw.jsonl`: accepted four-field authoring records, appended one record at a time;
-- `isetrace-v7-raw.jsonl.metadata.jsonl`: query-ID to task/trajectory/stratum mapping used for later trajectory-level splitting;
+- `isetrace-v7-raw.jsonl.metadata.jsonl`: query-ID to task/trajectory/`memory_mode` mapping; experiment preparation requires this sidecar, includes its digest in scientific identity, and propagates `memory_mode` into prepared and per-task evaluation metadata;
 - `isetrace-v7-raw.jsonl.rejected.jsonl`: model, validation, and trajectory-adaptation rejections;
 - `isetrace-v7-raw.jsonl.progress.jsonl`: durable trajectory completion ledger used for resume;
-- `isetrace-v7-raw.jsonl.run.json`: immutable run identity used to reject incompatible resume attempts;
-- `.isetrace-v7-raw-cache/`: raw Responses payloads keyed by complete request digest.
+- `isetrace-v7-raw.jsonl.run.json`: immutable scientific run identity used to reject incompatible resume attempts;
+- `isetrace-v7-raw.jsonl.endpoint-history.jsonl`: append-only model/endpoint segments and their first shuffled selection index;
+- `.isetrace-v7-raw-cache/`: raw Responses payloads keyed by complete request digest, including endpoint.
 
 An existing legacy output without the new `.run.json`/`.progress.jsonl` sidecars is not resumed automatically; choose a new output path or remove the old artifacts first.
 
