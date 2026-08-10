@@ -347,7 +347,7 @@ def evaluate_rankings_task(
     dataset: DatasetName,
     top_k: int,
     failure_case_limit: int,
-    implementation_version: str = "evaluation-v4-isetrace-memory-mode",
+    implementation_version: str = "evaluation-v5-isetrace-cluster-metadata",
 ) -> EvaluationArtifactRef:
     get_run_logger().info("evaluate rankings | dataset=%s top_k=%s", dataset, top_k)
     return materialize_evaluation(

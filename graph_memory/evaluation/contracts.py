@@ -75,9 +75,7 @@ class MetricRow(DomainModel):
     graph_construction_time: NonNegativeFiniteFloat = Field(
         alias="Graph Construction Time"
     )
-    memory_size: NonNegativeFiniteFloat | Literal["N/A"] = Field(
-        alias="Memory Size"
-    )
+    memory_size: NonNegativeFiniteFloat | Literal["N/A"] = Field(alias="Memory Size")
     avg_retrieved_nodes: NonNegativeFiniteFloat = Field(alias="Avg Retrieved Nodes")
     avg_retrieved_edges: NonNegativeFiniteFloat = Field(alias="Avg Retrieved Edges")
 
@@ -134,6 +132,7 @@ class TaskMetricRow(DomainModel):
 
 class PerTaskMetricRow(TaskMetricRow):
     task_id: NonEmptyStr
+    graph_id: NonEmptyStr | None = None
     query_origin: Literal["natural", "template"] | None = None
     memory_mode: MemoryQueryMode | None = None
     query_intent: NonEmptyStr | None = None

@@ -16,6 +16,9 @@ trajectories:
 
 The numbers count trajectories, not queries. For `profile=full`, they define the complete scientific split:
 
+- Authored natural records are resolved back to source trajectories in deterministic query-authoring order.
+- The first `test.natural` distinct trajectories in that order own the natural-only test split; every valid authored query from those trajectories stays in test.
+- The remaining authored-natural trajectory IDs are sorted, shuffled with `split_seed`, and allocated to train and dev according to their configured natural counts.
 - `natural: N` selects N trajectories and keeps every valid authored natural query resolved to those trajectories.
 - `template: N` selects N trajectories and creates one template query per trajectory.
 - Natural and template selections may overlap inside one split.
@@ -44,3 +47,19 @@ Preparation validates source identity, resolves authored queries, selects trajec
 - Checkpoint selection consumes only dev trajectories.
 - Test consumes only natural queries from test trajectories.
 - No trajectory occurs in more than one split.
+
+This rule controls exact trajectory overlap only. The active RQ2 workflow does **not** group trajectories by shared `source_intent_id` or exact normalized intent text, and therefore does not claim an unseen-intent, unseen-task-family, or component-safe split. `scripts/build_isetrace_split.py` and `data/isetrace/splits/v1` implement a separate legacy intent-component allocation, but `graph_memory/datasets/isetrace/benchmark_adapter.py` does not consume that manifest.
+
+Any future component-safe or unseen-family evaluation must use a separately named protocol and must not be presented as the split used by the current 2,000-query main test set.
+
+## Reproducible split identity
+
+A formal run must retain:
+
+- the prepared test dataset artifact digest from `assets/manifest.yaml`;
+- the unique `task_id` set in `metrics/per_task.jsonl`;
+- the `graph_id`/trajectory cluster for every test query;
+- the query-authoring metadata sidecar digest;
+- fixed authoring and split seeds.
+
+The main-results aggregator rejects different test artifact digests or task sets. Legacy per-task files without `graph_id` can be joined to the frozen query-authoring metadata sidecar with `--query-metadata`; new evaluations persist `graph_id` directly.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
 import json
 import shutil
 import sys
@@ -9,10 +11,23 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 DEFAULT_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+REQUIRED_JOB_FILES = (
+    "config/resolved.yaml",
+    "config/overrides.yaml",
+    "workflow/summary.yaml",
+    "workflow/ranking_origin.yaml",
+    "assets/manifest.yaml",
+    "metrics/final.metrics.csv",
+    "metrics/per_task.jsonl",
+    "debug/failure_cases.jsonl",
+)
+REQUIRED_SCHEMA_V2_JOB_FILES = ("predictions/ranked_prefix.jsonl.gz",)
 
 
 def collect_run_artifacts(
@@ -23,6 +38,8 @@ def collect_run_artifacts(
     include_report: bool = False,
     report_dir: str | Path = "report",
     dry_run: bool = False,
+    validate_complete: bool = True,
+    expected_per_task_count: int | None = None,
 ) -> dict[str, Any]:
     source = Path(run_dir)
     if not source.exists() or not source.is_dir():
@@ -31,6 +48,16 @@ def collect_run_artifacts(
     output_dir = Path(output_root) / source.name
     _reject_overlapping_paths(source, output_dir)
     run_mode, jobs = _detect_run_structure(source)
+    scientific_jobs = (
+        _validate_complete_jobs(
+            source,
+            run_mode=run_mode,
+            jobs=jobs,
+            expected_per_task_count=expected_per_task_count,
+        )
+        if validate_complete
+        else []
+    )
     copied: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     total_copied_bytes = 0
@@ -56,8 +83,17 @@ def collect_run_artifacts(
                 relative_path, size_bytes, max_file_size_bytes
             )
             entry = {"relative_path": relative_path, "size_bytes": size_bytes}
+            if (
+                validate_complete
+                and decision != "copy"
+                and _is_required_job_file(relative_path, run_mode=run_mode, jobs=jobs)
+            ):
+                raise ValueError(
+                    f"required run artifact would be skipped: {relative_path} ({decision})"
+                )
             if decision == "copy":
-                copied.append(entry)
+                copied_entry = {**entry, "sha256": _sha256_file(path)}
+                copied.append(copied_entry)
                 total_copied_bytes += size_bytes
                 if staging_dir is not None:
                     destination = staging_dir / relative_path
@@ -85,7 +121,11 @@ def collect_run_artifacts(
                     )
                     continue
                 copied.append(
-                    {"relative_path": relative_path, "size_bytes": size_bytes}
+                    {
+                        "relative_path": relative_path,
+                        "size_bytes": size_bytes,
+                        "sha256": _sha256_file(path),
+                    }
                 )
                 total_copied_bytes += size_bytes
                 if staging_dir is not None:
@@ -102,6 +142,9 @@ def collect_run_artifacts(
             "max_file_size_bytes": max_file_size_bytes,
             "dry_run": dry_run,
             "include_report": include_report,
+            "validate_complete": validate_complete,
+            "expected_per_task_count": expected_per_task_count,
+            "scientific_jobs": scientific_jobs,
             "copied": copied,
             "skipped": skipped,
             "copied_count": len(copied),
@@ -128,6 +171,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_report=args.include_report,
         report_dir=args.report_dir,
         dry_run=args.dry_run,
+        validate_complete=not args.allow_incomplete,
+        expected_per_task_count=args.expected_per_task_count,
     )
     print(
         f"output={manifest['output_dir']} "
@@ -175,6 +220,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print manifest summary without copying files.",
     )
+    parser.add_argument(
+        "--expected-per-task-count",
+        type=int,
+        help="Fail unless every job contains exactly this many unique per-task rows.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Permit historical/debug trees that do not satisfy the complete-run contract.",
+    )
     return parser
 
 
@@ -214,6 +269,150 @@ def _known_exclusion(parts: tuple[str, ...], name: str) -> str | None:
     if Path(name).suffix in {".bin", ".safetensors", ".npy", ".npz"}:
         return "excluded_model_or_embedding"
     return None
+
+
+def _validate_complete_jobs(
+    source: Path,
+    *,
+    run_mode: str,
+    jobs: Sequence[str],
+    expected_per_task_count: int | None,
+) -> list[dict[str, Any]]:
+    if expected_per_task_count is not None and expected_per_task_count <= 0:
+        raise ValueError("expected_per_task_count must be positive")
+    roots = (
+        [(job, source / job) for job in jobs]
+        if run_mode == "multirun"
+        else [(source.name, source)]
+    )
+    if not roots:
+        raise ValueError(f"multirun has no completed job outputs: {source}")
+    validated: list[dict[str, Any]] = []
+    for job_name, root in roots:
+        missing = [
+            relative
+            for relative in REQUIRED_JOB_FILES
+            if not (root / relative).is_file()
+        ]
+        if missing:
+            raise ValueError(
+                f"run job={job_name!r} is incomplete; missing required artifacts={missing}"
+            )
+        summary = _read_yaml_mapping(root / "workflow" / "summary.yaml")
+        output_schema_version = summary.get("output_schema_version", 1)
+        if not isinstance(output_schema_version, int) or isinstance(
+            output_schema_version, bool
+        ):
+            raise ValueError(f"run job={job_name!r} has invalid output_schema_version")
+        if output_schema_version >= 2:
+            missing_v2 = [
+                relative
+                for relative in REQUIRED_SCHEMA_V2_JOB_FILES
+                if not (root / relative).is_file()
+            ]
+            if missing_v2:
+                raise ValueError(
+                    f"run job={job_name!r} is incomplete for output schema "
+                    f"v{output_schema_version}; missing={missing_v2}"
+                )
+        for key in ("method", "dataset", "profile", "seed"):
+            if key not in summary:
+                raise ValueError(f"run job={job_name!r} summary is missing {key!r}")
+        assets = _read_yaml_mapping(root / "assets" / "manifest.yaml")
+        if not isinstance(assets.get("assets"), list) or not assets["assets"]:
+            raise ValueError(f"run job={job_name!r} has no scientific asset references")
+        with (root / "metrics" / "final.metrics.csv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
+            final_rows = list(csv.DictReader(stream))
+        if len(final_rows) != 1:
+            raise ValueError(
+                f"run job={job_name!r} requires exactly one final metric row"
+            )
+        if final_rows[0].get("Method") != summary["method"]:
+            raise ValueError(
+                f"run job={job_name!r} summary/final metric methods do not match"
+            )
+        task_ids: list[str] = []
+        per_task_path = root / "metrics" / "per_task.jsonl"
+        with per_task_path.open(encoding="utf-8") as stream:
+            for line_number, line in enumerate(stream, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise ValueError(
+                        f"invalid per-task JSON: {per_task_path}:{line_number}"
+                    ) from error
+                task_id = record.get("task_id") if isinstance(record, dict) else None
+                if not isinstance(task_id, str) or not task_id:
+                    raise ValueError(
+                        f"per-task row lacks task_id: {per_task_path}:{line_number}"
+                    )
+                task_ids.append(task_id)
+        if not task_ids:
+            raise ValueError(f"run job={job_name!r} has no per-task metric rows")
+        if len(task_ids) != len(set(task_ids)):
+            raise ValueError(f"run job={job_name!r} has duplicate per-task task IDs")
+        if (
+            expected_per_task_count is not None
+            and len(task_ids) != expected_per_task_count
+        ):
+            raise ValueError(
+                f"run job={job_name!r} expected {expected_per_task_count} per-task "
+                f"rows, observed {len(task_ids)}"
+            )
+        validated.append(
+            {
+                "job": job_name,
+                "method": summary["method"],
+                "variant": summary.get("variant"),
+                "dataset": summary["dataset"],
+                "profile": summary["profile"],
+                "seed": summary["seed"],
+                "output_schema_version": output_schema_version,
+                "per_task_count": len(task_ids),
+                "task_id_sha256": _sha256_text("\n".join(sorted(task_ids)) + "\n"),
+            }
+        )
+    return validated
+
+
+def _read_yaml_mapping(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as stream:
+        value = yaml.safe_load(stream)
+    if not isinstance(value, dict):
+        raise ValueError(f"expected YAML mapping: {path}")
+    return value
+
+
+def _is_required_job_file(
+    relative_path: str,
+    *,
+    run_mode: str,
+    jobs: Sequence[str],
+) -> bool:
+    required_files = (*REQUIRED_JOB_FILES, *REQUIRED_SCHEMA_V2_JOB_FILES)
+    if run_mode == "single":
+        return relative_path in required_files
+    return any(
+        relative_path == f"{job}/{required}"
+        for job in jobs
+        for required in required_files
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def _detect_run_structure(source: Path) -> tuple[str, list[str]]:

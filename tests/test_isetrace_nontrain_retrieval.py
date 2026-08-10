@@ -863,6 +863,7 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
             ),
         )
         metric = metric_rows[0]
+        assert per_task_rows[0].graph_id == benchmark.rankings[0].graph_id
         assert per_task_rows[0].query_origin == "natural"
         assert per_task_rows[0].memory_mode == "linked_recall"
         assert metric.evaluation_schema == "execution_provenance_span_v7"

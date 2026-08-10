@@ -1,6 +1,6 @@
 # 基于真实 Agent 轨迹的 Provenance Motif 自监督训练设想
 
-> 状态：M1/M2 的 canonical trajectory、query-independent graph、motif 与模板 query library 已实现；完整 ISETrace 已下载，并按 source-intent connected component 固定为 seed-13 的 80/10/10 split。100 条自然 query pilot 已接入 BM25、冻结 Dense、title-free GraphRAG 和 training-free provenance path 的 test-only workflow，但全部 LLM query 仍需人工审核；训练集成尚未实现。数据与 split 见 `docs/40-operations/isetrace-split.md`，非训练 pilot 见 `docs/40-operations/isetrace-nontrain-retrieval.md`。
+> 历史说明：本文记录早期 motif pretraining 设想，其中的 source-intent connected-component 80/10/10 split 对应独立的 legacy manifest。当前 2,000-query RQ2 benchmark 不消费该 manifest，而使用 authored-query prefix 派生、仅保证 trajectory-disjoint 的 split；权威说明见 `docs/40-operations/isetrace-split.md`。本文中的 component-safe 数字不得用于描述当前主实验。
 
 ## 核心思路
 
@@ -25,7 +25,7 @@
 
 ### Train
 
-固定 split 以共享 `source_intent_id` 或完全相同 normalized intent text 的 trajectory connected component 为分配单元，避免同一 task 的不同 rollout 或多 intent session 跨 split。当前 seed 13 分配为 train/dev/test = 18,506/2,313/2,313 条 raw trajectories，其中可生成非 `call_result` dependency motif 的有效轨迹为 17,272/2,177/2,153。
+早期 auxiliary manifest 以共享 `source_intent_id` 或完全相同 normalized intent text 的 trajectory connected component 为分配单元，seed 13 曾得到 train/dev/test = 18,506/2,313/2,313 条 raw trajectories，其中可生成非 `call_result` dependency motif 的有效轨迹为 17,272/2,177/2,153。该 manifest 不是当前 RQ2 主 benchmark 的数据输入；若未来恢复 component-safe 泛化实验，必须使用独立 protocol 名称并重新报告结果。
 
 使用 schema-aware 模板将 motif 自动 verbalize 成 query，无需人工 QA 标签，也无需调用 LLM。通过多模板、不同询问方向、slot masking、路径长度 curriculum 和结构匹配的 hard negatives，训练 query-conditioned R-GCN 完成节点排序与完整支持集恢复。
 

@@ -13,16 +13,27 @@ def _row(
     values: list[float],
     *,
     trainable: bool,
+    groups: list[str] | None = None,
+    strata: list[str] | None = None,
+    digest: str | None = None,
 ) -> dict[str, object]:
+    task_ids = [f"task-{index}" for index in range(len(values))]
     return {
         "method": method,
         "trainable": trainable,
         "seed": seed,
-        "metrics": {"Full Support@5": sum(values) / len(values)},
+        "metrics": {"Full Support@2048 Tokens": sum(values) / len(values)},
         "per_task": {
-            f"task-{index}": {"Full Support@5": value}
-            for index, value in enumerate(values)
+            task_id: {"Full Support@2048 Tokens": value}
+            for task_id, value in zip(task_ids, values, strict=True)
         },
+        "task_groups": (
+            dict(zip(task_ids, groups, strict=True)) if groups is not None else {}
+        ),
+        "task_strata": (
+            dict(zip(task_ids, strata, strict=True)) if strata is not None else {}
+        ),
+        "test_artifact_digest": digest,
     }
 
 
@@ -36,15 +47,17 @@ def test_trainable_mean_std_and_deterministic_single_value() -> None:
     result = cast(dict[str, Any], analyze_main_results(rows, baseline_method="bm25"))
     summary = result["summary"]
 
-    assert summary["bm25"]["metrics"]["Full Support@5"] == {"value": 0.5}
-    dense = summary["dense_ft"]["metrics"]["Full Support@5"]
+    assert summary["bm25"]["metrics"]["Full Support@2048 Tokens"] == {"value": 0.5}
+    dense = summary["dense_ft"]["metrics"]["Full Support@2048 Tokens"]
     assert dense["mean"] == 0.75
     assert dense["std"] > 0.0
     assert summary["dense_ft"]["seeds"] == [13, 17]
     assert result["test_task_count"] == 2
+    assert result["test_cluster_count"] == 2
+    assert result["cluster_unit"] == "task"
 
 
-def test_paired_ci_against_baseline() -> None:
+def test_paired_delta_is_method_minus_baseline_and_averages_seeds() -> None:
     rows = [
         _row("bm25", 13, [1.0, 0.0], trainable=False),
         _row("dense_ft", 13, [0.0, 0.0], trainable=True),
@@ -55,11 +68,57 @@ def test_paired_ci_against_baseline() -> None:
         dict[str, Any],
         analyze_main_results(rows, baseline_method="bm25", bootstrap_samples=200),
     )
-    paired = result["paired_analysis"]["dense_ft"]["metrics"]["Full Support@5"]
-    # baseline [1,0] vs dense seed13 [0,0] -> deltas 1,0; seed17 [0,1] -> 1,-1
-    assert paired["paired_query_count"] == 4
-    assert paired["mean_delta"] == pytest.approx(0.25)
+    paired = result["paired_analysis"]["dense_ft"]["metrics"][
+        "Full Support@2048 Tokens"
+    ]
+    # Seed-averaged method-minus-baseline deltas are task0=-1 and task1=+0.5.
+    assert paired["paired_query_count"] == 2
+    assert paired["seed_pair_count"] == 2
+    assert paired["mean_delta"] == pytest.approx(-0.25)
+    assert paired["delta_direction"] == "method_minus_baseline"
     assert len(paired["ci_95"]) == 2
+
+
+def test_cluster_bootstrap_resamples_trajectory_groups_and_reports_strata() -> None:
+    groups = ["trajectory-a", "trajectory-a", "trajectory-b"]
+    strata = ["linked_recall", "linked_recall", "direct_recall"]
+    rows = [
+        _row(
+            "dense_ft",
+            13,
+            [0.0, 0.0, 1.0],
+            trainable=True,
+            groups=groups,
+            strata=strata,
+            digest="test-digest",
+        ),
+        _row(
+            "rgcn",
+            13,
+            [1.0, 1.0, 0.0],
+            trainable=True,
+            groups=groups,
+            strata=strata,
+            digest="test-digest",
+        ),
+    ]
+
+    result = cast(
+        dict[str, Any],
+        analyze_main_results(rows, baseline_method="dense_ft", bootstrap_samples=200),
+    )
+    paired = result["paired_analysis"]["rgcn"]["metrics"]["Full Support@2048 Tokens"]
+    assert result["test_cluster_count"] == 2
+    assert result["cluster_unit"] == "group"
+    assert result["test_artifact_digest"] == "test-digest"
+    assert paired["paired_cluster_count"] == 2
+    assert paired["paired_query_count"] == 3
+    assert result["stratified_summary"]["rgcn"]["linked_recall"]["task_count"] == 2
+    linked = result["stratified_paired_analysis"]["rgcn"]["linked_recall"]["metrics"][
+        "Full Support@2048 Tokens"
+    ]
+    assert linked["mean_delta"] == 1.0
+    assert linked["paired_cluster_count"] == 1
 
 
 def test_mismatched_task_ids_raise() -> None:
@@ -68,8 +127,8 @@ def test_mismatched_task_ids_raise() -> None:
         "method": "dense_ft",
         "trainable": True,
         "seed": 13,
-        "metrics": {"Full Support@5": 1.0},
-        "per_task": {"task-0": {"Full Support@5": 1.0}},  # only one task
+        "metrics": {"Full Support@2048 Tokens": 1.0},
+        "per_task": {"task-0": {"Full Support@2048 Tokens": 1.0}},
     }
     with pytest.raises(ValueError, match="share the same test split"):
         analyze_main_results([good, bad], baseline_method="bm25")
@@ -82,3 +141,12 @@ def test_inconsistent_trainable_flag_raises() -> None:
     ]
     with pytest.raises(ValueError, match="inconsistent trainable"):
         analyze_main_results(rows, baseline_method="dense_ft")
+
+
+def test_mismatched_test_artifact_digest_raises() -> None:
+    rows = [
+        _row("bm25", 13, [1.0], trainable=False, digest="a"),
+        _row("dense", 13, [1.0], trainable=False, digest="b"),
+    ]
+    with pytest.raises(ValueError, match="different or missing test artifact"):
+        analyze_main_results(rows, baseline_method="bm25")

@@ -4,7 +4,9 @@ import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from graph_memory.analysis.paired_bootstrap import paired_delta_bootstrap_ci
+from graph_memory.analysis.paired_bootstrap import (
+    paired_cluster_delta_bootstrap_ci,
+)
 
 
 @dataclass(frozen=True)
@@ -14,6 +16,9 @@ class _NormalizedRow:
     seed: int
     metrics: dict[str, float]
     per_task: dict[str, dict[str, float]]
+    task_groups: dict[str, str]
+    task_strata: dict[str, str]
+    test_artifact_digest: str | None
 
 
 def analyze_main_results(
@@ -23,19 +28,14 @@ def analyze_main_results(
     bootstrap_samples: int = 2000,
     bootstrap_seed: int = 13,
 ) -> dict[str, object]:
-    """Aggregate main-results rows into per-method summaries and paired CIs.
+    """Aggregate fixed-test runs and compute paired cluster-bootstrap CIs.
 
-    Each row describes one evaluated run: its ``method``, whether the method is
-    ``trainable``, the run ``seed``, aggregate ``metrics``, and ``per_task``
-    metrics keyed by ``task_id``. Trainable methods contribute multiple seed
-    rows; deterministic methods contribute exactly one.
-
-    Returns per-method mean/std (trainable) or a single value (deterministic),
-    plus a per-query paired bootstrap 95% CI on the baseline-minus-method delta
-    for every method compared against ``baseline_method``.
-
-    Every compared row must have evaluated the identical set of test task ids;
-    a mismatch raises rather than silently intersecting.
+    Trainable methods are summarized as mean and sample standard deviation over
+    model-training seeds. Deterministic methods must contribute one row. Paired
+    deltas use ``method - baseline`` and are first averaged over matched seed
+    pairs per task, then bootstrapped by ``task_groups``. ISETrace callers should
+    map every task to its source trajectory; generic callers may omit groups and
+    will fall back to one cluster per task.
     """
     normalized = [_normalize_row(row) for row in rows]
     if not normalized:
@@ -43,113 +43,239 @@ def analyze_main_results(
 
     by_method_seed = {(row.method, row.seed): row for row in normalized}
     if len(by_method_seed) != len(normalized):
-        raise ValueError("Main-results analysis requires unique (method, seed) rows.")
+        raise ValueError(
+            "Main-results analysis requires unique (method label, seed) rows. "
+            "Use distinct labels for supervision variants."
+        )
 
     methods = sorted({row.method for row in normalized})
     if baseline_method not in methods:
         raise ValueError(f"Missing baseline method={baseline_method!r}.")
 
-    # Every compared per-task population must share the same test task ids.
-    task_id_reference = _shared_task_ids(normalized)
+    task_ids = _shared_task_ids(normalized)
+    task_groups, task_strata = _shared_task_metadata(normalized, task_ids)
+    test_artifact_digest = _shared_test_artifact_digest(normalized)
+    metric_names = _shared_aggregate_metrics(normalized)
+    per_task_metric_names = _shared_per_task_metrics(normalized)
+    _enforce_method_consistency(normalized)
 
-    metric_names = sorted(set.intersection(*(set(row.metrics) for row in normalized)))
-    per_task_metric_names = sorted(
-        set.intersection(
-            *(
-                {
-                    metric
-                    for task_metrics in row.per_task.values()
-                    for metric in task_metrics
-                }
-                for row in normalized
-            )
-        )
+    summary = _method_summary(normalized, metric_names=metric_names)
+    stratified_summary = _stratified_method_summary(
+        normalized,
+        metric_names=per_task_metric_names,
+        task_strata=task_strata,
     )
-
-    _enforce_trainable_consistency(normalized)
-
-    summary: dict[str, object] = {}
-    for method in methods:
-        method_rows = [row for row in normalized if row.method == method]
-        trainable = method_rows[0].trainable
-        seeds = sorted(row.seed for row in method_rows)
-        metric_summary: dict[str, object] = {}
-        for metric in metric_names:
-            values = [row.metrics[metric] for row in method_rows]
-            if trainable:
-                metric_summary[metric] = {
-                    "mean": statistics.fmean(values),
-                    "std": statistics.stdev(values) if len(values) > 1 else 0.0,
-                    "seed_values": values,
-                }
-            else:
-                metric_summary[metric] = {"value": values[0]}
-        summary[method] = {
-            "trainable": trainable,
-            "seeds": seeds,
-            "metrics": metric_summary,
-        }
 
     baseline_rows = [row for row in normalized if row.method == baseline_method]
     paired: dict[str, object] = {}
+    stratified_paired: dict[str, object] = {}
+    strata = sorted(set(task_strata.values()))
     for method in methods:
         if method == baseline_method:
             continue
         method_rows = [row for row in normalized if row.method == method]
         metric_results: dict[str, object] = {}
+        stratum_results: dict[str, dict[str, dict[str, object]]] = {
+            stratum: {"metrics": {}} for stratum in strata
+        }
         for metric in per_task_metric_names:
-            deltas = _paired_deltas(
+            deltas, seed_pair_count = _paired_task_deltas(
                 baseline_rows=baseline_rows,
                 method_rows=method_rows,
                 metric=metric,
             )
-            metric_results[metric] = paired_delta_bootstrap_ci(
+            result = _cluster_bootstrap(
                 deltas,
+                task_groups=task_groups,
                 samples=bootstrap_samples,
                 seed=bootstrap_seed,
             )
+            result.update(
+                {
+                    "delta_direction": "method_minus_baseline",
+                    "seed_pair_count": seed_pair_count,
+                }
+            )
+            metric_results[metric] = result
+            for stratum in strata:
+                stratum_deltas = {
+                    task_id: delta
+                    for task_id, delta in deltas.items()
+                    if task_strata.get(task_id) == stratum
+                }
+                stratum_result = _cluster_bootstrap(
+                    stratum_deltas,
+                    task_groups=task_groups,
+                    samples=bootstrap_samples,
+                    seed=bootstrap_seed,
+                )
+                stratum_result.update(
+                    {
+                        "delta_direction": "method_minus_baseline",
+                        "seed_pair_count": seed_pair_count,
+                    }
+                )
+                stratum_results[stratum]["metrics"][metric] = stratum_result
         paired[method] = {"metrics": metric_results}
+        if stratum_results:
+            stratified_paired[method] = stratum_results
 
+    cluster_unit = (
+        "task"
+        if all(task_groups[task_id] == task_id for task_id in task_ids)
+        else "group"
+    )
     return {
         "baseline_method": baseline_method,
-        "test_task_count": len(task_id_reference),
+        "delta_direction": "method_minus_baseline",
+        "test_task_count": len(task_ids),
+        "test_cluster_count": len(set(task_groups.values())),
+        "cluster_unit": cluster_unit,
+        "test_artifact_digest": test_artifact_digest,
         "summary": summary,
+        "stratified_summary": stratified_summary,
         "paired_analysis": paired,
+        "stratified_paired_analysis": stratified_paired,
     }
 
 
-def _paired_deltas(
+def _method_summary(
+    rows: Sequence[_NormalizedRow],
+    *,
+    metric_names: Sequence[str],
+) -> dict[str, object]:
+    summary: dict[str, object] = {}
+    for method in sorted({row.method for row in rows}):
+        method_rows = sorted(
+            (row for row in rows if row.method == method), key=lambda row: row.seed
+        )
+        trainable = method_rows[0].trainable
+        metric_summary = {
+            metric: _summarize_values(
+                [row.metrics[metric] for row in method_rows], trainable=trainable
+            )
+            for metric in metric_names
+        }
+        summary[method] = {
+            "trainable": trainable,
+            "seeds": [row.seed for row in method_rows],
+            "metrics": metric_summary,
+        }
+    return summary
+
+
+def _stratified_method_summary(
+    rows: Sequence[_NormalizedRow],
+    *,
+    metric_names: Sequence[str],
+    task_strata: Mapping[str, str],
+) -> dict[str, object]:
+    if not task_strata:
+        return {}
+    result: dict[str, object] = {}
+    for method in sorted({row.method for row in rows}):
+        method_rows = sorted(
+            (row for row in rows if row.method == method), key=lambda row: row.seed
+        )
+        trainable = method_rows[0].trainable
+        by_stratum: dict[str, object] = {}
+        for stratum in sorted(set(task_strata.values())):
+            stratum_task_ids = sorted(
+                task_id
+                for task_id, task_stratum in task_strata.items()
+                if task_stratum == stratum
+            )
+            metrics: dict[str, object] = {}
+            for metric in metric_names:
+                seed_values = [
+                    statistics.fmean(
+                        row.per_task[task_id][metric] for task_id in stratum_task_ids
+                    )
+                    for row in method_rows
+                ]
+                metrics[metric] = _summarize_values(seed_values, trainable=trainable)
+            by_stratum[stratum] = {
+                "task_count": len(stratum_task_ids),
+                "metrics": metrics,
+            }
+        result[method] = by_stratum
+    return result
+
+
+def _summarize_values(values: Sequence[float], *, trainable: bool) -> dict[str, object]:
+    if trainable:
+        return {
+            "mean": statistics.fmean(values),
+            "std": statistics.stdev(values) if len(values) > 1 else 0.0,
+            "seed_values": list(values),
+        }
+    return {"value": values[0]}
+
+
+def _paired_task_deltas(
     *,
     baseline_rows: Sequence[_NormalizedRow],
     method_rows: Sequence[_NormalizedRow],
     metric: str,
-) -> list[float]:
-    """Per-query baseline-minus-method deltas aligned by task id.
-
-    When the baseline is deterministic (single seed), every method seed is
-    paired against that single baseline population. When both sides have
-    matching seeds, they are paired seed-by-seed. Otherwise the baseline is
-    paired against each method seed using its single available population.
-    """
-    baseline_by_seed = {row.seed: row for row in baseline_rows}
-    deltas: list[float] = []
-    for method_row in method_rows:
-        if method_row.seed in baseline_by_seed:
-            baseline_row = baseline_by_seed[method_row.seed]
-        elif len(baseline_rows) == 1:
-            baseline_row = baseline_rows[0]
-        else:
-            raise ValueError(
-                f"No baseline seed to pair with method={method_row.method!r} "
-                f"seed={method_row.seed}."
+) -> tuple[dict[str, float], int]:
+    pairs = _seed_pairs(baseline_rows, method_rows)
+    task_ids = sorted(pairs[0][0].per_task)
+    return (
+        {
+            task_id: statistics.fmean(
+                method_row.per_task[task_id][metric]
+                - baseline_row.per_task[task_id][metric]
+                for baseline_row, method_row in pairs
             )
-        for task_id in sorted(baseline_row.per_task):
-            baseline_value = baseline_row.per_task[task_id].get(metric)
-            method_value = method_row.per_task[task_id].get(metric)
-            if baseline_value is None or method_value is None:
-                continue
-            deltas.append(baseline_value - method_value)
-    return deltas
+            for task_id in task_ids
+        },
+        len(pairs),
+    )
+
+
+def _seed_pairs(
+    baseline_rows: Sequence[_NormalizedRow],
+    method_rows: Sequence[_NormalizedRow],
+) -> list[tuple[_NormalizedRow, _NormalizedRow]]:
+    baseline_by_seed = {row.seed: row for row in baseline_rows}
+    method_by_seed = {row.seed: row for row in method_rows}
+    if len(baseline_rows) == 1 and len(method_rows) == 1:
+        return [(baseline_rows[0], method_rows[0])]
+    if set(baseline_by_seed) == set(method_by_seed):
+        return [
+            (baseline_by_seed[seed], method_by_seed[seed])
+            for seed in sorted(baseline_by_seed)
+        ]
+    if len(baseline_rows) == 1:
+        return [
+            (baseline_rows[0], row)
+            for row in sorted(method_rows, key=lambda row: row.seed)
+        ]
+    if len(method_rows) == 1:
+        return [
+            (row, method_rows[0])
+            for row in sorted(baseline_rows, key=lambda row: row.seed)
+        ]
+    raise ValueError(
+        "Trainable baseline and method require identical seed sets for paired analysis."
+    )
+
+
+def _cluster_bootstrap(
+    deltas: Mapping[str, float],
+    *,
+    task_groups: Mapping[str, str],
+    samples: int,
+    seed: int,
+) -> dict[str, object]:
+    by_cluster: dict[str, list[float]] = {}
+    for task_id, delta in deltas.items():
+        by_cluster.setdefault(task_groups[task_id], []).append(delta)
+    return paired_cluster_delta_bootstrap_ci(
+        by_cluster,
+        samples=samples,
+        seed=seed,
+    )
 
 
 def _shared_task_ids(rows: Sequence[_NormalizedRow]) -> set[str]:
@@ -172,14 +298,64 @@ def _shared_task_ids(rows: Sequence[_NormalizedRow]) -> set[str]:
     return reference or set()
 
 
-def _enforce_trainable_consistency(rows: Sequence[_NormalizedRow]) -> None:
-    by_method: dict[str, set[bool]] = {}
+def _shared_task_metadata(
+    rows: Sequence[_NormalizedRow],
+    task_ids: set[str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    groups: dict[str, str] = {}
+    strata: dict[str, str] = {}
+    for task_id in task_ids:
+        observed_groups = {row.task_groups[task_id] for row in rows}
+        if len(observed_groups) != 1:
+            raise ValueError(f"task_id={task_id!r} has inconsistent cluster IDs.")
+        groups[task_id] = next(iter(observed_groups))
+        observed_strata = {
+            row.task_strata[task_id] for row in rows if task_id in row.task_strata
+        }
+        if observed_strata:
+            if len(observed_strata) != 1 or any(
+                task_id not in row.task_strata for row in rows
+            ):
+                raise ValueError(f"task_id={task_id!r} has inconsistent strata.")
+            strata[task_id] = next(iter(observed_strata))
+    return groups, strata
+
+
+def _shared_test_artifact_digest(rows: Sequence[_NormalizedRow]) -> str | None:
+    observed = {row.test_artifact_digest for row in rows}
+    if len(observed) > 1:
+        raise ValueError(
+            "Compared runs reference different or missing test artifact digests: "
+            f"{sorted(str(value) for value in observed)}"
+        )
+    return next(iter(observed))
+
+
+def _shared_aggregate_metrics(rows: Sequence[_NormalizedRow]) -> list[str]:
+    return sorted(set.intersection(*(set(row.metrics) for row in rows)))
+
+
+def _shared_per_task_metrics(rows: Sequence[_NormalizedRow]) -> list[str]:
+    per_row: list[set[str]] = []
     for row in rows:
-        by_method.setdefault(row.method, set()).add(row.trainable)
-    for method, flags in by_method.items():
+        task_metric_sets = [set(metrics) for metrics in row.per_task.values()]
+        per_row.append(set.intersection(*task_metric_sets))
+    return sorted(set.intersection(*per_row))
+
+
+def _enforce_method_consistency(rows: Sequence[_NormalizedRow]) -> None:
+    by_method: dict[str, list[_NormalizedRow]] = {}
+    for row in rows:
+        by_method.setdefault(row.method, []).append(row)
+    for method, method_rows in by_method.items():
+        flags = {row.trainable for row in method_rows}
         if len(flags) > 1:
             raise ValueError(
                 f"method={method!r} has inconsistent trainable flags across rows."
+            )
+        if not method_rows[0].trainable and len(method_rows) != 1:
+            raise ValueError(
+                f"deterministic method={method!r} must contribute exactly one run."
             )
 
 
@@ -189,6 +365,9 @@ def _normalize_row(row: Mapping[str, object]) -> _NormalizedRow:
     seed = row.get("seed")
     metrics = row.get("metrics")
     per_task = row.get("per_task")
+    task_groups = row.get("task_groups", {})
+    task_strata = row.get("task_strata", {})
+    test_artifact_digest = row.get("test_artifact_digest")
     if not isinstance(method, str) or not method:
         raise ValueError("Main-results row method must be a non-empty string.")
     if not isinstance(trainable, bool):
@@ -197,6 +376,11 @@ def _normalize_row(row: Mapping[str, object]) -> _NormalizedRow:
         raise ValueError("Main-results row seed must be an integer.")
     if not isinstance(metrics, Mapping) or not isinstance(per_task, Mapping):
         raise ValueError("Main-results rows require metrics and per_task mappings.")
+    if not isinstance(task_groups, Mapping) or not isinstance(task_strata, Mapping):
+        raise ValueError("task_groups and task_strata must be mappings when provided.")
+    if test_artifact_digest is not None and not isinstance(test_artifact_digest, str):
+        raise ValueError("test_artifact_digest must be a string or null.")
+
     normalized_metrics = {
         str(name): _number(value, f"metrics.{name}") for name, value in metrics.items()
     }
@@ -208,13 +392,37 @@ def _normalize_row(row: Mapping[str, object]) -> _NormalizedRow:
             str(name): _number(value, f"per_task.{task_id}.{name}")
             for name, value in raw_task_metrics.items()
         }
+    task_ids = set(normalized_tasks)
+    normalized_groups = _normalize_task_values(task_groups, name="task_groups")
+    if set(normalized_groups) - task_ids:
+        raise ValueError("task_groups contains unknown task IDs.")
+    normalized_groups = {
+        task_id: normalized_groups.get(task_id, task_id) for task_id in task_ids
+    }
+    normalized_strata = _normalize_task_values(task_strata, name="task_strata")
+    if set(normalized_strata) - task_ids:
+        raise ValueError("task_strata contains unknown task IDs.")
     return _NormalizedRow(
         method=method,
         trainable=trainable,
         seed=seed,
         metrics=normalized_metrics,
         per_task=normalized_tasks,
+        task_groups=normalized_groups,
+        task_strata=normalized_strata,
+        test_artifact_digest=test_artifact_digest,
     )
+
+
+def _normalize_task_values(
+    value: Mapping[object, object], *, name: str
+) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for task_id, item in value.items():
+        if not isinstance(task_id, str) or not isinstance(item, str) or not item:
+            raise ValueError(f"{name} must map task IDs to non-empty strings.")
+        normalized[task_id] = item
+    return normalized
 
 
 def _number(value: object, path: str) -> float:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 from pathlib import Path
 
@@ -58,9 +59,28 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
         task_identity="test-rank",
         origin={"stage": "rank", "method": "bm25"},
     ) as publisher:
-        write_json(publisher.workspace / "rankings.json", [{"task_id": "one"}])
+        write_json(
+            publisher.workspace / "predictions.json",
+            [
+                {
+                    "task_id": "one",
+                    "method": "bm25",
+                    "ranked_nodes": [
+                        {
+                            "node_id": "m1",
+                            "score": 1.0,
+                            "source_spans": [],
+                            "token_count": 10,
+                        }
+                    ],
+                    "retrieved_subgraph": {"nodes": ["m1"], "edges": []},
+                    "latency_ms": 3.0,
+                    "input_tokens": 2,
+                }
+            ],
+        )
         ranking_ref = publisher.publish(
-            {"rankings": "rankings.json"},
+            {"predictions": "predictions.json"},
             metadata={"production_seconds": 3.0},
         )
     assert isinstance(ranking_ref, PredictionsArtifactRef)
@@ -105,14 +125,17 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
             list(metric_row.model_dump(mode="json", by_alias=True)),
         )
         write_jsonl(publisher.workspace / "failure_cases.jsonl", [])
-        write_jsonl(publisher.workspace / "per_task.jsonl", [])
+        write_jsonl(
+            publisher.workspace / "per_task.jsonl",
+            [{"task_id": "one", "Recall@5": 1.0}],
+        )
         evaluation_ref = publisher.publish(
             {
                 "metrics": "metrics.csv",
                 "failure_cases": "failure_cases.jsonl",
                 "per_task": "per_task.jsonl",
             },
-            shape={"metric_rows": 1, "failure_cases": 0, "per_task_rows": 0},
+            shape={"metric_rows": 1, "failure_cases": 0, "per_task_rows": 1},
         )
     assert isinstance(evaluation_ref, EvaluationArtifactRef)
 
@@ -146,6 +169,7 @@ def test_output_projection_is_complete_and_never_copies_processed_assets(
     assert summary["method"] == "bm25"
     assert summary["seed"] == 13
     assert summary["cache_refresh"] is False
+    assert summary["output_schema_version"] == 2
     assert {asset["digest"] for asset in manifest["assets"]} == {
         asset.digest for asset in result.assets
     }
@@ -155,6 +179,12 @@ def test_output_projection_is_complete_and_never_copies_processed_assets(
     assert row["Method"] == "bm25"
     assert float(row["Retrieval Latency / Query"]) == 3.0
     assert not any(path.suffix in {".pt", ".ckpt"} for path in output.rglob("*"))
+    prediction_prefix = output / "predictions" / "ranked_prefix.jsonl.gz"
+    assert prediction_prefix.is_file()
+    with gzip.open(prediction_prefix, "rt", encoding="utf-8") as stream:
+        prediction = json.loads(stream.readline())
+    assert prediction["task_id"] == "one"
+    assert [node["node_id"] for node in prediction["ranked_nodes"]] == ["m1"]
 
 
 def test_delivery_mirrors_output_tree_and_records_asset_references(
@@ -180,6 +210,9 @@ def test_delivery_mirrors_output_tree_and_records_asset_references(
         (delivered / "delivery_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["copied_count"] == delivery["copied_count"]
+    assert manifest["scientific_jobs"][0]["per_task_count"] == 1
+    assert manifest["scientific_jobs"][0]["output_schema_version"] == 2
+    assert all(len(item["sha256"]) == 64 for item in manifest["copied"])
 
 
 def test_delivery_detects_every_output_only_multirun_child(tmp_path: Path) -> None:
@@ -189,7 +222,11 @@ def test_delivery_detects_every_output_only_multirun_child(tmp_path: Path) -> No
         summary.parent.mkdir(parents=True)
         summary.write_text("method: test\n", encoding="utf-8")
 
-    manifest = collect_run_artifacts(source, output_root=tmp_path / "results")
+    manifest = collect_run_artifacts(
+        source,
+        output_root=tmp_path / "results",
+        validate_complete=False,
+    )
 
     assert manifest["run_mode"] == "multirun"
     assert manifest["jobs"] == ["0_method=bm25", "1_method=dense"]
@@ -199,6 +236,26 @@ def test_delivery_detects_every_output_only_multirun_child(tmp_path: Path) -> No
         ).is_file()
         for selector in manifest["jobs"]
     )
+
+
+def test_delivery_rejects_incomplete_scientific_run_by_default(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "runs" / "incomplete"
+    summary = source / "workflow" / "summary.yaml"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        "method: bm25\ndataset: isetrace\nprofile: full\nseed: 13\n",
+        encoding="utf-8",
+    )
+
+    try:
+        collect_run_artifacts(source, output_root=tmp_path / "results")
+    except ValueError as error:
+        assert "incomplete" in str(error)
+        assert "metrics/per_task.jsonl" in str(error)
+    else:
+        raise AssertionError("expected incomplete run delivery to fail")
 
 
 def test_run_output_guard_rejects_root_and_external_paths(tmp_path: Path) -> None:

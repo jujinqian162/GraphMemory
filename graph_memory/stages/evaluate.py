@@ -89,6 +89,7 @@ def _attach_isetrace_query_metadata(
     return [
         row.model_copy(
             update={
+                "graph_id": metadata_by_id[row.task_id].graph_id,
                 "query_origin": metadata_by_id[row.task_id].query_origin,
                 "memory_mode": metadata_by_id[row.task_id].memory_mode,
             }
@@ -156,10 +157,7 @@ def materialize_evaluation(
     ) as publisher:
         write_csv(
             publisher.workspace / "metrics.csv",
-            [
-                row.model_dump(mode="json", by_alias=True)
-                for row in metric_rows
-            ],
+            [row.model_dump(mode="json", by_alias=True) for row in metric_rows],
             WIDE_METRIC_COLUMNS,
         )
         write_jsonl(
@@ -168,10 +166,7 @@ def materialize_evaluation(
         )
         write_jsonl(
             publisher.workspace / "per_task.jsonl",
-            [
-                row.model_dump(mode="json", by_alias=True)
-                for row in per_task_rows
-            ],
+            [row.model_dump(mode="json", by_alias=True) for row in per_task_rows],
         )
         artifact = publisher.publish(
             {
