@@ -337,7 +337,7 @@ def allocate_trajectory_splits(
     dict[NaturalSplitName, frozenset[str]],
     dict[NaturalSplitName, frozenset[str]],
 ]:
-    """Select test by query order, then deterministic disjoint train/dev sets."""
+    """Select fixed test/dev sets and a variable-size nested train prefix."""
 
     if set(split_counts) != set(_NATURAL_SPLITS):
         raise ValueError("ISETrace trajectory splits must define train, dev, and test")
@@ -366,8 +366,10 @@ def allocate_trajectory_splits(
     dev_count = normalized["dev"][0]
     natural_by_split: dict[NaturalSplitName, frozenset[str]] = {
         "train": frozenset(remaining_natural[:train_count]),
-        "dev": frozenset(
-            remaining_natural[train_count : train_count + dev_count]
+        "dev": (
+            frozenset(remaining_natural[-dev_count:])
+            if dev_count
+            else frozenset()
         ),
         "test": test_ids,
     }

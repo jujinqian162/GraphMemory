@@ -18,8 +18,8 @@ The numbers count trajectories, not queries. For `profile=full`, they define the
 
 - Authored natural records are resolved back to source trajectories in deterministic query-authoring order.
 - The first `test.natural` distinct trajectories in that order own the natural-only test split; every valid authored query from those trajectories stays in test.
-- The remaining authored-natural trajectory IDs are sorted, shuffled with `split_seed`, and allocated to train and dev according to their configured natural counts.
-- `natural: N` selects N trajectories and keeps every valid authored natural query resolved to those trajectories.
+- The remaining authored-natural trajectory IDs are sorted and shuffled with `split_seed`. Train takes the first configured number while dev takes the last configured number, leaving any middle trajectories unused; changing only the train count therefore preserves dev and test.
+- `natural: N` selects N trajectories and keeps every valid authored natural query resolved to those trajectories. Smaller train counts form deterministic nested prefixes of larger train counts.
 - `template: N` selects N trajectories and creates one template query per trajectory.
 - Natural and template selections may overlap inside one split.
 - The union of selected trajectories is disjoint across train, dev, and test.

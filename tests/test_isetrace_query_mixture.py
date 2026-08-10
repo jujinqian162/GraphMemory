@@ -133,6 +133,27 @@ def test_trajectory_split_depends_only_on_split_seed() -> None:
     assert seed_13_a != seed_17
 
 
+def test_smaller_train_count_keeps_dev_and_test_fixed_and_train_nested() -> None:
+    trajectory_ids = [f"trajectory:{index}" for index in range(40)]
+    smaller, _ = allocate_trajectory_splits(
+        trajectory_ids,
+        split_counts=_trajectory_splits(natural=(10, 6, 5)),
+        split_seed=13,
+    )
+    larger, _ = allocate_trajectory_splits(
+        trajectory_ids,
+        split_counts=_trajectory_splits(natural=(20, 6, 5)),
+        split_seed=13,
+    )
+
+    assert smaller["test"] == larger["test"] == frozenset(trajectory_ids[:5])
+    assert smaller["dev"] == larger["dev"]
+    assert smaller["train"] < larger["train"]
+    assert not (larger["train"] & larger["dev"])
+    assert not (larger["train"] & larger["test"])
+    assert not (larger["dev"] & larger["test"])
+
+
 def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
     tmp_path: Path,
 ) -> None:
