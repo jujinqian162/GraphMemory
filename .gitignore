@@ -11,6 +11,9 @@ runs/
 /models/
 report/tmp/
 
+# Local WSDM submission template bundle; keep only the authored paper sources.
+docs/raw/wsdm2027/
+
 .venv/
 .env
 .env.*
