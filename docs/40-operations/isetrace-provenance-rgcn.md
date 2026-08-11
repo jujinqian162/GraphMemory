@@ -1,6 +1,6 @@
 # ISETrace Provenance R-GCN
 
-`provenance_rgcn` is the trainable execution-provenance method. It consumes the existing query-independent `ProvenanceGraph` directly and reuses the maintained R-GCN encoder, node scorer, graph batcher, BCE loss, AdamW loop, gradient clipping, dev selection, and checkpoint owner. It does not restore the deleted label-conditioned provenance implementation or convert provenance into `EvidenceGraph`.
+`provenance_rgcn` is the trainable execution-provenance method. It consumes the existing query-independent `ProvenanceGraph` directly and reuses the maintained R-GCN encoder, node scorer, graph batcher, BCE loss, AdamW loop, gradient clipping, dev selection, and checkpoint owner. It does not restore the deleted label-conditioned provenance implementation or convert provenance into `EvidenceGraph`. The optional `provenance_unit_dense_ft_rgcn` config supplies the canonical provenance-unit Dense-FT stage as its seed provider while keeping the same final method and R-GCN ablation variants.
 
 ## Configuration
 
@@ -37,10 +37,13 @@ The tensorizer appends an ephemeral disconnected `q` node. Persisted graph finge
 
 ## Lifecycle
 
+The unseeded config reads the registered base encoder. The seeded config first requests the exact same `dense_ft variant=provenance_unit` pairs and checkpoint Tasks as the standalone baseline. Prefect therefore returns the existing cached checkpoint whenever its scientific inputs match; both `wo_graph` and `full_rgcn` share that upstream result.
+
 ```text
 prepare train/dev/test natural queries
+  -> optional cached provenance-unit Dense-FT seed provider
   -> build provenance candidate pairs
-  -> freeze train/dev graph + query embeddings
+  -> encode train/dev graph + query inputs from the selected provider
   -> train shared node-ranking R-GCN
   -> select on dev Recall@5
   -> save strict provenance_rgcn checkpoint
@@ -62,6 +65,16 @@ uv run python experiment/run.py \
 uv run python experiment/run.py \
   name=isetrace_rgcn_natural_s13 dataset=isetrace profile=full \
   method=provenance_rgcn seed=13 split_seed=13 device=cuda:0
+
+uv run python experiment/run.py \
+  name=isetrace_pu_dense_ft_rgcn_full_s13 dataset=isetrace profile=full \
+  method=provenance_unit_dense_ft_rgcn method.variant=full_rgcn \
+  seed=13 split_seed=13 device=cuda:0
+
+uv run python experiment/run.py \
+  name=isetrace_pu_dense_ft_rgcn_wo_graph_s13 dataset=isetrace profile=full \
+  method=provenance_unit_dense_ft_rgcn method.variant=wo_graph \
+  seed=13 split_seed=13 device=cuda:0
 ```
 
 The full split contains 3,894 train queries, 580 development queries, and 2,000 test queries. Formal multi-seed evaluation repeats the unchanged configuration with model seeds 13, 17, and 29 while keeping `split_seed=13`.

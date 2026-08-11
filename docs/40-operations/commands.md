@@ -32,9 +32,11 @@ uv run python experiment/run.py -m `
 ```powershell
 uv run python experiment/run.py name=isetrace_rgcn_smoke dataset=isetrace profile=smoke method=provenance_rgcn device=cpu
 uv run python experiment/run.py name=isetrace_rgcn_no_graph dataset=isetrace profile=quick method=provenance_rgcn method.variant=wo_graph device=cuda:0
+uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_full dataset=isetrace profile=full method=provenance_unit_dense_ft_rgcn method.variant=full_rgcn device=cuda:0
+uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_wo_graph dataset=isetrace profile=full method=provenance_unit_dense_ft_rgcn method.variant=wo_graph device=cuda:1
 ```
 
-The trainable lifecycle prepares mixed train/dev pools, builds candidate pairs, freezes graph/query embeddings, selects on natural dev Recall@5, reloads the strict checkpoint, and evaluates the natural-only test split. `profile=full` does not apply the evidence benchmark's fixed dev cap to ISETrace.
+The seeded config composes the canonical `dense_ft variant=provenance_unit` stage. Its pair and checkpoint Task inputs are identical to the standalone baseline, so Prefect reuses that checkpoint for both R-GCN variants. The remaining trainable lifecycle builds provenance candidate pairs, selects on natural dev Recall@5, reloads the strict checkpoint, and evaluates the natural-only test split. `profile=full` does not apply the evidence benchmark's fixed dev cap to ISETrace.
 
 The committed generated queries are unreviewed engineering inputs only. See [`isetrace-provenance-rgcn.md`](isetrace-provenance-rgcn.md) and [`isetrace-nontrain-retrieval.md`](isetrace-nontrain-retrieval.md) before interpreting metrics.
 

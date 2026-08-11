@@ -7,14 +7,17 @@ from prefect.runtime import flow_run
 
 from graph_memory.experiment.artifacts import (
     ArtifactRef,
+    DatasetArtifactRef,
     DirectorySourceRef,
     EvidenceGraphArtifactRef,
     FileSourceRef,
     ModelArtifactRef,
+    TrainingPairsArtifactRef,
     identify_external_source,
 )
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
+    DatasetName,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
     DenseMethodConfig,
@@ -50,6 +53,40 @@ from graph_memory.experiment.tracking import log_experiment_result
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _SPLIT_NAMES: tuple[SplitName, ...] = ("train", "dev", "test")
+
+
+def _provide_dense_ft_seed(
+    *,
+    seed: DenseFinetuneMethodConfig,
+    train: DatasetArtifactRef,
+    dev: DatasetArtifactRef,
+    train_graphs: EvidenceGraphArtifactRef | None,
+    dataset: DatasetName,
+    device: str,
+) -> tuple[TrainingPairsArtifactRef, ModelArtifactRef]:
+    seed_source = resolve_encoder_source(seed.encoder)
+    seed_pairs = build_training_pairs_task(
+        prepared=train,
+        evidence_graphs=train_graphs,
+        dataset=dataset,
+        config=PairBuildConfig(
+            method=seed.method,
+            candidate_view=seed.variant,
+            sampling=seed.pairs,
+            encoder=seed.encoder,
+            device=device,
+        ),
+        encoder_source=seed_source,
+    )
+    seed_model = train_dense_ft_task(
+        train_prepared=train,
+        train_pairs=seed_pairs,
+        dev_prepared=dev,
+        dataset=dataset,
+        config=seed,
+        encoder_source=seed_source,
+    )
+    return seed_pairs, seed_model
 
 
 @flow(name="graph-memory-experiment", persist_result=False)
@@ -150,6 +187,19 @@ def run_experiment(
             train = prepared["train"]
             dev = prepared["dev"]
             encoder_source = resolve_encoder_source(method.encoder)
+            seed_model = None
+            if method.seed is not None:
+                seed_pairs, seed_model = _provide_dense_ft_seed(
+                    seed=method.seed,
+                    train=train,
+                    dev=dev,
+                    train_graphs=None,
+                    dataset=config.dataset.name,
+                    device=config.device,
+                )
+                dependency_models = (seed_model,)
+                assets.extend((seed_pairs, seed_model))
+
             pairs = build_training_pairs_task(
                 prepared=train,
                 evidence_graphs=None,
@@ -167,7 +217,7 @@ def run_experiment(
                 dev_prepared=dev,
                 train_graphs=None,
                 dev_graphs=None,
-                seed_model=None,
+                seed_model=seed_model,
                 dataset=config.dataset.name,
                 encoder=method.encoder,
                 encoder_source=encoder_source,
@@ -181,6 +231,7 @@ def run_experiment(
                 dev_prepared=dev,
                 config=method,
                 encoder_source=encoder_source,
+                seed_model=seed_model,
                 frozen_embeddings=frozen_embeddings,
             )
             assets.extend(
@@ -286,26 +337,13 @@ def run_experiment(
                 graph=config.graph,
             )
 
-            seed_source = resolve_encoder_source(method.seed.encoder)
-            seed_pairs = build_training_pairs_task(
-                prepared=train,
-                evidence_graphs=train_graphs,
+            seed_pairs, seed_model = _provide_dense_ft_seed(
+                seed=method.seed,
+                train=train,
+                dev=dev,
+                train_graphs=train_graphs,
                 dataset=config.dataset.name,
-                config=PairBuildConfig(
-                    method=method.seed.method,
-                    sampling=method.seed.pairs,
-                    encoder=method.seed.encoder,
-                    device=config.device,
-                ),
-                encoder_source=seed_source,
-            )
-            seed_model = train_dense_ft_task(
-                train_prepared=train,
-                train_pairs=seed_pairs,
-                dev_prepared=dev,
-                dataset=config.dataset.name,
-                config=method.seed,
-                encoder_source=seed_source,
+                device=config.device,
             )
 
             rgcn = method.rgcn

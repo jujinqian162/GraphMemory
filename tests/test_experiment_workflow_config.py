@@ -262,6 +262,46 @@ def test_dense_ft_seed_config_is_the_canonical_public_dense_ft_stage() -> None:
     assert composite.method.seed == dense_ft.method
 
 
+def test_provenance_rgcn_dense_ft_seed_reuses_provenance_unit_stage() -> None:
+    dense_ft = resolve_experiment_config(
+        parse_composed_config(
+            _compose(
+                "dataset=isetrace",
+                "method=dense_ft",
+                "method.variant=provenance_unit",
+            )
+        ),
+        repository_root=ROOT,
+    )
+    composite = resolve_experiment_config(
+        parse_composed_config(
+            _compose(
+                "dataset=isetrace",
+                "method=provenance_unit_dense_ft_rgcn",
+            )
+        ),
+        repository_root=ROOT,
+    )
+
+    assert isinstance(dense_ft.method, DenseFinetuneMethodConfig)
+    assert isinstance(composite.method, ProvenanceRgcnMethodConfig)
+    assert composite.method.seed == dense_ft.method
+    assert composite.method.seed is not None
+    assert composite.method.seed.variant == "provenance_unit"
+    assert composite.method.seed.pairs.hard_graph_neighbor_per_positive == 0
+
+
+def test_provenance_rgcn_dense_ft_seed_rejects_flat_candidate_view() -> None:
+    with pytest.raises(ValidationError, match="variant='provenance_unit'"):
+        parse_composed_config(
+            _compose(
+                "dataset=isetrace",
+                "method=provenance_unit_dense_ft_rgcn",
+                "method.seed.variant=flat",
+            )
+        )
+
+
 def test_rgcn_has_one_singular_variant_and_applies_it_at_the_first_change() -> None:
     config = parse_composed_config(
         _compose(

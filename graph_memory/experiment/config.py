@@ -318,15 +318,6 @@ class RgcnMethodConfig(RgcnStageConfig):
         return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
 
 
-class ProvenanceRgcnMethodConfig(RgcnStageConfig):
-    method: Literal["provenance_rgcn"]
-    variant: ProvenanceRgcnVariant = "full_rgcn"
-
-    def effective(self) -> "ProvenanceRgcnMethodConfig":
-        stage = super().for_variant(self.variant)
-        return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
-
-
 class DenseFinetuneTrainerConfig(DenseFinetuneTrainerSettings):
     device: Device
 
@@ -353,6 +344,40 @@ class DenseFinetuneMethodConfig(ClosedModel):
                     update={"hard_graph_neighbor_per_positive": 0}
                 )
             }
+        )
+
+
+class ProvenanceRgcnMethodConfig(RgcnStageConfig):
+    method: Literal["provenance_rgcn"]
+    variant: ProvenanceRgcnVariant = "full_rgcn"
+    seed: DenseFinetuneMethodConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_seed(self) -> "ProvenanceRgcnMethodConfig":
+        if self.seed is None:
+            return self
+        if self.seed.variant != "provenance_unit":
+            raise ValueError(
+                "provenance R-GCN Dense-FT seed must use variant='provenance_unit'"
+            )
+        if self.seed.encoder != self.encoder:
+            raise ValueError(
+                "provenance R-GCN and its Dense-FT seed must share encoder settings"
+            )
+        return self
+
+    def effective(self) -> "ProvenanceRgcnMethodConfig":
+        stage = super().for_variant(self.variant)
+        return self.model_copy(update={"pairs": stage.pairs, "train": stage.train})
+
+    def effective_for_dataset(
+        self, dataset: DatasetName
+    ) -> "ProvenanceRgcnMethodConfig":
+        effective = self.effective()
+        if effective.seed is None:
+            return effective
+        return effective.model_copy(
+            update={"seed": effective.seed.effective_for_dataset(dataset)}
         )
 
 
@@ -632,7 +657,9 @@ def _resolve_method_config(
 ) -> MethodConfig:
     if isinstance(method, DenseFinetuneMethodConfig):
         return method.effective_for_dataset(dataset)
-    if isinstance(method, (RgcnMethodConfig, ProvenanceRgcnMethodConfig)):
+    if isinstance(method, ProvenanceRgcnMethodConfig):
+        return method.effective_for_dataset(dataset)
+    if isinstance(method, RgcnMethodConfig):
         return method.effective()
     if isinstance(method, DenseFtRgcnMethodConfig):
         return method.model_copy(update={"rgcn": method.effective_rgcn()})

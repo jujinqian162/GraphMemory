@@ -1,0 +1,7 @@
+defaults:
+  - provenance_rgcn
+  - /stage/dense_ft@seed
+  - _self_
+
+seed:
+  variant: provenance_unit

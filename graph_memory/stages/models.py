@@ -378,12 +378,29 @@ def materialize_provenance_rgcn_model(
     train_pairs: TrainingPairsArtifactRef,
     dev_prepared: DatasetArtifactRef,
     encoder_source: EncoderSourceRef,
+    seed_model: ModelArtifactRef | None,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
     implementation_version: str,
 ) -> ModelArtifactRef:
     if config.method != "provenance_rgcn":
         raise ValueError("provenance model stage requires method=provenance_rgcn")
+    if (config.seed is None) != (seed_model is None):
+        raise ValueError(
+            "provenance R-GCN seed config and seed model must either both be present or both be absent"
+        )
     effective_encoder = _resolved_encoder(config.encoder, encoder_source)
+    seed_dir = (
+        artifact_payload_path(seed_model, "model") if seed_model is not None else None
+    )
+    encoder_settings = _effective_rgcn_encoder(
+        effective_encoder, seed_checkpoint=seed_dir
+    )
+    if config.seed is not None and seed_dir is not None:
+        seed_metadata = load_dense_ft_model_metadata(seed_dir)
+        if seed_metadata.variant != config.seed.variant:
+            raise ValueError(
+                "provenance R-GCN Dense-FT seed checkpoint variant does not match seed config"
+            )
     train_requests, train_labels = _load_provenance_split(train_prepared)
     dev_requests, dev_labels = _load_provenance_split(dev_prepared)
     pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
@@ -403,11 +420,11 @@ def materialize_provenance_rgcn_model(
     )
     model_settings = config.train.model
     model_config = provenance_rgcn_model_config(
-        encoder_model=effective_encoder.model_name,
+        encoder_model=encoder_settings.model_name,
         encoder_dim=encoder_dim,
-        query_prefix=effective_encoder.query_prefix,
-        passage_prefix=effective_encoder.passage_prefix,
-        encoder_batch_size=effective_encoder.batch_size,
+        query_prefix=encoder_settings.query_prefix,
+        passage_prefix=encoder_settings.passage_prefix,
+        encoder_batch_size=encoder_settings.batch_size,
         hidden_dim=model_settings.hidden_dim,
         num_layers=model_settings.num_layers,
         dropout=model_settings.dropout,
@@ -427,6 +444,7 @@ def materialize_provenance_rgcn_model(
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
             "encoder_identity": immutable_source_identity(encoder_source),
+            "seed_model_digest": None if seed_model is None else seed_model.digest,
             "frozen_embeddings_digest": frozen_embeddings.digest,
             "implementation_version": implementation_version,
         },
@@ -474,6 +492,7 @@ def materialize_provenance_rgcn_model(
                 "global_step": result.global_step,
                 "best_dev_metric": result.best_dev_metric,
                 "selection_metric": "dev_recall_at_5",
+                "seed_model_digest": None if seed_model is None else seed_model.digest,
             },
         )
     assert isinstance(artifact, ModelArtifactRef)

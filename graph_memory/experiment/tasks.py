@@ -281,8 +281,9 @@ def train_provenance_rgcn_task(
     dev_prepared: DatasetArtifactRef,
     config: ProvenanceRgcnMethodConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
+    seed_model: ModelArtifactRef | None,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
-    implementation_version: str = "provenance-rgcn-train-v1",
+    implementation_version: str = "provenance-rgcn-train-v2-dense-ft-seed",
 ) -> ModelArtifactRef:
     get_run_logger().info(
         "train provenance-rgcn | epochs=%s", config.train.trainer.epochs
@@ -294,6 +295,7 @@ def train_provenance_rgcn_task(
         train_pairs=train_pairs,
         dev_prepared=dev_prepared,
         encoder_source=encoder_source,
+        seed_model=seed_model,
         frozen_embeddings=frozen_embeddings,
         implementation_version=implementation_version,
     )
