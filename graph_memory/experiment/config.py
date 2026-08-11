@@ -131,29 +131,10 @@ class ISETraceChunkingConfig(ClosedModel):
         return self
 
 
-class ISETraceTrajectoryOriginCounts(ClosedModel):
-    natural: NonNegativeInt
-    template: NonNegativeInt
-
-    @model_validator(mode="after")
-    def _require_trajectories(self) -> "ISETraceTrajectoryOriginCounts":
-        if self.natural + self.template <= 0:
-            raise ValueError("ISETrace split must request at least one trajectory")
-        return self
-
-
 class ISETraceTrajectorySplitCounts(ClosedModel):
-    train: ISETraceTrajectoryOriginCounts
-    dev: ISETraceTrajectoryOriginCounts
-    test: ISETraceTrajectoryOriginCounts
-
-    @model_validator(mode="after")
-    def _require_natural_only_test(self) -> "ISETraceTrajectorySplitCounts":
-        if self.test.natural <= 0 or self.test.template != 0:
-            raise ValueError(
-                "ISETrace test split must request natural > 0 and template = 0"
-            )
-        return self
+    train: PositiveInt
+    dev: PositiveInt
+    test: PositiveInt
 
 
 class ISETraceTrajectoriesConfig(ClosedModel):
@@ -713,7 +694,6 @@ __all__ = [
     "ISETraceChunkingConfig",
     "ISETraceDatasetConfig",
     "ISETraceTrajectoriesConfig",
-    "ISETraceTrajectoryOriginCounts",
     "ISETraceTrajectorySplitCounts",
     "MethodConfig",
     "NonNegativeFloat",

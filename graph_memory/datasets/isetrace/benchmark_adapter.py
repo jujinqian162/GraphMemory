@@ -26,13 +26,7 @@ from graph_memory.datasets.isetrace.retrieval_views import (
 )
 from graph_memory.datasets.splits import sample_split
 from graph_memory.graphs.provenance import ProvenanceGraph, build_provenance_graph
-from graph_memory.query_synthesis.provenance import (
-    AuthoringQueryMetadataRecord,
-    enumerate_template_supervision,
-    memory_mode_for_query_intent,
-    render_call_result_supervision,
-)
-from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
+from graph_memory.query_synthesis.provenance import AuthoringQueryMetadataRecord
 from graph_memory.query_synthesis.provenance.authoring import (
     AuthoringQueryRecord,
     AuthoringSource,
@@ -69,7 +63,7 @@ def prepare_isetrace_benchmark(
     offset: int,
     strict: bool,
     split: NaturalSplitName | None = None,
-    trajectory_splits: Mapping[str, Mapping[str, int]] | None = None,
+    trajectory_splits: Mapping[str, int] | None = None,
     chunking: TokenChunkingConfig = TokenChunkingConfig(
         tokenizer_name="models/intfloat-e5-base-v2",
         max_tokens=512,
@@ -94,7 +88,7 @@ def prepare_isetrace_benchmark(
         if authoring_metadata_source is not None
         else {}
     )
-    matched_contexts, trajectory_ids = _match_query_contexts(
+    matched_contexts = _match_query_contexts(
         trajectory_source,
         examples=examples,
         source_revision=source_revision,
@@ -111,45 +105,35 @@ def prepare_isetrace_benchmark(
         raise ValueError("split and trajectory_splits must be provided together")
     if split is None:
         requested_natural = count
-        requested_template = 0
         natural_trajectory_ids = frozenset(
             matched_contexts[example.id][0].trajectory_id for example in valid_examples
         )
-        template_trajectory_ids = frozenset()
     else:
         assert trajectory_splits is not None
         if offset != 0:
             raise ValueError("ISETrace trajectory splits do not support offsets")
-        natural_by_split, template_by_split = allocate_trajectory_splits(
+        natural_by_split = allocate_trajectory_splits(
             [
                 matched_contexts[example.id][0].trajectory_id
                 for example in valid_examples
             ],
             split_counts=trajectory_splits,
             split_seed=seed,
-            template_trajectory_ids=trajectory_ids,
         )
         natural_trajectory_ids = natural_by_split[split]
-        template_trajectory_ids = template_by_split[split]
         requested_natural = None
-        requested_template = len(template_trajectory_ids)
     split_pool = [
         example
         for example in valid_examples
         if matched_contexts[example.id][0].trajectory_id in natural_trajectory_ids
     ]
     if split is not None and count is not None:
-        available = len(split_pool) + len(template_trajectory_ids)
-        if count > available:
+        if count > len(split_pool):
             raise ValueError(
                 "insufficient ISETrace task pool: "
-                f"requested={count} available={available} split={split}"
+                f"requested={count} available={len(split_pool)} split={split}"
             )
-        requested_natural = min(count, len(split_pool))
-        requested_template = count - requested_natural
-        template_trajectory_ids = frozenset(
-            sorted(template_trajectory_ids)[:requested_template]
-        )
+        requested_natural = count
     if requested_natural is not None and requested_natural > len(split_pool):
         raise ValueError(
             "insufficient ISETrace natural query pool: "
@@ -163,11 +147,11 @@ def prepare_isetrace_benchmark(
     )
     summary["natural_queries_available"] = len(split_pool)
     summary["natural_trajectories_selected"] = len(natural_trajectory_ids)
-    summary["template_trajectories_selected"] = len(template_trajectory_ids)
     summary["natural_queries_requested"] = (
         len(split_pool) if requested_natural is None else requested_natural
     )
     summary["natural_queries_selected"] = len(selected)
+    summary["queries_selected"] = len(selected)
     offset_tokenizer = tokenizer or load_offset_tokenizer(chunking.tokenizer_name)
 
     def chunk_content(text: str):
@@ -178,13 +162,9 @@ def prepare_isetrace_benchmark(
             overlap_tokens=chunking.overlap_tokens,
         )
 
-    graph_examples = selected
     trajectories, graphs, contexts = _build_selected_contexts(
-        graph_examples,
+        selected,
         matched_contexts=matched_contexts,
-        extra_trajectory_ids=template_trajectory_ids,
-        trajectory_source=trajectory_source,
-        source_revision=source_revision,
         content_chunker=chunk_content,
     )
     flat_by_graph_id = {
@@ -200,26 +180,6 @@ def prepare_isetrace_benchmark(
         graph_id: provenance_unit_candidates(graph)
         for graph_id, graph in graphs.items()
     }
-    template_supervision = ()
-    template_pool = ()
-    if split is not None and requested_template > 0:
-        template_pool = enumerate_template_supervision(graphs.values())
-        first_by_graph: dict[str, TemplateSupervisionRecord] = {}
-        for record in sorted(template_pool, key=lambda item: item.task_id):
-            first_by_graph.setdefault(record.graph_id, record)
-        for graph_id in sorted(template_trajectory_ids):
-            first_by_graph.setdefault(
-                graph_id,
-                render_call_result_supervision(graphs[graph_id]),
-            )
-        template_supervision = tuple(
-            first_by_graph[graph_id] for graph_id in sorted(template_trajectory_ids)
-        )
-    summary["template_queries_available"] = len(template_pool)
-    summary["template_queries_requested"] = requested_template
-    summary["template_queries_selected"] = len(template_supervision)
-    summary["queries_selected"] = len(selected) + len(template_supervision)
-
     rankings: list[ISETraceRankingRecord] = []
     labels: list[ISETraceLabelRecord] = []
     query_metadata: list[ISETraceQueryMetadata] = []
@@ -250,53 +210,7 @@ def prepare_isetrace_benchmark(
             ISETraceQueryMetadata(
                 task_id=example.id,
                 graph_id=graph_id,
-                query_origin="natural",
                 memory_mode=None if authored is None else authored.memory_mode,
-            )
-        )
-
-    for template in template_supervision:
-        candidates = provenance_by_graph_id[template.graph_id]
-        candidate_by_id = {candidate.item_id: candidate for candidate in candidates}
-        positive_spans: list[SourceSpan] = []
-        seen_span_keys: set[tuple[object, ...]] = set()
-        for candidate_id in template.positive_candidate_ids:
-            candidate = candidate_by_id.get(candidate_id)
-            if candidate is None:
-                raise ValueError(
-                    f"template={template.task_id!r} references missing "
-                    f"candidate={candidate_id!r}"
-                )
-            for span in candidate.source_spans:
-                key = (
-                    span.event_id,
-                    span.json_pointer,
-                    span.char_start,
-                    span.char_end,
-                )
-                if key not in seen_span_keys:
-                    seen_span_keys.add(key)
-                    positive_spans.append(span)
-        ranking = ISETraceRankingRecord(
-            task_id=template.task_id,
-            graph_id=template.graph_id,
-            query_text=template.query_text,
-            flat_candidates=flat_by_graph_id[template.graph_id],
-            provenance_candidates=candidates,
-        )
-        label = ISETraceLabelRecord(
-            task_id=template.task_id,
-            graph_id=template.graph_id,
-            gold_evidence_spans=tuple(positive_spans),
-        )
-        rankings.append(ranking)
-        labels.append(label)
-        query_metadata.append(
-            ISETraceQueryMetadata(
-                task_id=template.task_id,
-                graph_id=template.graph_id,
-                query_origin="template",
-                memory_mode=memory_mode_for_query_intent(template.query_intent),
             )
         )
 
@@ -305,7 +219,6 @@ def prepare_isetrace_benchmark(
         rankings=tuple(rankings),
         labels=tuple(labels),
         query_metadata=tuple(query_metadata),
-        template_supervision=template_supervision,
         provenance_graphs=tuple(
             graphs[graph_id] for graph_id in sorted(selected_graph_ids)
         ),
@@ -330,90 +243,33 @@ def prepare_isetrace_benchmark(
 def allocate_trajectory_splits(
     natural_trajectory_ids: Sequence[str] | set[str],
     *,
-    split_counts: Mapping[str, Mapping[str, int]],
+    split_counts: Mapping[str, int],
     split_seed: int,
-    template_trajectory_ids: Sequence[str] | set[str] = (),
-) -> tuple[
-    dict[NaturalSplitName, frozenset[str]],
-    dict[NaturalSplitName, frozenset[str]],
-]:
+) -> dict[NaturalSplitName, frozenset[str]]:
     """Select fixed test/dev sets and a variable-size nested train prefix."""
 
     if set(split_counts) != set(_NATURAL_SPLITS):
         raise ValueError("ISETrace trajectory splits must define train, dev, and test")
-    normalized: dict[NaturalSplitName, tuple[int, int]] = {}
-    for split in _NATURAL_SPLITS:
-        counts = split_counts[split]
-        if set(counts) != {"natural", "template"}:
-            raise ValueError(f"ISETrace trajectory split={split} must define origins")
-        normalized[split] = (
-            _nonnegative_count(counts["natural"], name=f"{split} natural"),
-            _nonnegative_count(counts["template"], name=f"{split} template"),
-        )
-
+    normalized = {
+        split: _nonnegative_count(split_counts[split], name=split)
+        for split in _NATURAL_SPLITS
+    }
     ordered_natural = list(dict.fromkeys(natural_trajectory_ids))
-    natural_required = sum(counts[0] for counts in normalized.values())
+    natural_required = sum(normalized.values())
     if natural_required > len(ordered_natural):
         raise ValueError(
             "insufficient ISETrace natural trajectory pool: "
             f"requested={natural_required} available={len(ordered_natural)}"
         )
-    test_count = normalized["test"][0]
-    test_ids = frozenset(ordered_natural[:test_count])
+    test_ids = frozenset(ordered_natural[: normalized["test"]])
     remaining_natural = sorted(set(ordered_natural) - test_ids)
     random.Random(split_seed).shuffle(remaining_natural)
-    train_count = normalized["train"][0]
-    dev_count = normalized["dev"][0]
-    natural_by_split: dict[NaturalSplitName, frozenset[str]] = {
-        "train": frozenset(remaining_natural[:train_count]),
-        "dev": (
-            frozenset(remaining_natural[-dev_count:])
-            if dev_count
-            else frozenset()
-        ),
+    dev_count = normalized["dev"]
+    return {
+        "train": frozenset(remaining_natural[: normalized["train"]]),
+        "dev": frozenset(remaining_natural[-dev_count:]) if dev_count else frozenset(),
         "test": test_ids,
     }
-
-    eligible_template = set(template_trajectory_ids)
-    template_by_split: dict[NaturalSplitName, frozenset[str]] = {
-        split: frozenset() for split in _NATURAL_SPLITS
-    }
-    assigned = set(test_ids)
-    for split in ("train", "dev"):
-        target = normalized[split][1]
-        overlap = sorted(
-            natural_by_split[split] & eligible_template,
-            key=lambda item: _seeded_split_key(split_seed, item),
-        )[:target]
-        template_by_split[split] = frozenset(overlap)
-        assigned.update(natural_by_split[split])
-    available = sorted(
-        eligible_template - assigned,
-        key=lambda item: _seeded_split_key(split_seed, item),
-    )
-    cursor = 0
-    for split in ("train", "dev"):
-        target = normalized[split][1]
-        current = set(template_by_split[split])
-        needed = target - len(current)
-        current.update(available[cursor : cursor + needed])
-        cursor += needed
-        template_by_split[split] = frozenset(current)
-    requested_templates = sum(normalized[split][1] for split in ("train", "dev"))
-    available_templates = len(eligible_template - test_ids)
-    if any(
-        len(template_by_split[split]) != normalized[split][1]
-        for split in ("train", "dev")
-    ):
-        raise ValueError(
-            "insufficient ISETrace template trajectory pool: "
-            f"requested={requested_templates} available={available_templates}"
-        )
-    return natural_by_split, template_by_split
-
-
-def _seeded_split_key(seed: int, trajectory_id: str) -> str:
-    return hashlib.sha256(f"{seed}\0{trajectory_id}".encode()).hexdigest()
 
 
 def _nonnegative_count(value: object, *, name: str) -> int:
@@ -434,7 +290,9 @@ def _validate_authoring_source_identity(
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"invalid ISETrace authoring run metadata: {manifest_path}") from error
+        raise ValueError(
+            f"invalid ISETrace authoring run metadata: {manifest_path}"
+        ) from error
     if not isinstance(manifest, dict):
         raise ValueError(f"invalid ISETrace authoring run metadata: {manifest_path}")
     recorded_revision = manifest.get("source_revision")
@@ -563,7 +421,7 @@ def _match_query_contexts(
     source_revision: str,
     strict: bool,
     summary: ISETraceBenchmarkSummary,
-) -> tuple[dict[str, _MatchedContext], set[str]]:
+) -> dict[str, _MatchedContext]:
     matches_by_query: dict[str, list[_MatchedContext]] = {
         example.id: [] for example in examples
     }
@@ -571,7 +429,6 @@ def _match_query_contexts(
     queries_by_signature: dict[tuple[object, ...], set[str]] = defaultdict(set)
     invalid_task_ids: set[str] = set()
     uncompilable_candidate_ids: set[str] = set()
-    trajectory_ids: set[str] = set()
     for example in examples:
         try:
             signature = _task_signature(example)
@@ -590,8 +447,6 @@ def _match_query_contexts(
         strict=False,
         summary=ingestion,
     ):
-        if any(output.content for output in trajectory.tool_outputs):
-            trajectory_ids.add(trajectory.trajectory_id)
         intents = tuple(intent.text for intent in trajectory.intents)
         outputs = {output.call_id: output for output in trajectory.tool_outputs}
         candidate_ids: set[str] = set()
@@ -639,23 +494,17 @@ def _match_query_contexts(
     summary["queries_uncompilable"] = len(uncompilable)
     summary["queries_unmatched"] = len(set(missing) - uncompilable)
     summary["queries_ambiguous"] = len(ambiguous)
-    return (
-        {
-            query_id: values[0]
-            for query_id, values in matches_by_query.items()
-            if len(values) == 1
-        },
-        trajectory_ids,
-    )
+    return {
+        query_id: values[0]
+        for query_id, values in matches_by_query.items()
+        if len(values) == 1
+    }
 
 
 def _build_selected_contexts(
     examples: list[AuthoringQueryRecord],
     *,
     matched_contexts: dict[str, _MatchedContext],
-    extra_trajectory_ids: frozenset[str],
-    trajectory_source: Path,
-    source_revision: str,
     content_chunker,
 ) -> tuple[
     dict[str, CanonicalTrajectory],
@@ -676,29 +525,6 @@ def _build_selected_contexts(
             trajectories[trajectory.trajectory_id] = trajectory
             graphs[graph.graph_id] = graph
         contexts[example.id] = (graph.graph_id, mapping)
-    missing = set(extra_trajectory_ids) - set(trajectories)
-    if missing:
-        for trajectory in iter_canonical_trajectories(
-            trajectory_source,
-            source_revision=source_revision,
-            strict=False,
-        ):
-            if trajectory.trajectory_id not in missing:
-                continue
-            graph = build_provenance_graph(
-                trajectory,
-                content_chunker=content_chunker,
-            )
-            trajectories[trajectory.trajectory_id] = trajectory
-            graphs[graph.graph_id] = graph
-            missing.remove(trajectory.trajectory_id)
-            if not missing:
-                break
-    if missing:
-        raise ValueError(
-            "selected ISETrace trajectories are missing from the source: "
-            f"count={len(missing)} first={min(missing)!r}"
-        )
     return trajectories, graphs, contexts
 
 

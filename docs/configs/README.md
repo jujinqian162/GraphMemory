@@ -12,7 +12,7 @@ Root: `configs/config.yaml`.
 
 Each job composes exactly one `method`. R-GCN configs expose one `method.variant` (default `full_rgcn`). List-valued variants are rejected.
 
-Non-training datasets may configure only a test split. Trainable methods fail fast unless train/dev/test are all available. `dataset/isetrace.yaml` names `trajectory_source`, `natural_query_source`, and explicit `trajectories.splits.<split>.natural/template` counts. These values establish disjoint trajectory ownership: selected natural trajectories contribute available authored queries, while selected template trajectories contribute one template query each. The `full` profile materializes that complete owned split; bounded profiles then cap total tasks per split, so `smoke` runs one task. The pinned trajectory revision is inferred from dataset registration. Review state remains outside the four-field natural-query record and must be frozen operationally before formal runs.
+Non-training datasets may configure only a test split. Trainable methods fail fast unless train/dev/test are all available. `dataset/isetrace.yaml` names `trajectory_source`, `natural_query_source`, and explicit `trajectories.splits.<split>` trajectory counts. These values establish disjoint ownership, and every selected trajectory contributes its available authored natural queries. The `full` profile materializes that complete owned split; bounded profiles then cap total tasks per split, so `smoke` runs one task. The pinned trajectory revision is inferred from dataset registration. Review state remains outside the four-field natural-query record and must be frozen operationally before formal runs.
 
 ```powershell
 uv run python experiment/inspect.py kind=configs

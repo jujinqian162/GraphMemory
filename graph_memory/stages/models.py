@@ -12,7 +12,6 @@ from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceLabelRecord,
-    ISETraceQueryMetadata,
     ISETraceRankingRecord,
 )
 from graph_memory.datasets.isetrace.training import (
@@ -56,16 +55,12 @@ from graph_memory.models.graph_retriever.config.defaults import default_model_co
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.provenance import provenance_rgcn_model_config
 from graph_memory.models.graph_retriever.provenance_training import (
-    QueryOrigin,
     train_provenance_graph_retriever,
 )
 from graph_memory.models.graph_retriever.text_embeddings import (
     PrecomputedGraphFeatureProvider,
 )
 from graph_memory.models.graph_retriever.training import train_graph_retriever
-from graph_memory.query_synthesis.provenance.contracts import (
-    TemplateSupervisionRecord,
-)
 from graph_memory.stages.frozen_embeddings import FrozenEmbeddingStore
 from graph_memory.training_pairs.contracts import TrainPairDataset
 
@@ -75,8 +70,6 @@ EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
 PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
 ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
 ISETRACE_LABELS_ADAPTER = TypeAdapter(list[ISETraceLabelRecord])
-ISETRACE_QUERY_METADATA_ADAPTER = TypeAdapter(list[ISETraceQueryMetadata])
-TEMPLATE_SUPERVISION_ADAPTER = TypeAdapter(list[TemplateSupervisionRecord])
 TRAIN_PAIRS_ADAPTER = TypeAdapter(list[TrainPairRecord])
 
 
@@ -109,17 +102,15 @@ def materialize_dense_finetune_model(
     pairs = TRAIN_PAIRS_ADAPTER.validate_python(
         read_json(artifact_payload_path(train_pairs, "pairs"))
     )
-    train_requests, train_compiled_labels, train_group_ids, _ = _dense_finetune_split(
+    train_requests, train_compiled_labels, train_group_ids = _dense_finetune_split(
         dataset,
         train_tasks,
         train_labels,
-        metadata=_isetrace_query_metadata(dataset, train_prepared),
     )
-    dev_requests, dev_compiled_labels, _, dev_query_origins = _dense_finetune_split(
+    dev_requests, dev_compiled_labels, _ = _dense_finetune_split(
         dataset,
         dev_tasks,
         dev_labels,
-        metadata=_isetrace_query_metadata(dataset, dev_prepared),
     )
     with ArtifactPublisher(
         store,
@@ -148,9 +139,6 @@ def materialize_dense_finetune_model(
         _validate_optional_task_values(
             train_requests, train_group_ids, name="train group IDs"
         )
-        _validate_optional_task_values(
-            dev_requests, dev_query_origins, name="dev query origins"
-        )
         settings = effective.train
         encoder = effective.encoder
         result = train_dense_finetune(
@@ -168,7 +156,7 @@ def materialize_dense_finetune_model(
             train_group_ids=train_group_ids,
             dev_requests=dev_requests,
             dev_labels=dev_compiled_labels,
-            dev_query_origins=dev_query_origins,
+            task_local_dev=dataset == "isetrace",
             output_dir=trainer_output,
             model_dir=model_dir,
         )
@@ -185,7 +173,6 @@ def materialize_dense_finetune_model(
             metadata={
                 "selected_metric_name": result.selected_metric_name,
                 "selected_metric_value": result.selected_metric_value,
-                "selection_query_origin": result.selection_query_origin,
                 "effective_sampling": train_pairs.origin.get("sampling_config"),
             },
         )
@@ -197,18 +184,15 @@ def _dense_finetune_split(
     dataset: DatasetName,
     tasks: list[object],
     labels: list[object],
-    *,
-    metadata: list[ISETraceQueryMetadata],
 ) -> tuple[
     list[TextRankingRequest],
     list[EvidenceLabel],
-    dict[str, str],
     dict[str, str],
 ]:
     if dataset != "isetrace":
         requests = text_ranking_requests_for_dataset(dataset, tasks)
         compiled_labels = evidence_labels_for_dataset(dataset, labels)
-        return requests, compiled_labels, {}, {}
+        return requests, compiled_labels, {}
 
     rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(tasks)
     isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
@@ -217,21 +201,7 @@ def _dense_finetune_split(
         isetrace_labels,
     )
     group_ids = {ranking.task_id: ranking.graph_id for ranking in rankings}
-    query_origins = {record.task_id: record.query_origin for record in metadata}
-    if set(query_origins) != {request.task_id for request in requests}:
-        raise ValueError("ISETrace Dense-FT query origins must align")
-    return requests, compiled_labels, group_ids, query_origins
-
-
-def _isetrace_query_metadata(
-    dataset: DatasetName,
-    prepared: DatasetArtifactRef,
-) -> list[ISETraceQueryMetadata]:
-    if dataset != "isetrace":
-        return []
-    return ISETRACE_QUERY_METADATA_ADAPTER.validate_python(
-        read_json(artifact_payload_path(prepared, "query_metadata"))
-    )
+    return requests, compiled_labels, group_ids
 
 
 def materialize_evidence_rgcn_model(
@@ -285,9 +255,7 @@ def materialize_evidence_rgcn_model(
     )
     _validate_dev_split(dev_requests, compiled_dev_labels, dev_graph_values)
     seed_dir = (
-        artifact_payload_path(seed_model, "model")
-        if seed_model is not None
-        else None
+        artifact_payload_path(seed_model, "model") if seed_model is not None else None
     )
     embedding_store = FrozenEmbeddingStore(frozen_embeddings)
     if embedding_store.index.family != "evidence":
@@ -391,7 +359,6 @@ def materialize_evidence_rgcn_model(
     return artifact
 
 
-
 def materialize_provenance_rgcn_model(
     store: ProcessedAssetStore,
     *,
@@ -406,14 +373,8 @@ def materialize_provenance_rgcn_model(
     if config.method != "provenance_rgcn":
         raise ValueError("provenance model stage requires method=provenance_rgcn")
     effective_encoder = _resolved_encoder(config.encoder, encoder_source)
-    train_requests, train_labels, _train_origins = _load_provenance_split(
-        train_prepared
-    )
-    dev_requests, dev_labels, dev_origins = _load_provenance_split(dev_prepared)
-    selection_query_origin = (
-        "natural" if "natural" in dev_origins.values() else "template"
-    )
-    selection_metric = f"dev_{selection_query_origin}_recall_at_5"
+    train_requests, train_labels = _load_provenance_split(train_prepared)
+    dev_requests, dev_labels = _load_provenance_split(dev_prepared)
     pair_values = TRAIN_PAIRS_ADAPTER.validate_python(
         read_json(artifact_payload_path(train_pairs, "pairs"))
     )
@@ -465,7 +426,6 @@ def materialize_provenance_rgcn_model(
             train_pairs=pair_values,
             dev_requests=dev_requests,
             dev_labels=dev_labels,
-            dev_query_origins=dev_origins,
             model_config=model_config,
             training_config=config.train.trainer,
             text_embedding_provider=train_provider,
@@ -502,8 +462,7 @@ def materialize_provenance_rgcn_model(
                 "best_epoch": result.best_epoch,
                 "global_step": result.global_step,
                 "best_dev_metric": result.best_dev_metric,
-                "selection_query_origin": selection_query_origin,
-                "selection_metric": selection_metric,
+                "selection_metric": "dev_recall_at_5",
             },
         )
     assert isinstance(artifact, ModelArtifactRef)
@@ -520,22 +479,7 @@ def _load_provenance_split(prepared: DatasetArtifactRef):
     graphs = PROVENANCE_GRAPHS_ADAPTER.validate_python(
         read_json(artifact_payload_path(prepared, "provenance_graphs"))
     )
-    templates = TEMPLATE_SUPERVISION_ADAPTER.validate_python(
-        read_json(artifact_payload_path(prepared, "template_supervision"))
-    )
-    metadata = ISETRACE_QUERY_METADATA_ADAPTER.validate_python(
-        read_json(artifact_payload_path(prepared, "query_metadata"))
-    )
-    requests, compiled_labels = adapt_provenance_training_split(
-        rankings, labels, graphs, templates
-    )
-    origins = cast(
-        dict[str, QueryOrigin],
-        {record.task_id: record.query_origin for record in metadata},
-    )
-    if set(origins) != {request.task_id for request in requests}:
-        raise ValueError("ISETrace provenance query origins must align")
-    return requests, compiled_labels, origins
+    return adapt_provenance_training_split(rankings, labels, graphs)
 
 
 def _effective_rgcn_encoder(

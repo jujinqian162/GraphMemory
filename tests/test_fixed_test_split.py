@@ -63,8 +63,7 @@ def test_isetrace_trajectory_selection_uses_split_seed() -> None:
         assert prepare_a.trajectory_splits == prepare_b.trajectory_splits
         assert prepare_a.trajectory_splits is not None
         if split == "test":
-            assert getattr(prepare_a.trajectory_splits, split).template == 0
-            assert getattr(prepare_a.trajectory_splits, split).natural == 1207
+            assert prepare_a.trajectory_splits.test == 1207
 
 
 def test_split_seed_defaults_to_thirteen() -> None:

@@ -3,15 +3,9 @@ trajectory_source: data/isetrace/raw/trajectories
 natural_query_source: data/isetrace/query-authoring/isetrace-v7-raw.jsonl
 trajectories:
   splits:
-    train:
-      natural: 2410
-      template: 7788
-    dev:
-      natural: 352
-      template: 1160
-    test:
-      natural: 1207
-      template: 0
+    train: 2410
+    dev: 352
+    test: 1207
 chunking:
   tokenizer_name: models/intfloat-e5-base-v2
   # 512 total encoder tokens, reserving room for E5 prefix/special tokens.

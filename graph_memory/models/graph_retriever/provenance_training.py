@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Literal, TypeAlias
+from collections.abc import Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
 
-from graph_memory.evaluation.contracts import MetricRow
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.service import evaluate_results
 from graph_memory.models.graph_retriever.batching import (
@@ -37,11 +35,12 @@ from graph_memory.models.graph_retriever.training import (
 from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.execution.results import assemble_ranked_result
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
-from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
+)
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
-
-QueryOrigin: TypeAlias = Literal["natural", "template"]
 
 
 def train_provenance_graph_retriever(
@@ -51,7 +50,6 @@ def train_provenance_graph_retriever(
     train_pairs: Sequence[TrainPairRecord],
     dev_requests: Sequence[ExecutionProvenanceRankingRequest],
     dev_labels: Sequence[EvidenceLabel],
-    dev_query_origins: Mapping[str, QueryOrigin],
     model_config: RgcnModelConfig,
     training_config: RgcnTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
@@ -69,15 +67,6 @@ def train_provenance_graph_retriever(
     dev_label_list = list(dev_labels)
     _validate_request_label_alignment(train_request_list, train_label_list, "train")
     _validate_request_label_alignment(dev_request_list, dev_label_list, "dev")
-    expected_dev_ids = {request.task_id for request in dev_request_list}
-    if set(dev_query_origins) != expected_dev_ids:
-        raise ValueError("dev query origins must align exactly with dev task IDs")
-    selection_origin: QueryOrigin = (
-        "natural"
-        if any(origin == "natural" for origin in dev_query_origins.values())
-        else "template"
-    )
-
     text_train_requests = [_as_text_request(request) for request in train_request_list]
     validated_pairs = TrainPairDataset(
         requests=tuple(text_train_requests),
@@ -121,39 +110,26 @@ def train_provenance_graph_retriever(
             batches=batches,
             device=eval_device,
         )
-        rows_by_origin = _evaluate_by_origin(
-            predictions=predictions,
-            labels=dev_label_list,
-            query_origins=dev_query_origins,
-        )
-        overall = rows_by_origin["overall"]
-        selected = rows_by_origin[selection_origin]
-        metric_records: dict[str, object] = {
-            "dev_query_selection_origin": selection_origin,
-            "dev_recall_at_5": overall.recall_at_5,
-            "dev_full_support_at_5": overall.full_support_at_5,
-            "dev_full_support_at_10": overall.full_support_at_10,
-            "dev_mrr": overall.mrr,
-        }
-        for origin in ("natural", "template"):
-            origin_row = rows_by_origin.get(origin)
-            if origin_row is None:
-                continue
-            metric_records.update(
-                {
-                    f"dev_{origin}_recall_at_5": origin_row.recall_at_5,
-                    f"dev_{origin}_full_support_at_5": origin_row.full_support_at_5,
-                    f"dev_{origin}_full_support_at_10": origin_row.full_support_at_10,
-                    f"dev_{origin}_mrr": origin_row.mrr,
-                }
+        dev_metrics = evaluate_results(
+            EvidenceEvaluationRequest(
+                predictions=tuple(predictions),
+                labels=tuple(dev_label_list),
+                graphs=(),
             )
+        )[0]
+        metric_records: dict[str, object] = {
+            "dev_recall_at_5": dev_metrics.recall_at_5,
+            "dev_full_support_at_5": dev_metrics.full_support_at_5,
+            "dev_full_support_at_10": dev_metrics.full_support_at_10,
+            "dev_mrr": dev_metrics.mrr,
+        }
         return RgcnDevEpochEvaluation(
             dev_loss=dev_loss,
             selection_metrics=build_selection_metrics(
-                dev_full_support_at_5=selected.full_support_at_5,
-                dev_full_support_at_10=selected.full_support_at_10,
-                dev_recall_at_5=selected.recall_at_5,
-                dev_mrr=selected.mrr,
+                dev_full_support_at_5=dev_metrics.full_support_at_5,
+                dev_full_support_at_10=dev_metrics.full_support_at_10,
+                dev_recall_at_5=dev_metrics.recall_at_5,
+                dev_mrr=dev_metrics.mrr,
                 dev_loss=dev_loss,
             ),
             metric_records=metric_records,
@@ -196,8 +172,7 @@ def _predict_provenance_dev_from_batches(
             sample_count += int(moved_batch.labels.shape[0])
             for task_id, rows in split_batch_node_scores(batch, logits).items():
                 scores_by_task_id[task_id].extend(
-                    RankedNode(node_id=node_id, score=score)
-                    for node_id, score in rows
+                    RankedNode(node_id=node_id, score=score) for node_id, score in rows
                 )
     predictions = [
         assemble_ranked_result(
@@ -215,38 +190,6 @@ def _predict_provenance_dev_from_batches(
         for request in requests
     ]
     return predictions, loss_total / sample_count if sample_count else 0.0
-
-
-def _evaluate_by_origin(
-    *,
-    predictions: Sequence[RankedResult],
-    labels: Sequence[EvidenceLabel],
-    query_origins: Mapping[str, QueryOrigin],
-) -> dict[str, MetricRow]:
-    predictions_by_id = {prediction.task_id: prediction for prediction in predictions}
-    labels_by_id = {label.task_id: label for label in labels}
-
-    def evaluate(task_ids: set[str]) -> MetricRow:
-        return evaluate_results(
-            EvidenceEvaluationRequest(
-                predictions=tuple(
-                    predictions_by_id[task_id] for task_id in sorted(task_ids)
-                ),
-                labels=tuple(labels_by_id[task_id] for task_id in sorted(task_ids)),
-                graphs=(),
-            )
-        )[0]
-
-    rows = {"overall": evaluate(set(labels_by_id))}
-    for origin in ("natural", "template"):
-        task_ids = {
-            task_id
-            for task_id, task_origin in query_origins.items()
-            if task_origin == origin
-        }
-        if task_ids:
-            rows[origin] = evaluate(task_ids)
-    return rows
 
 
 def _validate_request_label_alignment(
@@ -282,4 +225,4 @@ def _as_text_request(request: ExecutionProvenanceRankingRequest) -> TextRankingR
     )
 
 
-__all__ = ["QueryOrigin", "train_provenance_graph_retriever"]
+__all__ = ["train_provenance_graph_retriever"]

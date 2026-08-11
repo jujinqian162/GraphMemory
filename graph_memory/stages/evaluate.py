@@ -90,7 +90,6 @@ def _attach_isetrace_query_metadata(
         row.model_copy(
             update={
                 "graph_id": metadata_by_id[row.task_id].graph_id,
-                "query_origin": metadata_by_id[row.task_id].query_origin,
                 "memory_mode": metadata_by_id[row.task_id].memory_mode,
             }
         )

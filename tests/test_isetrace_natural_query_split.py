@@ -81,38 +81,26 @@ def _raw_trajectory(index: int) -> dict[str, object]:
 def _trajectory_splits(
     *,
     natural: tuple[int, int, int] = (1, 1, 1),
-    template: tuple[int, int, int] = (0, 0, 0),
-) -> dict[str, dict[str, int]]:
+) -> dict[str, int]:
     return {
-        split: {"natural": natural[index], "template": template[index]}
-        for index, split in enumerate(("train", "dev", "test"))
+        split: natural[index] for index, split in enumerate(("train", "dev", "test"))
     }
 
 
-def test_trajectory_split_counts_are_disjoint_and_origin_sets_may_overlap() -> None:
+def test_trajectory_split_counts_are_disjoint() -> None:
     trajectory_ids = {f"trajectory:{index}" for index in range(6)}
-    natural, template = allocate_trajectory_splits(
+    splits = allocate_trajectory_splits(
         trajectory_ids,
-        split_counts=_trajectory_splits(
-            natural=(2, 1, 1), template=(1, 2, 0)
-        ),
+        split_counts=_trajectory_splits(natural=(2, 1, 1)),
         split_seed=41,
-        template_trajectory_ids=trajectory_ids,
     )
 
-    assert len(natural["train"]) == 2
-    assert len(template["train"]) == 1
-    assert template["train"] <= natural["train"]
-    assert len(natural["dev"]) == 1
-    assert len(template["dev"]) == 2
-    assert natural["dev"] <= template["dev"]
-    split_unions = {
-        split: natural[split] | template[split]
-        for split in ("train", "dev", "test")
-    }
-    assert not (split_unions["train"] & split_unions["dev"])
-    assert not (split_unions["train"] & split_unions["test"])
-    assert not (split_unions["dev"] & split_unions["test"])
+    assert len(splits["train"]) == 2
+    assert len(splits["dev"]) == 1
+    assert len(splits["test"]) == 1
+    assert not (splits["train"] & splits["dev"])
+    assert not (splits["train"] & splits["test"])
+    assert not (splits["dev"] & splits["test"])
 
 
 def test_trajectory_split_depends_only_on_split_seed() -> None:
@@ -135,12 +123,12 @@ def test_trajectory_split_depends_only_on_split_seed() -> None:
 
 def test_smaller_train_count_keeps_dev_and_test_fixed_and_train_nested() -> None:
     trajectory_ids = [f"trajectory:{index}" for index in range(40)]
-    smaller, _ = allocate_trajectory_splits(
+    smaller = allocate_trajectory_splits(
         trajectory_ids,
         split_counts=_trajectory_splits(natural=(10, 6, 5)),
         split_seed=13,
     )
-    larger, _ = allocate_trajectory_splits(
+    larger = allocate_trajectory_splits(
         trajectory_ids,
         split_counts=_trajectory_splits(natural=(20, 6, 5)),
         split_seed=13,
@@ -196,22 +184,13 @@ def test_preparation_resolves_then_materializes_disjoint_grouped_splits(
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
-        task_ids_by_split[split] = {
-            ranking.task_id for ranking in benchmark.rankings
-        }
-        graph_ids_by_split[split] = {
-            ranking.graph_id for ranking in benchmark.rankings
-        }
+        task_ids_by_split[split] = {ranking.task_id for ranking in benchmark.rankings}
+        graph_ids_by_split[split] = {ranking.graph_id for ranking in benchmark.rankings}
         assert summary["natural_trajectories_selected"] == 1
         assert summary["natural_queries_available"] == 2
-        assert all(
-            metadata.query_origin == "natural"
-            for metadata in benchmark.query_metadata
-        )
+        assert len(benchmark.query_metadata) == 2
 
-    assert set.union(*task_ids_by_split.values()) == {
-        query.id for query in queries
-    }
+    assert set.union(*task_ids_by_split.values()) == {query.id for query in queries}
     assert not (graph_ids_by_split["train"] & graph_ids_by_split["dev"])
     assert not (graph_ids_by_split["train"] & graph_ids_by_split["test"])
     assert not (graph_ids_by_split["dev"] & graph_ids_by_split["test"])
@@ -272,9 +251,7 @@ def test_natural_memory_modes_are_loaded_from_authoring_metadata(
         authoring_metadata_source=metadata_path,
     )
 
-    assert {
-        item.task_id: item.memory_mode for item in benchmark.query_metadata
-    } == {
+    assert {item.task_id: item.memory_mode for item in benchmark.query_metadata} == {
         "query:direct": "direct_recall",
         "query:linked": "linked_recall",
     }
@@ -343,182 +320,13 @@ def test_profile_cap_limits_fixed_isetrace_split_to_total_tasks(
             offset=0,
             strict=True,
             split=split,
-            trajectory_splits=_trajectory_splits(template=(1, 1, 0)),
+            trajectory_splits=_trajectory_splits(),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )
         assert len(benchmark.rankings) == 1
         assert summary["queries_selected"] == 1
         assert summary["natural_queries_selected"] == 1
-        assert summary["template_queries_selected"] == 0
-
-
-def test_mixed_preparation_retains_natural_queries_and_keeps_test_natural_only(
-    tmp_path: Path,
-) -> None:
-    raw_trajectories = [_raw_trajectory(index) for index in range(3)]
-    trajectories = [
-        adapt_isetrace_record(
-            parse_isetrace_record(raw), source_revision="fixture-revision"
-        )
-        for raw in raw_trajectories
-    ]
-    expected_fingerprints: dict[str, str | None] = {
-        trajectory.trajectory_id: None for trajectory in trajectories
-    }
-    trajectory_path = tmp_path / "trajectories.jsonl"
-    trajectory_path.write_text(
-        "".join(json.dumps(raw) + "\n" for raw in raw_trajectories),
-        encoding="utf-8",
-    )
-    queries = [
-        _query(trajectory, query_id=f"query:{trajectory_index}:{query_index}")
-        for trajectory_index, trajectory in enumerate(trajectories)
-        for query_index in range(2)
-    ]
-    query_path = tmp_path / "queries.jsonl"
-    query_path.write_text(
-        "".join(query.model_dump_json() + "\n" for query in queries),
-        encoding="utf-8",
-    )
-
-    graphs_by_split: dict[str, set[str]] = {}
-    for split in ("train", "dev", "test"):
-        benchmark, summary = prepare_isetrace_benchmark(
-            query_path,
-            trajectory_path,
-            source_revision="fixture-revision",
-            count=None,
-            seed=13,
-            offset=0,
-            strict=True,
-            split=split,
-            trajectory_splits=_trajectory_splits(template=(1, 1, 0)),
-            chunking=_CHUNKING,
-            tokenizer=CharacterOffsetTokenizer(),
-        )
-        origins = [metadata.query_origin for metadata in benchmark.query_metadata]
-        assert origins.count("natural") == 2
-        expected_templates = 0 if split == "test" else 1
-        assert origins.count("template") == expected_templates
-        assert len(benchmark.template_supervision) == expected_templates
-        assert summary["natural_queries_selected"] == 2
-        assert summary["template_queries_selected"] == expected_templates
-        graphs_by_split[split] = {
-            graph.graph_id for graph in benchmark.provenance_graphs
-        }
-        assert all(
-            record.graph_id in graphs_by_split[split]
-            for record in benchmark.template_supervision
-        )
-        for graph in benchmark.provenance_graphs:
-            observed = expected_fingerprints[graph.graph_id]
-            if observed is None:
-                expected_fingerprints[graph.graph_id] = graph.fingerprint()
-            else:
-                assert observed == graph.fingerprint()
-
-    assert not (graphs_by_split["train"] & graphs_by_split["dev"])
-    assert not (graphs_by_split["train"] & graphs_by_split["test"])
-    assert not (graphs_by_split["dev"] & graphs_by_split["test"])
-
-
-def test_template_only_preparation_uses_exact_counts_from_frozen_split(
-    tmp_path: Path,
-) -> None:
-    raw_trajectories = [_raw_trajectory(index) for index in range(3)]
-    trajectories = [
-        adapt_isetrace_record(
-            parse_isetrace_record(raw), source_revision="fixture-revision"
-        )
-        for raw in raw_trajectories
-    ]
-    trajectory_path = tmp_path / "trajectories.jsonl"
-    trajectory_path.write_text(
-        "".join(json.dumps(raw) + "\n" for raw in raw_trajectories),
-        encoding="utf-8",
-    )
-    query_path = tmp_path / "queries.jsonl"
-    query_path.write_text(
-        "".join(
-            _query(
-                trajectory,
-                query_id=f"query:{trajectory_index}:{query_index}",
-            ).model_dump_json()
-            + "\n"
-            for trajectory_index, trajectory in enumerate(trajectories)
-            for query_index in range(2)
-        ),
-        encoding="utf-8",
-    )
-
-    benchmark, summary = prepare_isetrace_benchmark(
-        query_path,
-        trajectory_path,
-        source_revision="fixture-revision",
-        count=None,
-        seed=13,
-        offset=0,
-        strict=True,
-        split="train",
-        trajectory_splits=_trajectory_splits(natural=(0, 1, 1), template=(1, 0, 0)),
-        chunking=_CHUNKING,
-        tokenizer=CharacterOffsetTokenizer(),
-    )
-
-    assert len(benchmark.rankings) == 1
-    assert len(benchmark.template_supervision) == 1
-    assert {item.query_origin for item in benchmark.query_metadata} == {"template"}
-    assert summary["natural_queries_requested"] == 0
-    assert summary["natural_queries_selected"] == 0
-    assert summary["template_queries_requested"] == 1
-    assert summary["template_queries_selected"] == 1
-
-
-def test_template_only_preparation_supports_trajectory_without_natural_query(
-    tmp_path: Path,
-) -> None:
-    raw_trajectories = [_raw_trajectory(index) for index in range(2)]
-    trajectories = [
-        adapt_isetrace_record(
-            parse_isetrace_record(raw), source_revision="fixture-revision"
-        )
-        for raw in raw_trajectories
-    ]
-    trajectory_path = tmp_path / "trajectories.jsonl"
-    trajectory_path.write_text(
-        "".join(json.dumps(raw) + "\n" for raw in raw_trajectories),
-        encoding="utf-8",
-    )
-    query_path = tmp_path / "queries.jsonl"
-    query_path.write_text(
-        _query(trajectories[0], query_id="query:natural-only").model_dump_json()
-        + "\n",
-        encoding="utf-8",
-    )
-
-    benchmark, summary = prepare_isetrace_benchmark(
-        query_path,
-        trajectory_path,
-        source_revision="fixture-revision",
-        count=None,
-        seed=13,
-        offset=0,
-        strict=True,
-        split="train",
-        trajectory_splits=_trajectory_splits(
-            natural=(0, 0, 1), template=(1, 0, 0)
-        ),
-        chunking=_CHUNKING,
-        tokenizer=CharacterOffsetTokenizer(),
-    )
-
-    assert len(benchmark.rankings) == 1
-    assert len(benchmark.template_supervision) == 1
-    assert benchmark.rankings[0].graph_id == trajectories[1].trajectory_id
-    assert {item.query_origin for item in benchmark.query_metadata} == {"template"}
-    assert summary["natural_queries_selected"] == 0
-    assert summary["template_queries_selected"] == 1
 
 
 def test_preparation_fails_on_insufficient_trajectory_pool(
@@ -549,9 +357,7 @@ def test_preparation_fails_on_insufficient_trajectory_pool(
             offset=0,
             strict=True,
             split="train",
-            trajectory_splits=_trajectory_splits(
-                natural=(1, 1, 0), template=(0, 0, 0)
-            ),
+            trajectory_splits=_trajectory_splits(natural=(1, 1, 0)),
             chunking=_CHUNKING,
             tokenizer=CharacterOffsetTokenizer(),
         )

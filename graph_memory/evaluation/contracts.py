@@ -133,7 +133,6 @@ class TaskMetricRow(DomainModel):
 class PerTaskMetricRow(TaskMetricRow):
     task_id: NonEmptyStr
     graph_id: NonEmptyStr | None = None
-    query_origin: Literal["natural", "template"] | None = None
     memory_mode: MemoryQueryMode | None = None
     query_intent: NonEmptyStr | None = None
     motif_type: NonEmptyStr | None = None

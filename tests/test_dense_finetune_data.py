@@ -63,7 +63,7 @@ def _request(task: dict[str, Any]) -> TextRankingRequest:
         candidates=tuple(
             TextCandidate(
                 item_id=candidate["sentence_id"],
-                text=f'{candidate["title"]}. {candidate["text"]}',
+                text=f"{candidate['title']}. {candidate['text']}",
                 metadata={"title": candidate["title"]},
             )
             for candidate in task["candidate_sentences"]
@@ -262,39 +262,38 @@ def test_trajectory_batch_sampler_is_deterministic_and_group_safe() -> None:
     assert first == second
     assert sorted(index for batch in first for index in batch) == list(range(5))
     assert all(
-        len({group_ids[index] for index in batch}) == len(batch)
-        for batch in first
+        len({group_ids[index] for index in batch}) == len(batch) for batch in first
     )
 
 
 def test_task_local_dense_evaluator_ranks_only_each_tasks_candidates() -> None:
     requests = (
         TextRankingRequest(
-            task_id="natural",
-            query_text="natural query",
+            task_id="first",
+            query_text="first query",
             candidates=(
-                TextCandidate(item_id="shared", text="natural positive", metadata={}),
-                TextCandidate(item_id="n", text="natural negative", metadata={}),
+                TextCandidate(item_id="shared", text="first positive", metadata={}),
+                TextCandidate(item_id="n", text="first negative", metadata={}),
             ),
         ),
         TextRankingRequest(
-            task_id="template",
-            query_text="template query",
+            task_id="second",
+            query_text="second query",
             candidates=(
-                TextCandidate(item_id="shared", text="template negative", metadata={}),
-                TextCandidate(item_id="t", text="template positive", metadata={}),
+                TextCandidate(item_id="shared", text="second negative", metadata={}),
+                TextCandidate(item_id="t", text="second positive", metadata={}),
             ),
         ),
     )
     labels = (
         EvidenceLabel(
-            task_id="natural",
+            task_id="first",
             gold_answer="",
             gold_evidence_item_ids=("shared",),
             gold_dependency_edges=(),
         ),
         EvidenceLabel(
-            task_id="template",
+            task_id="second",
             gold_answer="",
             gold_evidence_item_ids=("t",),
             gold_dependency_edges=(),
@@ -308,8 +307,8 @@ def test_task_local_dense_evaluator_ranks_only_each_tasks_candidates() -> None:
             for text in texts:
                 vectors.append(
                     [
-                        float("natural" in text),
-                        float("template" in text and "negative" not in text),
+                        float("first" in text),
+                        float("second" in text and "negative" not in text),
                     ]
                 )
             return np.asarray(vectors, dtype=float)
@@ -318,19 +317,17 @@ def test_task_local_dense_evaluator_ranks_only_each_tasks_candidates() -> None:
         payload=DenseFinetuneTaskLocalEvaluatorPayload(
             requests=requests,
             labels=labels,
-            query_origins={"natural": "natural", "template": "template"},
         ),
         query_prefix="",
         passage_prefix="",
         batch_size=8,
-        selected_metric="dev_natural_recall_at_5",
+        selected_metric="dev_recall_at_5",
     )
 
     score = evaluator(KeywordModel())
 
     assert score == 1.0
-    assert evaluator.metric_values["dev_natural_recall_at_5"] == 1.0
-    assert evaluator.metric_values["dev_template_recall_at_5"] == 1.0
+    assert evaluator.metric_values["dev_recall_at_5"] == 1.0
 
 
 def test_ir_evaluator_payload_uses_task_qualified_corpus_ids() -> None:

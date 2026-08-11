@@ -39,6 +39,7 @@ from graph_memory.experiment.config import (
 from graph_memory.io import read_json, write_json
 from graph_memory.text.chunking import TokenChunkingConfig
 
+
 def prepare_evidence_split(
     dataset: DatasetName,
     source: Path,
@@ -133,7 +134,6 @@ def materialize_prepared_split(
         )
         provenance_graphs: Sequence[object] | None = benchmark.provenance_graphs
         query_metadata: Sequence[object] | None = benchmark.query_metadata
-        template_supervision: Sequence[object] | None = benchmark.template_supervision
     else:
         task_inputs, task_labels, counts = prepare_evidence_split(
             dataset,
@@ -145,7 +145,6 @@ def materialize_prepared_split(
         )
         provenance_graphs = None
         query_metadata = None
-        template_supervision = None
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.DATASET,
@@ -202,12 +201,6 @@ def materialize_prepared_split(
                 [_json_record(item) for item in query_metadata],
             )
             payloads["query_metadata"] = "query_metadata.json"
-        if template_supervision is not None:
-            write_json(
-                publisher.workspace / "template_supervision.json",
-                [_json_record(item) for item in template_supervision],
-            )
-            payloads["template_supervision"] = "template_supervision.json"
         artifact = publisher.publish(
             payloads,
             shape={

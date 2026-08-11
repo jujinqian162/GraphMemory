@@ -8,20 +8,18 @@
 
 - `trajectory_source`
 - `natural_query_source`
-- explicit `trajectories.splits.<split>.natural/template` trajectory counts
+- explicit `trajectories.splits.<split>` trajectory counts
 - content chunking settings
 
 The source revision is inferred from dataset registration and checked against authoring run metadata when available. Split assignment uses `split_seed` and groups every query for one trajectory. Model seed changes do not move trajectories between splits.
 
-Natural queries are resolved before allocation. Invalid or unresolvable records are excluded and counted. Train/dev select exactly their configured natural/template counts from frozen trajectory partitions, including valid `natural: 0` template-only runs. Test never contains templates.
+Natural queries are resolved before allocation. Invalid or unresolvable records are excluded and counted. Train, development, and test select disjoint trajectory sets and keep every available authored natural query belonging to each selected trajectory.
 
 ## Supervision and negatives
 
-Natural positives are provenance content candidates whose exact source spans overlap natural gold spans. Template positives are only content chunks attached through `execution.has_content` to focused ToolOutputs. Other motif participants are not positive and remain eligible negatives.
+Positives are provenance content candidates whose exact source spans overlap natural-query gold spans. Pair construction reuses easy-random, BM25-hard, Dense-hard, and graph-neighbor samplers over the provenance candidate universe. A task with no positive candidate fails before optimization.
 
-Pair construction reuses easy-random, BM25-hard, Dense-hard, and graph-neighbor samplers over the provenance candidate universe. A task with no positive candidate fails before optimization.
-
-Query origin and `memory_mode` remain in prepared sidecars and are copied into per-task evaluation rows for reproducible stratified analysis. Motif identity and template audit fields remain preparation-only. None of these fields are copied into retrieval requests, candidates, persisted graphs, embeddings, or numeric model features. The natural authoring metadata sidecar is a required content-addressed preparation input.
+`memory_mode` remains in the prepared query metadata and is copied into per-task evaluation rows for reproducible stratified analysis. It is not copied into retrieval requests, candidates, persisted graphs, embeddings, or numeric model features. The natural authoring metadata sidecar is a required content-addressed preparation input.
 
 ## Graph policy
 
@@ -35,22 +33,22 @@ The tensorizer appends an ephemeral disconnected `q` node. Persisted graph finge
 - `resource.writes`
 - `content.next`
 
-`temporal.precedes` and metadata-derived numeric features are excluded. `method.variant=wo_graph` sets the existing R-GCN layer count to zero; it is the direct template-training control, not a separate model.
+`temporal.precedes` and metadata-derived numeric features are excluded. `method.variant=wo_graph` sets the existing R-GCN layer count to zero and provides the candidate-matched no-message-passing control.
 
 ## Lifecycle
 
 ```text
-prepare train/dev/test
+prepare train/dev/test natural queries
   -> build provenance candidate pairs
   -> freeze train/dev graph + query embeddings
   -> train shared node-ranking R-GCN
-  -> select on natural dev Recall@5, or template dev Recall@5 when dev is template-only
+  -> select on dev Recall@5
   -> save strict provenance_rgcn checkpoint
-  -> reload checkpoint and rank natural-only test requests
+  -> reload checkpoint and rank test requests
   -> exact-span evaluation
 ```
 
-Natural and template dev metrics are reported separately. Mixed dev selects on natural Recall@5; template-only dev selects on template Recall@5 and records that origin in the model artifact. Test reports exact-span Recall, Coverage@512/1024/2048 Tokens, Full Support, span F1, MRR, and evidence density. Candidate source spans are preserved through ranking.
+Test reports exact-span Recall, Coverage@512/1024/2048 Tokens, Full Support, span F1, MRR, and evidence density. Candidate source spans are preserved through ranking.
 
 There are no independently annotated provenance edge/path labels in the natural corpus. Therefore path/edge accuracy is unavailable; any retrieved provenance path is diagnostic only and must not be reported as labeled accuracy.
 
@@ -59,28 +57,15 @@ There are no independently annotated provenance edge/path labels in the natural 
 ```bash
 uv run python experiment/run.py \
   name=isetrace_rgcn_smoke dataset=isetrace profile=smoke \
-  method=provenance_rgcn device=cpu \
-  dataset.trajectories.splits.train.natural=4 \
-  dataset.trajectories.splits.train.template=4 \
-  dataset.trajectories.splits.dev.natural=2 \
-  dataset.trajectories.splits.dev.template=2 \
-  dataset.trajectories.splits.test.natural=2
+  method=provenance_rgcn device=cpu
 
 uv run python experiment/run.py \
-  name=isetrace_rgcn_full dataset=isetrace profile=full \
-  method=provenance_rgcn device=cuda:0
-
-uv run python experiment/run.py \
-  name=isetrace_rgcn_template_only dataset=isetrace profile=full \
-  method=provenance_rgcn device=cuda:0 \
-  dataset.trajectories.splits.train.natural=0 \
-  dataset.trajectories.splits.train.template=8076 \
-  dataset.trajectories.splits.dev.natural=0 \
-  dataset.trajectories.splits.dev.template=786
+  name=isetrace_rgcn_natural_s13 dataset=isetrace profile=full \
+  method=provenance_rgcn seed=13 split_seed=13 device=cuda:0
 ```
 
-The ratio sweeps use the fixed 3,894 train and 580 dev natural queries. Template counts are trajectory counts because each selected trajectory emits one template query. The full-pool setting uses all 21,746 eligible non-test template trajectories: 18,927 train and 2,819 dev, giving an aggregate ratio of `1:4.8605`.
+The full split contains 3,894 train queries, 580 development queries, and 2,000 test queries. Formal multi-seed evaluation repeats the unchanged configuration with model seeds 13, 17, and 29 while keeping `split_seed=13`.
 
 ## Claim boundary
 
-Generated natural queries remain unreviewed until a separate review and freeze process is completed. Engineering smoke runs verify contracts and reproducibility only. Do not add paper result tables or formal claims until a reviewed frozen natural test corpus exists and formal seeds 13/17/29 have been run.
+Generated natural queries remain unreviewed until a separate review and freeze process is completed. Engineering smoke runs verify contracts and reproducibility only. Formal claims require the reviewed frozen natural test corpus and the complete seed set.

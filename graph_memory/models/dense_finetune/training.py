@@ -31,7 +31,10 @@ from graph_memory.models.dense_finetune.contracts import (
     DenseFinetuneEvaluatorPayload,
     DenseFinetuneTaskLocalEvaluatorPayload,
 )
-from graph_memory.models.dense_finetune.data import build_dense_finetune_examples, build_ir_evaluator_payload
+from graph_memory.models.dense_finetune.data import (
+    build_dense_finetune_examples,
+    build_ir_evaluator_payload,
+)
 from graph_memory.models.dense_finetune.metadata import (
     DenseFinetuneModelMetadata,
     DenseFinetuneSelectionMetadata,
@@ -69,20 +72,16 @@ class DenseFinetuneRunConfig(DomainModel):
 
 
 class DenseFinetuneModel(Protocol):
-    def fit(self, **kwargs: object) -> None:
-        ...
+    def fit(self, **kwargs: object) -> None: ...
 
-    def save(self, output_path: str) -> None:
-        ...
+    def save(self, output_path: str) -> None: ...
 
 
 class DenseFinetuneTrainer(Protocol):
-    def train(self) -> None:
-        ...
+    def train(self) -> None: ...
 
     @property
-    def metric_records(self) -> Sequence[Mapping[str, object]]:
-        ...
+    def metric_records(self) -> Sequence[Mapping[str, object]]: ...
 
 
 @dataclass(frozen=True)
@@ -103,7 +102,6 @@ class DenseFinetuneTrainingResult:
     metric_records: tuple[dict[str, object], ...]
     selected_metric_name: str
     selected_metric_value: float | None
-    selection_query_origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -140,12 +138,16 @@ class _DenseFinetuneMetricTracker:
         metric_values: Mapping[str, float] | None = None,
     ) -> bool:
         metric = float(selected_metric_value)
-        improved = self._best_metric is None or self._is_improvement(metric, self._best_metric)
+        improved = self._best_metric is None or self._is_improvement(
+            metric, self._best_metric
+        )
         if improved:
             self._best_epoch = epoch
             self._best_metric = metric
         if self._best_epoch is None or self._best_metric is None:
-            raise RuntimeError("dense-ft metric tracker has no best metric after recording a row.")
+            raise RuntimeError(
+                "dense-ft metric tracker has no best metric after recording a row."
+            )
         record: dict[str, object] = {
             "epoch": epoch,
             "global_step": global_step,
@@ -280,7 +282,9 @@ class _SentenceTransformers27FitRunner:
             selected_metric_name=self.config.selection.best_metric,
             higher_is_better=self.config.selection.higher_is_better,
         )
-        baseline_score = float(self.evaluator(self.model, output_path=str(self.output_dir)))
+        baseline_score = float(
+            self.evaluator(self.model, output_path=str(self.output_dir))
+        )
         tracker.record(
             epoch=0,
             global_step=0,
@@ -337,7 +341,7 @@ def train_dense_finetune(
     train_group_ids: Mapping[str, str] | None = None,
     dev_requests: Sequence[TextRankingRequest],
     dev_labels: Sequence[EvidenceLabel],
-    dev_query_origins: Mapping[str, str] | None = None,
+    task_local_dev: bool = False,
     output_dir: Path,
     model_dir: Path,
 ) -> DenseFinetuneTrainingResult:
@@ -351,18 +355,14 @@ def train_dense_finetune(
         query_prefix=config.query_prefix,
         passage_prefix=config.passage_prefix,
     )
-    if dev_query_origins:
+    if task_local_dev:
         evaluator_payload: DenseFinetuneEvaluatorPayload = (
             DenseFinetuneTaskLocalEvaluatorPayload(
                 requests=tuple(dev_requests),
                 labels=tuple(dev_labels),
-                query_origins=dict(dev_query_origins),
             )
         )
-        selection_query_origin = _selection_query_origin(
-            evaluator_payload.query_origins
-        )
-        selected_metric_name = f"dev_{selection_query_origin}_recall_at_5"
+        selected_metric_name = "dev_recall_at_5"
         effective_config = config.model_copy(
             update={
                 "selection": config.selection.model_copy(
@@ -377,7 +377,6 @@ def train_dense_finetune(
             query_prefix=config.query_prefix,
             passage_prefix=config.passage_prefix,
         )
-        selection_query_origin = None
         selected_metric_name = config.selection.best_metric
         effective_config = config
     model = _load_sentence_transformer(config.base_model, config.trainer.device)
@@ -405,7 +404,6 @@ def train_dense_finetune(
             selection=DenseFinetuneSelectionMetadata(
                 selected_metric=selected_metric_name,
                 higher_is_better=effective_config.selection.higher_is_better,
-                query_origin=selection_query_origin,
             ),
         ),
     )
@@ -415,17 +413,8 @@ def train_dense_finetune(
         metadata_path=metadata_path,
         selected_metric_name=selected_metric_name,
         selected_metric_value=None if selected_value is None else float(selected_value),
-        selection_query_origin=selection_query_origin,
         metric_records=metric_records,
     )
-
-
-def _selection_query_origin(query_origins: Mapping[str, str]) -> str:
-    values = set(query_origins.values())
-    unknown = values - {"natural", "template"}
-    if unknown:
-        raise ValueError(f"unknown Dense-FT dev query origins: {sorted(unknown)}")
-    return "natural" if "natural" in values else "template"
 
 
 def _evaluator_metric_values(evaluator: object) -> dict[str, float]:
@@ -435,10 +424,14 @@ def _evaluator_metric_values(evaluator: object) -> dict[str, float]:
     return {str(key): float(cast(float, value)) for key, value in values.items()}
 
 
-def _trainer_metric_records(trainer: DenseFinetuneTrainer) -> tuple[dict[str, object], ...]:
+def _trainer_metric_records(
+    trainer: DenseFinetuneTrainer,
+) -> tuple[dict[str, object], ...]:
     records = getattr(trainer, "metric_records", None)
     if not isinstance(records, (list, tuple)):
-        raise TypeError(f"Dense-ft trainer has invalid metric_records: {type(records).__name__}.")
+        raise TypeError(
+            f"Dense-ft trainer has invalid metric_records: {type(records).__name__}."
+        )
     return tuple(dict(record) for record in records)
 
 
@@ -455,12 +448,19 @@ def _selected_metric_value(
 
 def _load_sentence_transformer(model_name: str, device: str) -> DenseFinetuneModel:
     try:
-        return cast(DenseFinetuneModel, cast(object, load_sentence_transformer(model_name, device=device)))
+        return cast(
+            DenseFinetuneModel,
+            cast(object, load_sentence_transformer(model_name, device=device)),
+        )
     except RuntimeError as error:
-        raise RuntimeError("sentence-transformers is required for dense-ft training.") from error
+        raise RuntimeError(
+            "sentence-transformers is required for dense-ft training."
+        ) from error
 
 
-def _build_sentence_transformers_fit_runner(request: DenseFinetuneTrainerRequest) -> DenseFinetuneTrainer:
+def _build_sentence_transformers_fit_runner(
+    request: DenseFinetuneTrainerRequest,
+) -> DenseFinetuneTrainer:
     components = _load_sentence_transformers_training_components()
     random.seed(request.config.trainer.random_seed)
     try:
@@ -470,11 +470,7 @@ def _build_sentence_transformers_fit_runner(request: DenseFinetuneTrainerRequest
     torch.manual_seed(request.config.trainer.random_seed)
     train_examples = [
         components.InputExample(
-            texts=[
-                row[key]
-                for key in ("anchor", "positive", "negative")
-                if key in row
-            ]
+            texts=[row[key] for key in ("anchor", "positive", "negative") if key in row]
         )
         for row in request.train_rows
     ]
@@ -567,7 +563,9 @@ class _TrajectoryBatchSampler:
             rng.shuffle(group_order)
             for offset in range(0, len(group_order), self._batch_size):
                 selected_groups = group_order[offset : offset + self._batch_size]
-                batches.append([queues[group_id].popleft() for group_id in selected_groups])
+                batches.append(
+                    [queues[group_id].popleft() for group_id in selected_groups]
+                )
             queues = {group_id: queue for group_id, queue in queues.items() if queue}
         return batches
 
@@ -592,8 +590,6 @@ class _TaskLocalDenseFinetuneEvaluator:
         labels_by_id = {label.task_id: label for label in self.payload.labels}
         if set(labels_by_id) != {request.task_id for request in self.payload.requests}:
             raise ValueError("Dense-FT task-local dev requests and labels must align")
-        if set(self.payload.query_origins) != set(labels_by_id):
-            raise ValueError("Dense-FT task-local dev query origins must align")
 
         query_texts = [
             format_dense_query(request, query_prefix=self.query_prefix)
@@ -617,11 +613,9 @@ class _TaskLocalDenseFinetuneEvaluator:
             batch_size=self.batch_size,
         )
         query_by_text = dict(zip(unique_query_texts, encoded_queries, strict=True))
-        passage_by_text = dict(
-            zip(unique_passage_texts, encoded_passages, strict=True)
-        )
+        passage_by_text = dict(zip(unique_passage_texts, encoded_passages, strict=True))
 
-        metrics_by_origin: dict[str, list[dict[str, float]]] = defaultdict(list)
+        metric_rows: list[dict[str, float]] = []
         for request, query_text in zip(
             self.payload.requests,
             query_texts,
@@ -642,7 +636,10 @@ class _TaskLocalDenseFinetuneEvaluator:
             scores = local_vectors @ query_vector
             order = sorted(
                 range(len(request.candidates)),
-                key=lambda index: (-float(scores[index]), request.candidates[index].item_id),
+                key=lambda index: (
+                    -float(scores[index]),
+                    request.candidates[index].item_id,
+                ),
             )
             ranked_ids = [request.candidates[index].item_id for index in order]
             gold = set(labels_by_id[request.task_id].gold_evidence_item_ids)
@@ -660,16 +657,13 @@ class _TaskLocalDenseFinetuneEvaluator:
                     0.0,
                 ),
             }
-            metrics_by_origin[self.payload.query_origins[request.task_id]].append(
-                task_metrics
-            )
+            metric_rows.append(task_metrics)
 
-        values: dict[str, float] = {}
-        for origin, rows in sorted(metrics_by_origin.items()):
-            for metric_name in rows[0]:
-                values[f"dev_{origin}_{metric_name}"] = sum(
-                    row[metric_name] for row in rows
-                ) / len(rows)
+        values = {
+            f"dev_{metric_name}": sum(row[metric_name] for row in metric_rows)
+            / len(metric_rows)
+            for metric_name in metric_rows[0]
+        }
         self.metric_values = values
         try:
             return values[self.selected_metric]
@@ -703,12 +697,15 @@ def _normalized_encoder_matrix(
     return matrix
 
 
-def _load_sentence_transformers_training_components() -> DenseFinetuneTrainingComponents:
+def _load_sentence_transformers_training_components() -> (
+    DenseFinetuneTrainingComponents
+):
     try:
         from importlib import import_module
 
         from sentence_transformers import InputExample
         from torch.utils.data import DataLoader
+
         InformationRetrievalEvaluator = import_module(
             "sentence_transformers.evaluation"
         ).InformationRetrievalEvaluator
@@ -716,7 +713,9 @@ def _load_sentence_transformers_training_components() -> DenseFinetuneTrainingCo
             "sentence_transformers.losses"
         ).MultipleNegativesRankingLoss
     except ImportError as error:
-        raise RuntimeError("sentence-transformers==2.7.0 and torch are required for dense-ft training.") from error
+        raise RuntimeError(
+            "sentence-transformers==2.7.0 and torch are required for dense-ft training."
+        ) from error
     return DenseFinetuneTrainingComponents(
         InputExample=InputExample,
         DataLoader=DataLoader,

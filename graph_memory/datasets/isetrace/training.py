@@ -9,10 +9,10 @@ from graph_memory.datasets.isetrace.benchmark_records import (
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.models.graph_retriever.provenance import provenance_training_label
-from graph_memory.query_synthesis.provenance.contracts import (
-    TemplateSupervisionRecord,
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
 )
-from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest, TextRankingRequest
 from graph_memory.trajectories import source_spans_overlap
 
 
@@ -20,15 +20,11 @@ def adapt_provenance_training_split(
     rankings: Sequence[ISETraceRankingRecord],
     labels: Sequence[ISETraceLabelRecord],
     graphs: Sequence[ProvenanceGraph],
-    template_supervision: Sequence[TemplateSupervisionRecord],
 ) -> tuple[list[ExecutionProvenanceRankingRequest], list[EvidenceLabel]]:
     """Compile one prepared ISETrace split into provenance model supervision."""
 
     labels_by_id = {label.task_id: label for label in labels}
     graphs_by_id = {graph.graph_id: graph for graph in graphs}
-    templates_by_id = {
-        record.task_id: record for record in template_supervision
-    }
     if len(labels_by_id) != len(labels):
         raise ValueError("ISETrace training label task IDs must be unique")
     if len(graphs_by_id) != len(graphs):
@@ -54,14 +50,11 @@ def adapt_provenance_training_split(
             provenance_training_label(
                 request,
                 gold_spans=label_record.gold_evidence_spans,
-                template=templates_by_id.get(ranking.task_id),
             )
         )
     request_ids = {request.task_id for request in requests}
     if request_ids != set(labels_by_id):
         raise ValueError("ISETrace training requests and labels must align")
-    if set(templates_by_id) - request_ids:
-        raise ValueError("ISETrace template supervision has unknown task IDs")
     return requests, compiled_labels
 
 

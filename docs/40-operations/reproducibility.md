@@ -52,4 +52,4 @@ uv run python scripts/aggregate_main_results.py `
   --output-csv results/isetrace/main_results_natural.csv
 ```
 
-For final multi-seed results, repeat each trainable label with seeds 13/17/29. Explicit `LABEL=PATH` syntax is required when the same raw method ID has natural, mixed, or template-only supervision variants.
+For final multi-seed results, repeat each trainable label with seeds 13/17/29. Explicit `LABEL=PATH` syntax keeps method names stable when aggregating multiple runs of the same raw method ID.

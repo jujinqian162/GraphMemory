@@ -35,7 +35,6 @@ class DenseFinetuneIREvaluatorPayload(DomainModel):
 class DenseFinetuneTaskLocalEvaluatorPayload(DomainModel):
     requests: tuple[TextRankingRequest, ...]
     labels: tuple[EvidenceLabel, ...]
-    query_origins: dict[str, str]
 
 
 DenseFinetuneEvaluatorPayload = (

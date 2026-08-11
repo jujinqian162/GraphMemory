@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import Field, model_validator
 
 from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.query_synthesis.provenance.authoring import MemoryQueryMode
-from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
 from graph_memory.retrieval.requests import TextCandidate
 from graph_memory.trajectories import SourceSpan
 from graph_memory.contracts.model import DomainModel, NonEmptyStr
@@ -37,7 +34,6 @@ class ISETraceRankingRecord(DomainModel):
 class ISETraceQueryMetadata(DomainModel):
     task_id: NonEmptyStr
     graph_id: NonEmptyStr
-    query_origin: Literal["natural", "template"]
     memory_mode: MemoryQueryMode | None = None
 
 
@@ -68,7 +64,6 @@ class ISETracePreparedBenchmark(DomainModel):
     rankings: tuple[ISETraceRankingRecord, ...]
     labels: tuple[ISETraceLabelRecord, ...]
     query_metadata: tuple[ISETraceQueryMetadata, ...]
-    template_supervision: tuple[TemplateSupervisionRecord, ...]
     provenance_graphs: tuple[ProvenanceGraph, ...]
 
     @model_validator(mode="after")
@@ -86,14 +81,6 @@ class ISETracePreparedBenchmark(DomainModel):
             raise ValueError("ISETrace query metadata task IDs must be unique")
         if set(metadata_ids) != set(task_ids):
             raise ValueError("ISETrace ranking and query metadata tasks must align")
-        template_ids = [record.task_id for record in self.template_supervision]
-        if len(template_ids) != len(set(template_ids)):
-            raise ValueError("ISETrace template supervision task IDs must be unique")
-        if set(template_ids) - set(task_ids):
-            raise ValueError("ISETrace template supervision has unknown task IDs")
-        origins = {record.task_id: record.query_origin for record in self.query_metadata}
-        if any(origins[task_id] != "template" for task_id in template_ids):
-            raise ValueError("ISETrace template supervision must have template origin")
         graph_by_id = {graph.graph_id: graph for graph in self.provenance_graphs}
         if len(graph_by_id) != len(self.provenance_graphs):
             raise ValueError("ISETrace provenance graph IDs must be unique")

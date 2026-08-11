@@ -41,9 +41,9 @@ def test_isetrace_config_resolves_explicit_trajectory_counts() -> None:
     assert isinstance(composed.dataset, ISETraceDatasetConfig)
     assert isinstance(resolved.method, ProvenancePathMethodConfig)
     assert composed.dataset.trajectories.splits.model_dump() == {
-        "train": {"natural": 2410, "template": 7788},
-        "dev": {"natural": 352, "template": 1160},
-        "test": {"natural": 1207, "template": 0},
+        "train": 2410,
+        "dev": 352,
+        "test": 1207,
     }
     assert set(resolved.dataset.splits) == {"train", "dev", "test"}
     natural_source = (
@@ -80,6 +80,7 @@ def test_isetrace_config_resolves_explicit_trajectory_counts() -> None:
         "+dataset.trajectories.schema_version=7",
         "+dataset.trajectories.split_ratio.train=1",
         "+dataset.trajectories.mix_ratio.train.natural=1",
+        "+dataset.trajectories.splits.train.natural=2410",
     ),
 )
 def test_isetrace_rejects_retired_test_only_and_policy_fields(
@@ -93,28 +94,6 @@ def test_isetrace_rejects_retired_test_only_and_policy_fields(
                 retired_override,
             )
         )
-
-
-def test_isetrace_accepts_template_only_train_and_dev_counts() -> None:
-    composed = parse_composed_config(
-        _compose(
-            "dataset=isetrace",
-            "method=provenance_rgcn",
-            "dataset.trajectories.splits.train.natural=0",
-            "dataset.trajectories.splits.train.template=8076",
-            "dataset.trajectories.splits.dev.natural=0",
-            "dataset.trajectories.splits.dev.template=786",
-        )
-    )
-    assert isinstance(composed.dataset, ISETraceDatasetConfig)
-    assert composed.dataset.trajectories.splits.train.model_dump() == {
-        "natural": 0,
-        "template": 8076,
-    }
-    assert composed.dataset.trajectories.splits.dev.model_dump() == {
-        "natural": 0,
-        "template": 786,
-    }
 
 
 def test_isetrace_smoke_profile_caps_each_split_to_one_task() -> None:
@@ -209,9 +188,7 @@ def test_rgcn_profiles_define_true_graph_batches() -> None:
     provenance = parse_composed_config(
         _compose("dataset=isetrace", "profile=full", "method=provenance_rgcn")
     )
-    resolved_provenance = resolve_experiment_config(
-        provenance, repository_root=ROOT
-    )
+    resolved_provenance = resolve_experiment_config(provenance, repository_root=ROOT)
 
     assert isinstance(evidence.method, RgcnMethodConfig)
     assert evidence.method.train.trainer.per_device_graph_batch_size == 128

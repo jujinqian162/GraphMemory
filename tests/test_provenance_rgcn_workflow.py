@@ -17,21 +17,19 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     ISETraceChunkingConfig,
-    ISETraceTrajectoryOriginCounts,
     ISETraceTrajectorySplitCounts,
 )
 from graph_memory.io import read_json
-from graph_memory.query_synthesis.provenance.contracts import TemplateSupervisionRecord
 from graph_memory.stages.prepare import materialize_prepared_split
 from tests.test_provenance_rgcn_tensorization import _graph_and_request
 
 
-def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
+def test_prepared_isetrace_artifact_publishes_provenance_sidecars(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     graph, request = _graph_and_request(
-        task_id="artifact-template-task",
+        task_id="artifact-natural-task",
         query_text="Which result completed the chain?",
     )
     positive = next(
@@ -54,34 +52,15 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
     metadata = ISETraceQueryMetadata(
         task_id=request.task_id,
         graph_id=graph.graph_id,
-        query_origin="template",
         memory_mode="direct_recall",
-    )
-    template = TemplateSupervisionRecord(
-        task_id=request.task_id,
-        graph_id=graph.graph_id,
-        query_text=request.query_text,
-        focus_output_ids=("output:c4",),
-        participant_output_ids=("output:c2", "output:c3", "output:c4"),
-        positive_candidate_ids=(positive.item_id,),
-        motif_id="motif:multi_hop_flow:artifact",
-        motif_type="multi_hop_flow",
-        query_intent="downstream_result",
-        graph_fingerprint=graph.fingerprint(),
     )
     benchmark = SimpleNamespace(
         rankings=(ranking,),
         labels=(label,),
         provenance_graphs=(graph,),
         query_metadata=(metadata,),
-        template_supervision=(template,),
     )
-    summary = SimpleNamespace(
-        to_dict=lambda: {
-            "natural_queries_selected": 0,
-            "template_queries_selected": 1,
-        }
-    )
+    summary = SimpleNamespace(to_dict=lambda: {"natural_queries_selected": 1})
     monkeypatch.setattr(
         prepare_stage,
         "prepare_isetrace_benchmark",
@@ -105,9 +84,9 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         strict_invalid_examples=False,
         source_revision="fixture-revision",
         trajectory_splits=ISETraceTrajectorySplitCounts(
-            train=ISETraceTrajectoryOriginCounts(natural=0, template=1),
-            dev=ISETraceTrajectoryOriginCounts(natural=0, template=1),
-            test=ISETraceTrajectoryOriginCounts(natural=1, template=0),
+            train=1,
+            dev=1,
+            test=1,
         ),
         chunking=ISETraceChunkingConfig(
             tokenizer_name="fixture-encoder",
@@ -125,10 +104,9 @@ def test_prepared_isetrace_artifact_publishes_provenance_training_sidecars(
         "counts",
         "provenance_graphs",
         "query_metadata",
-        "template_supervision",
     } <= roles
     counts = read_json(artifact_payload_path(result, "counts"))
-    assert counts["template_queries_selected"] == 1
+    assert counts["natural_queries_selected"] == 1
     assert result.origin["authoring_metadata_digest"] == source.digest
     query_metadata = read_json(artifact_payload_path(result, "query_metadata"))
     assert query_metadata[0]["memory_mode"] == "direct_recall"

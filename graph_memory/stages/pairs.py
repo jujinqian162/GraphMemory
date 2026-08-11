@@ -39,9 +39,6 @@ from graph_memory.experiment.config import (
 )
 from graph_memory.io import read_json, write_json
 from graph_memory.models.graph_retriever.provenance import provenance_train_pair_task
-from graph_memory.query_synthesis.provenance.contracts import (
-    TemplateSupervisionRecord,
-)
 from graph_memory.retrieval.methods.flat.dense import DenseConfig
 from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.config import NegativeSamplingConfig
@@ -54,7 +51,6 @@ EVIDENCE_GRAPHS_ADAPTER = TypeAdapter(list[EvidenceGraph])
 PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
 ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
 ISETRACE_LABELS_ADAPTER = TypeAdapter(list[ISETraceLabelRecord])
-TEMPLATE_SUPERVISION_ADAPTER = TypeAdapter(list[TemplateSupervisionRecord])
 
 
 def build_training_pair_data(
@@ -90,13 +86,6 @@ def build_training_pair_data(
         if dataset == "isetrace"
         else []
     )
-    template_supervision = (
-        TEMPLATE_SUPERVISION_ADAPTER.validate_python(
-            read_json(artifact_payload_path(prepared, "template_supervision"))
-        )
-        if dataset == "isetrace"
-        else []
-    )
     result = build_train_pairs(
         _pair_tasks(
             dataset,
@@ -105,7 +94,6 @@ def build_training_pair_data(
             labels,
             graphs,
             provenance_graphs=provenance_graphs,
-            template_supervision=template_supervision,
         ),
         config.sampling,
         dense_config=dense_config,
@@ -171,7 +159,6 @@ def _pair_tasks(
     graphs: list[EvidenceGraph],
     *,
     provenance_graphs: list[ProvenanceGraph],
-    template_supervision: list[TemplateSupervisionRecord],
 ) -> list[TrainPairBuildTask]:
     if dataset == "isetrace":
         rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
@@ -193,7 +180,6 @@ def _pair_tasks(
             rankings,
             isetrace_labels,
             provenance_graphs,
-            template_supervision,
         )
         return [
             provenance_train_pair_task(request, label)

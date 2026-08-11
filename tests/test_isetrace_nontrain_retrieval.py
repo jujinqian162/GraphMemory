@@ -412,23 +412,9 @@ def test_v7_benchmark_reuses_graph_and_keeps_one_span_gold(tmp_path: Path) -> No
     )
     assert len(benchmark.labels[0].gold_evidence_spans) == 2
     assert len(benchmark.labels[1].gold_evidence_spans) == 1
-    assert [item.query_origin for item in benchmark.query_metadata] == [
-        "natural",
-        "natural",
+    assert [item.task_id for item in benchmark.query_metadata] == [
+        item.task_id for item in benchmark.rankings
     ]
-    assert all(
-        "query_origin" not in ranking.model_dump(mode="json")
-        for ranking in benchmark.rankings
-    )
-    assert all(
-        "query_origin" not in candidate.model_dump(mode="json")
-        for ranking in benchmark.rankings
-        for candidate in ranking.provenance_candidates
-    )
-    assert all(
-        "query_origin" not in graph.model_dump(mode="json")
-        for graph in benchmark.provenance_graphs
-    )
     assert not hasattr(benchmark.labels[0], "answer_output_ids")
     assert not hasattr(benchmark.labels[0], "support_output_ids")
     assert summary["unique_graphs"] == 1
@@ -481,11 +467,7 @@ def test_v7_raw_directory_drops_uncompilable_queries_when_nonstrict(
         offset=0,
         strict=False,
         split="train",
-        trajectory_splits={
-            "train": {"natural": 1, "template": 0},
-            "dev": {"natural": 0, "template": 0},
-            "test": {"natural": 0, "template": 0},
-        },
+        trajectory_splits={"train": 1, "dev": 0, "test": 0},
         chunking=_TEST_CHUNKING,
         tokenizer=CharacterOffsetTokenizer(),
     )
@@ -857,14 +839,12 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
                 ISETraceQueryMetadata(
                     task_id=benchmark.rankings[0].task_id,
                     graph_id=benchmark.rankings[0].graph_id,
-                    query_origin="natural",
                     memory_mode="linked_recall",
                 ),
             ),
         )
         metric = metric_rows[0]
         assert per_task_rows[0].graph_id == benchmark.rankings[0].graph_id
-        assert per_task_rows[0].query_origin == "natural"
         assert per_task_rows[0].memory_mode == "linked_recall"
         assert metric.evaluation_schema == "execution_provenance_span_v7"
         assert metric.evidence_density_at_10 != "N/A"

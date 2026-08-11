@@ -30,9 +30,6 @@ from graph_memory.models.graph_retriever.internals.tensorization import (
     MessageEdgeTensors,
 )
 from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.query_synthesis.provenance.contracts import (
-    TemplateSupervisionRecord,
-)
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextCandidate,
@@ -101,38 +98,18 @@ def provenance_training_label(
     request: ExecutionProvenanceRankingRequest,
     *,
     gold_spans: Sequence[SourceSpan],
-    template: TemplateSupervisionRecord | None = None,
 ) -> EvidenceLabel:
-    """Map natural exact spans or explicit template focus to candidate positives."""
+    """Map natural-query exact spans to provenance candidate positives."""
 
-    if template is not None:
-        if template.task_id != request.task_id or template.graph_id != request.graph.graph_id:
-            raise ValueError("template supervision does not align with provenance task")
-        if template.query_text != request.query_text:
-            raise ValueError("template supervision query text changed")
-        if template.graph_fingerprint != request.graph.fingerprint():
-            raise ValueError("template supervision graph fingerprint changed")
-        focused_candidate_ids = {
-            edge.target
-            for edge in request.graph.edges
-            if edge.relation == HAS_CONTENT_EDGE
-            and edge.source in set(template.focus_output_ids)
-        }
-        if set(template.positive_candidate_ids) != focused_candidate_ids:
-            raise ValueError(
-                "template positives must be exactly the focused output content"
-            )
-        positive_ids = template.positive_candidate_ids
-    else:
-        positive_ids = tuple(
-            candidate.item_id
-            for candidate in request.candidates
-            if any(
-                source_spans_overlap(candidate_span, gold_span)
-                for candidate_span in candidate.source_spans
-                for gold_span in gold_spans
-            )
+    positive_ids = tuple(
+        candidate.item_id
+        for candidate in request.candidates
+        if any(
+            source_spans_overlap(candidate_span, gold_span)
+            for candidate_span in candidate.source_spans
+            for gold_span in gold_spans
         )
+    )
     if not positive_ids:
         raise ValueError(
             f"provenance task={request.task_id!r} has no positive candidates"
@@ -183,9 +160,7 @@ def provenance_candidate_neighbor_edges(
             for content_id in output_content_by_owner.get(output_id, ()):
                 _add_candidate_pair(pairs, argument_id, content_id, candidate_ids)
     for dependency in logical_output_dependencies(graph):
-        for source_id in output_content_by_owner.get(
-            dependency.source_output_id, ()
-        ):
+        for source_id in output_content_by_owner.get(dependency.source_output_id, ()):
             for target_id in output_content_by_owner.get(
                 dependency.target_output_id, ()
             ):
@@ -216,9 +191,7 @@ def provenance_train_pair_task(
 def tensorize_provenance_edges(graph: ProvenanceGraph) -> MessageEdgeTensors:
     """Map the fixed physical relation policy to uniform forward/reverse messages."""
 
-    node_index_by_id = {
-        node.node_id: index for index, node in enumerate(graph.nodes)
-    }
+    node_index_by_id = {node.node_id: index for index, node in enumerate(graph.nodes)}
     relation_id_by_name = {
         name: index for index, name in enumerate(PROVENANCE_RELATION_VOCAB)
     }
@@ -267,7 +240,9 @@ def provenance_embedding_request(
 ) -> tuple[TextRankingRequest, list[str]]:
     node_ids = [node.node_id for node in request.graph.nodes]
     if "q" in node_ids:
-        raise ValueError("persisted provenance graph cannot contain the ephemeral q node")
+        raise ValueError(
+            "persisted provenance graph cannot contain the ephemeral q node"
+        )
     node_ids.append("q")
     return (
         TextRankingRequest(
@@ -296,9 +271,13 @@ def tensorize_provenance_ranking_task(
     """Adapt one physical provenance graph to the maintained task tensor contract."""
 
     if model_config.method_name != "provenance_rgcn":
-        raise ValueError("provenance tensorization requires method_name='provenance_rgcn'")
+        raise ValueError(
+            "provenance tensorization requires method_name='provenance_rgcn'"
+        )
     if model_config.relation_vocab != PROVENANCE_RELATION_VOCAB:
-        raise ValueError("provenance R-GCN relation vocabulary does not match fixed policy")
+        raise ValueError(
+            "provenance R-GCN relation vocabulary does not match fixed policy"
+        )
     if model_config.feature_config != NodeFeatureConfig(
         node_feature_names=(), scorer_feature_names=()
     ):
@@ -400,9 +379,7 @@ def tensorize_provenance_training_task(
     for pair in rows:
         if pair.task_id != request.task_id:
             raise ValueError("provenance training pair crosses task ownership")
-        if pair.node_id not in {
-            candidate.item_id for candidate in request.candidates
-        }:
+        if pair.node_id not in {candidate.item_id for candidate in request.candidates}:
             raise ValueError("provenance training pair is not a ranking candidate")
     return replace(
         task,

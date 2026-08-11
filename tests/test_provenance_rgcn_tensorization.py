@@ -23,7 +23,10 @@ from graph_memory.models.graph_retriever.provenance import (
     tensorize_provenance_ranking_task,
     tensorize_provenance_ranking_tasks,
 )
-from graph_memory.retrieval.requests import ExecutionProvenanceRankingRequest, TextRankingRequest
+from graph_memory.retrieval.requests import (
+    ExecutionProvenanceRankingRequest,
+    TextRankingRequest,
+)
 from tests.isetrace_fixtures import isetrace_record
 
 
@@ -33,7 +36,9 @@ class DeterministicEmbeddingProvider:
     def encode_task_nodes(
         self, request: TextRankingRequest, node_ids: list[str]
     ) -> torch.Tensor:
-        text_by_id = {candidate.item_id: candidate.text for candidate in request.candidates}
+        text_by_id = {
+            candidate.item_id: candidate.text for candidate in request.candidates
+        }
         text_by_id["q"] = request.query_text
         rows: list[list[float]] = []
         for node_id in node_ids:
@@ -107,19 +112,23 @@ def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> 
             node_index[edge.target],
             node_index[edge.source],
         ]
-        assert edges.relation_ids[forward].item() == relation_index[
-            f"{edge.relation}_forward"
-        ]
-        assert edges.relation_ids[reverse].item() == relation_index[
-            f"{edge.relation}_reverse"
-        ]
+        assert (
+            edges.relation_ids[forward].item()
+            == relation_index[f"{edge.relation}_forward"]
+        )
+        assert (
+            edges.relation_ids[reverse].item()
+            == relation_index[f"{edge.relation}_reverse"]
+        )
 
     graph_tensor = task.graph_tensor
     assert graph_tensor.node_ids == [node.node_id for node in graph.nodes] + ["q"]
     assert graph_tensor.query_node_index == len(graph.nodes)
     assert graph_tensor.node_features.shape == (len(graph.nodes) + 1, 0)
     assert graph_tensor.edge_index.max().item() < len(graph.nodes)
-    assert task.sample_node_ids == [candidate.item_id for candidate in request.candidates]
+    assert task.sample_node_ids == [
+        candidate.item_id for candidate in request.candidates
+    ]
     assert all(
         graph_tensor.node_ids[index] == candidate.item_id
         for index, candidate in zip(
@@ -127,7 +136,6 @@ def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> 
         )
     )
     assert graph.fingerprint() == fingerprint
-    assert not hasattr(request, "query_origin")
 
 
 def test_provenance_tasks_collate_without_cross_task_query_or_candidate_ownership() -> (
@@ -168,8 +176,12 @@ def test_provenance_tasks_collate_without_cross_task_query_or_candidate_ownershi
         *("first-task" for _ in range(candidate_count)),
         *("second-task" for _ in range(candidate_count)),
     ]
-    assert all(index < node_count for index in batch.sample_node_indices[:candidate_count])
-    assert all(index >= node_count for index in batch.sample_node_indices[candidate_count:])
+    assert all(
+        index < node_count for index in batch.sample_node_indices[:candidate_count]
+    )
+    assert all(
+        index >= node_count for index in batch.sample_node_indices[candidate_count:]
+    )
     assert batch.sample_query_indices[:candidate_count].unique().tolist() == [
         len(graph.nodes)
     ]
