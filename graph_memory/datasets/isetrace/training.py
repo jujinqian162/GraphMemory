@@ -9,6 +9,7 @@ from graph_memory.datasets.isetrace.benchmark_records import (
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.models.graph_retriever.provenance import provenance_training_label
+from graph_memory.retrieval.methods.ids import DenseCandidateView
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextRankingRequest,
@@ -64,19 +65,48 @@ def adapt_flat_dense_training_split(
 ) -> tuple[list[TextRankingRequest], list[EvidenceLabel]]:
     """Compile exact ISETrace spans into flat-chunk Dense-FT supervision."""
 
+    return _adapt_dense_training_split(rankings, labels, representation="flat")
+
+
+def adapt_provenance_unit_dense_training_split(
+    rankings: Sequence[ISETraceRankingRecord],
+    labels: Sequence[ISETraceLabelRecord],
+) -> tuple[list[TextRankingRequest], list[EvidenceLabel]]:
+    """Compile exact ISETrace spans into graph-free provenance-unit supervision."""
+
+    return _adapt_dense_training_split(
+        rankings, labels, representation="provenance_unit"
+    )
+
+
+def _adapt_dense_training_split(
+    rankings: Sequence[ISETraceRankingRecord],
+    labels: Sequence[ISETraceLabelRecord],
+    *,
+    representation: DenseCandidateView,
+) -> tuple[list[TextRankingRequest], list[EvidenceLabel]]:
     labels_by_id = {label.task_id: label for label in labels}
     if len(labels_by_id) != len(labels):
-        raise ValueError("ISETrace flat training label task IDs must be unique")
+        raise ValueError(
+            f"ISETrace {representation} training label task IDs must be unique"
+        )
 
     requests: list[TextRankingRequest] = []
     compiled_labels: list[EvidenceLabel] = []
     for ranking in rankings:
         label = labels_by_id.get(ranking.task_id)
         if label is None or label.graph_id != ranking.graph_id:
-            raise ValueError("ISETrace flat training rankings and labels must align")
+            raise ValueError(
+                f"ISETrace {representation} training rankings and labels must align"
+            )
+        candidates = (
+            ranking.provenance_candidates
+            if representation == "provenance_unit"
+            else ranking.flat_candidates
+        )
         positive_ids = tuple(
             candidate.item_id
-            for candidate in ranking.flat_candidates
+            for candidate in candidates
             if any(
                 source_spans_overlap(candidate_span, gold_span)
                 for candidate_span in candidate.source_spans
@@ -84,14 +114,15 @@ def adapt_flat_dense_training_split(
             )
         )
         if not positive_ids:
+            task = ranking.task_id
             raise ValueError(
-                f"ISETrace flat task={ranking.task_id!r} has no positive candidates"
+                f"ISETrace {representation} task={task!r} has no positive candidates"
             )
         requests.append(
             TextRankingRequest(
                 task_id=ranking.task_id,
                 query_text=ranking.query_text,
-                candidates=ranking.flat_candidates,
+                candidates=candidates,
             )
         )
         compiled_labels.append(
@@ -105,8 +136,14 @@ def adapt_flat_dense_training_split(
 
     request_ids = {request.task_id for request in requests}
     if request_ids != set(labels_by_id):
-        raise ValueError("ISETrace flat training requests and labels must align")
+        raise ValueError(
+            f"ISETrace {representation} training requests and labels must align"
+        )
     return requests, compiled_labels
 
 
-__all__ = ["adapt_flat_dense_training_split", "adapt_provenance_training_split"]
+__all__ = [
+    "adapt_flat_dense_training_split",
+    "adapt_provenance_training_split",
+    "adapt_provenance_unit_dense_training_split",
+]

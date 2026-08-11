@@ -29,7 +29,7 @@ class DenseConfig:
 
 
 class DenseTaskRetriever:
-    method_name = "dense"
+    method_name: str = "dense"
 
     @property
     def name(self) -> str:
@@ -45,7 +45,9 @@ class DenseTaskRetriever:
         encoder: SentenceEncoder | None = None,
         *,
         device: str,
+        method_name: str = "dense",
     ) -> None:
+        self.method_name = method_name
         self.config = config or DenseConfig(
             device=device,
             model_name=model_name,
@@ -70,9 +72,8 @@ class DenseTaskRetriever:
     ) -> RetrievalMethodResult:
         _ = top_k
         if not isinstance(request, TextRankingRequest):
-            raise TypeError(
-                f"dense requires TextRankingRequest, got {type(request).__name__}."
-            )
+            request_type = type(request).__name__
+            raise TypeError(f"{self.name} requires TextRankingRequest, got {request_type}.")
         return RetrievalMethodResult(ranked_nodes=tuple(self.rank(request)))
 
     def rank(self, request: TextRankingRequest) -> list[RankedNode]:

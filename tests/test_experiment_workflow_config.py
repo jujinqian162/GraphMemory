@@ -11,6 +11,7 @@ from graph_memory.datasets.isetrace.registration import ISETRACE_REVISION
 from graph_memory.experiment.config import (
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
+    DenseMethodConfig,
     ISETraceDatasetConfig,
     ProvenancePathMethodConfig,
     ProvenanceRgcnMethodConfig,
@@ -127,6 +128,59 @@ def test_isetrace_dense_ft_uses_effective_text_only_sampling() -> None:
     )
     assert isinstance(evidence.method, DenseFinetuneMethodConfig)
     assert evidence.method.pairs.hard_graph_neighbor_per_positive == 1
+
+
+def test_isetrace_provenance_unit_dense_controls_share_matched_config() -> None:
+    frozen = resolve_experiment_config(
+        parse_composed_config(
+            _compose("dataset=isetrace", "method=dense", "method.variant=provenance_unit")
+        ),
+        repository_root=ROOT,
+    )
+    flat_ft = resolve_experiment_config(
+        parse_composed_config(_compose("dataset=isetrace", "method=dense_ft")),
+        repository_root=ROOT,
+    )
+    provenance_ft = resolve_experiment_config(
+        parse_composed_config(
+            _compose(
+                "dataset=isetrace",
+                "method=dense_ft",
+                "method.variant=provenance_unit",
+            )
+        ),
+        repository_root=ROOT,
+    )
+
+    assert isinstance(frozen.method, DenseMethodConfig)
+    assert isinstance(provenance_ft.method, DenseFinetuneMethodConfig)
+    assert isinstance(flat_ft.method, DenseFinetuneMethodConfig)
+    assert frozen.method.variant == "provenance_unit"
+    assert provenance_ft.method.variant == "provenance_unit"
+    assert flat_ft.method.variant == "flat"
+    assert frozen.method.encoder == provenance_ft.method.encoder
+    assert provenance_ft.method.encoder == flat_ft.method.encoder
+    assert provenance_ft.method.train == flat_ft.method.train
+    assert provenance_ft.method.pairs == flat_ft.method.pairs
+    assert provenance_ft.method.pairs.hard_graph_neighbor_per_positive == 0
+
+
+@pytest.mark.parametrize("dataset", ("hotpotqa", "2wiki", "musique"))
+@pytest.mark.parametrize("method", ("dense", "dense_ft"))
+def test_evidence_dataset_rejects_provenance_unit_dense_variants(
+    dataset: str,
+    method: str,
+) -> None:
+    composed = parse_composed_config(
+        _compose(
+            f"dataset={dataset}",
+            f"method={method}",
+            "method.variant=provenance_unit",
+        )
+    )
+
+    with pytest.raises(ValueError, match="does not support"):
+        resolve_experiment_config(composed, repository_root=ROOT)
 
 
 def test_isetrace_provenance_rgcn_config_requires_current_trainable_lifecycle() -> None:

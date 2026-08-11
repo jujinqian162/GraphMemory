@@ -24,7 +24,7 @@ from graph_memory.models.dense_finetune.training import (
 from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfig
 from graph_memory.models.graph_retriever.selection import RgcnSelectionSettings
 from graph_memory.training_pairs.config import NegativeSamplingConfig
-from graph_memory.retrieval.methods.ids import RetrievalMethodId
+from graph_memory.retrieval.methods.ids import DenseCandidateView, RetrievalMethodId
 from graph_memory.retrieval.methods.graphrag import GraphRAGConfig
 from graph_memory.retrieval.methods.provenance_path import ProvenancePathConfig
 
@@ -228,6 +228,7 @@ class Bm25MethodConfig(ClosedModel):
 
 class DenseMethodConfig(ClosedModel):
     method: Literal["dense"]
+    variant: DenseCandidateView = "flat"
     encoder: DenseEncoderConfig
 
 
@@ -338,11 +339,12 @@ class DenseFinetuneTrainConfig(ClosedModel):
 
 class DenseFinetuneMethodConfig(ClosedModel):
     method: Literal["dense_ft"]
+    variant: DenseCandidateView = "flat"
     encoder: DenseEncoderConfig
     train: DenseFinetuneTrainConfig
     pairs: NegativeSamplingConfig
 
-    def effective_for_dataset(self, dataset: DatasetName) -> DenseFinetuneMethodConfig:
+    def effective_for_dataset(self, dataset: DatasetName) -> "DenseFinetuneMethodConfig":
         if dataset != "isetrace":
             return self
         return self.model_copy(
@@ -386,9 +388,18 @@ class PairBuildConfig(ClosedModel):
         "dense_ft_rgcn_graph_retriever",
         "provenance_rgcn",
     ]
+    candidate_view: DenseCandidateView = "flat"
     sampling: NegativeSamplingConfig
     encoder: DenseEncoderConfig
     device: Device
+
+    @model_validator(mode="after")
+    def _validate_candidate_view(self) -> "PairBuildConfig":
+        if self.method != "dense_ft" and self.candidate_view != "flat":
+            raise ValueError(
+                "candidate_view='provenance_unit' is valid only for dense_ft pairs"
+            )
+        return self
 
 
 class GraphBuildConfig(ClosedModel):
@@ -634,9 +645,18 @@ def _check_dataset_method_compatibility(
 ) -> None:
     is_provenance = dataset == "isetrace"
     provenance_only = isinstance(
-        method, (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig)
+        method,
+        (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig),
+    ) or (
+        isinstance(method, (DenseMethodConfig, DenseFinetuneMethodConfig))
+        and method.variant == "provenance_unit"
     )
     evidence_only = isinstance(method, (RgcnMethodConfig, DenseFtRgcnMethodConfig))
+    if (
+        isinstance(method, DenseFtRgcnMethodConfig)
+        and method.seed.variant != "flat"
+    ):
+        raise ValueError("dense_ft R-GCN seed variant must remain 'flat'.")
     if provenance_only and not is_provenance:
         raise ValueError(
             f"dataset={dataset!r} does not support provenance method={method.method!r}."
@@ -679,6 +699,7 @@ __all__ = [
     "CountPolicy",
     "DatasetConfig",
     "DatasetName",
+    "DenseCandidateView",
     "DenseEncoderConfig",
     "DenseFinetuneMethodConfig",
     "DenseFinetuneTrainConfig",

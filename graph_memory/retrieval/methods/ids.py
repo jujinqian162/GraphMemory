@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal, TypeAlias
+
 from graph_memory.compat import StrEnum
+
+DenseCandidateView: TypeAlias = Literal["flat", "provenance_unit"]
 
 
 class RetrievalMethodId(StrEnum):
@@ -14,4 +18,4 @@ class RetrievalMethodId(StrEnum):
     DENSE_FT_RGCN_GRAPH_RETRIEVER = "dense_ft_rgcn_graph_retriever"
 
 
-__all__ = ["RetrievalMethodId"]
+__all__ = ["DenseCandidateView", "RetrievalMethodId"]

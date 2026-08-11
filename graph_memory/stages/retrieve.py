@@ -30,6 +30,7 @@ from graph_memory.experiment.config import (
     DatasetName,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
+    DenseMethodConfig,
     MethodConfig,
     ProvenancePathMethodConfig,
     ProvenanceRgcnMethodConfig,
@@ -67,9 +68,13 @@ def run_retrieve_stage(
         task_inputs,
         isetrace_representation=(
             "provenance"
-            if isinstance(method, ProvenancePathMethodConfig)
-            or (
-                isinstance(method, ProvenanceRgcnMethodConfig)
+            if (
+                isinstance(method, (DenseMethodConfig, DenseFinetuneMethodConfig))
+                and method.variant == "provenance_unit"
+            )
+            or isinstance(
+                method,
+                (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig),
             )
             else "flat"
         ),

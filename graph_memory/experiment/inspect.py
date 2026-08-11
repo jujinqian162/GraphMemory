@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, get_args
 
-from graph_memory.experiment.config import ClosedModel, EvidenceRgcnVariant
+from graph_memory.experiment.config import (
+    ClosedModel,
+    DenseCandidateView,
+    EvidenceRgcnVariant,
+)
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 
 InspectionKind = Literal[
@@ -36,8 +40,11 @@ def inspect_catalog(
     if kind == "configs":
         return sorted(path.stem for path in config_root.glob("*.yaml"))
     if kind == "variants":
+        dense_variants = [str(value) for value in get_args(DenseCandidateView)]
         evidence_variants = [str(value) for value in get_args(EvidenceRgcnVariant)]
         return {
+            RetrievalMethodId.DENSE: dense_variants,
+            RetrievalMethodId.DENSE_FT: dense_variants,
             RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER: evidence_variants,
             RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER: evidence_variants,
         }

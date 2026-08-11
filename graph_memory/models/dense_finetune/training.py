@@ -40,6 +40,7 @@ from graph_memory.models.dense_finetune.metadata import (
     DenseFinetuneSelectionMetadata,
     write_dense_ft_model_metadata,
 )
+from graph_memory.retrieval.methods.ids import DenseCandidateView
 
 
 class DenseFinetuneTrainerSettings(DomainModel):
@@ -60,6 +61,7 @@ class DenseFinetuneSelectionSettings(DomainModel):
 
 
 class DenseFinetuneRunConfig(DomainModel):
+    variant: DenseCandidateView = "flat"
     base_model: NonEmptyStr
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
@@ -396,6 +398,7 @@ def train_dense_finetune(
     metadata_path = write_dense_ft_model_metadata(
         model_dir=model_dir,
         metadata=DenseFinetuneModelMetadata(
+            variant=config.variant,
             base_model=config.base_model,
             query_prefix=config.query_prefix,
             passage_prefix=config.passage_prefix,

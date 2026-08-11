@@ -1,4 +1,5 @@
 method: dense
+variant: flat
 encoder:
   model_name: models/intfloat-e5-base-v2
   query_prefix: "query: "

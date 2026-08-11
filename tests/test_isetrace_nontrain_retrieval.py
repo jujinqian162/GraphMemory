@@ -17,7 +17,10 @@ from graph_memory.datasets.isetrace.benchmark_records import (
     ISETraceQueryMetadata,
     ISETraceRankingRecord,
 )
-from graph_memory.datasets.isetrace.training import adapt_flat_dense_training_split
+from graph_memory.datasets.isetrace.training import (
+    adapt_flat_dense_training_split,
+    adapt_provenance_unit_dense_training_split,
+)
 from graph_memory.datasets.isetrace.retrieval_views import (
     flat_trajectory_candidates,
     provenance_unit_candidates,
@@ -294,6 +297,52 @@ def test_flat_dense_supervision_maps_every_overlapping_chunk() -> None:
     assert labels[0].gold_evidence_item_ids == overlapping
 
 
+def test_provenance_unit_dense_supervision_maps_every_overlapping_unit() -> None:
+    trajectory = adapt_isetrace_record(
+        parse_isetrace_record(isetrace_record()), source_revision="fixture-revision"
+    )
+    output = trajectory.tool_outputs[0]
+    flat_candidates = flat_trajectory_candidates(
+        trajectory,
+        tokenizer=CharacterOffsetTokenizer(),
+        max_tokens=64,
+        overlap_tokens=16,
+    )
+    candidates = provenance_unit_candidates(build_provenance_graph(trajectory))
+    ranking = ISETraceRankingRecord(
+        task_id="provenance-unit-train",
+        graph_id=trajectory.trajectory_id,
+        query_text="What did the first tool return?",
+        flat_candidates=flat_candidates,
+        provenance_candidates=candidates,
+    )
+    label = ISETraceLabelRecord(
+        task_id=ranking.task_id,
+        graph_id=ranking.graph_id,
+        gold_evidence_spans=(
+            SourceSpan(
+                event_id=output.event_id,
+                json_pointer="/content",
+                char_start=0,
+                char_end=len(output.content),
+            ),
+        ),
+    )
+    expected = tuple(
+        candidate.item_id
+        for candidate in candidates
+        if any(span.event_id == output.event_id for span in candidate.source_spans)
+    )
+
+    requests, labels = adapt_provenance_unit_dense_training_split(
+        [ranking], [label]
+    )
+
+    assert requests[0].candidates == candidates
+    assert labels[0].gold_evidence_item_ids == expected
+    assert labels[0].gold_dependency_edges == ()
+
+
 def test_flat_dense_supervision_fails_when_no_chunk_overlaps() -> None:
     raw = isetrace_record()
     trajectory = adapt_isetrace_record(
@@ -327,6 +376,9 @@ def test_flat_dense_supervision_fails_when_no_chunk_overlaps() -> None:
 
     with pytest.raises(ValueError, match="flat-missing.*no positive candidates"):
         adapt_flat_dense_training_split([ranking], [label])
+
+    with pytest.raises(ValueError, match="flat-missing.*no positive candidates"):
+        adapt_provenance_unit_dense_training_split([ranking], [label])
 
 
 def test_v7_rejects_legacy_query_shape(tmp_path: Path) -> None:
@@ -788,6 +840,9 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
     methods = (
         Bm25MethodConfig(method="bm25"),
         DenseMethodConfig(method="dense", encoder=encoder_config),
+        DenseMethodConfig(
+            method="dense", variant="provenance_unit", encoder=encoder_config
+        ),
         GraphRAGMethodConfig(
             method="graphrag",
             encoder=encoder_config,
@@ -813,7 +868,11 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
             top_k=3,
             task_inputs=task_inputs,
             evidence_graphs=None,
-            provenance_graphs=list(benchmark.provenance_graphs),
+            provenance_graphs=(
+                list(benchmark.provenance_graphs)
+                if isinstance(method, ProvenancePathMethodConfig)
+                else []
+            ),
             model=None,
             encoder_source=None,
             device="cpu",
@@ -825,6 +884,7 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         expected_candidates = (
             benchmark.rankings[0].provenance_candidates
             if isinstance(method, ProvenancePathMethodConfig)
+            or (isinstance(method, DenseMethodConfig) and method.variant == "provenance_unit")
             else benchmark.rankings[0].flat_candidates
         )
         assert len(predictions[0].ranked_nodes) == len(expected_candidates)

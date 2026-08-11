@@ -35,17 +35,23 @@ class PairInputsCaptured(Exception):
     pass
 
 
+class RankingInputsCaptured(Exception):
+    pass
+
+
 @pytest.mark.parametrize(
-    ("dataset", "expects_graph", "expected_graph_neighbors"),
+    ("dataset", "variant", "expects_graph", "expected_graph_neighbors"),
     (
-        ("hotpotqa", True, 1),
-        ("isetrace", False, 0),
+        ("hotpotqa", "flat", True, 1),
+        ("isetrace", "flat", False, 0),
+        ("isetrace", "provenance_unit", False, 0),
     ),
 )
 def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch,
     tmp_path: Path,
     dataset: str,
+    variant: str,
     expects_graph: bool,
     expected_graph_neighbors: int,
 ) -> None:
@@ -58,6 +64,7 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
                 "profile=smoke",
                 "device=cpu",
                 "method=dense_ft",
+                f"method.variant={variant}",
             ],
         )
     config = resolve_experiment_config(
@@ -117,12 +124,77 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     pair_config = observed["config"]
     assert isinstance(pair_config, PairBuildConfig)
     assert pair_config.method == "dense_ft"
+    assert pair_config.candidate_view == variant
     assert observed.get("built_graph", False) is expects_graph
     assert observed["evidence_graphs"] is (graph_artifact if expects_graph else None)
     assert (
         pair_config.sampling.hard_graph_neighbor_per_positive
         == expected_graph_neighbors
     )
+
+
+def test_provenance_unit_dense_flow_prepares_only_test_without_graphs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
+        composed = compose(
+            config_name="config",
+            overrides=[
+                "name=provenance-unit-dense-plan",
+                "dataset=isetrace",
+                "profile=smoke",
+                "device=cpu",
+                "method=dense",
+                "method.variant=provenance_unit",
+            ],
+        )
+    config = resolve_experiment_config(
+        parse_composed_config(composed), repository_root=ROOT
+    )
+    prepared_splits: list[str] = []
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(experiment_workflow, "ensure_inputs", lambda config: None)
+    monkeypatch.setattr(
+        experiment_workflow,
+        "prefect_storage_settings",
+        lambda *, refresh_cache: nullcontext(),
+    )
+    monkeypatch.setattr(
+        experiment_workflow,
+        "_resolve_split_sources",
+        lambda config: {"test": object()},
+    )
+    monkeypatch.setattr(experiment_workflow, "_trajectory_source", lambda config: None)
+    monkeypatch.setattr(
+        experiment_workflow, "_authoring_metadata_source", lambda config: None
+    )
+
+    def capture_prepare(**kwargs):
+        prepared_splits.append(kwargs["config"].split)
+        return object()
+
+    def capture_rankings(**kwargs):
+        observed.update(kwargs)
+        raise RankingInputsCaptured
+
+    monkeypatch.setattr(experiment_workflow, "prepare_split_task", capture_prepare)
+    monkeypatch.setattr(
+        experiment_workflow, "resolve_encoder_source", lambda encoder: object()
+    )
+    monkeypatch.setattr(
+        experiment_workflow, "generate_rankings_task", capture_rankings
+    )
+
+    with pytest.raises(RankingInputsCaptured):
+        experiment_workflow.run_experiment.fn(config, run_output=tmp_path / "run")
+
+    assert prepared_splits == ["test"]
+    assert observed["evidence_graphs"] is None
+    assert observed["model"] is None
+    assert observed["method"] == config.method
+    assert config.variant == "provenance_unit"
 
 
 def test_provenance_rgcn_flow_plans_trainable_lifecycle_without_evidence_graphs(
@@ -246,9 +318,19 @@ def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
         },
         {},
     )
+    provenance_view_key = policy.compute_key(
+        None,
+        {
+            "config": cpu.model_copy(
+                update={"candidate_view": "provenance_unit"}
+            )
+        },
+        {},
+    )
 
     assert cpu_key == cuda_key
     assert changed_sampling_key != cpu_key
+    assert provenance_view_key != cpu_key
 
 
 def test_scientific_cache_key_uses_artifact_content_not_materialization_uri() -> None:

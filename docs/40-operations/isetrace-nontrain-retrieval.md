@@ -20,9 +20,10 @@ There is one gold interpretation: the complete set of exact spans in `gold`. V7 
 
 Every method receives the same query and underlying trajectory.
 
-- BM25, Dense, and GraphRAG rank the same token-window chunks of the rendered full trajectory, including messages, ToolCall arguments, and ToolOutputs.
-- GraphRAG privately subdivides those chunks into smaller graph-index text units, builds a noun-phrase co-occurrence graph, runs query-personalized PageRank, and projects graph scores back to the original token-window candidates. Its graph never receives provenance edges or gold spans.
-- `provenance_path` ranks source-backed argument/output content units and may traverse the query-independent provenance graph.
+- BM25, Dense with `variant=flat`, and GraphRAG rank the same token-window chunks of the rendered full trajectory, including messages, ToolCall arguments, and ToolOutputs.
+- Dense with `variant=provenance_unit` ranks the prepared source-backed argument/output content units with the unchanged frozen encoder and cosine scorer. It receives only `TextRankingRequest` and never loads a provenance graph; this isolates candidate segmentation from path traversal.
+- GraphRAG privately subdivides flat chunks into smaller graph-index text units, builds a noun-phrase co-occurrence graph, runs query-personalized PageRank, and projects graph scores back to the original token-window candidates. Its graph never receives provenance edges or gold spans.
+- `provenance_path` ranks the same provenance units and may additionally traverse the query-independent provenance graph.
 - The provenance graph may change retrieval order and the diagnostic retrieved subgraph, but it never creates or expands gold.
 
 All candidates retain exact `(event_id, json_pointer, char_start, char_end)` coordinates. Evaluation unions these coordinates rather than comparing method-local candidate IDs.
@@ -43,6 +44,7 @@ Smoke runs:
 ```bash
 uv run python experiment/run.py name=isetrace_v7_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cpu
 uv run python experiment/run.py name=isetrace_v7_dense_smoke dataset=isetrace profile=smoke method=dense device=cuda:0
+uv run python experiment/run.py name=isetrace_v7_provenance_unit_dense_smoke dataset=isetrace profile=smoke method=dense method.variant=provenance_unit device=cuda:0
 uv run python experiment/run.py name=isetrace_v7_graphrag_smoke dataset=isetrace profile=smoke method=graphrag device=cuda:0
 uv run python experiment/run.py name=isetrace_v7_path_smoke dataset=isetrace profile=smoke method=provenance_path device=cuda:0
 ```
@@ -53,11 +55,17 @@ Full non-training runs should keep all method parameters frozen:
 uv run python experiment/run.py -m \
   name=isetrace_v7_nontrain dataset=isetrace profile=full device=cuda:0 \
   method=bm25,dense,graphrag,provenance_path
+
+uv run python experiment/run.py -m \
+  name=isetrace_v7_dense_candidate_view dataset=isetrace profile=full device=cuda:0 \
+  method=dense method.variant=flat,provenance_unit
 ```
+
+The second command is the matched frozen candidate-view control. Both jobs retain method ID `dense`; the resolved `variant` in the run summary, manifest, and tracking data distinguishes the rows.
 
 ## Interpretation
 
-Report span Coverage/Recall, Span F1, Full Support, Evidence Density, MRR, and Coverage@512/1024/2048 Tokens. Graph connectivity can remain a method diagnostic, but it is not a labeled dependency metric in v7.
+Report span Coverage/Recall, Span F1, Full Support, Evidence Density, MRR, and Coverage@512/1024/2048 Tokens. Compare Dense `flat` against Dense `provenance_unit` to estimate the candidate-segmentation contribution; compare provenance-unit Dense against `provenance_path` to estimate path-traversal contribution. Graph connectivity can remain a method diagnostic, but it is not a labeled dependency metric in v7.
 
 Experiment scale is determined from successfully compiled records rather than the filename. Preparation writes `queries_seen`, `queries_resolved`, `queries_dropped`, `queries_uncompilable`, `queries_unmatched`, and `queries_ambiguous` into the dataset artifact counts.
 

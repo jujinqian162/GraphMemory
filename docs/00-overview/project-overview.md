@@ -7,7 +7,7 @@ Graph structure should help recover complete evidence sets or execution paths be
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence retrieval | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Execution provenance | ISETrace natural-query pilot | BM25, Dense, GraphRAG, provenance path, Provenance R-GCN |
+| Execution provenance | ISETrace natural-query pilot | BM25, Dense/Dense-FT (`flat|provenance_unit`), GraphRAG, provenance path, Provenance R-GCN |
 
 The evidence workflow remains runnable. The revision-pinned ISETrace corpus has canonical trajectory adaptation, query-independent provenance graphs, and frozen trajectory-grouped natural-query train/dev/test ownership. The current generated natural-query corpus is explicitly unreviewed and is suitable for engineering validation, not final paper claims.
 

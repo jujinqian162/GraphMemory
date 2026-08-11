@@ -9,6 +9,7 @@ from graph_memory.contracts.common import JsonValue as RecursiveJsonValue
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
+    DenseCandidateView,
     DenseEncoderConfig,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
@@ -85,6 +86,7 @@ def build_retrieval(
     if isinstance(method_config, DenseFinetuneMethodConfig):
         return _build_dense_ft(
             _required_checkpoint(checkpoint, method_config.method),
+            method_config.variant,
             text_requests,
             dense_encoder=dense_encoder,
             device=device,
@@ -138,12 +140,18 @@ def build_retrieval(
 
 def _build_dense_ft(
     checkpoint: Path,
+    variant: DenseCandidateView,
     text_requests: list[TextRankingRequest],
     *,
     dense_encoder: SentenceEncoder | None,
     device: str,
 ) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     metadata = load_dense_ft_model_metadata(checkpoint)
+    if metadata.variant != variant:
+        checkpoint_variant = metadata.variant
+        raise ValueError(
+            f"Dense-FT checkpoint variant={checkpoint_variant!r} does not match requested variant={variant!r}."
+        )
     encoder = dense_encoder
     if encoder is None:
         try:
@@ -172,6 +180,7 @@ def _build_dense_ft(
             ),
             encoder=encoder,
             device=device,
+            method_name=RetrievalMethodId.DENSE_FT.value,
         ),
         method=RetrievalMethodId.DENSE_FT,
         model=checkpoint,

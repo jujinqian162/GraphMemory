@@ -1,6 +1,6 @@
 # Experiment commands
 
-One command runs one final method and, for R-GCN, one variant. Hydra composes config; Prefect runs one Flow; MLflow records one run.
+One command runs one final method and one resolved variant where supported. Dense/Dense-FT use `flat|provenance_unit`; R-GCN uses its ablation variants. Hydra composes config; Prefect runs one Flow; MLflow records one run.
 
 ## Single jobs
 
@@ -18,6 +18,8 @@ uv run python experiment/run.py `
 
 ```powershell
 uv run python experiment/run.py name=isetrace_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cpu
+uv run python experiment/run.py name=isetrace_provenance_unit_dense_smoke dataset=isetrace profile=smoke method=dense method.variant=provenance_unit device=cpu
+uv run python experiment/run.py name=isetrace_provenance_unit_dense_ft_smoke dataset=isetrace profile=smoke method=dense_ft method.variant=provenance_unit device=cpu
 uv run python experiment/run.py name=isetrace_path_smoke dataset=isetrace profile=smoke method=provenance_path device=cpu
 
 uv run python experiment/run.py -m `

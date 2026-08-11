@@ -142,7 +142,7 @@ def build_training_pairs_task(
     dataset: DatasetName,
     config: PairBuildConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
-    implementation_version: str = "training-pairs-v1",
+    implementation_version: str = "training-pairs-v2-dense-candidate-view",
 ) -> TrainingPairsArtifactRef:
     get_run_logger().info("build training pairs | dataset=%s", dataset)
     return materialize_training_pairs(
@@ -210,7 +210,7 @@ def train_dense_ft_task(
     dataset: DatasetName,
     config: DenseFinetuneMethodConfig,
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
-    implementation_version: str = "dense-ft-train-v1",
+    implementation_version: str = "dense-ft-train-v2-candidate-view",
 ) -> ModelArtifactRef:
     get_run_logger().info(
         "train dense-ft | dataset=%s epochs=%s", dataset, config.train.trainer.epochs

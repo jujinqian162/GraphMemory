@@ -17,6 +17,7 @@ from graph_memory.datasets.isetrace.benchmark_records import (
 from graph_memory.datasets.isetrace.training import (
     adapt_flat_dense_training_split,
     adapt_provenance_training_split,
+    adapt_provenance_unit_dense_training_split,
 )
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
@@ -39,6 +40,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     DatasetName,
+    DenseCandidateView,
     DenseEncoderConfig,
     DenseFinetuneMethodConfig,
     ProvenanceRgcnMethodConfig,
@@ -106,11 +108,13 @@ def materialize_dense_finetune_model(
         dataset,
         train_tasks,
         train_labels,
+        variant=config.variant,
     )
     dev_requests, dev_compiled_labels, _ = _dense_finetune_split(
         dataset,
         dev_tasks,
         dev_labels,
+        variant=config.variant,
     )
     with ArtifactPublisher(
         store,
@@ -121,6 +125,7 @@ def materialize_dense_finetune_model(
             "stage": "train",
             "dataset": dataset,
             "method": config.method,
+            "variant": config.variant,
             "prepared_digest": train_prepared.digest,
             "pairs_digest": train_pairs.digest,
             "dev_digest": dev_prepared.digest,
@@ -143,6 +148,7 @@ def materialize_dense_finetune_model(
         encoder = effective.encoder
         result = train_dense_finetune(
             config=DenseFinetuneRunConfig(
+                variant=config.variant,
                 base_model=encoder.model_name,
                 query_prefix=encoder.query_prefix,
                 passage_prefix=encoder.passage_prefix,
@@ -173,6 +179,7 @@ def materialize_dense_finetune_model(
             metadata={
                 "selected_metric_name": result.selected_metric_name,
                 "selected_metric_value": result.selected_metric_value,
+                "variant": config.variant,
                 "effective_sampling": train_pairs.origin.get("sampling_config"),
             },
         )
@@ -184,6 +191,8 @@ def _dense_finetune_split(
     dataset: DatasetName,
     tasks: list[object],
     labels: list[object],
+    *,
+    variant: DenseCandidateView,
 ) -> tuple[
     list[TextRankingRequest],
     list[EvidenceLabel],
@@ -196,10 +205,12 @@ def _dense_finetune_split(
 
     rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(tasks)
     isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
-    requests, compiled_labels = adapt_flat_dense_training_split(
-        rankings,
-        isetrace_labels,
+    adapter = (
+        adapt_provenance_unit_dense_training_split
+        if variant == "provenance_unit"
+        else adapt_flat_dense_training_split
     )
+    requests, compiled_labels = adapter(rankings, isetrace_labels)
     group_ids = {ranking.task_id: ranking.graph_id for ranking in rankings}
     return requests, compiled_labels, group_ids
 

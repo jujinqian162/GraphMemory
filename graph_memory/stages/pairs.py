@@ -14,6 +14,7 @@ from graph_memory.datasets.isetrace.benchmark_records import (
 from graph_memory.datasets.isetrace.training import (
     adapt_flat_dense_training_split,
     adapt_provenance_training_split,
+    adapt_provenance_unit_dense_training_split,
 )
 from graph_memory.datasets.selection import (
     evidence_labels_for_dataset,
@@ -34,6 +35,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     DatasetName,
+    DenseCandidateView,
     DenseEncoderConfig,
     PairBuildConfig,
 )
@@ -83,7 +85,7 @@ def build_training_pair_data(
         PROVENANCE_GRAPHS_ADAPTER.validate_python(
             read_json(artifact_payload_path(prepared, "provenance_graphs"))
         )
-        if dataset == "isetrace"
+        if dataset == "isetrace" and config.method == "provenance_rgcn"
         else []
     )
     result = build_train_pairs(
@@ -93,6 +95,7 @@ def build_training_pair_data(
             tasks,
             labels,
             graphs,
+            candidate_view=config.candidate_view,
             provenance_graphs=provenance_graphs,
         ),
         config.sampling,
@@ -131,6 +134,7 @@ def materialize_training_pairs(
             "stage": "pairs",
             "dataset": dataset,
             "method": config.method,
+            "candidate_view": config.candidate_view,
             "sampling_config": config.sampling.model_dump(mode="json"),
             "prepared_digest": prepared.digest,
             "graph_digest": None if evidence_graphs is None else evidence_graphs.digest,
@@ -158,16 +162,19 @@ def _pair_tasks(
     labels: list[object],
     graphs: list[EvidenceGraph],
     *,
+    candidate_view: DenseCandidateView,
     provenance_graphs: list[ProvenanceGraph],
 ) -> list[TrainPairBuildTask]:
     if dataset == "isetrace":
         rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
         isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
         if method == "dense_ft":
-            requests, compiled_labels = adapt_flat_dense_training_split(
-                rankings,
-                isetrace_labels,
+            adapter = (
+                adapt_provenance_unit_dense_training_split
+                if candidate_view == "provenance_unit"
+                else adapt_flat_dense_training_split
             )
+            requests, compiled_labels = adapter(rankings, isetrace_labels)
             return [
                 TrainPairBuildTask(text_request=request, label=label)
                 for request, label in zip(requests, compiled_labels, strict=True)

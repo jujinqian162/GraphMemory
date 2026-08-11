@@ -21,6 +21,7 @@ from graph_memory.datasets.isetrace.records import ISETraceRecord
 from graph_memory.datasets.isetrace.training import (
     adapt_flat_dense_training_split,
     adapt_provenance_training_split,
+    adapt_provenance_unit_dense_training_split,
 )
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "adapt_flat_dense_training_split",
     "adapt_isetrace_record",
     "adapt_provenance_training_split",
+    "adapt_provenance_unit_dense_training_split",
     "allocate_trajectory_splits",
     "iter_canonical_trajectories",
     "iter_isetrace_records",

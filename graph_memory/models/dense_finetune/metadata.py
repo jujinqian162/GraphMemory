@@ -7,7 +7,7 @@ from pydantic import StrictBool
 
 from graph_memory.contracts.model import DomainModel, NonEmptyStr, PositiveInt
 from graph_memory.infrastructure.io import read_json, write_json
-from graph_memory.retrieval.methods.ids import RetrievalMethodId
+from graph_memory.retrieval.methods.ids import DenseCandidateView, RetrievalMethodId
 
 DENSE_FT_METADATA_FILENAME = "dense_ft_model_config.json"
 
@@ -24,6 +24,7 @@ class DenseFinetuneModelMetadata(DomainModel):
     batch_size: PositiveInt
     device: NonEmptyStr
     selection: DenseFinetuneSelectionMetadata
+    variant: DenseCandidateView = "flat"
     method: Literal[RetrievalMethodId.DENSE_FT] = RetrievalMethodId.DENSE_FT
 
 

@@ -129,6 +129,7 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=PairBuildConfig(
                     method=method.method,
+                    candidate_view=method.variant,
                     sampling=effective_pairs,
                     encoder=method.encoder,
                     device=config.device,
@@ -376,7 +377,7 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
-            implementation_version="ranking-v9-fast-graphrag-ppr",
+            implementation_version="ranking-v10-dense-candidate-view",
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking,
