@@ -40,6 +40,7 @@ from graph_memory.retrieval.requests import (
     TextRankingRequest,
 )
 from graph_memory.retrieval.results import RankedResult
+from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 
 
@@ -53,7 +54,9 @@ def train_provenance_graph_retriever(
     model_config: RgcnModelConfig,
     training_config: RgcnTrainingConfig,
     text_embedding_provider: TextEmbeddingProvider,
+    seed_signal_provider: SeedSignalProvider,
     dev_text_embedding_provider: TextEmbeddingProvider | None = None,
+    dev_seed_signal_provider: SeedSignalProvider | None = None,
     device: str | torch.device,
 ) -> RgcnTrainingResult:
     """Adapt provenance tasks to the shared R-GCN optimizer and dev loop."""
@@ -83,6 +86,7 @@ def train_provenance_graph_retriever(
             pairs_by_task_id[request.task_id],
             model_config=model_config,
             text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
         )
         for request in train_request_list
     ]
@@ -94,6 +98,9 @@ def train_provenance_graph_retriever(
             model_config=model_config,
             text_embedding_provider=(
                 dev_text_embedding_provider or text_embedding_provider
+            ),
+            seed_signal_provider=(
+                dev_seed_signal_provider or seed_signal_provider
             ),
         )
         for request in dev_request_list

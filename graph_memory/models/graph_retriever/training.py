@@ -232,9 +232,6 @@ def train_materialized_graph_retriever(
         else None
     )
     metric_records: list[MetricRecord] = []
-    best_metric = float("-inf") if selection_settings.higher_is_better else float("inf")
-    best_epoch = 0
-    best_state = _cpu_state_dict(model)
     global_step = 0
     negative_count_by_type = _negative_count_by_type(train_pairs)
     positive_count = sum(1 for pair in train_pairs if pair.label == 1)
@@ -253,6 +250,14 @@ def train_materialized_graph_retriever(
     materialized_cpu_tensor_bytes = sum(
         _evidence_task_tensor_bytes(task) for task in [*train_tasks, *dev_tasks]
     )
+    _reset_peak_memory(run_device)
+    initial_dev_evaluation = dev_evaluation_callback(model, dev_loader, run_device)
+    initial_dev_metric = resolve_selection_metric(
+        initial_dev_evaluation.selection_metrics, selection_settings
+    )
+    best_metric = initial_dev_metric
+    best_epoch = 0
+    best_state = _cpu_state_dict(model)
 
     for epoch in tqdm(
         range(1, training_config.epochs + 1),
@@ -347,6 +352,12 @@ def train_materialized_graph_retriever(
                 if train_sample_count
                 else 0.0,
                 "dev_loss": dev_evaluation.dev_loss,
+                "initial_dev_loss": initial_dev_evaluation.dev_loss,
+                "initial_selection_metric_value": initial_dev_metric,
+                **{
+                    f"initial_{name}": value
+                    for name, value in initial_dev_evaluation.metric_records.items()
+                },
                 **dev_evaluation.metric_records,
                 "selection_metric": selection_settings.best_metric,
                 "selection_metric_value": dev_metric,

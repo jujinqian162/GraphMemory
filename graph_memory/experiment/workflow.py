@@ -415,7 +415,7 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
-            implementation_version="ranking-v10-dense-candidate-view",
+            implementation_version="ranking-v11-rgcn-seed-residual",
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking,

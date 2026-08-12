@@ -23,9 +23,14 @@ from graph_memory.models.graph_retriever.provenance import (
     tensorize_provenance_ranking_task,
     tensorize_provenance_ranking_tasks,
 )
+from graph_memory.retrieval.contracts import RankedNode
 from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     TextRankingRequest,
+)
+from graph_memory.retrieval.signals import (
+    SeedSignal,
+    seed_signals_from_ranked_nodes,
 )
 from tests.isetrace_fixtures import isetrace_record
 
@@ -45,6 +50,18 @@ class DeterministicEmbeddingProvider:
             digest = hashlib.sha256(text_by_id[node_id].encode()).digest()
             rows.append([float(value) / 255.0 for value in digest[:4]])
         return torch.tensor(rows, dtype=torch.float32)
+
+    def score_task(self, request: TextRankingRequest) -> list[SeedSignal]:
+        node_ids = ["q", *(candidate.item_id for candidate in request.candidates)]
+        embeddings = self.encode_task_nodes(request, node_ids)
+        ranked_nodes = [
+            RankedNode(
+                node_id=candidate.item_id,
+                score=float(embeddings[index] @ embeddings[0]),
+            )
+            for index, candidate in enumerate(request.candidates, start=1)
+        ]
+        return seed_signals_from_ranked_nodes(request, ranked_nodes)
 
 
 def _graph_and_request(*, task_id: str, query_text: str):
@@ -81,10 +98,12 @@ def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> 
     )
     fingerprint = graph.fingerprint()
     edges = tensorize_provenance_edges(graph)
+    provider = DeterministicEmbeddingProvider()
     task = tensorize_provenance_ranking_task(
         request,
         model_config=_model_config(),
-        text_embedding_provider=DeterministicEmbeddingProvider(),
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
     )
 
     enabled_edges = [
@@ -124,7 +143,8 @@ def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> 
     graph_tensor = task.graph_tensor
     assert graph_tensor.node_ids == [node.node_id for node in graph.nodes] + ["q"]
     assert graph_tensor.query_node_index == len(graph.nodes)
-    assert graph_tensor.node_features.shape == (len(graph.nodes) + 1, 0)
+    assert graph_tensor.node_features.shape == (len(graph.nodes) + 1, 1)
+    assert task.sample_node_features.shape == (len(request.candidates), 1)
     assert graph_tensor.edge_index.max().item() < len(graph.nodes)
     assert task.sample_node_ids == [
         candidate.item_id for candidate in request.candidates
@@ -147,10 +167,12 @@ def test_provenance_tasks_collate_without_cross_task_query_or_candidate_ownershi
     second = first.model_copy(
         update={"task_id": "second-task", "query_text": "Find the downstream output."}
     )
+    provider = DeterministicEmbeddingProvider()
     tasks = tensorize_provenance_ranking_tasks(
         [first, second],
         model_config=_model_config(),
-        text_embedding_provider=DeterministicEmbeddingProvider(),
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
     )
     loader = build_evidence_dataloader(
         tasks,
@@ -197,10 +219,12 @@ def test_dropout_zero_provenance_batch_matches_individual_task_scores() -> None:
     second = first.model_copy(
         update={"task_id": "second-task", "query_text": "Find the downstream output."}
     )
+    provider = DeterministicEmbeddingProvider()
     tasks = tensorize_provenance_ranking_tasks(
         [first, second],
         model_config=_model_config(),
-        text_embedding_provider=DeterministicEmbeddingProvider(),
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
     )
     torch.manual_seed(13)
     model = build_model_from_config(_model_config())
@@ -226,10 +250,26 @@ def test_dropout_zero_provenance_batch_matches_individual_task_scores() -> None:
         )
 
 
-def test_zero_layer_provenance_config_reuses_identity_graph_encoder() -> None:
+def test_zero_layer_provenance_config_reuses_seed_scores_exactly() -> None:
     config = _model_config(num_layers=0)
     model = build_model_from_config(config)
+    _graph, request = _graph_and_request(
+        task_id="seed-passthrough", query_text="Find the relevant output."
+    )
+    provider = DeterministicEmbeddingProvider()
+    task = tensorize_provenance_ranking_task(
+        request,
+        model_config=config,
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
+    )
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.fill_(0.25)
+    batch = collate_evidence_tasks([task])
 
     assert config.num_layers == 0
     assert config.graph_encoder_type == "identity"
+    assert config.scoring_mode == "seed_passthrough"
     assert type(model.graph_encoder).__name__ == "IdentityGraphEncoder"
+    assert torch.equal(model(batch), task.sample_node_features[:, 0])

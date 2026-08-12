@@ -11,6 +11,7 @@ from graph_memory.models.graph_retriever.config.records import RgcnTrainingConfi
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.models.graph_retriever.provenance import (
+    provenance_embedding_request,
     provenance_train_pair_task,
     provenance_training_label,
 )
@@ -113,6 +114,7 @@ def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
         ),
     )
     dev_labels = [label_for(request) for request in requests[2:]]
+    provider = DeterministicEmbeddingProvider()
     result = train_provenance_graph_retriever(
         train_requests=requests[:2],
         train_labels=train_labels,
@@ -126,14 +128,16 @@ def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
             epochs=1,
             random_seed=19,
         ),
-        text_embedding_provider=DeterministicEmbeddingProvider(),
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
         device="cpu",
     )
 
-    assert result.best_epoch == 1
+    assert result.best_epoch in {0, 1}
     assert result.global_step == 1
     metrics = result.metric_records[0]
     assert "dev_recall_at_5" in metrics
+    assert "initial_dev_recall_at_5" in metrics
     assert metrics["selection_metric_value"] == metrics["dev_recall_at_5"]
 
     checkpoint_path = tmp_path / "natural-provenance-rgcn.pt"
@@ -198,6 +202,65 @@ def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
     assert all(
         ranked.source_spans == candidate_spans[ranked.node_id]
         for ranked in first_results[0].ranked_nodes
+    )
+
+
+def test_wo_graph_checkpoint_ranking_matches_dense_seed_scores(tmp_path) -> None:
+    graph, request = _graph_and_request(
+        task_id="seed-ranking", query_text="Which result completed the chain?"
+    )
+    model_config = _model_config(num_layers=0)
+    model = build_model_from_config(model_config)
+    checkpoint_path = tmp_path / "provenance-seed-passthrough.pt"
+    save_rgcn_checkpoint(
+        checkpoint_path,
+        method_name=RetrievalMethodId.PROVENANCE_RGCN,
+        model=model,
+        epoch=1,
+        global_step=0,
+        best_dev_metric=0.0,
+        model_config=model_config,
+        training_config=RgcnTrainingConfig(epochs=1),
+    )
+    text_request = TextRankingRequest(
+        task_id=request.task_id,
+        query_text=request.query_text,
+        candidates=request.candidates,
+    )
+    provider = DeterministicEmbeddingProvider()
+    retrieval_method, _provenance, requests = build_retrieval(
+        ProvenanceRgcnMethodConfig.model_construct(
+            method="provenance_rgcn", variant="wo_graph"
+        ),
+        text_requests=[text_request],
+        provenance_graphs=[graph],
+        graph_ids_by_task_id={request.task_id: graph.graph_id},
+        checkpoint=checkpoint_path,
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
+        device="cpu",
+    )
+    result = run_retrieval(
+        retrieval_method=retrieval_method,
+        requests=requests,
+        top_k=len(request.candidates),
+    )[0]
+    embedding_request, _node_ids = provenance_embedding_request(request)
+    candidate_ids = {candidate.item_id for candidate in request.candidates}
+    expected = sorted(
+        (
+            signal
+            for signal in provider.score_task(embedding_request)
+            if signal.node_id in candidate_ids
+        ),
+        key=lambda signal: (-signal.score, signal.node_id),
+    )
+
+    assert [node.node_id for node in result.ranked_nodes] == [
+        signal.node_id for signal in expected
+    ]
+    assert [node.score for node in result.ranked_nodes] == pytest.approx(
+        [signal.score for signal in expected]
     )
 
 

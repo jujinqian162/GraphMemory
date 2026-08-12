@@ -36,7 +36,7 @@ uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_full dataset=iset
 uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_wo_graph dataset=isetrace profile=full method=provenance_unit_dense_ft_rgcn method.variant=wo_graph device=cuda:1
 ```
 
-The seeded config composes the canonical `dense_ft variant=provenance_unit` stage. Its pair and checkpoint Task inputs are identical to the standalone baseline, so Prefect reuses that checkpoint for both R-GCN variants. The remaining trainable lifecycle builds provenance candidate pairs, selects on natural dev Recall@5, reloads the strict checkpoint, and evaluates the natural-only test split. `profile=full` does not apply the evidence benchmark's fixed dev cap to ISETrace.
+The seeded config composes the canonical `dense_ft variant=provenance_unit` stage. Its pair and checkpoint Task inputs are identical to the standalone baseline, so Prefect reuses that checkpoint for both R-GCN variants. `wo_graph` returns the cached seed's cosine scores exactly; `full_rgcn` adds a zero-initialized learned graph residual and dev selection may retain epoch 0 when training does not improve the seed. The remaining trainable lifecycle builds provenance candidate pairs, reloads the strict checkpoint, and evaluates the natural-only test split. `profile=full` does not apply the evidence benchmark's fixed dev cap to ISETrace.
 
 The committed generated queries are unreviewed engineering inputs only. See [`isetrace-provenance-rgcn.md`](isetrace-provenance-rgcn.md) and [`isetrace-nontrain-retrieval.md`](isetrace-nontrain-retrieval.md) before interpreting metrics.
 

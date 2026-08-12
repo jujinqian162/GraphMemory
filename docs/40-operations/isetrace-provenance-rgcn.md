@@ -33,7 +33,7 @@ The tensorizer appends an ephemeral disconnected `q` node. Persisted graph finge
 - `resource.writes`
 - `content.next`
 
-`temporal.precedes` and metadata-derived numeric features are excluded. `method.variant=wo_graph` sets the existing R-GCN layer count to zero and provides the candidate-matched no-message-passing control.
+`temporal.precedes` and metadata-derived numeric features are excluded. The selected encoder provider also supplies each candidate's cosine seed score. `full_rgcn` computes `seed_score + graph_residual`, with the residual output initialized to zero. `method.variant=wo_graph` is an exact seed-score passthrough, so it reproduces the selected Dense/Dense-FT seed ranking instead of training a replacement MLP.
 
 ## Lifecycle
 
@@ -44,8 +44,8 @@ prepare train/dev/test natural queries
   -> optional cached provenance-unit Dense-FT seed provider
   -> build provenance candidate pairs
   -> encode train/dev graph + query inputs from the selected provider
-  -> train shared node-ranking R-GCN
-  -> select on dev Recall@5
+  -> train zero-initialized graph residual over seed scores
+  -> select the best of the initial seed and trained epochs on dev Recall@5
   -> save strict provenance_rgcn checkpoint
   -> reload checkpoint and rank test requests
   -> exact-span evaluation

@@ -28,6 +28,7 @@ from graph_memory.retrieval.requests import (
     ExecutionProvenanceRankingRequest,
     RankingMethodRequest,
 )
+from graph_memory.retrieval.signals import SeedSignalProvider
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class ProvenanceRgcnRetrievalMethod:
     model: EvidenceScoringModel
     model_config: RgcnModelConfig
     text_embedding_provider: TextEmbeddingProvider
+    seed_signal_provider: SeedSignalProvider
     device: torch.device
 
     @classmethod
@@ -44,6 +46,7 @@ class ProvenanceRgcnRetrievalMethod:
         checkpoint_path: str | Path,
         *,
         text_embedding_provider: TextEmbeddingProvider,
+        seed_signal_provider: SeedSignalProvider,
         device: str | torch.device,
     ) -> "ProvenanceRgcnRetrievalMethod":
         from graph_memory.models.graph_retriever.checkpoint import (
@@ -62,10 +65,10 @@ class ProvenanceRgcnRetrievalMethod:
         if (
             config.edge_weight_policy != "uniform"
             or config.enabled_edge_types
-            or config.feature_config.node_feature_names
-            or config.feature_config.scorer_feature_names
+            or config.feature_config.node_feature_names != ("seed_score",)
+            or config.feature_config.scorer_feature_names != ("seed_score",)
         ):
-            raise ValueError("provenance checkpoint enables forbidden graph features")
+            raise ValueError("provenance checkpoint enables invalid graph features")
         model = build_model_from_config(config).to(run_device)
         model.load_state_dict(checkpoint.payload["model_state_dict"])
         model.eval()
@@ -74,6 +77,7 @@ class ProvenanceRgcnRetrievalMethod:
             model=model,
             model_config=config,
             text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
             device=run_device,
         )
 
@@ -90,6 +94,7 @@ class ProvenanceRgcnRetrievalMethod:
             request,
             model_config=self.model_config,
             text_embedding_provider=self.text_embedding_provider,
+            seed_signal_provider=self.seed_signal_provider,
         )
         batch = collate_evidence_tasks([task])
         with torch.no_grad():

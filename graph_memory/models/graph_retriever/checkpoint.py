@@ -21,12 +21,12 @@ from graph_memory.models.graph_retriever.config.records import (
 )
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
 
-RGCN_CHECKPOINT_SCHEMA_VERSION = 4
+RGCN_CHECKPOINT_SCHEMA_VERSION = 5
 OpaqueState = SkipValidation[dict[str, object]]
 
 
 class RgcnCheckpointEnvelope(DomainModel):
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     method_name: RetrievalMethodId
     model_state_dict: OpaqueState
     epoch: NonNegativeInt

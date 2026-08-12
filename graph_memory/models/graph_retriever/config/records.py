@@ -61,6 +61,9 @@ class RgcnModelConfig(DomainModel):
     edge_weight_policy: Literal["artifact", "uniform"]
     enabled_edge_types: tuple[EdgeType, ...]
     ablation_name: NonEmptyStr
+    scoring_mode: Literal[
+        "seed_residual", "seed_passthrough", "residual_only"
+    ] = "seed_residual"
 
     @model_validator(mode="after")
     def _validate_vocab(self) -> "RgcnModelConfig":
@@ -68,6 +71,15 @@ class RgcnModelConfig(DomainModel):
             raise ValueError("relation_vocab must be unique")
         if len(self.enabled_edge_types) != len(set(self.enabled_edge_types)):
             raise ValueError("enabled_edge_types must be unique")
+        has_seed_score = "seed_score" in self.feature_config.scorer_feature_names
+        if self.scoring_mode in {"seed_residual", "seed_passthrough"} and not has_seed_score:
+            raise ValueError(
+                f"scoring_mode={self.scoring_mode!r} requires scorer feature 'seed_score'"
+            )
+        if self.scoring_mode == "residual_only" and has_seed_score:
+            raise ValueError(
+                "scoring_mode='residual_only' must not expose scorer feature 'seed_score'"
+            )
         return self
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol
+from typing import Literal, Protocol
 
 import torch
 from torch import Tensor, nn
@@ -212,15 +212,24 @@ class EvidenceNodeScorer(nn.Module):
     """
 
     def __init__(
-        self, *, hidden_dim: int, scorer_feature_dim: int, dropout: float
+        self,
+        *,
+        hidden_dim: int,
+        scorer_feature_dim: int,
+        dropout: float,
+        zero_init_output: bool = False,
     ) -> None:
         super().__init__()
         input_dim = hidden_dim * 3 + scorer_feature_dim
+        output = nn.Linear(hidden_dim, 1)
+        if zero_init_output:
+            nn.init.zeros_(output.weight)
+            nn.init.zeros_(output.bias)
         self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 1),
+            output,
         )
 
     def forward(
@@ -261,6 +270,10 @@ class EvidenceScoringModel(nn.Module):
         graph_encoder: GraphEncoder,
         scorer_feature_dim: int,
         dropout: float,
+        scoring_mode: Literal[
+            "seed_residual", "seed_passthrough", "residual_only"
+        ] = "residual_only",
+        seed_score_feature_index: int | None = None,
     ) -> None:
         super().__init__()
         self.input_projection = nn.Sequential(
@@ -268,11 +281,21 @@ class EvidenceScoringModel(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
         )
+        if scoring_mode in {"seed_residual", "seed_passthrough"}:
+            if seed_score_feature_index is None:
+                raise ValueError(f"scoring_mode={scoring_mode!r} requires seed score")
+            if not 0 <= seed_score_feature_index < scorer_feature_dim:
+                raise ValueError("seed score feature index is out of range")
+        elif seed_score_feature_index is not None:
+            raise ValueError("residual-only scoring cannot declare a seed score index")
         self.graph_encoder = graph_encoder
+        self.scoring_mode = scoring_mode
+        self.seed_score_feature_index = seed_score_feature_index
         self.scorer = EvidenceNodeScorer(
             hidden_dim=hidden_dim,
             scorer_feature_dim=scorer_feature_dim,
             dropout=dropout,
+            zero_init_output=scoring_mode == "seed_residual",
         )
 
     def forward(self, batch: TrainingBatch) -> Tensor:
@@ -283,11 +306,18 @@ class EvidenceScoringModel(nn.Module):
         h = self.graph_encoder.forward(graph_batch, h0)
         node_states = h[batch.sample_node_indices]
         query_states = h[batch.sample_query_indices]
-        return self.scorer(
+        residual = self.scorer(
             node_states=node_states,
             query_states=query_states,
             sample_node_features=batch.sample_node_features,
         )
+        if self.scoring_mode == "residual_only":
+            return residual
+        assert self.seed_score_feature_index is not None
+        seed_scores = batch.sample_node_features[:, self.seed_score_feature_index]
+        if self.scoring_mode == "seed_passthrough":
+            return seed_scores + residual * 0.0
+        return seed_scores + residual
 
 
 def _relation_degree_norm(

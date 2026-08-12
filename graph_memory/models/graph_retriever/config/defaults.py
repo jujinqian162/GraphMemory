@@ -31,11 +31,13 @@ def default_model_config(
     enabled_edge_types = ("bridge", "entity_overlap", "query_overlap", "sequential")
     canonical_ablation = ablation_name
     layer_count = num_layers
+    scoring_mode = "seed_residual"
 
     if ablation_name in {"identity", "wo_graph", "num_layers_0"} or num_layers == 0:
         graph_encoder_type = "identity"
         layer_count = 0
         canonical_ablation = "wo_graph"
+        scoring_mode = "seed_passthrough"
     elif ablation_name == "wo_edge_type":
         message_transform_type = "shared"
     elif ablation_name == "wo_bridge":
@@ -52,6 +54,7 @@ def default_model_config(
         feature_config = NodeFeatureConfig(
             node_feature_names=("is_question_node",), scorer_feature_names=()
         )
+        scoring_mode = "residual_only"
 
     return RgcnModelConfig(
         method_name=method_name,
@@ -78,4 +81,5 @@ def default_model_config(
         edge_weight_policy=edge_weight_policy,
         enabled_edge_types=enabled_edge_types,
         ablation_name=canonical_ablation,
+        scoring_mode=scoring_mode,
     )

@@ -25,7 +25,12 @@ from graph_memory.models.graph_retriever.config.records import (
     NodeFeatureConfig,
     RgcnModelConfig,
 )
-from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
+from graph_memory.embeddings import DenseTaskEncodingRequest
+from graph_memory.models.graph_retriever.contracts import (
+    TextEmbeddingProvider,
+    build_task_feature_groups,
+)
+from graph_memory.models.graph_retriever.internals.features import NodeFeatureBuilder
 from graph_memory.models.graph_retriever.internals.tensorization import (
     MessageEdgeTensors,
 )
@@ -35,6 +40,7 @@ from graph_memory.retrieval.requests import (
     TextCandidate,
     TextRankingRequest,
 )
+from graph_memory.retrieval.signals import SeedSignalProvider
 from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.training_pairs.requests import (
     CandidateNeighborEdge,
@@ -82,8 +88,8 @@ def provenance_rgcn_model_config(
         num_layers=layer_count,
         dropout=dropout,
         feature_config=NodeFeatureConfig(
-            node_feature_names=(),
-            scorer_feature_names=(),
+            node_feature_names=("seed_score",),
+            scorer_feature_names=("seed_score",),
         ),
         relation_vocab=PROVENANCE_RELATION_VOCAB,
         graph_encoder_type="identity" if layer_count == 0 else "rgcn",
@@ -91,6 +97,7 @@ def provenance_rgcn_model_config(
         edge_weight_policy="uniform",
         enabled_edge_types=(),
         ablation_name="wo_graph" if layer_count == 0 else "full_rgcn",
+        scoring_mode="seed_passthrough" if layer_count == 0 else "seed_residual",
     )
 
 
@@ -267,6 +274,7 @@ def tensorize_provenance_ranking_task(
     *,
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
+    seed_signal_provider: SeedSignalProvider,
 ) -> EvidenceTaskTensor:
     """Adapt one physical provenance graph to the maintained task tensor contract."""
 
@@ -279,23 +287,40 @@ def tensorize_provenance_ranking_task(
             "provenance R-GCN relation vocabulary does not match fixed policy"
         )
     if model_config.feature_config != NodeFeatureConfig(
-        node_feature_names=(), scorer_feature_names=()
+        node_feature_names=("seed_score",),
+        scorer_feature_names=("seed_score",),
     ):
-        raise ValueError("provenance R-GCN forbids metadata-derived numeric features")
+        raise ValueError(
+            "provenance R-GCN permits only the retriever-derived seed score feature"
+        )
 
     graph = request.graph
     fingerprint = graph.fingerprint()
     embedding_request, node_ids = provenance_embedding_request(request)
-    node_embeddings = text_embedding_provider.encode_task_nodes(
-        embedding_request,
-        node_ids,
+    groups = build_task_feature_groups(
+        text_embedding_provider,
+        seed_signal_provider,
+        (
+            DenseTaskEncodingRequest(
+                ranking_request=embedding_request,
+                node_ids=tuple(node_ids),
+            ),
+        ),
     )
+    if len(groups) != 1:
+        raise RuntimeError("provenance tensorization expected one feature group")
+    dense_features = groups[0]
+    node_embeddings = dense_features.node_embeddings
     expected_shape = (len(node_ids), model_config.encoder_dim)
     if tuple(node_embeddings.shape) != expected_shape:
         raise ValueError(
             "provenance node embedding shape mismatch: "
             f"expected={expected_shape} observed={tuple(node_embeddings.shape)}"
         )
+    numeric_features = NodeFeatureBuilder(model_config.feature_config).build_node_features(
+        node_ids=node_ids,
+        seed_signals=dense_features.seed_signals,
+    )
 
     message_edges = tensorize_provenance_edges(graph)
     candidate_indices = [
@@ -303,7 +328,7 @@ def tensorize_provenance_ranking_task(
     ]
     graph_tensor = TaskGraphTensor(
         node_embeddings=node_embeddings,
-        node_features=torch.empty((len(node_ids), 0), dtype=torch.float32),
+        node_features=numeric_features.node_features,
         edge_index=message_edges.edge_index,
         relation_ids=message_edges.relation_ids,
         edge_weights=message_edges.edge_weights,
@@ -316,9 +341,7 @@ def tensorize_provenance_ranking_task(
     return EvidenceTaskTensor(
         graph_tensor=graph_tensor,
         sample_node_indices=torch.tensor(candidate_indices, dtype=torch.long),
-        sample_node_features=torch.empty(
-            (len(candidate_indices), 0), dtype=torch.float32
-        ),
+        sample_node_features=numeric_features.scorer_features[candidate_indices],
         labels=torch.zeros(len(candidate_indices), dtype=torch.float32),
         sample_node_ids=[candidate.item_id for candidate in request.candidates],
         sample_types=["easy_random"] * len(candidate_indices),
@@ -331,11 +354,13 @@ def tensorize_provenance_dev_task(
     *,
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
+    seed_signal_provider: SeedSignalProvider,
 ) -> EvidenceTaskTensor:
     task = tensorize_provenance_ranking_task(
         request,
         model_config=model_config,
         text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
     )
     if label.task_id != request.task_id:
         raise ValueError("provenance dev request and label task IDs must align")
@@ -364,11 +389,13 @@ def tensorize_provenance_training_task(
     *,
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
+    seed_signal_provider: SeedSignalProvider,
 ) -> EvidenceTaskTensor:
     task = tensorize_provenance_ranking_task(
         request,
         model_config=model_config,
         text_embedding_provider=text_embedding_provider,
+        seed_signal_provider=seed_signal_provider,
     )
     node_index = {
         node_id: index for index, node_id in enumerate(task.graph_tensor.node_ids)
@@ -381,12 +408,17 @@ def tensorize_provenance_training_task(
             raise ValueError("provenance training pair crosses task ownership")
         if pair.node_id not in {candidate.item_id for candidate in request.candidates}:
             raise ValueError("provenance training pair is not a ranking candidate")
+    candidate_position = {
+        node_id: index for index, node_id in enumerate(task.sample_node_ids)
+    }
     return replace(
         task,
         sample_node_indices=torch.tensor(
             [node_index[pair.node_id] for pair in rows], dtype=torch.long
         ),
-        sample_node_features=torch.empty((len(rows), 0), dtype=torch.float32),
+        sample_node_features=torch.stack(
+            [task.sample_node_features[candidate_position[pair.node_id]] for pair in rows]
+        ),
         labels=torch.tensor([float(pair.label) for pair in rows], dtype=torch.float32),
         sample_node_ids=[pair.node_id for pair in rows],
         sample_types=[pair.sample_type for pair in rows],
@@ -398,12 +430,14 @@ def tensorize_provenance_ranking_tasks(
     *,
     model_config: RgcnModelConfig,
     text_embedding_provider: TextEmbeddingProvider,
+    seed_signal_provider: SeedSignalProvider,
 ) -> list[EvidenceTaskTensor]:
     return [
         tensorize_provenance_ranking_task(
             request,
             model_config=model_config,
             text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
         )
         for request in requests
     ]

@@ -458,7 +458,9 @@ def materialize_provenance_rgcn_model(
             model_config=model_config,
             training_config=config.train.trainer,
             text_embedding_provider=train_provider,
+            seed_signal_provider=train_provider,
             dev_text_embedding_provider=dev_provider,
+            dev_seed_signal_provider=dev_provider,
             device=config.train.trainer.device,
         )
         checkpoints = publisher.workspace / "checkpoints"

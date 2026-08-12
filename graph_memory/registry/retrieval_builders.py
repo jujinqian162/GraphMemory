@@ -117,6 +117,7 @@ def build_retrieval(
             graph_ids_by_task_id or {},
             dense_encoder=dense_encoder,
             text_embedding_provider=text_embedding_provider,
+            seed_signal_provider=seed_signal_provider,
             device=device,
         )
     if isinstance(method_config, (RgcnMethodConfig, DenseFtRgcnMethodConfig)):
@@ -258,6 +259,7 @@ def _build_provenance_rgcn(
     *,
     dense_encoder: SentenceEncoder | None,
     text_embedding_provider: TextEmbeddingProvider | None,
+    seed_signal_provider: SeedSignalProvider | None,
     device: str,
 ) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
@@ -281,11 +283,19 @@ def _build_provenance_rgcn(
         device=device,
         encoder=dense_encoder,
     )
+    if seed_signal_provider is None:
+        if isinstance(provider, SeedSignalProvider):
+            seed_signal_provider = provider
+        else:
+            raise ValueError(
+                "provenance R-GCN requires an explicit seed signal provider when its text provider cannot score candidates"
+            )
     encoder = _checkpoint_encoder(checkpoint)
     return _built(
         ProvenanceRgcnRetrievalMethod.from_checkpoint(
             checkpoint_path,
             text_embedding_provider=provider,
+            seed_signal_provider=seed_signal_provider,
             device=device,
         ),
         method=RetrievalMethodId.PROVENANCE_RGCN,

@@ -191,7 +191,7 @@ def test_evidence_checkpoint_uses_explicit_graph_batch_schema(tmp_path: Path) ->
 
     checkpoint = load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
 
-    assert checkpoint.payload["schema_version"] == 4
+    assert checkpoint.payload["schema_version"] == 5
     training = checkpoint.payload["training_config"]
     assert "batch_size" not in training
     assert training["per_device_graph_batch_size"] == 1

@@ -11,6 +11,7 @@ from graph_memory.models.graph_retriever.internals.neural import (
     TypedRelationTransform,
 )
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
+from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.internals.tensorization import (
     DEFAULT_RELATION_VOCAB,
 )
@@ -149,6 +150,48 @@ def test_default_rgcn_model_config_has_no_beam_contract() -> None:
 
     assert not hasattr(config, "decoder_config")
     assert not hasattr(config, "beam_search_config")
+
+
+def test_seed_residual_starts_from_exact_seed_scores() -> None:
+    config = default_model_config(
+        method_name="dense_rgcn_graph_retriever",
+        encoder_model="fake-encoder",
+        encoder_dim=3,
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        encoder_batch_size=64,
+        hidden_dim=8,
+        num_layers=1,
+        dropout=0.0,
+    )
+    model = build_model_from_config(config)
+    batch = tiny_training_batch()
+
+    assert config.scoring_mode == "seed_residual"
+    assert torch.equal(model(batch), batch.sample_node_features[:, 0])
+
+
+def test_wo_graph_is_exact_seed_passthrough_even_with_nonzero_head() -> None:
+    config = default_model_config(
+        method_name="dense_rgcn_graph_retriever",
+        encoder_model="fake-encoder",
+        encoder_dim=3,
+        query_prefix="query: ",
+        passage_prefix="passage: ",
+        encoder_batch_size=64,
+        hidden_dim=8,
+        num_layers=2,
+        dropout=0.0,
+        ablation_name="wo_graph",
+    )
+    model = build_model_from_config(config)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.fill_(0.25)
+    batch = tiny_training_batch()
+
+    assert config.scoring_mode == "seed_passthrough"
+    assert torch.equal(model(batch), batch.sample_node_features[:, 0])
 
 
 def test_evidence_scoring_model_backward_updates_relation_parameters():
