@@ -25,7 +25,10 @@ from graph_memory.models.cross_encoder.training import (
     build_cross_encoder_examples,
 )
 from graph_memory.registry.retrieval_builders import build_retrieval
-from graph_memory.retrieval.methods.flat.cross_encoder import CrossEncoderTaskRetriever
+from graph_memory.retrieval.methods.flat.cross_encoder import (
+    CrossEncoderTaskRetriever,
+    load_cross_encoder,
+)
 from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.retrieval.requests import TextCandidate, TextRankingRequest
 from graph_memory.training_pairs.contracts import TrainPairRecord
@@ -93,6 +96,23 @@ def test_cross_encoder_is_isetrace_only() -> None:
         resolve_experiment_config(
             parse_composed_config(composed), repository_root=ROOT
         )
+
+
+def test_cross_encoder_loader_disables_incompatible_mistral_regex_patch(
+    monkeypatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class FixtureLoader:
+        def __init__(self, model_name: str, **kwargs: object) -> None:
+            observed["model_name"] = model_name
+            observed.update(kwargs)
+
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", FixtureLoader)
+
+    load_cross_encoder("fixture-model", device="cpu", max_length=512)
+
+    assert observed["tokenizer_args"] == {"fix_mistral_regex": False}
 
 
 def test_cross_encoder_scores_every_candidate_with_deterministic_ties() -> None:

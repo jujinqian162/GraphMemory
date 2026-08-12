@@ -241,7 +241,7 @@ def train_cross_encoder_task(
     dataset: DatasetName,
     config: CrossEncoderMethodConfig,
     backbone_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
-    implementation_version: str = "cross-encoder-train-v2-trained-checkpoint",
+    implementation_version: str = "cross-encoder-train-v3-bge-pretrained-selection",
 ) -> ModelArtifactRef:
     get_run_logger().info(
         "train cross-encoder | dataset=%s epochs=%s variant=%s",

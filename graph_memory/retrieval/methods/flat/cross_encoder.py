@@ -44,14 +44,29 @@ def load_cross_encoder(
                 device=device,
                 max_length=max_length,
                 num_labels=num_labels,
+                tokenizer_args={"fix_mistral_regex": False},
             )
             if max_length is not None
-            else CrossEncoder(resolved, device=device, num_labels=num_labels)
+            else CrossEncoder(
+                resolved,
+                device=device,
+                num_labels=num_labels,
+                tokenizer_args={"fix_mistral_regex": False},
+            )
         )
     return (
-        CrossEncoder(resolved, device=device, max_length=max_length)
+        CrossEncoder(
+            resolved,
+            device=device,
+            max_length=max_length,
+            tokenizer_args={"fix_mistral_regex": False},
+        )
         if max_length is not None
-        else CrossEncoder(resolved, device=device)
+        else CrossEncoder(
+            resolved,
+            device=device,
+            tokenizer_args={"fix_mistral_regex": False},
+        )
     )
 
 

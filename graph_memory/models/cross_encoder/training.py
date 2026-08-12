@@ -220,7 +220,6 @@ def train_cross_encoder(
             config.base_model,
             device=config.trainer.device,
             max_length=config.max_length,
-            num_labels=1,
         ),
     )
     input_examples = [
@@ -246,8 +245,20 @@ def train_cross_encoder(
     output_dir.mkdir(parents=True, exist_ok=True)
     model_dir.parent.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, object]] = []
-    best_score = float("-inf")
+    best_score = float(evaluator(model, output_path=str(output_dir)))
     best_epoch = 0
+    records.append(
+        _metric_record(
+            epoch=0,
+            global_step=0,
+            train_loss=None,
+            score=best_score,
+            best_epoch=best_epoch,
+            best_score=best_score,
+            values=evaluator.metric_values,
+        )
+    )
+    model.save(str(model_dir), safe_serialization=True)
     loss = _RecordingBceLoss()
     steps_per_epoch = len(train_loader)
 
@@ -291,7 +302,7 @@ def train_cross_encoder(
         show_progress_bar=True,
     )
     shutil.rmtree(output_dir, ignore_errors=True)
-    if best_epoch <= 0 or not np.isfinite(best_score):
+    if not np.isfinite(best_score):
         raise RuntimeError("Cross-Encoder training did not produce a selected checkpoint")
     write_cross_encoder_model_metadata(
         model_dir=model_dir,

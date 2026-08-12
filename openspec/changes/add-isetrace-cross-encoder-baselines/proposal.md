@@ -5,7 +5,7 @@ The WSDM study still lacks a genuinely strong graph-free scorer. Flat Dense-FT i
 ## What Changes
 
 - Add a trainable `cross_encoder` retrieval method with `variant=flat|provenance_unit`; retain `flat` as the default and restrict `provenance_unit` to ISETrace.
-- Fine-tune one E5-base-v2 sequence-classification scorer over natural-query exact-span supervision with pointwise binary cross-entropy, shared hyperparameters, and task-local development Recall@5 checkpoint selection.
+- Fine-tune the pretrained `BAAI/bge-reranker-base` sequence-classification scorer over natural-query exact-span supervision with pointwise binary cross-entropy, shared hyperparameters, and task-local development Recall@5 checkpoint selection.
 - Score every task-local candidate directly instead of introducing a Dense top-N bottleneck; neither variant receives a graph, relation, graph identifier feature, or provenance trace.
 - Reuse the existing ISETrace candidate projections and sampled pair artifacts while recording method, candidate view, backbone, max length, training seed, selection rule, and source digests in cache/artifact/checkpoint identity.
 - Add strict checkpoint validation, full-ranking retrieval, six-budget evaluation, smoke/config/cache tests, and operations documentation for seeds 13/17/29.

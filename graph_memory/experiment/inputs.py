@@ -36,9 +36,13 @@ _DATASET_REGISTRY_KEYS: dict[DatasetName, tuple[str, str]] = {
     "musique": ("musique", "musique"),
 }
 
-# local encoder directory (repo-relative) -> Hugging Face repo id.
-_MODEL_REPO_IDS: dict[str, str] = {
-    "models/intfloat-e5-base-v2": "intfloat/e5-base-v2",
+# local encoder/reranker directory (repo-relative) -> (Hugging Face repo id, revision).
+_MODEL_SOURCES: dict[str, tuple[str, str | None]] = {
+    "models/intfloat-e5-base-v2": ("intfloat/e5-base-v2", None),
+    "models/BAAI-bge-reranker-base": (
+        "BAAI/bge-reranker-base",
+        "2cfc18c9415c912f9d8155881c133215df768a70",
+    ),
 }
 
 
@@ -116,28 +120,27 @@ def _ensure_model(model_name: str, *, repository_root: Path) -> None:
     target = _resolve(Path(model_name), repository_root)
     if target.exists():
         return
-    repo_id = _MODEL_REPO_IDS.get(model_name)
-    if repo_id is None:
+    source = _MODEL_SOURCES.get(model_name)
+    if source is None:
         raise FileNotFoundError(
             f"encoder model {model_name!r} is missing and has no download entry; "
             "place it manually or add a repo mapping in inputs.py"
         )
+    repo_id, revision = source
     from huggingface_hub import snapshot_download
 
-    LOGGER.info("encoder model %s missing; downloading %s", model_name, repo_id)
-    try:
-        snapshot_download(repo_id=repo_id, local_dir=str(target))
-    except Exception:
-        LOGGER.warning(
-            "Hugging Face download failed for %s; retrying once via %s",
-            repo_id,
-            HUGGINGFACE_MIRROR_BASE_URL,
-        )
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(target),
-            endpoint=HUGGINGFACE_MIRROR_BASE_URL,
-        )
+    LOGGER.info(
+        "encoder model %s missing; downloading %s via %s",
+        model_name,
+        repo_id,
+        HUGGINGFACE_MIRROR_BASE_URL,
+    )
+    snapshot_download(
+        repo_id=repo_id,
+        revision=revision,
+        local_dir=str(target),
+        endpoint=HUGGINGFACE_MIRROR_BASE_URL,
+    )
 
 
 def _collect_model_names(config: ResolvedExperimentConfig) -> set[str]:

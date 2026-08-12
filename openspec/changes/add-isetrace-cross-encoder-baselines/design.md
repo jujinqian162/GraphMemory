@@ -25,9 +25,9 @@ ISETrace preparation already persists flat chunks and provenance content units w
 
 Unlike provenance-unit Dense, the Cross-Encoder changes the scoring architecture and training objective, so it receives a real method ID. `variant=flat|provenance_unit` changes only the candidate view. Both variants are ISETrace-only in this study.
 
-### 2. Fine-tune the registered E5-base-v2 backbone as a one-logit sequence classifier
+### 2. Fine-tune a fixed pretrained reranker backbone
 
-The local `models/intfloat-e5-base-v2` weights are loaded through SentenceTransformers 2.7 `CrossEncoder(num_labels=1)`. Query and candidate text form the tokenizer pair; no E5 query/passage prefix is added because the cross-encoder consumes a joint sequence. Training uses `BCEWithLogitsLoss`, one epoch, AdamW, fixed seed, and task-local Recall@5 checkpoint selection after each completed epoch. The randomly initialized classification head is never promoted as a scientific checkpoint before training.
+The registered `BAAI/bge-reranker-base` checkpoint is pinned to Hugging Face revision `2cfc18c9415c912f9d8155881c133215df768a70` and loaded through SentenceTransformers 2.7 `CrossEncoder`. It already contains a pretrained one-logit sequence-classification reranking head; the experiment MUST NOT replace it with a random head. Query and candidate text form the tokenizer pair. Training uses `BCEWithLogitsLoss`, one epoch, AdamW, fixed seed, and task-local Recall@5 checkpoint selection over the pretrained epoch-0 model and each completed epoch.
 
 ### 3. Score every local candidate
 
@@ -39,7 +39,7 @@ The existing pair builder is generalized to accept `cross_encoder`. Exact-span p
 
 ### 5. Select by task-local development Recall@5
 
-After every completed epoch, the model scores each dev task's complete candidate set. Checkpoint selection uses macro development Recall@5, matching the current ISETrace trainable lifecycle's ranking objective.
+The pretrained epoch-0 model and every completed epoch score each dev task's complete candidate set. Checkpoint selection uses macro development Recall@5, matching the current ISETrace trainable lifecycle's ranking objective.
 
 ### 6. Fail closed on checkpoint identity
 
@@ -47,7 +47,7 @@ Metadata records method, variant, base model, max length, train/eval batch sizes
 
 ## Risks / Trade-offs
 
-- **The backbone has no pretrained classification head** → initialize the one-logit head deterministically and require at least one completed supervised epoch before checkpoint selection.
+- **External reranker drift** → pin `BAAI/bge-reranker-base` to revision `2cfc18c...`, content-address the downloaded directory, and record that identity in every model artifact.
 - **Full-candidate scoring is slower** → batch all pairs per task and report measured online latency; avoid hidden top-N recall constraints.
 - **Long pairs are truncated** → freeze and record max length 512, matching the backbone limit and existing candidate construction.
 - **Pointwise sampling may underuse negatives** → consume every persisted positive and sampled negative row; keep both variants' sampling identical.

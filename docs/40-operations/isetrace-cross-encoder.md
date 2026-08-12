@@ -4,10 +4,10 @@
 
 ## Scientific contract
 
-- Backbone: registered local `models/intfloat-e5-base-v2`, loaded as a one-logit sequence-classification model.
+- Backbone: pretrained `BAAI/bge-reranker-base` at fixed revision `2cfc18c9415c912f9d8155881c133215df768a70`, including its pretrained one-logit reranking head.
 - Input: the raw query and candidate form one tokenizer pair; no graph, relation, graph identifier, query type, or Dense score is supplied.
 - Supervision: every persisted exact-span positive and graph-free sampled negative becomes one binary example.
-- Loss/selection: `BCEWithLogitsLoss`; one epoch; checkpoint selected by complete task-local development Recall@5 after the epoch.
+- Loss/selection: `BCEWithLogitsLoss`; one epoch; checkpoint selected by complete task-local development Recall@5 over the pretrained epoch-0 reranker and the completed epoch.
 - Candidate pool: **all candidates in the selected task-local view**. There is no Dense first stage or tunable top-N cutoff.
 - Variants share the backbone, tokenizer, max length 512, optimizer, sampling, epoch count, seed, and selection rule.
 - Checkpoint metadata records the variant and retrieval rejects cross-view reuse.

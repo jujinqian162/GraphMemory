@@ -21,7 +21,7 @@ The method SHALL receive only task-local text ranking requests and MUST NOT rece
 - **AND** no graph artifact is loaded or supplied
 
 ### Requirement: Training uses exact-span labels and persisted sampled pairs
-The trainer SHALL convert every positive and negative row in the selected candidate-view pair artifact into a labelled query-candidate example. It SHALL optimize one-logit binary cross entropy and SHALL fail when pair tasks, candidate IDs, or labels do not align.
+The trainer SHALL load the fixed pretrained `BAAI/bge-reranker-base` one-logit reranking head and MUST NOT replace it with a randomly initialized classifier. It SHALL convert every positive and negative row in the selected candidate-view pair artifact into a labelled query-candidate example. It SHALL optimize one-logit binary cross entropy and SHALL fail when pair tasks, candidate IDs, or labels do not align.
 
 #### Scenario: Build labelled examples
 - **WHEN** one task has exact-span positive candidates and sampled negatives
@@ -29,7 +29,7 @@ The trainer SHALL convert every positive and negative row in the selected candid
 - **AND** no candidate from another task is introduced
 
 ### Requirement: Development selection uses complete local rankings
-The trainer SHALL score every candidate in every development task before computing macro Recall@5. It SHALL evaluate every completed epoch and SHALL persist the checkpoint with the best development Recall@5. It MUST NOT select the untrained randomly initialized classification head.
+The trainer SHALL score every candidate in every development task before computing macro Recall@5. It SHALL evaluate the pretrained epoch-0 reranker and every completed epoch and SHALL persist the checkpoint with the best development Recall@5. Epoch 0 is valid only because the fixed backbone contains a pretrained reranking head.
 
 #### Scenario: Select a checkpoint
 - **WHEN** an epoch improves macro development Recall@5

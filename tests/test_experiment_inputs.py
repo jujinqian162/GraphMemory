@@ -177,7 +177,7 @@ def test_prepare_dataset_does_not_mirror_non_huggingface_downloads(
 
 
 
-def test_encoder_download_retries_once_via_huggingface_mirror(
+def test_encoder_download_uses_huggingface_mirror_and_revision(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -185,17 +185,20 @@ def test_encoder_download_retries_once_via_huggingface_mirror(
 
     def snapshot_download(**kwargs: object) -> str:
         calls.append(kwargs)
-        if len(calls) == 1:
-            raise OSError("primary endpoint unavailable")
         return str(kwargs["local_dir"])
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
 
     inputs._ensure_model(
-        "models/intfloat-e5-base-v2",
+        "models/BAAI-bge-reranker-base",
         repository_root=tmp_path,
     )
 
-    assert len(calls) == 2
-    assert "endpoint" not in calls[0]
-    assert calls[1]["endpoint"] == inputs.HUGGINGFACE_MIRROR_BASE_URL
+    assert calls == [
+        {
+            "repo_id": "BAAI/bge-reranker-base",
+            "revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+            "local_dir": str(tmp_path / "models/BAAI-bge-reranker-base"),
+            "endpoint": inputs.HUGGINGFACE_MIRROR_BASE_URL,
+        }
+    ]

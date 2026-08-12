@@ -1,7 +1,7 @@
 method: cross_encoder
 variant: flat
 backbone:
-  model_name: models/intfloat-e5-base-v2
+  model_name: models/BAAI-bge-reranker-base
   query_prefix: ""
   passage_prefix: ""
   batch_size: ${profile.trainable.cross_encoder.eval_batch_size}
