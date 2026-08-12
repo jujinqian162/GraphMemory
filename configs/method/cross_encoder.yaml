@@ -1,0 +1,26 @@
+method: cross_encoder
+variant: flat
+backbone:
+  model_name: models/intfloat-e5-base-v2
+  query_prefix: ""
+  passage_prefix: ""
+  batch_size: ${profile.trainable.cross_encoder.eval_batch_size}
+max_length: 512
+pairs:
+  random_seed: ${seed}
+  easy_random_per_positive: ${profile.trainable.cross_encoder.easy_random_per_positive}
+  hard_bm25_per_positive: ${profile.trainable.cross_encoder.hard_bm25_per_positive}
+  hard_dense_per_positive: ${profile.trainable.cross_encoder.hard_dense_per_positive}
+  hard_graph_neighbor_per_positive: ${profile.trainable.cross_encoder.hard_graph_neighbor_per_positive}
+  hard_pool_size: 30
+trainer:
+  learning_rate: 0.00002
+  train_batch_size: ${profile.trainable.cross_encoder.train_batch_size}
+  eval_batch_size: ${profile.trainable.cross_encoder.eval_batch_size}
+  epochs: ${profile.trainable.cross_encoder.epochs}
+  warmup_steps: 0
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  random_seed: ${seed}
+  device: ${device}
+  use_amp: false

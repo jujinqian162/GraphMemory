@@ -4,7 +4,7 @@
 
 | Request | Consumers |
 |---|---|
-| `TextRankingRequest` | BM25, Dense, Dense-FT |
+| `TextRankingRequest` | BM25, Dense, Dense-FT, Cross-Encoder |
 | `GraphRAGRequest` | GraphRAG |
 | `EvidenceGraphRankingRequest` | Dense R-GCN, Dense-FT R-GCN |
 | `ExecutionProvenanceRankingRequest` | provenance path, provenance R-GCN |
@@ -18,13 +18,14 @@ No generic graph request. The two provenance methods share one label-free reques
 | `bm25` | text | evidence, execution provenance | no |
 | `dense` | text | evidence, execution provenance | no |
 | `dense_ft` | text | evidence, execution provenance | encoder |
+| `cross_encoder` | text | execution provenance | scorer |
 | `graphrag` | GraphRAG | evidence, execution provenance | no |
 | `provenance_path` | execution provenance | execution provenance | no |
 | `provenance_rgcn` | execution provenance | execution provenance | yes |
 | `dense_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 | `dense_ft_rgcn_graph_retriever` | EvidenceGraph | evidence | yes |
 
-The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. Dense and Dense-FT add a candidate-view variant without adding method IDs: `flat` is the default on every supported family, while `provenance_unit` is valid only on ISETrace. The provenance-unit variants rank the prepared source-backed content units through `TextRankingRequest`; they do not load or receive a provenance graph. Dense-FT maps exact gold spans to every overlapping candidate in the selected view, records the variant in pair/model/checkpoint identity, and rejects a checkpoint from the other view. `provenance_path` and `provenance_rgcn` alone consume `ExecutionProvenanceRankingRequest` over the query-independent graph. Provenance R-GCN may declare the canonical provenance-unit Dense-FT stage as a seed provider; configuration rejects any flat-view seed or encoder mismatch, and model artifacts record the seed digest. Both evidence and provenance R-GCN preserve the provider's seed score and learn only a zero-initialized residual in graph-enabled variants. Their `wo_graph` control returns seed scores exactly, so `full_rgcn - wo_graph` isolates the effect of the learned graph residual. The `provenance_rgcn` identity is not a compatibility alias: config resolution permits it only for execution provenance, and loading requires a strict current checkpoint whose method and model config match.
+The deleted label-conditioned provenance stack and legacy EPGM IDs remain retired. Dense and Dense-FT add a candidate-view variant without adding method IDs: `flat` is the default on every supported family, while `provenance_unit` is valid only on ISETrace. Cross-Encoder is an ISETrace-only trainable method with the same `flat|provenance_unit` candidate-view variants. It scores every task-local query-candidate pair directly with no Dense top-N bottleneck. All provenance-unit variants rank the prepared source-backed content units through `TextRankingRequest`; they do not load or receive a provenance graph. Dense-FT and Cross-Encoder map exact gold spans to every overlapping candidate in the selected view, record the variant in pair/model/checkpoint identity, and reject a checkpoint from the other view. `provenance_path` and `provenance_rgcn` alone consume `ExecutionProvenanceRankingRequest` over the query-independent graph. Provenance R-GCN may declare the canonical provenance-unit Dense-FT stage as a seed provider; configuration rejects any flat-view seed or encoder mismatch, and model artifacts record the seed digest. Both evidence and provenance R-GCN preserve the provider's seed score and learn only a zero-initialized residual in graph-enabled variants. Their `wo_graph` control returns seed scores exactly, so `full_rgcn - wo_graph` isolates the effect of the learned graph residual. The `provenance_rgcn` identity is not a compatibility alias: config resolution permits it only for execution provenance, and loading requires a strict current checkpoint whose method and model config match.
 
 ## Results
 

@@ -16,6 +16,7 @@ from pydantic import (
     model_validator,
 )
 
+from graph_memory.models.cross_encoder.training import CrossEncoderTrainerSettings
 from graph_memory.models.dense_finetune.contracts import DenseFinetuneDataSettings
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneSelectionSettings,
@@ -203,10 +204,21 @@ class DenseFinetuneProfileSettings(ClosedModel):
     hard_graph_neighbor_per_positive: NonNegativeInt
 
 
+class CrossEncoderProfileSettings(ClosedModel):
+    train_batch_size: PositiveInt
+    eval_batch_size: PositiveInt
+    epochs: PositiveInt
+    easy_random_per_positive: NonNegativeInt
+    hard_bm25_per_positive: NonNegativeInt
+    hard_dense_per_positive: NonNegativeInt
+    hard_graph_neighbor_per_positive: NonNegativeInt
+
+
 class TrainableProfileSettings(ClosedModel):
     evidence_rgcn: RgcnProfileSettings
     provenance_rgcn: RgcnProfileSettings
     dense_ft: DenseFinetuneProfileSettings
+    cross_encoder: CrossEncoderProfileSettings
 
 
 class ProfileConfig(ClosedModel):
@@ -347,6 +359,30 @@ class DenseFinetuneMethodConfig(ClosedModel):
         )
 
 
+class CrossEncoderTrainerConfig(CrossEncoderTrainerSettings):
+    device: Device
+
+
+class CrossEncoderMethodConfig(ClosedModel):
+    method: Literal["cross_encoder"]
+    variant: DenseCandidateView = "flat"
+    backbone: DenseEncoderConfig
+    max_length: PositiveInt = 512
+    trainer: CrossEncoderTrainerConfig
+    pairs: NegativeSamplingConfig
+
+    def effective_for_dataset(self, dataset: DatasetName) -> "CrossEncoderMethodConfig":
+        if dataset != "isetrace":
+            return self
+        return self.model_copy(
+            update={
+                "pairs": self.pairs.model_copy(
+                    update={"hard_graph_neighbor_per_positive": 0}
+                )
+            }
+        )
+
+
 class ProvenanceRgcnMethodConfig(RgcnStageConfig):
     method: Literal["provenance_rgcn"]
     variant: ProvenanceRgcnVariant = "full_rgcn"
@@ -395,6 +431,7 @@ MethodConfig: TypeAlias = Annotated[
     Union[
         Bm25MethodConfig,
         DenseMethodConfig,
+        CrossEncoderMethodConfig,
         GraphRAGMethodConfig,
         ProvenancePathMethodConfig,
         ProvenanceRgcnMethodConfig,
@@ -409,6 +446,7 @@ MethodConfig: TypeAlias = Annotated[
 class PairBuildConfig(ClosedModel):
     method: Literal[
         "dense_ft",
+        "cross_encoder",
         "dense_rgcn_graph_retriever",
         "dense_ft_rgcn_graph_retriever",
         "provenance_rgcn",
@@ -420,9 +458,9 @@ class PairBuildConfig(ClosedModel):
 
     @model_validator(mode="after")
     def _validate_candidate_view(self) -> "PairBuildConfig":
-        if self.method != "dense_ft" and self.candidate_view != "flat":
+        if self.method not in {"dense_ft", "cross_encoder"} and self.candidate_view != "flat":
             raise ValueError(
-                "candidate_view='provenance_unit' is valid only for dense_ft pairs"
+                "candidate_view='provenance_unit' is valid only for dense_ft or cross_encoder pairs"
             )
         return self
 
@@ -655,7 +693,7 @@ def _resolve_method_config(
     method: MethodConfig,
     dataset: DatasetName,
 ) -> MethodConfig:
-    if isinstance(method, DenseFinetuneMethodConfig):
+    if isinstance(method, (DenseFinetuneMethodConfig, CrossEncoderMethodConfig)):
         return method.effective_for_dataset(dataset)
     if isinstance(method, ProvenanceRgcnMethodConfig):
         return method.effective_for_dataset(dataset)
@@ -675,9 +713,12 @@ def _check_dataset_method_compatibility(
         method,
         (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig),
     ) or (
-        isinstance(method, (DenseMethodConfig, DenseFinetuneMethodConfig))
+        isinstance(
+            method,
+            (DenseMethodConfig, DenseFinetuneMethodConfig, CrossEncoderMethodConfig),
+        )
         and method.variant == "provenance_unit"
-    )
+    ) or isinstance(method, CrossEncoderMethodConfig)
     evidence_only = isinstance(method, (RgcnMethodConfig, DenseFtRgcnMethodConfig))
     if (
         isinstance(method, DenseFtRgcnMethodConfig)
@@ -703,6 +744,7 @@ def _require_method_splits(
         method,
         (
             DenseFinetuneMethodConfig,
+            CrossEncoderMethodConfig,
             ProvenanceRgcnMethodConfig,
             RgcnMethodConfig,
             DenseFtRgcnMethodConfig,
@@ -724,6 +766,9 @@ __all__ = [
     "CacheConfig",
     "ClosedModel",
     "CountPolicy",
+    "CrossEncoderMethodConfig",
+    "CrossEncoderProfileSettings",
+    "CrossEncoderTrainerConfig",
     "DatasetConfig",
     "DatasetName",
     "DenseCandidateView",

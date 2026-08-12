@@ -7,7 +7,7 @@ Graph structure should help recover complete evidence sets or execution paths be
 | Domain | Datasets | Methods |
 |---|---|---|
 | Evidence retrieval | HotpotQA, 2Wiki, MuSiQue | BM25, Dense, Dense-FT, GraphRAG, Dense R-GCN, Dense-FT R-GCN |
-| Execution provenance | ISETrace natural-query pilot | BM25, Dense/Dense-FT (`flat|provenance_unit`), GraphRAG, provenance path, Provenance R-GCN |
+| Execution provenance | ISETrace natural-query pilot | BM25, Dense/Dense-FT/Cross-Encoder (`flat|provenance_unit`), GraphRAG, provenance path, Provenance R-GCN |
 
 The evidence workflow remains runnable. The revision-pinned ISETrace corpus has canonical trajectory adaptation, query-independent provenance graphs, and frozen trajectory-grouped natural-query train/dev/test ownership. The current generated natural-query corpus is explicitly unreviewed and is suitable for engineering validation, not final paper claims.
 
@@ -19,7 +19,7 @@ The evidence workflow remains runnable. The revision-pinned ISETrace corpus has 
 
 ## Research boundary
 
-- Flat methods are lexical/semantic baselines.
+- Flat methods are lexical/semantic baselines; the trainable Cross-Encoder is the strongest flat scorer and its provenance-unit variant is a candidate-matched graph-free control.
 - GraphRAG is a deterministic retrieval-only FastGraphRAG adaptation: it builds a private noun-phrase co-occurrence graph over small text units, runs query-personalized PageRank, and projects graph scores back to the shared retrieval candidates. It never receives native provenance edges.
 - Evidence R-GCN learns independent node scores on `EvidenceGraph`.
 - `provenance_rgcn` is a new thin adapter over the maintained evidence R-GCN tensor/batching/optimizer/checkpoint stack; it does not restore the deleted label-conditioned provenance implementation or IDs.

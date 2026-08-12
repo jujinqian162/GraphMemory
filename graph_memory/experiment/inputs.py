@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from graph_memory.experiment.config import (
+    CrossEncoderMethodConfig,
     DatasetName,
     DenseEncoderConfig,
     ResolvedExperimentConfig,
@@ -146,6 +147,9 @@ def _collect_model_names(config: ResolvedExperimentConfig) -> set[str]:
 
 
 def _walk_for_models(model: object, names: set[str]) -> None:
+    if isinstance(model, CrossEncoderMethodConfig):
+        names.add(model.backbone.model_name)
+        return
     if isinstance(model, DenseEncoderConfig):
         names.add(model.model_name)
         return

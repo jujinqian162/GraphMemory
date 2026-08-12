@@ -17,6 +17,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
+    CrossEncoderMethodConfig,
     DatasetName,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
@@ -44,6 +45,7 @@ from graph_memory.experiment.tasks import (
     prefect_storage_settings,
     prepare_split_task,
     resolve_encoder_source,
+    train_cross_encoder_task,
     train_dense_ft_task,
     train_evidence_rgcn_task,
     train_provenance_rgcn_task,
@@ -114,6 +116,7 @@ def run_experiment(
             method,
             (
                 DenseFinetuneMethodConfig,
+                CrossEncoderMethodConfig,
                 ProvenanceRgcnMethodConfig,
                 RgcnMethodConfig,
                 DenseFtRgcnMethodConfig,
@@ -180,6 +183,33 @@ def run_experiment(
                 dataset=config.dataset.name,
                 config=method,
                 encoder_source=encoder_source,
+            )
+            assets.extend((pairs, model))
+
+        elif isinstance(method, CrossEncoderMethodConfig):
+            train = prepared["train"]
+            dev = prepared["dev"]
+            backbone_source = resolve_encoder_source(method.backbone)
+            pairs = build_training_pairs_task(
+                prepared=train,
+                evidence_graphs=None,
+                dataset=config.dataset.name,
+                config=PairBuildConfig(
+                    method=method.method,
+                    candidate_view=method.variant,
+                    sampling=method.pairs,
+                    encoder=method.backbone,
+                    device=config.device,
+                ),
+                encoder_source=backbone_source,
+            )
+            model = train_cross_encoder_task(
+                train_prepared=train,
+                train_pairs=pairs,
+                dev_prepared=dev,
+                dataset=config.dataset.name,
+                config=method,
+                backbone_source=backbone_source,
             )
             assets.extend((pairs, model))
 

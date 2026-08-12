@@ -11,6 +11,7 @@ class RetrievalMethodId(StrEnum):
     BM25 = "bm25"
     DENSE = "dense"
     DENSE_FT = "dense_ft"
+    CROSS_ENCODER = "cross_encoder"
     GRAPHRAG = "graphrag"
     PROVENANCE_PATH = "provenance_path"
     PROVENANCE_RGCN = "provenance_rgcn"

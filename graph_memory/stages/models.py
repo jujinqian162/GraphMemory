@@ -40,6 +40,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.config import (
     DatasetName,
+    CrossEncoderMethodConfig,
     DenseCandidateView,
     DenseEncoderConfig,
     DenseFinetuneMethodConfig,
@@ -47,6 +48,10 @@ from graph_memory.experiment.config import (
     RgcnStageConfig,
 )
 from graph_memory.io import read_json, write_jsonl
+from graph_memory.models.cross_encoder.training import (
+    CrossEncoderRunConfig,
+    train_cross_encoder,
+)
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
 from graph_memory.models.dense_finetune.training import (
     DenseFinetuneRunConfig,
@@ -213,6 +218,105 @@ def _dense_finetune_split(
     requests, compiled_labels = adapter(rankings, isetrace_labels)
     group_ids = {ranking.task_id: ranking.graph_id for ranking in rankings}
     return requests, compiled_labels, group_ids
+
+
+def materialize_cross_encoder_model(
+    store: ProcessedAssetStore,
+    *,
+    dataset: DatasetName,
+    config: CrossEncoderMethodConfig,
+    train_prepared: DatasetArtifactRef,
+    train_pairs: TrainingPairsArtifactRef,
+    dev_prepared: DatasetArtifactRef,
+    backbone_source: EncoderSourceRef,
+    implementation_version: str,
+) -> ModelArtifactRef:
+    effective_backbone = _resolved_encoder(config.backbone, backbone_source)
+    train_tasks = cast(
+        list[object], read_json(artifact_payload_path(train_prepared, "tasks"))
+    )
+    train_labels = cast(
+        list[object], read_json(artifact_payload_path(train_prepared, "labels"))
+    )
+    dev_tasks = cast(
+        list[object], read_json(artifact_payload_path(dev_prepared, "tasks"))
+    )
+    dev_labels = cast(
+        list[object], read_json(artifact_payload_path(dev_prepared, "labels"))
+    )
+    pairs = TRAIN_PAIRS_ADAPTER.validate_python(
+        read_json(artifact_payload_path(train_pairs, "pairs"))
+    )
+    train_requests, train_compiled_labels, _ = _dense_finetune_split(
+        dataset,
+        train_tasks,
+        train_labels,
+        variant=config.variant,
+    )
+    dev_requests, dev_compiled_labels, _ = _dense_finetune_split(
+        dataset,
+        dev_tasks,
+        dev_labels,
+        variant=config.variant,
+    )
+    TrainPairDataset(
+        requests=tuple(train_requests),
+        labels=tuple(train_compiled_labels),
+        pairs=tuple(pairs),
+    )
+    _validate_dev_split(dev_requests, dev_compiled_labels)
+    with ArtifactPublisher(
+        store,
+        kind=ArtifactKind.MODEL,
+        namespace=config.method,
+        task_identity="train-cross-encoder",
+        origin={
+            "stage": "train",
+            "dataset": dataset,
+            "method": config.method,
+            "variant": config.variant,
+            "prepared_digest": train_prepared.digest,
+            "pairs_digest": train_pairs.digest,
+            "dev_digest": dev_prepared.digest,
+            "backbone_identity": immutable_source_identity(backbone_source),
+            "implementation_version": implementation_version,
+        },
+    ) as publisher:
+        result = train_cross_encoder(
+            config=CrossEncoderRunConfig(
+                variant=config.variant,
+                base_model=effective_backbone.model_name,
+                max_length=config.max_length,
+                trainer=config.trainer,
+            ),
+            train_requests=train_requests,
+            train_pairs=pairs,
+            dev_requests=dev_requests,
+            dev_labels=dev_compiled_labels,
+            output_dir=publisher.workspace / "trainer_output",
+            model_dir=publisher.workspace / "model",
+        )
+        history = tuple(
+            cast(dict[str, JsonValue], dict(record))
+            for record in result.metric_records
+        )
+        write_jsonl(publisher.workspace / "training_metrics.jsonl", list(history))
+        artifact = publisher.publish(
+            {
+                "model": "model",
+                "training_metrics": "training_metrics.jsonl",
+            },
+            metadata={
+                "selected_metric_name": result.selected_metric_name,
+                "selected_metric_value": result.selected_metric_value,
+                "variant": config.variant,
+                "max_length": config.max_length,
+                "candidate_pool": "all_task_local_candidates",
+                "effective_sampling": train_pairs.origin.get("sampling_config"),
+            },
+        )
+    assert isinstance(artifact, ModelArtifactRef)
+    return artifact
 
 
 def materialize_evidence_rgcn_model(
@@ -570,6 +674,7 @@ def _resolved_encoder(
 
 __all__ = [
     "EncoderSourceRef",
+    "materialize_cross_encoder_model",
     "materialize_dense_finetune_model",
     "materialize_evidence_rgcn_model",
     "materialize_provenance_rgcn_model",

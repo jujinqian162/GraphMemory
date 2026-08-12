@@ -28,6 +28,7 @@ from graph_memory.experiment.artifacts import (
 )
 from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
+    CrossEncoderMethodConfig,
     DatasetName,
     DenseEncoderConfig,
     DenseFinetuneMethodConfig,
@@ -43,6 +44,7 @@ from graph_memory.stages.encodings import materialize_frozen_rgcn_embeddings
 from graph_memory.stages.evaluate import materialize_evaluation
 from graph_memory.stages.graphs import materialize_evidence_graphs
 from graph_memory.stages.models import (
+    materialize_cross_encoder_model,
     materialize_dense_finetune_model,
     materialize_evidence_rgcn_model,
     materialize_provenance_rgcn_model,
@@ -228,6 +230,38 @@ def train_dense_ft_task(
 
 
 @task(
+    name="train-cross-encoder",
+    persist_result=True,
+    cache_policy=SCIENTIFIC_CACHE_POLICY,
+)
+def train_cross_encoder_task(
+    train_prepared: DatasetArtifactRef,
+    train_pairs: TrainingPairsArtifactRef,
+    dev_prepared: DatasetArtifactRef,
+    dataset: DatasetName,
+    config: CrossEncoderMethodConfig,
+    backbone_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
+    implementation_version: str = "cross-encoder-train-v2-trained-checkpoint",
+) -> ModelArtifactRef:
+    get_run_logger().info(
+        "train cross-encoder | dataset=%s epochs=%s variant=%s",
+        dataset,
+        config.trainer.epochs,
+        config.variant,
+    )
+    return materialize_cross_encoder_model(
+        _processed_store(),
+        dataset=dataset,
+        config=config,
+        train_prepared=train_prepared,
+        train_pairs=train_pairs,
+        dev_prepared=dev_prepared,
+        backbone_source=backbone_source,
+        implementation_version=implementation_version,
+    )
+
+
+@task(
     name="train-evidence-rgcn",
     persist_result=True,
     cache_policy=SCIENTIFIC_CACHE_POLICY,
@@ -394,6 +428,7 @@ __all__ = [
     "prepare_split_task",
     "prefect_storage_settings",
     "resolve_encoder_source",
+    "train_cross_encoder_task",
     "train_dense_ft_task",
     "train_evidence_rgcn_task",
     "train_provenance_rgcn_task",

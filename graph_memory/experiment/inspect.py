@@ -45,6 +45,7 @@ def inspect_catalog(
         return {
             RetrievalMethodId.DENSE: dense_variants,
             RetrievalMethodId.DENSE_FT: dense_variants,
+            RetrievalMethodId.CROSS_ENCODER: dense_variants,
             RetrievalMethodId.DENSE_RGCN_GRAPH_RETRIEVER: evidence_variants,
             RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER: evidence_variants,
         }
@@ -66,6 +67,7 @@ def _method_row(method: RetrievalMethodId) -> dict[str, object]:
         RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER,
     }
     provenance_only = method in {
+        RetrievalMethodId.CROSS_ENCODER,
         RetrievalMethodId.PROVENANCE_PATH,
         RetrievalMethodId.PROVENANCE_RGCN,
     }
@@ -82,6 +84,7 @@ def _method_row(method: RetrievalMethodId) -> dict[str, object]:
             RetrievalMethodId.BM25: "TextRankingRequest",
             RetrievalMethodId.DENSE: "TextRankingRequest",
             RetrievalMethodId.DENSE_FT: "TextRankingRequest",
+            RetrievalMethodId.CROSS_ENCODER: "TextRankingRequest",
             RetrievalMethodId.GRAPHRAG: "GraphRAGRequest",
             RetrievalMethodId.PROVENANCE_PATH: "ExecutionProvenanceRankingRequest",
             RetrievalMethodId.PROVENANCE_RGCN: "ExecutionProvenanceRankingRequest",

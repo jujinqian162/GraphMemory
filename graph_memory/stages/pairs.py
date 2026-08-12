@@ -168,7 +168,7 @@ def _pair_tasks(
     if dataset == "isetrace":
         rankings = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
         isetrace_labels = ISETRACE_LABELS_ADAPTER.validate_python(labels)
-        if method == "dense_ft":
+        if method in {"dense_ft", "cross_encoder"}:
             adapter = (
                 adapt_provenance_unit_dense_training_split
                 if candidate_view == "provenance_unit"

@@ -9,6 +9,7 @@ from graph_memory.contracts.common import JsonValue as RecursiveJsonValue
 from graph_memory.embeddings import SentenceEncoder, load_sentence_transformer
 from graph_memory.experiment.config import (
     Bm25MethodConfig,
+    CrossEncoderMethodConfig,
     DenseCandidateView,
     DenseEncoderConfig,
     DenseFinetuneMethodConfig,
@@ -23,6 +24,7 @@ from graph_memory.experiment.config import (
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.index import GraphIndex
 from graph_memory.graphs.provenance import ProvenanceGraph
+from graph_memory.models.cross_encoder.metadata import load_cross_encoder_model_metadata
 from graph_memory.models.dense_finetune.metadata import load_dense_ft_model_metadata
 from graph_memory.models.graph_retriever.checkpoint import RgcnCheckpoint
 from graph_memory.retrieval.contracts import RetrievalMethod
@@ -89,6 +91,13 @@ def build_retrieval(
             method_config.variant,
             text_requests,
             dense_encoder=dense_encoder,
+            device=device,
+        )
+    if isinstance(method_config, CrossEncoderMethodConfig):
+        return _build_cross_encoder(
+            _required_checkpoint(checkpoint, method_config.method),
+            method_config,
+            text_requests,
             device=device,
         )
     if isinstance(method_config, GraphRAGMethodConfig):
@@ -187,6 +196,39 @@ def _build_dense_ft(
         model=checkpoint,
         device=device,
         encoder=encoder_settings,
+        execution_requests=list(text_requests),
+    )
+
+
+def _build_cross_encoder(
+    checkpoint: Path,
+    config: CrossEncoderMethodConfig,
+    text_requests: list[TextRankingRequest],
+    *,
+    device: str,
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
+    from graph_memory.retrieval.methods.flat.cross_encoder import (
+        CrossEncoderTaskRetriever,
+        load_cross_encoder,
+    )
+
+    metadata = load_cross_encoder_model_metadata(checkpoint)
+    if metadata.variant != config.variant:
+        raise ValueError(
+            f"Cross-Encoder checkpoint variant={metadata.variant!r} does not match "
+            f"requested variant={config.variant!r}."
+        )
+    model = load_cross_encoder(
+        checkpoint,
+        device=device,
+        max_length=metadata.max_length,
+    )
+    return _built(
+        CrossEncoderTaskRetriever(model, batch_size=metadata.eval_batch_size),
+        method=RetrievalMethodId.CROSS_ENCODER,
+        model=checkpoint,
+        device=device,
+        encoder=config.backbone,
         execution_requests=list(text_requests),
     )
 

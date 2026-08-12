@@ -30,3 +30,11 @@ trainable:
     hard_bm25_per_positive: 2
     hard_dense_per_positive: 0
     hard_graph_neighbor_per_positive: 1
+  cross_encoder:
+    train_batch_size: 1
+    eval_batch_size: 4
+    epochs: 1
+    easy_random_per_positive: 1
+    hard_bm25_per_positive: 1
+    hard_dense_per_positive: 0
+    hard_graph_neighbor_per_positive: 0

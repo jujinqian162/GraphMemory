@@ -27,6 +27,7 @@ from graph_memory.experiment.artifacts import (
     immutable_source_identity,
 )
 from graph_memory.experiment.config import (
+    CrossEncoderMethodConfig,
     DatasetName,
     DenseFinetuneMethodConfig,
     DenseFtRgcnMethodConfig,
@@ -69,7 +70,14 @@ def run_retrieve_stage(
         isetrace_representation=(
             "provenance"
             if (
-                isinstance(method, (DenseMethodConfig, DenseFinetuneMethodConfig))
+                isinstance(
+                    method,
+                    (
+                        DenseMethodConfig,
+                        DenseFinetuneMethodConfig,
+                        CrossEncoderMethodConfig,
+                    ),
+                )
                 and method.variant == "provenance_unit"
             )
             or isinstance(
@@ -193,7 +201,7 @@ def _model_checkpoint(
     method: MethodConfig,
     model: ModelArtifactRef | None,
 ) -> Path | None:
-    if isinstance(method, DenseFinetuneMethodConfig):
+    if isinstance(method, (DenseFinetuneMethodConfig, CrossEncoderMethodConfig)):
         return _model_payload(model, "model")
     if isinstance(
         method,
