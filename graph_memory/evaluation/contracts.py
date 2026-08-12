@@ -34,6 +34,9 @@ class MetricRow(DomainModel):
     evidence_density_at_10: OptionalUnitMetric = Field(
         default="N/A", alias="Evidence Density@10"
     )
+    coverage_at_256_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@256 Tokens"
+    )
     coverage_at_512_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Coverage@512 Tokens"
     )
@@ -43,14 +46,41 @@ class MetricRow(DomainModel):
     coverage_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Coverage@2048 Tokens"
     )
+    coverage_at_4096_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@4096 Tokens"
+    )
+    coverage_at_8192_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@8192 Tokens"
+    )
+    full_support_at_256_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@256 Tokens"
+    )
+    full_support_at_512_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@512 Tokens"
+    )
+    full_support_at_1024_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@1024 Tokens"
+    )
+    full_support_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@2048 Tokens"
+    )
+    full_support_at_4096_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@4096 Tokens"
+    )
+    full_support_at_8192_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@8192 Tokens"
+    )
+    coverage_budget_auc: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage Budget-AUC"
+    )
+    full_support_budget_auc: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support Budget-AUC"
+    )
     span_f1_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Span F1@2048 Tokens"
     )
     evidence_density_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Evidence Density@2048 Tokens"
-    )
-    full_support_at_2048_tokens: OptionalUnitMetric = Field(
-        default="N/A", alias="Full Support@2048 Tokens"
     )
     full_support_at_5: UnitMetric = Field(alias="Full Support@5")
     full_support_at_10: UnitMetric = Field(alias="Full Support@10")
@@ -92,6 +122,9 @@ class TaskMetricRow(DomainModel):
     evidence_density_at_10: OptionalUnitMetric = Field(
         default="N/A", alias="Evidence Density@10"
     )
+    coverage_at_256_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@256 Tokens"
+    )
     coverage_at_512_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Coverage@512 Tokens"
     )
@@ -101,14 +134,41 @@ class TaskMetricRow(DomainModel):
     coverage_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Coverage@2048 Tokens"
     )
+    coverage_at_4096_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@4096 Tokens"
+    )
+    coverage_at_8192_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage@8192 Tokens"
+    )
+    full_support_at_256_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@256 Tokens"
+    )
+    full_support_at_512_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@512 Tokens"
+    )
+    full_support_at_1024_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@1024 Tokens"
+    )
+    full_support_at_2048_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@2048 Tokens"
+    )
+    full_support_at_4096_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@4096 Tokens"
+    )
+    full_support_at_8192_tokens: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support@8192 Tokens"
+    )
+    coverage_budget_auc: OptionalUnitMetric = Field(
+        default="N/A", alias="Coverage Budget-AUC"
+    )
+    full_support_budget_auc: OptionalUnitMetric = Field(
+        default="N/A", alias="Full Support Budget-AUC"
+    )
     span_f1_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Span F1@2048 Tokens"
     )
     evidence_density_at_2048_tokens: OptionalUnitMetric = Field(
         default="N/A", alias="Evidence Density@2048 Tokens"
-    )
-    full_support_at_2048_tokens: OptionalUnitMetric = Field(
-        default="N/A", alias="Full Support@2048 Tokens"
     )
     full_support_at_5: UnitMetric = Field(alias="Full Support@5")
     full_support_at_10: UnitMetric = Field(alias="Full Support@10")

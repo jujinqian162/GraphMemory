@@ -99,12 +99,22 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
             "Recall@10": "0.75",
             "Evidence Density@5": "0.25",
             "Evidence Density@10": "0.2",
+            "Coverage@256 Tokens": "0.2",
             "Coverage@512 Tokens": "0.4",
             "Coverage@1024 Tokens": "0.6",
             "Coverage@2048 Tokens": "0.8",
+            "Coverage@4096 Tokens": "0.9",
+            "Coverage@8192 Tokens": "1.0",
+            "Full Support@256 Tokens": "0.1",
+            "Full Support@512 Tokens": "0.2",
+            "Full Support@1024 Tokens": "0.4",
+            "Full Support@2048 Tokens": "0.6",
+            "Full Support@4096 Tokens": "0.8",
+            "Full Support@8192 Tokens": "1.0",
+            "Coverage Budget-AUC": "0.85",
+            "Full Support Budget-AUC": "0.75",
             "Span F1@2048 Tokens": "0.4",
             "Evidence Density@2048 Tokens": "0.3",
-            "Full Support@2048 Tokens": "0.6",
             "MRR": "0.5",
         }],
     )
@@ -137,12 +147,22 @@ def test_one_active_run_receives_final_metrics_tags_and_assets(
     assert metrics["final.mrr"] == 0.5
     assert metrics["final.evidence_density_at_5"] == 0.25
     assert metrics["final.evidence_density_at_10"] == 0.2
+    assert metrics["final.coverage_at_256_tokens"] == 0.2
     assert metrics["final.coverage_at_512_tokens"] == 0.4
     assert metrics["final.coverage_at_1024_tokens"] == 0.6
     assert metrics["final.coverage_at_2048_tokens"] == 0.8
+    assert metrics["final.coverage_at_4096_tokens"] == 0.9
+    assert metrics["final.coverage_at_8192_tokens"] == 1.0
+    assert metrics["final.full_support_at_256_tokens"] == 0.1
+    assert metrics["final.full_support_at_512_tokens"] == 0.2
+    assert metrics["final.full_support_at_1024_tokens"] == 0.4
+    assert metrics["final.full_support_at_2048_tokens"] == 0.6
+    assert metrics["final.full_support_at_4096_tokens"] == 0.8
+    assert metrics["final.full_support_at_8192_tokens"] == 1.0
+    assert metrics["final.coverage_budget_auc"] == 0.85
+    assert metrics["final.full_support_budget_auc"] == 0.75
     assert metrics["final.span_f1_at_2048_tokens"] == 0.4
     assert metrics["final.evidence_density_at_2048_tokens"] == 0.3
-    assert metrics["final.full_support_at_2048_tokens"] == 0.6
     assert metrics["final.retrieval_latency_ms_per_query"] == 0.0
     assert {path for _, path in captured["log_dict"]} == {"assets/manifest.json"}
     assert captured["log_artifacts"] == [str(run_output)]

@@ -53,10 +53,20 @@ def _write_run(
                 json.dumps(
                     {
                         "task_id": f"q{index}",
+                        "Coverage@256 Tokens": value / 4,
                         "Coverage@512 Tokens": value / 2,
                         "Coverage@1024 Tokens": value,
                         "Coverage@2048 Tokens": value,
+                        "Coverage@4096 Tokens": value,
+                        "Coverage@8192 Tokens": value,
+                        "Full Support@256 Tokens": value / 4,
+                        "Full Support@512 Tokens": value / 2,
+                        "Full Support@1024 Tokens": value,
                         "Full Support@2048 Tokens": value,
+                        "Full Support@4096 Tokens": value,
+                        "Full Support@8192 Tokens": value,
+                        "Coverage Budget-AUC": value,
+                        "Full Support Budget-AUC": value,
                         "Recall@5": value,
                         "MRR": value,
                     }
@@ -132,6 +142,10 @@ def test_cli_aggregates_token_metrics_and_legacy_trajectory_metadata(
     assert result["test_cluster_count"] == 1
     assert (
         result["summary"]["rgcn_natural"]["metrics"]["Coverage@1024 Tokens"]["mean"]
+        == 1.0
+    )
+    assert (
+        result["summary"]["rgcn_natural"]["metrics"]["Full Support@8192 Tokens"]["mean"]
         == 1.0
     )
     paired = result["paired_analysis"]["rgcn_natural"]["metrics"][

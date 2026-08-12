@@ -65,7 +65,7 @@ The second command is the matched frozen candidate-view control. Both jobs retai
 
 ## Interpretation
 
-Report span Coverage/Recall, Span F1, Full Support, Evidence Density, MRR, and Coverage@512/1024/2048 Tokens. Compare Dense `flat` against Dense `provenance_unit` to estimate the candidate-segmentation contribution; compare provenance-unit Dense against `provenance_path` to estimate path-traversal contribution. Graph connectivity can remain a method diagnostic, but it is not a labeled dependency metric in v7.
+Report span Coverage/Recall, Span F1, Full Support, Evidence Density, and MRR. The complete token-budget curves report Coverage and Full Support at 256/512/1024/2048/4096/8192 tokens, plus trapezoidal Budget-AUC normalized on the log2-token axis over the 256–8192 interval; the compact main table may continue to emphasize 512/1024/2048. Compare Dense `flat` against Dense `provenance_unit` to estimate the candidate-segmentation contribution; compare provenance-unit Dense against `provenance_path` to estimate path-traversal contribution. Graph connectivity can remain a method diagnostic, but it is not a labeled dependency metric in v7.
 
 Experiment scale is determined from successfully compiled records rather than the filename. Preparation writes `queries_seen`, `queries_resolved`, `queries_dropped`, `queries_uncompilable`, `queries_unmatched`, and `queries_ambiguous` into the dataset artifact counts.
 

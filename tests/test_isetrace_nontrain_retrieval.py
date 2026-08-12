@@ -29,6 +29,10 @@ from graph_memory.evaluation.span_metrics import (
     span_metrics_at,
     span_metrics_under_token_budget,
 )
+from graph_memory.evaluation.span_suite import (
+    CONTEXT_TOKEN_BUDGETS,
+    normalized_budget_auc,
+)
 from graph_memory.graphs.provenance import (
     ARGUMENT_CHUNK_NODE,
     FEEDS_EDGE,
@@ -341,6 +345,20 @@ def test_provenance_unit_dense_supervision_maps_every_overlapping_unit() -> None
     assert requests[0].candidates == candidates
     assert labels[0].gold_evidence_item_ids == expected
     assert labels[0].gold_dependency_edges == ()
+
+
+def test_budget_auc_is_normalized_and_requires_complete_declared_curve() -> None:
+    assert normalized_budget_auc(
+        {budget: 1.0 for budget in CONTEXT_TOKEN_BUDGETS}
+    ) == pytest.approx(1.0)
+    assert normalized_budget_auc(
+        {
+            budget: float(index) / (len(CONTEXT_TOKEN_BUDGETS) - 1)
+            for index, budget in enumerate(CONTEXT_TOKEN_BUDGETS)
+        }
+    ) == pytest.approx(0.5)
+    with pytest.raises(ValueError, match="declared token-budget order"):
+        normalized_budget_auc({512: 1.0})
 
 
 def test_flat_dense_supervision_fails_when_no_chunk_overlaps() -> None:
@@ -906,17 +924,30 @@ def test_nontrain_stages_run_aligned_isetrace_requests(
         metric = metric_rows[0]
         assert per_task_rows[0].graph_id == benchmark.rankings[0].graph_id
         assert per_task_rows[0].memory_mode == "linked_recall"
-        assert metric.evaluation_schema == "execution_provenance_span_v7"
+        assert metric.evaluation_schema == "execution_provenance_span_v8"
         assert metric.evidence_density_at_10 != "N/A"
-        assert metric.coverage_at_512_tokens != "N/A"
-        assert metric.coverage_at_1024_tokens != "N/A"
-        assert metric.coverage_at_2048_tokens != "N/A"
-        assert (
-            metric.coverage_at_512_tokens
-            <= metric.coverage_at_1024_tokens
-            <= metric.coverage_at_2048_tokens
+        coverage_curve = (
+            metric.coverage_at_256_tokens,
+            metric.coverage_at_512_tokens,
+            metric.coverage_at_1024_tokens,
+            metric.coverage_at_2048_tokens,
+            metric.coverage_at_4096_tokens,
+            metric.coverage_at_8192_tokens,
         )
-        assert metric.full_support_at_2048_tokens != "N/A"
+        full_support_curve = (
+            metric.full_support_at_256_tokens,
+            metric.full_support_at_512_tokens,
+            metric.full_support_at_1024_tokens,
+            metric.full_support_at_2048_tokens,
+            metric.full_support_at_4096_tokens,
+            metric.full_support_at_8192_tokens,
+        )
+        assert all(value != "N/A" for value in coverage_curve)
+        assert all(value != "N/A" for value in full_support_curve)
+        assert list(coverage_curve) == sorted(coverage_curve)
+        assert list(full_support_curve) == sorted(full_support_curve)
+        assert metric.coverage_budget_auc != "N/A"
+        assert metric.full_support_budget_auc != "N/A"
         assert metric.connected_evidence_recall_at_10 != "N/A"
         assert metric.path_recall_at_10 == "N/A"
         assert metric.edge_recall_at_10 == "N/A"

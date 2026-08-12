@@ -11,7 +11,7 @@ workflow/summary.yaml
 assets/manifest.yaml
 metrics/final.metrics.csv
 metrics/per_task.jsonl
-predictions/ranked_prefix.jsonl.gz  # per-query fixed-k/token-budget reproduction prefix
+predictions/ranked_prefix.jsonl.gz  # per-query fixed-k/8192-token reproduction prefix
 training/*          # trainable only
 debug/failure_cases.jsonl
 ```
@@ -22,7 +22,7 @@ Run name, Hydra job number, output path, Prefect/MLflow IDs do not enter scienti
 
 ## Complete-run validation and offline transfer
 
-The collector validates the complete output contract by default. It rejects missing/empty `metrics/per_task.jsonl`, duplicate task IDs, malformed final metrics, missing asset references, and required files that would be skipped by the size limit. Output schema v2 additionally requires a deterministic gzip JSONL prediction prefix containing enough ranked-node records for fixed `top_k` and the maximum reported token budget; the full processed ranking remains content-addressed through `assets/manifest.yaml`. The delivery manifest records SHA-256 for every copied file plus a sorted task-ID fingerprint for each job. Legacy schema-v1 deliveries remain readable but do not contain the compact prediction prefix.
+The collector validates the complete output contract by default. It rejects missing/empty `metrics/per_task.jsonl`, duplicate task IDs, malformed final metrics, missing asset references, and required files that would be skipped by the size limit. Output schema v2 additionally requires a deterministic gzip JSONL prediction prefix containing enough ranked-node records for fixed `top_k` and the maximum reported token budget (8192 tokens for ISETrace); the full processed ranking remains content-addressed through `assets/manifest.yaml`. The delivery manifest records SHA-256 for every copied file plus a sorted task-ID fingerprint for each job. Legacy schema-v1 deliveries remain readable but do not contain the compact prediction prefix.
 
 ```powershell
 uv run python scripts/deliver/collect_run_artifacts.py --name hotpot_smoke_13

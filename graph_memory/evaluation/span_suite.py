@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from graph_memory.evaluation.contracts import (
@@ -17,8 +18,28 @@ from graph_memory.evaluation.span_metrics import (
     span_mrr,
 )
 
-CONTEXT_TOKEN_BUDGETS = (512, 1024, 2048)
+CONTEXT_TOKEN_BUDGETS = (256, 512, 1024, 2048, 4096, 8192)
 CONTEXT_TOKEN_BUDGET = 2048
+
+
+def normalized_budget_auc(values: dict[int, float]) -> float:
+    """Normalized trapezoidal AUC on the log2-token budget axis."""
+    if tuple(values) != CONTEXT_TOKEN_BUDGETS:
+        raise ValueError(
+            "budget-AUC requires values in the declared token-budget order: "
+            f"{CONTEXT_TOKEN_BUDGETS}"
+        )
+    area = sum(
+        (math.log2(right_budget) - math.log2(left_budget))
+        * (values[left_budget] + values[right_budget])
+        / 2.0
+        for left_budget, right_budget in zip(
+            CONTEXT_TOKEN_BUDGETS[:-1],
+            CONTEXT_TOKEN_BUDGETS[1:],
+            strict=True,
+        )
+    )
+    return area / math.log2(CONTEXT_TOKEN_BUDGETS[-1] / CONTEXT_TOKEN_BUDGETS[0])
 
 
 @dataclass(frozen=True)
@@ -66,12 +87,32 @@ class SpanEvidenceMetricSuite:
                     "Evidence F1@10": at_10.f1,
                     "Evidence Density@5": at_5.density,
                     "Evidence Density@10": at_10.density,
+                    "Coverage@256 Tokens": at_budget[256].coverage,
                     "Coverage@512 Tokens": at_budget[512].coverage,
                     "Coverage@1024 Tokens": at_budget[1024].coverage,
                     "Coverage@2048 Tokens": at_budget[2048].coverage,
+                    "Coverage@4096 Tokens": at_budget[4096].coverage,
+                    "Coverage@8192 Tokens": at_budget[8192].coverage,
+                    "Full Support@256 Tokens": at_budget[256].full_support,
+                    "Full Support@512 Tokens": at_budget[512].full_support,
+                    "Full Support@1024 Tokens": at_budget[1024].full_support,
+                    "Full Support@2048 Tokens": at_budget[2048].full_support,
+                    "Full Support@4096 Tokens": at_budget[4096].full_support,
+                    "Full Support@8192 Tokens": at_budget[8192].full_support,
+                    "Coverage Budget-AUC": normalized_budget_auc(
+                        {
+                            budget: at_budget[budget].coverage
+                            for budget in CONTEXT_TOKEN_BUDGETS
+                        }
+                    ),
+                    "Full Support Budget-AUC": normalized_budget_auc(
+                        {
+                            budget: at_budget[budget].full_support
+                            for budget in CONTEXT_TOKEN_BUDGETS
+                        }
+                    ),
                     "Span F1@2048 Tokens": at_budget[2048].f1,
                     "Evidence Density@2048 Tokens": at_budget[2048].density,
-                    "Full Support@2048 Tokens": at_budget[2048].full_support,
                     "Full Support@5": at_5.full_support,
                     "Full Support@10": at_10.full_support,
                     "MRR": span_mrr(prediction.ranked_nodes, label.gold_evidence_spans),
@@ -107,7 +148,7 @@ class SpanEvidenceMetricSuite:
             )
         aggregate: dict[str, object] = {
             "Method": method,
-            "Evaluation Schema": "execution_provenance_span_v7",
+            "Evaluation Schema": "execution_provenance_span_v8",
             "Path Recall@10": "N/A",
             "Edge Recall@10": "N/A",
             "Edge Precision@10": "N/A",
@@ -171,4 +212,5 @@ __all__ = [
     "CONTEXT_TOKEN_BUDGET",
     "CONTEXT_TOKEN_BUDGETS",
     "SpanEvidenceMetricSuite",
+    "normalized_budget_auc",
 ]

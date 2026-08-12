@@ -51,7 +51,7 @@ prepare train/dev/test natural queries
   -> exact-span evaluation
 ```
 
-Test reports exact-span Recall, Coverage@512/1024/2048 Tokens, Full Support, span F1, MRR, and evidence density. Candidate source spans are preserved through ranking.
+Test reports exact-span Recall, span F1, MRR, evidence density, Coverage/Full Support at 256/512/1024/2048/4096/8192 tokens, and trapezoidal Budget-AUC normalized on the log2-token axis. Candidate source spans are preserved through ranking; the six budgets support complete post-hoc budget curves while main tables may emphasize 512/1024/2048.
 
 There are no independently annotated provenance edge/path labels in the natural corpus. Therefore path/edge accuracy is unavailable; any retrieved provenance path is diagnostic only and must not be reported as labeled accuracy.
 

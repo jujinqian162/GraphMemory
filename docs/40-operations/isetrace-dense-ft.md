@@ -13,7 +13,7 @@
 - Dev ranking is task-local: each query is compared only with chunks from its own trajectory, and the best checkpoint is selected by natural-query Recall@5.
 - Training batches contain at most one example from each trajectory to avoid trajectory-local in-batch false negatives.
 - Pair artifacts, model artifacts, run results, and checkpoint metadata record the variant. Retrieval rejects a checkpoint trained for the other view; legacy metadata without the field is flat.
-- Test is fixed to the first 2,000 resolvable natural queries in authoring-file order (1,207 trajectories) and uses exact-span Recall, MRR, token-budget Coverage, Full Support, span F1, and evidence density. The content-addressed authoring metadata sidecar supplies `memory_mode`, which is preserved in per-task evaluation rows for stratification but never exposed to the retriever. Path/edge metrics remain unavailable.
+- Test is fixed to the first 2,000 resolvable natural queries in authoring-file order (1,207 trajectories) and uses exact-span Recall, MRR, token-budget Coverage, Full Support, span F1, and evidence density. Coverage and Full Support are emitted at 256/512/1024/2048/4096/8192 tokens, together with trapezoidal Budget-AUC normalized on the log2-token axis, so complete budget curves can be reconstructed without rerunning retrieval. The content-addressed authoring metadata sidecar supplies `memory_mode`, which is preserved in per-task evaluation rows for stratification but never exposed to the retriever. Path/edge metrics remain unavailable.
 
 ## Smoke and full runs
 

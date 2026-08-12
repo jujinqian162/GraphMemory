@@ -170,6 +170,7 @@ def test_output_projection_is_complete_and_never_copies_processed_assets(
     assert summary["seed"] == 13
     assert summary["cache_refresh"] is False
     assert summary["output_schema_version"] == 2
+    assert summary["prediction_prefix_token_budget"] == 8192
     assert {asset["digest"] for asset in manifest["assets"]} == {
         asset.digest for asset in result.assets
     }

@@ -3,14 +3,15 @@
 # 准备工作
 检查ssh tool工具是否正常
 检查服务器可用cuda device
-检查zellij位置（EXAMPLE: 在sensecore服务器，zellij无法直接访问，其在/mnt/afs/zhengmingkai/jjq/bootstrap/cargo/bin/zellij，使用绝对路径访问)
-检查服务器环境（EXAMPLE: sensecore服务器没有uv，而是用conda，只需要先source /mnt/afs/zhengmingkai/jjq/GraphMemory/cloud_setup/setup.bash就可以直接用python运行脚本了)
-# 执行需要运行的训练命令
+检查zellij位置 (EXAMPLE: 在sensecore服务器，zellij无法直接访问，其在/mnt/afs/zhengmingkai/jjq/bootstrap/cargo/bin/zellij，使用绝对路径访问)
+检查服务器环境 (EXAMPLE: sensecore服务器没有uv，而是用conda管理环境，需要先 `source /mnt/afs/zhengmingkai/jjq/GraphMemory/cloud_setup/setup.bash` 再用python运行脚本)、
 
+# 执行需要运行的训练命令
 ## 默认行为
-|> 若用户没有指明则使用以下默认行为
+|> 若用户没有指明则使用以下默认行为：
 
 尽量让每个命令并行执行，并充分利用每个cuda device. (像sensecore服务器要用mx-smi查询可用国产显卡)
+每个cuda device默认可以承受3-5个task并行执行(故不必等待gpu完全空闲再运行task，更不要写个脚本监测cuda memory等到memory<特定值执行task[高成本低收益]，如果cuda memory满了，你就先不跑部分task，跟用户说清楚情况)
 zellij 默认 session为 `agent`.
 
 ## 运行规范
@@ -37,7 +38,7 @@ zellij --session agent action new-tab \
 举个例子，有4个baseline，每个baseline要跑5个seed。那么建议创建4个tab分别对应4个baseline name。
 然后使用：
 ```bash
-zellij --session agent run \                                                                                             
+zellij --session agent run \
     --tab-id <tab-id> \
     --name <name for the task> \
     --cwd <project workspace dir>
