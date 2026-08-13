@@ -8,6 +8,8 @@ from pydantic import TypeAdapter
 
 from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.graphs.provenance import ProvenanceGraph
+from graph_memory.retrieval.contracts import RetrievalMethod
+from graph_memory.retrieval.requests import RankingMethodRequest
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.datasets.isetrace.benchmark_records import ISETraceRankingRecord
 from graph_memory.datasets.selection import text_ranking_requests_for_dataset
@@ -51,11 +53,10 @@ PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
 ISETRACE_RANKINGS_ADAPTER = TypeAdapter(list[ISETraceRankingRecord])
 
 
-def run_retrieve_stage(
+def build_retrieve_stage(
     method: MethodConfig,
     *,
     dataset: DatasetName,
-    top_k: int,
     task_inputs: Sequence[object],
     evidence_graphs: list[EvidenceGraph] | None,
     model: ModelArtifactRef | None,
@@ -63,7 +64,7 @@ def run_retrieve_stage(
     device: str,
     dense_encoder: SentenceEncoder | None = None,
     provenance_graphs: list[ProvenanceGraph] | None = None,
-) -> tuple[list[RankedResult], RetrievalProvenance]:
+) -> tuple[RetrievalMethod, RetrievalProvenance, list[RankingMethodRequest]]:
     text_requests = text_ranking_requests_for_dataset(
         dataset,
         task_inputs,
@@ -90,10 +91,8 @@ def run_retrieve_stage(
     graph_ids_by_task_id = None
     if isinstance(method, (ProvenancePathMethodConfig, ProvenanceRgcnMethodConfig)):
         records = ISETRACE_RANKINGS_ADAPTER.validate_python(task_inputs)
-        graph_ids_by_task_id = {
-            record.task_id: record.graph_id for record in records
-        }
-    retrieval_method, retrieval_provenance, execution_requests = build_retrieval(
+        graph_ids_by_task_id = {record.task_id: record.graph_id for record in records}
+    return build_retrieval(
         method,
         text_requests=text_requests,
         device=device,
@@ -103,6 +102,32 @@ def run_retrieve_stage(
         provenance_graphs=provenance_graphs,
         graph_ids_by_task_id=graph_ids_by_task_id,
         dense_encoder=dense_encoder,
+    )
+
+
+def run_retrieve_stage(
+    method: MethodConfig,
+    *,
+    dataset: DatasetName,
+    top_k: int,
+    task_inputs: Sequence[object],
+    evidence_graphs: list[EvidenceGraph] | None,
+    model: ModelArtifactRef | None,
+    encoder_source: EncoderSourceRef | None,
+    device: str,
+    dense_encoder: SentenceEncoder | None = None,
+    provenance_graphs: list[ProvenanceGraph] | None = None,
+) -> tuple[list[RankedResult], RetrievalProvenance]:
+    retrieval_method, retrieval_provenance, execution_requests = build_retrieve_stage(
+        method,
+        dataset=dataset,
+        task_inputs=task_inputs,
+        evidence_graphs=evidence_graphs,
+        model=model,
+        encoder_source=encoder_source,
+        device=device,
+        dense_encoder=dense_encoder,
+        provenance_graphs=provenance_graphs,
     )
     predictions = run_retrieval(
         retrieval_method=retrieval_method,
@@ -172,7 +197,9 @@ def materialize_rankings(
             "graph_digest": None if evidence_graphs is None else evidence_graphs.digest,
             "model_digest": None if model is None else model.digest,
             "encoder_identity": (
-                None if encoder_source is None else immutable_source_identity(encoder_source)
+                None
+                if encoder_source is None
+                else immutable_source_identity(encoder_source)
             ),
             "implementation_version": implementation_version,
         },
@@ -223,4 +250,4 @@ def _model_payload(model: ModelArtifactRef | None, role: str) -> Path:
     return artifact_payload_path(model, role)
 
 
-__all__ = ["materialize_rankings", "run_retrieve_stage"]
+__all__ = ["build_retrieve_stage", "materialize_rankings", "run_retrieve_stage"]
