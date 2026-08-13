@@ -65,6 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("label must be non-empty")
     if args.expected_task_count <= 0:
         raise ValueError("expected-task-count must be positive")
+    _configure_numeric_precision(args.device)
 
     run_dir = args.run.resolve()
     config = read_yaml_model(
@@ -294,6 +295,15 @@ def _artifact_identity(asset: ArtifactRef) -> dict[str, object]:
     }
 
 
+def _configure_numeric_precision(device: str) -> None:
+    run_device = torch.device(device)
+    if run_device.type != "cuda":
+        return
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+
 def _synchronize_device(device: str) -> None:
     run_device = torch.device(device)
     if run_device.type == "cuda":
@@ -311,6 +321,9 @@ def _hardware(device: str) -> dict[str, object]:
         "torch": torch.__version__,
         "cuda_runtime": torch.version.cuda,
         "cudnn": torch.backends.cudnn.version(),
+        "float32_matmul_precision": torch.get_float32_matmul_precision(),
+        "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+        "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
         "device": str(run_device),
     }
     if run_device.type == "cuda":

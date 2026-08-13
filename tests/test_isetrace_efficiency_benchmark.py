@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import torch
 
 from graph_memory.analysis.efficiency import benchmark_retrieval
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
@@ -12,6 +13,7 @@ from graph_memory.retrieval.requests import (
     TextCandidate,
     TextRankingRequest,
 )
+from scripts.benchmark_isetrace_efficiency import _configure_numeric_precision
 from scripts.report_isetrace_efficiency import METHODS, main as report_main
 
 
@@ -45,6 +47,26 @@ def _requests() -> list[TextRankingRequest]:
         )
         for task_index in range(2)
     ]
+
+
+def test_configure_numeric_precision_uses_formal_cuda_mode() -> None:
+    precision = torch.get_float32_matmul_precision()
+    matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    try:
+        torch.set_float32_matmul_precision("highest")
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+
+        _configure_numeric_precision("cuda:0")
+
+        assert torch.get_float32_matmul_precision() == "high"
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+        assert torch.backends.cudnn.allow_tf32 is True
+    finally:
+        torch.set_float32_matmul_precision(precision)
+        torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+        torch.backends.cudnn.allow_tf32 = cudnn_tf32
 
 
 def test_benchmark_retrieval_reports_latency_throughput_and_exact_ranking() -> None:
@@ -146,6 +168,9 @@ def _benchmark_result(label: str) -> dict[str, object]:
             "torch": "2.0",
             "cuda_runtime": "12.8",
             "cudnn": 9000,
+            "float32_matmul_precision": "high",
+            "cuda_matmul_allow_tf32": True,
+            "cudnn_allow_tf32": True,
         },
         "code": {"commit": "abc", "tracked_worktree_dirty": False},
         "benchmark": {

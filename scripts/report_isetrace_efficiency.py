@@ -151,6 +151,9 @@ def _common_identity(results: Mapping[str, Mapping[str, object]]) -> dict[str, o
         "torch": hardware.get("torch"),
         "cuda_runtime": hardware.get("cuda_runtime"),
         "cudnn": hardware.get("cudnn"),
+        "float32_matmul_precision": hardware.get("float32_matmul_precision"),
+        "cuda_matmul_allow_tf32": hardware.get("cuda_matmul_allow_tf32"),
+        "cudnn_allow_tf32": hardware.get("cudnn_allow_tf32"),
         "code_commit": code["commit"],
         "ranking_validation": "exact_top_k",
     }
