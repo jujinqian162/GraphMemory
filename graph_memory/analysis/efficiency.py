@@ -79,12 +79,6 @@ def benchmark_retrieval(
         raise ValueError(
             "formal rankings and benchmark requests have different task IDs"
         )
-    for task_id, node_ids in expected_ranked_node_ids.items():
-        if len(node_ids) < top_k:
-            raise ValueError(
-                f"formal ranking task_id={task_id!r} has fewer than top_k={top_k} nodes"
-            )
-
     run_device = torch.device(device)
     if run_device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError(

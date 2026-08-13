@@ -74,6 +74,26 @@ def test_benchmark_retrieval_reports_latency_throughput_and_exact_ranking() -> N
     assert result.ranking_validation == "exact_top_k"
 
 
+def test_benchmark_retrieval_accepts_formal_ranking_shorter_than_top_k() -> None:
+    requests = _requests()
+    expected = {
+        request.task_id: tuple(candidate.item_id for candidate in request.candidates)
+        for request in requests
+    }
+
+    result = benchmark_retrieval(
+        retrieval_method=_FixedRetriever(),
+        requests=requests,
+        expected_ranked_node_ids=expected,
+        top_k=10,
+        warmup_queries=1,
+        repeats=1,
+        device="cpu",
+    )
+
+    assert result.ranking_validation == "exact_top_k"
+
+
 def test_benchmark_retrieval_rejects_changed_formal_ranking() -> None:
     requests = _requests()
     expected = {
