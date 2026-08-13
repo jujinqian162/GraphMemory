@@ -21,6 +21,8 @@ docs/raw/wsdm2027/
 
 .ck/
 
+# Pi runtime state and generated subagent transcripts/artifacts.
+.pi/
 .pi-subagents/
 # Large raw ablation dumps; regenerate with scripts/analyze_provenance_ablation.py
 report/provenance/ablation_rows.json
