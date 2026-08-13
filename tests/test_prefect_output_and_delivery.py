@@ -12,6 +12,7 @@ from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPublisher,
     EvaluationArtifactRef,
+    ModelArtifactRef,
     PredictionsArtifactRef,
     ProcessedAssetStore,
 )
@@ -79,8 +80,15 @@ def _result(store: ProcessedAssetStore) -> FinalExperimentResult:
                 }
             ],
         )
+        write_json(
+            publisher.workspace / "provenance.json",
+            {"method": "bm25", "model": None, "device": None, "encoder": None},
+        )
         ranking_ref = publisher.publish(
-            {"predictions": "predictions.json"},
+            {
+                "predictions": "predictions.json",
+                "provenance": "provenance.json",
+            },
             metadata={"production_seconds": 3.0},
         )
     assert isinstance(ranking_ref, PredictionsArtifactRef)
@@ -180,12 +188,66 @@ def test_output_projection_is_complete_and_never_copies_processed_assets(
     assert row["Method"] == "bm25"
     assert float(row["Retrieval Latency / Query"]) == 3.0
     assert not any(path.suffix in {".pt", ".ckpt"} for path in output.rglob("*"))
+    retrieval_provenance = json.loads(
+        (output / "workflow" / "retrieval_provenance.json").read_text(encoding="utf-8")
+    )
+    assert retrieval_provenance["method"] == "bm25"
     prediction_prefix = output / "predictions" / "ranked_prefix.jsonl.gz"
     assert prediction_prefix.is_file()
     with gzip.open(prediction_prefix, "rt", encoding="utf-8") as stream:
         prediction = json.loads(stream.readline())
     assert prediction["task_id"] == "one"
     assert [node["node_id"] for node in prediction["ranked_nodes"]] == ["m1"]
+
+
+def test_output_projection_copies_relation_control_diagnostics(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    store = ProcessedAssetStore(repository / "data" / "processed")
+    result = _result(store)
+    with ArtifactPublisher(
+        store,
+        kind=ArtifactKind.MODEL,
+        namespace="provenance_rgcn",
+        task_identity="test-control-model",
+        origin={"stage": "train", "variant": "random_edges"},
+    ) as publisher:
+        write_jsonl(publisher.workspace / "training_metrics.jsonl", [])
+        write_json(
+            publisher.workspace / "control_diagnostics.json",
+            {
+                "train": {
+                    "ablation_name": "random_edges",
+                    "rewired_edge_count": 8,
+                }
+            },
+        )
+        model_ref = publisher.publish(
+            {
+                "training_metrics": "training_metrics.jsonl",
+                "control_diagnostics": "control_diagnostics.json",
+            }
+        )
+    assert isinstance(model_ref, ModelArtifactRef)
+    result = result.model_copy(
+        update={"model": model_ref, "assets": (*result.assets, model_ref)}
+    )
+    output = repository / "runs" / "control-run"
+
+    project_run_output(
+        output,
+        repository_root=repository,
+        config=_config("control-run"),
+        overrides=(),
+        result=result,
+    )
+
+    diagnostics = json.loads(
+        (output / "training" / "control_diagnostics.json").read_text(encoding="utf-8")
+    )
+    assert diagnostics["train"]["ablation_name"] == "random_edges"
+    assert diagnostics["train"]["rewired_edge_count"] == 8
 
 
 def test_delivery_mirrors_output_tree_and_records_asset_references(

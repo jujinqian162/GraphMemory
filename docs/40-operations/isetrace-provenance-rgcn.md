@@ -35,6 +35,17 @@ The tensorizer appends an ephemeral disconnected `q` node. Persisted graph finge
 
 `temporal.precedes` and metadata-derived numeric features are excluded. The selected encoder provider also supplies each candidate's cosine seed score. `full_rgcn` computes `seed_score + graph_residual`, with the residual output initialized to zero. `method.variant=wo_graph` is an exact seed-score passthrough, so it reproduces the selected Dense/Dense-FT seed ranking instead of training a replacement MLP.
 
+The E2 relation/topology controls reuse the same method, candidates, pairs, seed provider, optimizer, and evaluation lifecycle:
+
+- `homogeneous_gcn` preserves every message endpoint but maps all forward/reverse messages to one relation ID and one shared transform;
+- `wo_feeds` removes only `data.feeds` messages;
+- `wo_execution_ownership` removes `execution.returns`, `execution.has_argument`, and `execution.has_content` together;
+- `wo_artifact_io` removes `resource.reads` and `resource.writes` together;
+- `wo_chunk_adjacency` removes only `content.next`;
+- `random_edges` applies deterministic graph-local directed double-edge swaps with topology seed 13, separately within relation and endpoint-kind groups. Repeated queries bound to the same frozen graph receive the same rewiring. It preserves relation histograms, every node's per-relation in/out degree, endpoint kinds, edge count, and message weights while changing endpoints where a legal swap exists.
+
+All controls are tensorization views: the persisted `ProvenanceGraph`, candidate set, labels, and graph fingerprint remain unchanged. The effective relation set, transform policy, topology policy, and topology seed are checkpointed. Model and prediction deliveries include `control_diagnostics.json` or retrieval provenance with edge counts, relation histograms, successful swaps, changed graphs, and rewired-edge counts.
+
 ## Lifecycle
 
 The unseeded config reads the registered base encoder. The seeded config first requests the exact same `dense_ft variant=provenance_unit` pairs and checkpoint Tasks as the standalone baseline. Prefect therefore returns the existing cached checkpoint whenever its scientific inputs match; both `wo_graph` and `full_rgcn` share that upstream result.
@@ -75,9 +86,26 @@ uv run python experiment/run.py \
   name=isetrace_pu_dense_ft_rgcn_wo_graph_s13 dataset=isetrace profile=full \
   method=provenance_unit_dense_ft_rgcn method.variant=wo_graph \
   seed=13 split_seed=13 device=cuda:0
+
+uv run python experiment/run.py \
+  --multirun name=isetrace_e2 \
+  dataset=isetrace profile=full method=provenance_unit_dense_ft_rgcn \
+  method.variant=homogeneous_gcn,wo_feeds,wo_execution_ownership,wo_artifact_io,wo_chunk_adjacency,random_edges \
+  seed=13,17,29 split_seed=13 device=cuda:0
 ```
 
-The full split contains 3,894 train queries, 580 development queries, and 2,000 test queries. Formal multi-seed evaluation repeats the unchanged configuration with model seeds 13, 17, and 29 while keeping `split_seed=13`.
+The full split contains 3,894 train queries, 580 development queries, and 2,000 test queries. Formal multi-seed evaluation repeats the unchanged configuration with model seeds 13, 17, and 29 while keeping `split_seed=13`. The random topology seed remains fixed at 13 across all three model seeds, so the seed comparison measures optimization randomness rather than three different randomized graphs.
+
+After delivering the three full runs and all 18 control runs, pass each directory to `scripts/aggregate_main_results.py` with explicit labels, mark every label trainable, and use:
+
+```bash
+--baseline full_rgcn --delta-direction baseline-minus-method \
+--bootstrap-samples 10000 --bootstrap-seed 13 \
+--query-metadata data/isetrace/query-authoring/isetrace-v7-raw.jsonl.metadata.jsonl \
+--expected-task-count 2000
+```
+
+This reports `full_rgcn - control` matched-seed trajectory-cluster intervals overall and under `direct_recall`, `linked_recall`, and `multi_fact_recall`. The aggregator also rejects task-set or frozen-test-digest drift.
 
 ## Claim boundary
 

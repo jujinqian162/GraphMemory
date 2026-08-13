@@ -204,6 +204,56 @@ def test_isetrace_provenance_rgcn_config_requires_current_trainable_lifecycle() 
     assert no_graph.method.effective().train.model.num_layers == 0
 
 
+@pytest.mark.parametrize(
+    "variant",
+    (
+        "homogeneous_gcn",
+        "wo_feeds",
+        "wo_execution_ownership",
+        "wo_artifact_io",
+        "wo_chunk_adjacency",
+        "random_edges",
+    ),
+)
+def test_isetrace_provenance_relation_controls_are_model_only_variants(
+    variant: str,
+) -> None:
+    full = parse_composed_config(
+        _compose("dataset=isetrace", "method=provenance_unit_dense_ft_rgcn")
+    )
+    control = parse_composed_config(
+        _compose(
+            "dataset=isetrace",
+            "method=provenance_unit_dense_ft_rgcn",
+            f"method.variant={variant}",
+        )
+    )
+
+    assert isinstance(full.method, ProvenanceRgcnMethodConfig)
+    assert isinstance(control.method, ProvenanceRgcnMethodConfig)
+    effective = control.method.effective()
+    assert effective.variant == variant
+    assert effective.train.model.ablation == variant
+    assert effective.pairs == full.method.effective().pairs
+    assert effective.seed == full.method.effective().seed
+
+
+def test_provenance_variant_is_the_only_ablation_authority() -> None:
+    composed = parse_composed_config(
+        _compose(
+            "dataset=isetrace",
+            "method=provenance_unit_dense_ft_rgcn",
+            "method.variant=full_rgcn",
+            "method.train.model.ablation=random_edges",
+        )
+    )
+    resolved = resolve_experiment_config(composed, repository_root=ROOT)
+
+    assert isinstance(resolved.method, ProvenanceRgcnMethodConfig)
+    assert resolved.method.variant == "full_rgcn"
+    assert resolved.method.train.model.ablation == "full_rgcn"
+
+
 def test_evidence_dataset_rejects_provenance_rgcn_method() -> None:
     composed = parse_composed_config(
         _compose("dataset=hotpotqa", "method=provenance_rgcn")

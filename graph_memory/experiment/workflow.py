@@ -445,7 +445,11 @@ def run_experiment(
             top_k=config.top_k,
             encoder_source=ranking_encoder,
             device=config.device,
-            implementation_version="ranking-v11-rgcn-seed-residual",
+            implementation_version=(
+                "ranking-v13-provenance-relation-controls"
+                if isinstance(method, ProvenanceRgcnMethodConfig)
+                else "ranking-v11-rgcn-seed-residual"
+            ),
         )
         evaluation = evaluate_rankings_task(
             predictions=ranking,

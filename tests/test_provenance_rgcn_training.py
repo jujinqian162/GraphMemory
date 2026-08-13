@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import torch
 
 from graph_memory.experiment.config import ProvenanceRgcnMethodConfig
 from graph_memory.models.graph_retriever.checkpoint import (
@@ -14,6 +15,7 @@ from graph_memory.models.graph_retriever.provenance import (
     provenance_embedding_request,
     provenance_train_pair_task,
     provenance_training_label,
+    tensorize_provenance_edges,
 )
 from graph_memory.models.graph_retriever.provenance_training import (
     train_provenance_graph_retriever,
@@ -163,7 +165,7 @@ def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
         method="provenance_rgcn",
         variant="full_rgcn",
     )
-    first_method, _first_provenance, first_requests = build_retrieval(
+    first_method, first_provenance, first_requests = build_retrieval(
         method_config,
         text_requests=[text_request],
         provenance_graphs=[graph],
@@ -181,6 +183,16 @@ def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
         text_embedding_provider=DeterministicEmbeddingProvider(),
         device="cpu",
     )
+    with pytest.raises(ValueError, match="checkpoint variant does not match"):
+        build_retrieval(
+            method_config.model_copy(update={"variant": "random_edges"}),
+            text_requests=[text_request],
+            provenance_graphs=[graph],
+            graph_ids_by_task_id={dev_request.task_id: graph.graph_id},
+            checkpoint=checkpoint_path,
+            text_embedding_provider=DeterministicEmbeddingProvider(),
+            device="cpu",
+        )
     first_results = run_retrieval(
         retrieval_method=first_method,
         requests=first_requests,
@@ -192,6 +204,10 @@ def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
         top_k=3,
     )
 
+    control = first_provenance.get("control")
+    assert control is not None
+    assert control["ablation_name"] == "full_rgcn"
+    assert control["task_count"] == 1
     assert first_results[0].ranked_nodes == second_results[0].ranked_nodes
     assert first_results[0].retrieved_subgraph == second_results[0].retrieved_subgraph
     assert first_results[0].method is RetrievalMethodId.PROVENANCE_RGCN
@@ -262,6 +278,41 @@ def test_wo_graph_checkpoint_ranking_matches_dense_seed_scores(tmp_path) -> None
     assert [node.score for node in result.ranked_nodes] == pytest.approx(
         [signal.score for signal in expected]
     )
+
+
+def test_legacy_full_checkpoint_without_explicit_control_fields_remains_readable(
+    tmp_path,
+) -> None:
+    graph, _request = _graph_and_request(task_id="legacy-full", query_text="query")
+    model_config = _model_config()
+    model = build_model_from_config(model_config)
+    checkpoint_path = tmp_path / "legacy-full.pt"
+    payload = save_rgcn_checkpoint(
+        checkpoint_path,
+        method_name=RetrievalMethodId.PROVENANCE_RGCN,
+        model=model,
+        epoch=0,
+        global_step=0,
+        best_dev_metric=0.0,
+        model_config=model_config,
+        training_config=RgcnTrainingConfig(epochs=1),
+    )
+    serialized_config = payload["model_config"]
+    assert isinstance(serialized_config, dict)
+    serialized_config.pop("enabled_provenance_relations")
+    serialized_config.pop("message_topology")
+    serialized_config.pop("message_topology_seed")
+    torch.save(payload, checkpoint_path)
+
+    loaded = load_rgcn_checkpoint(
+        checkpoint_path,
+        expected_method=RetrievalMethodId.PROVENANCE_RGCN,
+        map_location="cpu",
+    )
+    edges = tensorize_provenance_edges(graph, model_config=loaded.model_config)
+
+    assert loaded.model_config.enabled_provenance_relations == ()
+    assert edges.edge_index.shape[1] > 0
 
 
 def test_provenance_checkpoint_round_trip_requires_matching_method(tmp_path) -> None:

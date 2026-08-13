@@ -317,7 +317,7 @@ def train_provenance_rgcn_task(
     encoder_source: FileSourceRef | DirectorySourceRef | RevisionSourceRef,
     seed_model: ModelArtifactRef | None,
     frozen_embeddings: FrozenEmbeddingsArtifactRef,
-    implementation_version: str = "provenance-rgcn-train-v3-seed-residual",
+    implementation_version: str = "provenance-rgcn-train-v5-relation-controls",
 ) -> ModelArtifactRef:
     get_run_logger().info(
         "train provenance-rgcn | epochs=%s", config.train.trainer.epochs

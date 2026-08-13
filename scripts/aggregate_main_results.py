@@ -109,6 +109,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Trainable method label (repeatable). Other labels are deterministic.",
     )
     parser.add_argument(
+        "--delta-direction",
+        choices=("method-minus-baseline", "baseline-minus-method"),
+        default="method-minus-baseline",
+        help=(
+            "Paired delta direction. E2 relation controls use baseline-minus-method "
+            "with full_rgcn as the baseline to report full minus control."
+        ),
+    )
+    parser.add_argument(
         "--query-metadata",
         type=Path,
         help=(
@@ -148,6 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         baseline_method=args.baseline,
         bootstrap_samples=args.bootstrap_samples,
         bootstrap_seed=args.bootstrap_seed,
+        delta_direction=args.delta_direction.replace("-", "_"),
     )
     result["query_metadata_source_digest"] = metadata_source_digest
     result["query_metadata_subset_digest"] = _query_metadata_subset_digest(

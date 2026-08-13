@@ -125,6 +125,8 @@ def test_cli_aggregates_token_metrics_and_legacy_trajectory_metadata(
                 str(metadata),
                 "--expected-task-count",
                 "2",
+                "--delta-direction",
+                "baseline-minus-method",
                 "--bootstrap-samples",
                 "100",
                 "--output",
@@ -151,7 +153,9 @@ def test_cli_aggregates_token_metrics_and_legacy_trajectory_metadata(
     paired = result["paired_analysis"]["rgcn_natural"]["metrics"][
         "Coverage@1024 Tokens"
     ]
-    assert paired["mean_delta"] == 0.5
+    assert result["delta_direction"] == "baseline_minus_method"
+    assert paired["mean_delta"] == -0.5
+    assert paired["delta_direction"] == "baseline_minus_method"
     assert paired["paired_cluster_count"] == 1
     assert (
         result["stratified_summary"]["rgcn_natural"]["linked_recall"]["task_count"] == 2

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 from graph_memory.contracts.common import JsonValue as RecursiveJsonValue
 
@@ -54,6 +54,7 @@ class RetrievalProvenance(TypedDict):
     model: str | None
     device: str | None
     encoder: dict[str, RecursiveJsonValue] | None
+    control: NotRequired[dict[str, RecursiveJsonValue]]
 
 
 def build_retrieval(
@@ -121,6 +122,7 @@ def build_retrieval(
     if isinstance(method_config, ProvenanceRgcnMethodConfig):
         return _build_provenance_rgcn(
             _required_checkpoint(checkpoint, method_config.method),
+            method_config,
             text_requests,
             provenance_graphs or [],
             graph_ids_by_task_id or {},
@@ -295,6 +297,7 @@ def _build_provenance_path(
 
 def _build_provenance_rgcn(
     checkpoint_path: Path,
+    method_config: ProvenanceRgcnMethodConfig,
     text_requests: list[TextRankingRequest],
     graphs: list[ProvenanceGraph],
     graph_ids_by_task_id: Mapping[str, str],
@@ -317,6 +320,12 @@ def _build_provenance_rgcn(
         expected_method=RetrievalMethodId.PROVENANCE_RGCN,
         map_location=device,
     )
+    if checkpoint.model_config.ablation_name != method_config.variant:
+        raise ValueError(
+            "provenance R-GCN checkpoint variant does not match requested variant: "
+            f"checkpoint={checkpoint.model_config.ablation_name!r} "
+            f"requested={method_config.variant!r}"
+        )
     provider = text_embedding_provider or DenseGraphFeatureProvider(
         model_name=checkpoint.model_config.encoder_model,
         query_prefix=checkpoint.model_config.query_prefix,
@@ -333,7 +342,13 @@ def _build_provenance_rgcn(
                 "provenance R-GCN requires an explicit seed signal provider when its text provider cannot score candidates"
             )
     encoder = _checkpoint_encoder(checkpoint)
-    return _built(
+    execution_requests = _provenance_requests(
+        text_requests,
+        graphs,
+        graph_ids_by_task_id,
+        method="provenance R-GCN",
+    )
+    built = _built(
         ProvenanceRgcnRetrievalMethod.from_checkpoint(
             checkpoint_path,
             text_embedding_provider=provider,
@@ -344,13 +359,22 @@ def _build_provenance_rgcn(
         model=checkpoint_path,
         device=device,
         encoder=encoder,
-        execution_requests=_provenance_requests(
-            text_requests,
-            graphs,
-            graph_ids_by_task_id,
-            method="provenance R-GCN",
-        ),
+        execution_requests=execution_requests,
     )
+    from graph_memory.models.graph_retriever.provenance import (
+        provenance_control_summary,
+    )
+
+    control = provenance_control_summary(
+        [
+            request.graph
+            for request in execution_requests
+            if isinstance(request, ExecutionProvenanceRankingRequest)
+        ],
+        model_config=checkpoint.model_config,
+    )
+    built[1]["control"] = cast(dict[str, RecursiveJsonValue], control)
+    return built
 
 
 def _build_evidence_rgcn(

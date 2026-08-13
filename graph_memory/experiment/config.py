@@ -66,7 +66,16 @@ DatasetName: TypeAlias = Literal[
     "isetrace",
 ]
 SplitName: TypeAlias = Literal["train", "dev", "test"]
-ProvenanceRgcnVariant: TypeAlias = Literal["full_rgcn", "wo_graph"]
+ProvenanceRgcnVariant: TypeAlias = Literal[
+    "full_rgcn",
+    "wo_graph",
+    "homogeneous_gcn",
+    "wo_feeds",
+    "wo_execution_ownership",
+    "wo_artifact_io",
+    "wo_chunk_adjacency",
+    "random_edges",
+]
 EvidenceRgcnVariant: TypeAlias = Literal[
     "full_rgcn",
     "wo_bridge",
@@ -288,10 +297,13 @@ class RgcnTrainConfig(ClosedModel):
 def _effective_rgcn_parts(
     pairs: NegativeSamplingConfig,
     train: RgcnTrainConfig,
-    variant: EvidenceRgcnVariant,
+    variant: EvidenceRgcnVariant | ProvenanceRgcnVariant,
 ) -> tuple[NegativeSamplingConfig, RgcnTrainConfig]:
+    full_model_train = train.model_copy(
+        update={"model": train.model.model_copy(update={"ablation": "full_rgcn"})}
+    )
     if variant == "full_rgcn":
-        return pairs, train
+        return pairs, full_model_train
     if variant == "wo_hard_negatives":
         return (
             pairs.model_copy(
@@ -301,7 +313,7 @@ def _effective_rgcn_parts(
                     "hard_graph_neighbor_per_positive": 0,
                 }
             ),
-            train,
+            full_model_train,
         )
     model_updates: dict[str, object] = {"ablation": variant}
     if variant == "wo_graph":
@@ -316,7 +328,9 @@ class RgcnStageConfig(ClosedModel):
     pairs: NegativeSamplingConfig
     train: RgcnTrainConfig
 
-    def for_variant(self, variant: EvidenceRgcnVariant) -> RgcnStageConfig:
+    def for_variant(
+        self, variant: EvidenceRgcnVariant | ProvenanceRgcnVariant
+    ) -> RgcnStageConfig:
         pairs, train = _effective_rgcn_parts(self.pairs, self.train, variant)
         return self.model_copy(update={"pairs": pairs, "train": train})
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
+from typing import cast
 
+import pytest
 import torch
 
 from graph_memory.datasets.isetrace import adapt_isetrace_record, parse_isetrace_record
@@ -16,8 +19,10 @@ from graph_memory.models.graph_retriever.batching import (
 )
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.provenance import (
+    HOMOGENEOUS_PROVENANCE_RELATION_VOCAB,
     PROVENANCE_PHYSICAL_RELATIONS,
     PROVENANCE_RELATION_VOCAB,
+    provenance_control_summary,
     provenance_rgcn_model_config,
     tensorize_provenance_edges,
     tensorize_provenance_ranking_task,
@@ -79,7 +84,7 @@ def _graph_and_request(*, task_id: str, query_text: str):
     return graph, request
 
 
-def _model_config(*, num_layers: int = 2):
+def _model_config(*, num_layers: int = 2, ablation_name: str = "full_rgcn"):
     return provenance_rgcn_model_config(
         encoder_model="fake-encoder",
         encoder_dim=4,
@@ -89,6 +94,7 @@ def _model_config(*, num_layers: int = 2):
         hidden_dim=8,
         num_layers=num_layers,
         dropout=0.0,
+        ablation_name=ablation_name,
     )
 
 
@@ -141,6 +147,9 @@ def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> 
         )
 
     graph_tensor = task.graph_tensor
+    assert torch.equal(graph_tensor.edge_index, edges.edge_index)
+    assert torch.equal(graph_tensor.relation_ids, edges.relation_ids)
+    assert torch.equal(graph_tensor.edge_weights, edges.edge_weights)
     assert graph_tensor.node_ids == [node.node_id for node in graph.nodes] + ["q"]
     assert graph_tensor.query_node_index == len(graph.nodes)
     assert graph_tensor.node_features.shape == (len(graph.nodes) + 1, 1)
@@ -154,6 +163,133 @@ def test_provenance_tensorizer_uses_fixed_bidirectional_physical_relations() -> 
         for index, candidate in zip(
             task.sample_node_indices.tolist(), request.candidates, strict=True
         )
+    )
+    assert graph.fingerprint() == fingerprint
+
+
+def test_homogeneous_control_preserves_topology_and_collapses_all_relation_ids() -> (
+    None
+):
+    graph, _request = _graph_and_request(task_id="homogeneous", query_text="query")
+    full = tensorize_provenance_edges(graph, model_config=_model_config())
+    homogeneous_config = _model_config(ablation_name="homogeneous_gcn")
+    homogeneous = tensorize_provenance_edges(graph, model_config=homogeneous_config)
+
+    assert homogeneous_config.message_transform_type == "shared"
+    assert homogeneous_config.relation_vocab == HOMOGENEOUS_PROVENANCE_RELATION_VOCAB
+    assert torch.equal(homogeneous.edge_index, full.edge_index)
+    assert torch.equal(homogeneous.edge_weights, full.edge_weights)
+    assert homogeneous.relation_ids.tolist() == [0] * len(homogeneous.relation_ids)
+
+
+@pytest.mark.parametrize(
+    ("variant", "removed_relations"),
+    (
+        ("wo_feeds", {"data.feeds"}),
+        (
+            "wo_execution_ownership",
+            {
+                "execution.returns",
+                "execution.has_argument",
+                "execution.has_content",
+            },
+        ),
+        ("wo_artifact_io", {"resource.reads", "resource.writes"}),
+        ("wo_chunk_adjacency", {"content.next"}),
+    ),
+)
+def test_relation_family_control_removes_only_declared_relations(
+    variant: str,
+    removed_relations: set[str],
+) -> None:
+    graph, _request = _graph_and_request(task_id=variant, query_text="query")
+    full_config = _model_config()
+    control_config = _model_config(ablation_name=variant)
+    full_summary = provenance_control_summary([graph], model_config=full_config)
+    control_summary = provenance_control_summary([graph], model_config=control_config)
+    full_counts = Counter(cast(dict[str, int], full_summary["relation_counts"]))
+    control_counts = Counter(cast(dict[str, int], control_summary["relation_counts"]))
+
+    assert control_config.relation_vocab == PROVENANCE_RELATION_VOCAB
+    assert control_config.message_transform_type == "typed"
+    assert (
+        set(full_config.enabled_provenance_relations)
+        - set(control_config.enabled_provenance_relations)
+        == removed_relations
+    )
+    assert control_counts == Counter(
+        {
+            relation: count
+            for relation, count in full_counts.items()
+            if relation not in removed_relations
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    (
+        "homogeneous_gcn",
+        "wo_feeds",
+        "wo_execution_ownership",
+        "wo_artifact_io",
+        "wo_chunk_adjacency",
+        "random_edges",
+    ),
+)
+def test_relation_control_configs_build_and_score_the_same_candidates(
+    variant: str,
+) -> None:
+    _graph, request = _graph_and_request(task_id=variant, query_text="query")
+    provider = DeterministicEmbeddingProvider()
+    config = _model_config(ablation_name=variant)
+    task = tensorize_provenance_ranking_task(
+        request,
+        model_config=config,
+        text_embedding_provider=provider,
+        seed_signal_provider=provider,
+    )
+    model = build_model_from_config(config)
+    model.eval()
+
+    with torch.no_grad():
+        scores = model(collate_evidence_tasks([task]))
+
+    assert scores.shape == (len(request.candidates),)
+    assert task.sample_node_ids == [
+        candidate.item_id for candidate in request.candidates
+    ]
+
+
+def test_random_edge_control_is_deterministic_and_degree_preserving() -> None:
+    graph, _request = _graph_and_request(task_id="random-edges", query_text="query")
+    fingerprint = graph.fingerprint()
+    full = tensorize_provenance_edges(graph, model_config=_model_config())
+    random_config = _model_config(ablation_name="random_edges")
+    randomized = tensorize_provenance_edges(graph, model_config=random_config)
+    repeated = tensorize_provenance_edges(graph, model_config=random_config)
+    summary = provenance_control_summary([graph], model_config=random_config)
+
+    def degree_signature(edge_index: torch.Tensor, relation_ids: torch.Tensor):
+        result: Counter[tuple[int, str, int]] = Counter()
+        for column, relation_id in enumerate(relation_ids.tolist()):
+            source, target = edge_index[:, column].tolist()
+            result[(relation_id, "out", source)] += 1
+            result[(relation_id, "in", target)] += 1
+        return result
+
+    assert random_config.message_topology == "degree_preserving_random_v1"
+    assert random_config.message_topology_seed == 13
+    assert torch.equal(randomized.edge_index, repeated.edge_index)
+    assert torch.equal(randomized.relation_ids, full.relation_ids)
+    assert not torch.equal(randomized.edge_index, full.edge_index)
+    assert degree_signature(randomized.edge_index, randomized.relation_ids) == (
+        degree_signature(full.edge_index, full.relation_ids)
+    )
+    assert cast(int, summary["rewired_edge_count"]) > 0
+    assert summary["changed_graph_count"] == 1
+    assert cast(int, summary["physical_edge_count"]) >= cast(
+        int, summary["active_edge_count"]
     )
     assert graph.fingerprint() == fingerprint
 

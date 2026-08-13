@@ -88,6 +88,13 @@ def project_run_output(
         target = destination / "training" / "train_metrics.jsonl"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(history, target)
+        if any(
+            payload.role == "control_diagnostics" for payload in result.model.payloads
+        ):
+            shutil.copyfile(
+                artifact_payload_path(result.model, "control_diagnostics"),
+                destination / "training" / "control_diagnostics.json",
+            )
         write_yaml_atomic(
             destination / "training" / "origin.yaml",
             {
@@ -102,6 +109,11 @@ def project_run_output(
         top_k=config.top_k,
         token_budget=MAX_REPRODUCTION_TOKEN_BUDGET,
     )
+    if any(payload.role == "provenance" for payload in result.ranking.payloads):
+        shutil.copyfile(
+            artifact_payload_path(result.ranking, "provenance"),
+            destination / "workflow" / "retrieval_provenance.json",
+        )
 
     failure_cases = artifact_payload_path(result.evaluation, "failure_cases")
     debug_target = destination / "debug" / "failure_cases.jsonl"

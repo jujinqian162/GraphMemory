@@ -78,6 +78,22 @@ def test_paired_delta_is_method_minus_baseline_and_averages_seeds() -> None:
     assert paired["delta_direction"] == "method_minus_baseline"
     assert len(paired["ci_95"]) == 2
 
+    inverted = cast(
+        dict[str, Any],
+        analyze_main_results(
+            rows,
+            baseline_method="bm25",
+            bootstrap_samples=200,
+            delta_direction="baseline_minus_method",
+        ),
+    )
+    inverted_paired = inverted["paired_analysis"]["dense_ft"]["metrics"][
+        "Full Support@2048 Tokens"
+    ]
+    assert inverted["delta_direction"] == "baseline_minus_method"
+    assert inverted_paired["mean_delta"] == pytest.approx(0.25)
+    assert inverted_paired["delta_direction"] == "baseline_minus_method"
+
 
 def test_cluster_bootstrap_resamples_trajectory_groups_and_reports_strata() -> None:
     groups = ["trajectory-a", "trajectory-a", "trajectory-b"]

@@ -380,6 +380,37 @@ def test_seeded_provenance_rgcn_flow_supplies_provenance_unit_dense_ft_model(
     assert config.method.train.model.num_layers == 0
 
 
+def test_provenance_relation_controls_own_distinct_model_cache_identities() -> None:
+    methods: list[ProvenanceRgcnMethodConfig] = []
+    for variant in ("full_rgcn", "homogeneous_gcn", "wo_feeds", "random_edges"):
+        with initialize_config_dir(
+            config_dir=str(ROOT / "configs"), version_base="1.3"
+        ):
+            composed = compose(
+                config_name="config",
+                overrides=[
+                    "name=provenance-control-cache",
+                    "dataset=isetrace",
+                    "profile=smoke",
+                    "method=provenance_unit_dense_ft_rgcn",
+                    f"method.variant={variant}",
+                    "device=cpu",
+                ],
+            )
+        resolved = resolve_experiment_config(
+            parse_composed_config(composed), repository_root=ROOT
+        )
+        assert isinstance(resolved.method, ProvenanceRgcnMethodConfig)
+        methods.append(resolved.method)
+
+    policy = ScientificInputs()
+    keys = [policy.compute_key(None, {"config": method}, {}) for method in methods]
+
+    assert len(set(keys)) == len(methods)
+    assert all(method.pairs == methods[0].pairs for method in methods)
+    assert all(method.seed == methods[0].seed for method in methods)
+
+
 def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
     sampling = NegativeSamplingConfig(
         random_seed=13,

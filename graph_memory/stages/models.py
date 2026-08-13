@@ -47,7 +47,7 @@ from graph_memory.experiment.config import (
     ProvenanceRgcnMethodConfig,
     RgcnStageConfig,
 )
-from graph_memory.io import read_json, write_jsonl
+from graph_memory.io import read_json, write_json, write_jsonl
 from graph_memory.models.cross_encoder.training import (
     CrossEncoderRunConfig,
     train_cross_encoder,
@@ -60,7 +60,10 @@ from graph_memory.models.dense_finetune.training import (
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
 from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
-from graph_memory.models.graph_retriever.provenance import provenance_rgcn_model_config
+from graph_memory.models.graph_retriever.provenance import (
+    provenance_control_summary,
+    provenance_rgcn_model_config,
+)
 from graph_memory.models.graph_retriever.provenance_training import (
     train_provenance_graph_retriever,
 )
@@ -534,6 +537,14 @@ def materialize_provenance_rgcn_model(
         dropout=model_settings.dropout,
         ablation_name=model_settings.ablation,
     )
+    control_diagnostics = {
+        "train": provenance_control_summary(
+            [request.graph for request in train_requests], model_config=model_config
+        ),
+        "dev": provenance_control_summary(
+            [request.graph for request in dev_requests], model_config=model_config
+        ),
+    }
     with ArtifactPublisher(
         store,
         kind=ArtifactKind.MODEL,
@@ -586,10 +597,14 @@ def materialize_provenance_rgcn_model(
             cast(dict[str, JsonValue], dict(record)) for record in result.metric_records
         )
         write_jsonl(publisher.workspace / "training_metrics.jsonl", list(history))
+        write_json(
+            publisher.workspace / "control_diagnostics.json", control_diagnostics
+        )
         artifact = publisher.publish(
             {
                 "checkpoints": "checkpoints",
                 "checkpoint": "checkpoints/best.pt",
+                "control_diagnostics": "control_diagnostics.json",
                 "training_metrics": "training_metrics.jsonl",
             },
             metadata={

@@ -15,7 +15,7 @@ from graph_memory.models.graph_retriever.contracts import TextEmbeddingProvider
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.models.graph_retriever.internals.neural import EvidenceScoringModel
 from graph_memory.models.graph_retriever.provenance import (
-    PROVENANCE_RELATION_VOCAB,
+    require_provenance_rgcn_model_config,
     tensorize_provenance_ranking_task,
 )
 from graph_memory.retrieval.contracts import (
@@ -60,15 +60,7 @@ class ProvenanceRgcnRetrievalMethod:
             map_location=run_device,
         )
         config = checkpoint.model_config
-        if config.relation_vocab != PROVENANCE_RELATION_VOCAB:
-            raise ValueError("provenance checkpoint relation vocabulary is invalid")
-        if (
-            config.edge_weight_policy != "uniform"
-            or config.enabled_edge_types
-            or config.feature_config.node_feature_names != ("seed_score",)
-            or config.feature_config.scorer_feature_names != ("seed_score",)
-        ):
-            raise ValueError("provenance checkpoint enables invalid graph features")
+        require_provenance_rgcn_model_config(config)
         model = build_model_from_config(config).to(run_device)
         model.load_state_dict(checkpoint.payload["model_state_dict"])
         model.eval()

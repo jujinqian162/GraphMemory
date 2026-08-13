@@ -60,6 +60,9 @@ class RgcnModelConfig(DomainModel):
     message_transform_type: Literal["typed", "shared"]
     edge_weight_policy: Literal["artifact", "uniform"]
     enabled_edge_types: tuple[EdgeType, ...]
+    enabled_provenance_relations: tuple[NonEmptyStr, ...] = ()
+    message_topology: Literal["native", "degree_preserving_random_v1"] = "native"
+    message_topology_seed: int = 13
     ablation_name: NonEmptyStr
     scoring_mode: Literal[
         "seed_residual", "seed_passthrough", "residual_only"
@@ -71,6 +74,17 @@ class RgcnModelConfig(DomainModel):
             raise ValueError("relation_vocab must be unique")
         if len(self.enabled_edge_types) != len(set(self.enabled_edge_types)):
             raise ValueError("enabled_edge_types must be unique")
+        if len(self.enabled_provenance_relations) != len(
+            set(self.enabled_provenance_relations)
+        ):
+            raise ValueError("enabled_provenance_relations must be unique")
+        if self.method_name != "provenance_rgcn" and (
+            self.enabled_provenance_relations
+            or self.message_topology != "native"
+        ):
+            raise ValueError(
+                "provenance relation/topology policies require method_name='provenance_rgcn'"
+            )
         has_seed_score = "seed_score" in self.feature_config.scorer_feature_names
         if self.scoring_mode in {"seed_residual", "seed_passthrough"} and not has_seed_score:
             raise ValueError(

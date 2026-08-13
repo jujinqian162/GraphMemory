@@ -27,16 +27,23 @@ def analyze_main_results(
     baseline_method: str,
     bootstrap_samples: int = 2000,
     bootstrap_seed: int = 13,
+    delta_direction: str = "method_minus_baseline",
 ) -> dict[str, object]:
     """Aggregate fixed-test runs and compute paired cluster-bootstrap CIs.
 
     Trainable methods are summarized as mean and sample standard deviation over
     model-training seeds. Deterministic methods must contribute one row. Paired
-    deltas use ``method - baseline`` and are first averaged over matched seed
-    pairs per task, then bootstrapped by ``task_groups``. ISETrace callers should
+    deltas use the requested direction (``method - baseline`` by default), are
+    first averaged over matched seed pairs per task, then bootstrapped by
+    ``task_groups``. ISETrace callers should
     map every task to its source trajectory; generic callers may omit groups and
     will fall back to one cluster per task.
     """
+    if delta_direction not in {
+        "method_minus_baseline",
+        "baseline_minus_method",
+    }:
+        raise ValueError(f"Unsupported delta_direction={delta_direction!r}.")
     normalized = [_normalize_row(row) for row in rows]
     if not normalized:
         raise ValueError("Main-results analysis requires at least one row.")
@@ -83,6 +90,7 @@ def analyze_main_results(
                 baseline_rows=baseline_rows,
                 method_rows=method_rows,
                 metric=metric,
+                delta_direction=delta_direction,
             )
             result = _cluster_bootstrap(
                 deltas,
@@ -92,7 +100,7 @@ def analyze_main_results(
             )
             result.update(
                 {
-                    "delta_direction": "method_minus_baseline",
+                    "delta_direction": delta_direction,
                     "seed_pair_count": seed_pair_count,
                 }
             )
@@ -111,7 +119,7 @@ def analyze_main_results(
                 )
                 stratum_result.update(
                     {
-                        "delta_direction": "method_minus_baseline",
+                        "delta_direction": delta_direction,
                         "seed_pair_count": seed_pair_count,
                     }
                 )
@@ -127,7 +135,7 @@ def analyze_main_results(
     )
     return {
         "baseline_method": baseline_method,
-        "delta_direction": "method_minus_baseline",
+        "delta_direction": delta_direction,
         "test_task_count": len(task_ids),
         "test_cluster_count": len(set(task_groups.values())),
         "cluster_unit": cluster_unit,
@@ -217,14 +225,19 @@ def _paired_task_deltas(
     baseline_rows: Sequence[_NormalizedRow],
     method_rows: Sequence[_NormalizedRow],
     metric: str,
+    delta_direction: str,
 ) -> tuple[dict[str, float], int]:
     pairs = _seed_pairs(baseline_rows, method_rows)
     task_ids = sorted(pairs[0][0].per_task)
+    sign = 1.0 if delta_direction == "method_minus_baseline" else -1.0
     return (
         {
             task_id: statistics.fmean(
-                method_row.per_task[task_id][metric]
-                - baseline_row.per_task[task_id][metric]
+                sign
+                * (
+                    method_row.per_task[task_id][metric]
+                    - baseline_row.per_task[task_id][metric]
+                )
                 for baseline_row, method_row in pairs
             )
             for task_id in task_ids
