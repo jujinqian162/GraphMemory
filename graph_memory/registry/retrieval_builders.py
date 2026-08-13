@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
+
+from typing_extensions import NotRequired
 
 from graph_memory.contracts.common import JsonValue as RecursiveJsonValue
 
