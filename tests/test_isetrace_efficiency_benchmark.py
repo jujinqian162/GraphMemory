@@ -25,12 +25,35 @@ class _FixedRetriever:
     ) -> RetrievalMethodResult:
         del top_k
         assert isinstance(request, TextRankingRequest)
-        return RetrievalMethodResult(
-            ranked_nodes=tuple(
-                RankedNode(node_id=candidate.item_id, score=float(3 - index))
-                for index, candidate in enumerate(request.candidates)
-            )
+        return _ranking(request)
+
+
+class _KernelStateRetriever:
+    name = "kernel-state"
+
+    def __init__(self) -> None:
+        self.calls: dict[str, int] = {}
+
+    def rank_task(
+        self, request: RankingMethodRequest, *, top_k: int
+    ) -> RetrievalMethodResult:
+        del top_k
+        assert isinstance(request, TextRankingRequest)
+        calls = self.calls.get(request.task_id, 0)
+        self.calls[request.task_id] = calls + 1
+        ranking = _ranking(request)
+        if calls == 0:
+            return ranking
+        return RetrievalMethodResult(ranked_nodes=tuple(reversed(ranking.ranked_nodes)))
+
+
+def _ranking(request: TextRankingRequest) -> RetrievalMethodResult:
+    return RetrievalMethodResult(
+        ranked_nodes=tuple(
+            RankedNode(node_id=candidate.item_id, score=float(3 - index))
+            for index, candidate in enumerate(request.candidates)
         )
+    )
 
 
 def _requests() -> list[TextRankingRequest]:
@@ -94,6 +117,28 @@ def test_benchmark_retrieval_reports_latency_throughput_and_exact_ranking() -> N
     assert result.throughput.mean_queries_per_second > 0.0
     assert result.device_memory.peak_allocated_bytes == 0
     assert result.ranking_validation == "exact_top_k"
+
+
+def test_benchmark_validates_before_warmup_changes_kernel_state() -> None:
+    requests = _requests()
+    expected = {
+        request.task_id: tuple(candidate.item_id for candidate in request.candidates)
+        for request in requests
+    }
+    retriever = _KernelStateRetriever()
+
+    result = benchmark_retrieval(
+        retrieval_method=retriever,
+        requests=requests,
+        expected_ranked_node_ids=expected,
+        top_k=2,
+        warmup_queries=1,
+        repeats=1,
+        device="cpu",
+    )
+
+    assert result.ranking_validation == "exact_top_k"
+    assert retriever.calls == {"q0": 3, "q1": 2}
 
 
 def test_benchmark_retrieval_accepts_formal_ranking_shorter_than_top_k() -> None:

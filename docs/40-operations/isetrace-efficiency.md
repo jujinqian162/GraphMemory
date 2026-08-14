@@ -9,14 +9,15 @@ seed-13 checkpoints and the exact 2,000-query formal test artifact for five meth
 4. exact seed passthrough (`wo_graph`);
 5. residual R-GCN (`full_rgcn`).
 
-The benchmark loads each model once, runs 20 warm-up queries, then performs three
-complete sequential passes over the test set. The harness explicitly enables the
-same high/TF32 CUDA matmul mode used by the formal retrieval runs, and every
-measured query is bounded by CUDA synchronization. The first measured pass must
-reproduce the formal top-10 ranking exactly or the run fails. Results include
-mean/P50/P95 latency, repeated
-full-test throughput, peak allocated VRAM, setup time, model size, hardware, code
-commit, and input/model/prediction artifact digests.
+The benchmark loads each model once and first runs one unmeasured validation pass
+that must reproduce every formal top-10 ranking exactly. Validation precedes
+warm-up because accelerator kernel selection can otherwise perturb near-tied R-GCN
+scores. It then runs 20 warm-up queries followed by three complete sequential
+measured passes. The harness explicitly enables the same high/TF32 CUDA matmul mode
+used by the formal retrieval runs, and every measured query is bounded by CUDA
+synchronization. Results include mean/P50/P95 latency, repeated full-test
+throughput, peak allocated VRAM, setup time, model size, hardware, code commit, and
+input/model/prediction artifact digests.
 
 ## Preconditions
 

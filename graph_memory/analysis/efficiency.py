@@ -59,10 +59,11 @@ def benchmark_retrieval(
 ) -> RetrievalEfficiencyResult:
     """Benchmark an already-built retriever under sequential single-query service.
 
-    Model construction and request projection happen before this function. CUDA is
-    synchronized around every measured query, so latency includes CPU preparation,
-    accelerator execution, and result materialization without measuring queued work.
-    The first measured pass must reproduce the frozen formal top-k rankings exactly.
+    Model construction and request projection happen before this function. A separate
+    unmeasured pass reproduces the frozen formal top-k rankings before warm-up can
+    change accelerator kernel selection. CUDA is synchronized around every measured
+    query, so latency includes CPU preparation, accelerator execution, and result
+    materialization without measuring queued work.
     """
     if not requests:
         raise ValueError("benchmark requires at least one request")
@@ -85,6 +86,17 @@ def benchmark_retrieval(
             f"CUDA benchmark requested but CUDA is unavailable: {device}"
         )
 
+    for request in requests:
+        result = retrieval_method.rank_task(request, top_k=top_k)
+        observed = tuple(node.node_id for node in result.ranked_nodes[:top_k])
+        expected = tuple(expected_ranked_node_ids[request.task_id][:top_k])
+        if observed != expected:
+            raise ValueError(
+                f"benchmark changed formal ranking for task_id={request.task_id!r}: "
+                f"expected={expected} observed={observed}"
+            )
+    _synchronize(run_device)
+
     for request in requests[: min(warmup_queries, len(requests))]:
         retrieval_method.rank_task(request, top_k=top_k)
     _synchronize(run_device)
@@ -93,23 +105,15 @@ def benchmark_retrieval(
 
     all_latency_ms: list[float] = []
     repeat_seconds: list[float] = []
-    for repeat_index in range(repeats):
+    for _ in range(repeats):
         _synchronize(run_device)
         repeat_started = time.perf_counter()
         for request in requests:
             _synchronize(run_device)
             started = time.perf_counter()
-            result = retrieval_method.rank_task(request, top_k=top_k)
+            retrieval_method.rank_task(request, top_k=top_k)
             _synchronize(run_device)
             all_latency_ms.append((time.perf_counter() - started) * 1000.0)
-            if repeat_index == 0:
-                observed = tuple(node.node_id for node in result.ranked_nodes[:top_k])
-                expected = tuple(expected_ranked_node_ids[request.task_id][:top_k])
-                if observed != expected:
-                    raise ValueError(
-                        f"benchmark changed formal ranking for task_id={request.task_id!r}: "
-                        f"expected={expected} observed={observed}"
-                    )
         _synchronize(run_device)
         repeat_seconds.append(time.perf_counter() - repeat_started)
 
