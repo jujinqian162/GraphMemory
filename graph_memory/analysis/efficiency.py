@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import statistics
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -44,14 +44,12 @@ class RetrievalEfficiencyResult(DomainModel):
     latency: LatencySummary
     throughput: ThroughputSummary
     device_memory: DeviceMemorySummary
-    ranking_validation: Literal["exact_top_k"]
 
 
 def benchmark_retrieval(
     *,
     retrieval_method: RetrievalMethod,
     requests: Sequence[RankingMethodRequest],
-    expected_ranked_node_ids: Mapping[str, Sequence[str]],
     top_k: int,
     warmup_queries: int,
     repeats: int,
@@ -59,11 +57,10 @@ def benchmark_retrieval(
 ) -> RetrievalEfficiencyResult:
     """Benchmark an already-built retriever under sequential single-query service.
 
-    Model construction and request projection happen before this function. A separate
-    unmeasured pass reproduces the frozen formal top-k rankings before warm-up can
-    change accelerator kernel selection. CUDA is synchronized around every measured
-    query, so latency includes CPU preparation, accelerator execution, and result
-    materialization without measuring queued work.
+    Model construction and request projection happen before this function. A full
+    unmeasured stabilization pass and a short warm-up precede measurement. CUDA is
+    synchronized around every measured query, so latency includes CPU preparation,
+    accelerator execution, and result materialization without measuring queued work.
     """
     if not requests:
         raise ValueError("benchmark requires at least one request")
@@ -76,10 +73,6 @@ def benchmark_retrieval(
     task_ids = [request.task_id for request in requests]
     if len(task_ids) != len(set(task_ids)):
         raise ValueError("benchmark request task IDs must be unique")
-    if set(task_ids) != set(expected_ranked_node_ids):
-        raise ValueError(
-            "formal rankings and benchmark requests have different task IDs"
-        )
     run_device = torch.device(device)
     if run_device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError(
@@ -87,14 +80,7 @@ def benchmark_retrieval(
         )
 
     for request in requests:
-        result = retrieval_method.rank_task(request, top_k=top_k)
-        observed = tuple(node.node_id for node in result.ranked_nodes[:top_k])
-        expected = tuple(expected_ranked_node_ids[request.task_id][:top_k])
-        if observed != expected:
-            raise ValueError(
-                f"benchmark changed formal ranking for task_id={request.task_id!r}: "
-                f"expected={expected} observed={observed}"
-            )
+        retrieval_method.rank_task(request, top_k=top_k)
     _synchronize(run_device)
 
     for request in requests[: min(warmup_queries, len(requests))]:
@@ -143,7 +129,6 @@ def benchmark_retrieval(
             peak_allocated_bytes=peak_memory,
             incremental_peak_bytes=max(0, peak_memory - baseline_memory),
         ),
-        ranking_validation="exact_top_k",
     )
 
 

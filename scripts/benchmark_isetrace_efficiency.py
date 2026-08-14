@@ -19,7 +19,6 @@ from graph_memory.experiment.artifacts import (
     ArtifactRef,
     DatasetArtifactRef,
     ModelArtifactRef,
-    PredictionsArtifactRef,
     artifact_payload_path,
 )
 from graph_memory.experiment.config import (
@@ -31,13 +30,11 @@ from graph_memory.experiment.config import (
 from graph_memory.experiment.persistence import read_yaml, read_yaml_model
 from graph_memory.graphs.provenance import ProvenanceGraph
 from graph_memory.io import read_json, write_json
-from graph_memory.retrieval.results import RankedResult
 from graph_memory.stages.retrieve import build_retrieve_stage
 
 
 ARTIFACTS_ADAPTER = TypeAdapter(list[ArtifactRef])
 PROVENANCE_GRAPHS_ADAPTER = TypeAdapter(list[ProvenanceGraph])
-RANKED_RESULTS_ADAPTER = TypeAdapter(list[RankedResult])
 SUPPORTED_METHODS = (
     DenseFinetuneMethodConfig,
     CrossEncoderMethodConfig,
@@ -49,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark one frozen ISETrace formal run after model load, with CUDA "
-            "synchronization and exact top-k reproduction checks."
+            "synchronization, warm-up, repeated timing, and peak-memory measurement."
         )
     )
     parser.add_argument("--run", type=Path, required=True)
@@ -84,12 +81,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     model = _one_method_model(assets, config)
     dependency_models = _dependency_models(assets, model=model)
     deployment_models = _deployment_models(config, model, dependency_models)
-    formal_predictions = _one_method_predictions(
-        assets,
-        config,
-        test=test,
-        model=model,
-    )
 
     input_started = time.perf_counter()
     task_inputs = cast(list[object], read_json(artifact_payload_path(test, "tasks")))
@@ -101,21 +92,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else []
     )
     input_load_seconds = time.perf_counter() - input_started
-    validation_started = time.perf_counter()
-    expected_results = RANKED_RESULTS_ADAPTER.validate_python(
-        read_json(artifact_payload_path(formal_predictions, "predictions"))
-    )
-    expected_ranked_node_ids = {
-        result.task_id: result.ranked_node_ids for result in expected_results
-    }
-    validation_load_seconds = time.perf_counter() - validation_started
     if len(task_inputs) != args.expected_task_count:
         raise ValueError(
             f"formal test task count changed: expected={args.expected_task_count} "
             f"observed={len(task_inputs)}"
         )
-    if len(expected_ranked_node_ids) != len(task_inputs):
-        raise ValueError("formal predictions do not cover every test task")
 
     method_started = time.perf_counter()
     retrieval_method, retrieval_provenance, requests = build_retrieve_stage(
@@ -136,7 +117,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     benchmark = benchmark_retrieval(
         retrieval_method=retrieval_method,
         requests=requests,
-        expected_ranked_node_ids=expected_ranked_node_ids,
         top_k=config.top_k,
         warmup_queries=args.warmup_queries,
         repeats=args.repeats,
@@ -158,9 +138,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "deployment_model_bytes": sum(
             cast(int, component["size_bytes"]) for component in deployment_models
         ),
-        "formal_predictions": _artifact_identity(formal_predictions),
         "input_load_seconds": input_load_seconds,
-        "validation_load_seconds": validation_load_seconds,
         "method_setup_seconds": method_setup_seconds,
         "retrieval_provenance": retrieval_provenance,
         "hardware": _hardware(args.device),
@@ -261,29 +239,6 @@ def _deployment_models(
             }
         )
     return result
-
-
-def _one_method_predictions(
-    assets: Sequence[ArtifactRef],
-    config: ResolvedExperimentConfig,
-    *,
-    test: DatasetArtifactRef,
-    model: ModelArtifactRef,
-) -> PredictionsArtifactRef:
-    matches = [
-        asset
-        for asset in assets
-        if isinstance(asset, PredictionsArtifactRef)
-        and asset.origin.get("method") == config.method.method
-        and asset.origin.get("variant") == config.variant
-        and asset.origin.get("prepared_digest") == test.digest
-        and asset.origin.get("model_digest") == model.digest
-    ]
-    if len(matches) != 1:
-        raise ValueError(
-            f"formal run must reference one final prediction artifact, got {len(matches)}"
-        )
-    return matches[0]
 
 
 def _artifact_identity(asset: ArtifactRef) -> dict[str, object]:

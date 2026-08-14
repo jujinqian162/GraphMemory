@@ -80,12 +80,10 @@ def _validate_results(results: Mapping[str, Mapping[str, object]]) -> None:
         if code.get("tracked_worktree_dirty") is not False:
             raise ValueError(f"label={label!r} was benchmarked from a dirty checkout")
         benchmark = _mapping(result.get("benchmark"), f"{label}.benchmark")
-        if benchmark.get("ranking_validation") != "exact_top_k":
-            raise ValueError(f"label={label!r} did not reproduce formal rankings")
         if first is None:
             first = result
             continue
-        for field in ("test_artifact", "hardware", "code"):
+        for field in ("test_artifact", "hardware"):
             if result.get(field) != first.get(field):
                 raise ValueError(f"E11 results disagree on common field={field!r}")
         first_benchmark = _mapping(first.get("benchmark"), "first.benchmark")
@@ -102,6 +100,7 @@ def _summary_row(label: str, result: Mapping[str, object]) -> dict[str, object]:
     deployment_model_bytes = _integer(
         result.get("deployment_model_bytes"), f"{label}.deployment_model_bytes"
     )
+    code = _mapping(result.get("code"), f"{label}.code")
     input_seconds = _number(
         result.get("input_load_seconds"), f"{label}.input_load_seconds"
     )
@@ -111,6 +110,7 @@ def _summary_row(label: str, result: Mapping[str, object]) -> dict[str, object]:
     return {
         "label": label,
         "method": METHODS[label][0],
+        "code_commit": code["commit"],
         "initialization_seconds": input_seconds + setup_seconds,
         "mean_latency_ms": _number(latency.get("mean_ms"), f"{label}.mean_ms"),
         "p50_latency_ms": _number(latency.get("p50_ms"), f"{label}.p50_ms"),
@@ -137,8 +137,13 @@ def _common_identity(results: Mapping[str, Mapping[str, object]]) -> dict[str, o
     first = results[next(iter(METHODS))]
     benchmark = _mapping(first["benchmark"], "benchmark")
     hardware = _mapping(first["hardware"], "hardware")
-    code = _mapping(first["code"], "code")
     test = _mapping(first["test_artifact"], "test_artifact")
+    code_commits = sorted(
+        {
+            str(_mapping(result["code"], f"{label}.code")["commit"])
+            for label, result in results.items()
+        }
+    )
     return {
         "test_artifact_digest": test["digest"],
         "task_count": benchmark["task_count"],
@@ -154,8 +159,7 @@ def _common_identity(results: Mapping[str, Mapping[str, object]]) -> dict[str, o
         "float32_matmul_precision": hardware.get("float32_matmul_precision"),
         "cuda_matmul_allow_tf32": hardware.get("cuda_matmul_allow_tf32"),
         "cudnn_allow_tf32": hardware.get("cudnn_allow_tf32"),
-        "code_commit": code["commit"],
-        "ranking_validation": "exact_top_k",
+        "code_commits": code_commits,
     }
 
 

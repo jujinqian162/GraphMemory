@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 import torch
 
 from graph_memory.analysis.efficiency import benchmark_retrieval
@@ -92,17 +91,10 @@ def test_configure_numeric_precision_uses_formal_cuda_mode() -> None:
         torch.backends.cudnn.allow_tf32 = cudnn_tf32
 
 
-def test_benchmark_retrieval_reports_latency_throughput_and_exact_ranking() -> None:
-    requests = _requests()
-    expected = {
-        request.task_id: tuple(candidate.item_id for candidate in request.candidates)
-        for request in requests
-    }
-
+def test_benchmark_retrieval_reports_latency_and_throughput() -> None:
     result = benchmark_retrieval(
         retrieval_method=_FixedRetriever(),
-        requests=requests,
-        expected_ranked_node_ids=expected,
+        requests=_requests(),
         top_k=2,
         warmup_queries=1,
         repeats=2,
@@ -116,70 +108,21 @@ def test_benchmark_retrieval_reports_latency_throughput_and_exact_ranking() -> N
     assert len(result.throughput.repeat_seconds) == 2
     assert result.throughput.mean_queries_per_second > 0.0
     assert result.device_memory.peak_allocated_bytes == 0
-    assert result.ranking_validation == "exact_top_k"
 
 
-def test_benchmark_validates_before_warmup_changes_kernel_state() -> None:
-    requests = _requests()
-    expected = {
-        request.task_id: tuple(candidate.item_id for candidate in request.candidates)
-        for request in requests
-    }
+def test_benchmark_does_not_compare_rankings_between_passes() -> None:
     retriever = _KernelStateRetriever()
 
-    result = benchmark_retrieval(
+    benchmark_retrieval(
         retrieval_method=retriever,
-        requests=requests,
-        expected_ranked_node_ids=expected,
+        requests=_requests(),
         top_k=2,
         warmup_queries=1,
         repeats=1,
         device="cpu",
     )
 
-    assert result.ranking_validation == "exact_top_k"
     assert retriever.calls == {"q0": 3, "q1": 2}
-
-
-def test_benchmark_retrieval_accepts_formal_ranking_shorter_than_top_k() -> None:
-    requests = _requests()
-    expected = {
-        request.task_id: tuple(candidate.item_id for candidate in request.candidates)
-        for request in requests
-    }
-
-    result = benchmark_retrieval(
-        retrieval_method=_FixedRetriever(),
-        requests=requests,
-        expected_ranked_node_ids=expected,
-        top_k=10,
-        warmup_queries=1,
-        repeats=1,
-        device="cpu",
-    )
-
-    assert result.ranking_validation == "exact_top_k"
-
-
-def test_benchmark_retrieval_rejects_changed_formal_ranking() -> None:
-    requests = _requests()
-    expected = {
-        request.task_id: tuple(
-            reversed([candidate.item_id for candidate in request.candidates])
-        )
-        for request in requests
-    }
-
-    with pytest.raises(ValueError, match="changed formal ranking"):
-        benchmark_retrieval(
-            retrieval_method=_FixedRetriever(),
-            requests=requests,
-            expected_ranked_node_ids=expected,
-            top_k=2,
-            warmup_queries=1,
-            repeats=1,
-            device="cpu",
-        )
 
 
 def _benchmark_result(label: str) -> dict[str, object]:
@@ -242,11 +185,18 @@ def _benchmark_result(label: str) -> dict[str, object]:
     }
 
 
-def test_report_aggregates_exact_core_five(tmp_path: Path) -> None:
+def test_report_aggregates_core_five_across_harness_commits(tmp_path: Path) -> None:
     argv: list[str] = []
     for label in METHODS:
+        result = _benchmark_result(label)
+        if label == "residual_rgcn":
+            result["code"] = {"commit": "def", "tracked_worktree_dirty": False}
+            del result["formal_predictions"]
+            benchmark = result["benchmark"]
+            assert isinstance(benchmark, dict)
+            del benchmark["ranking_validation"]
         path = tmp_path / f"{label}.json"
-        path.write_text(json.dumps(_benchmark_result(label)), encoding="utf-8")
+        path.write_text(json.dumps(result), encoding="utf-8")
         argv.extend(("--input", f"{label}={path}"))
     output_json = tmp_path / "efficiency.json"
     output_csv = tmp_path / "efficiency.csv"

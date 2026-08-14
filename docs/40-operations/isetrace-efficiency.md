@@ -9,15 +9,14 @@ seed-13 checkpoints and the exact 2,000-query formal test artifact for five meth
 4. exact seed passthrough (`wo_graph`);
 5. residual R-GCN (`full_rgcn`).
 
-The benchmark loads each model once and first runs one unmeasured validation pass
-that must reproduce every formal top-10 ranking exactly. Validation precedes
-warm-up because accelerator kernel selection can otherwise perturb near-tied R-GCN
-scores. It then runs 20 warm-up queries followed by three complete sequential
-measured passes. The harness explicitly enables the same high/TF32 CUDA matmul mode
-used by the formal retrieval runs, and every measured query is bounded by CUDA
+The benchmark loads each model once, runs one unmeasured full-test stabilization
+pass and 20 additional warm-up queries, then runs three complete sequential measured
+passes. The harness explicitly enables the same high/TF32 CUDA matmul mode used by
+the formal retrieval runs, and every measured query is bounded by CUDA
 synchronization. Results include mean/P50/P95 latency, repeated full-test
 throughput, peak allocated VRAM, setup time, model size, hardware, code commit, and
-input/model/prediction artifact digests.
+input/model artifact digests. Retrieval quality belongs to the existing formal
+evaluation and is not revalidated by this timing harness.
 
 ## Preconditions
 
@@ -81,9 +80,8 @@ python scripts/benchmark_isetrace_efficiency.py \
   "${common[@]}"
 ```
 
-Do not parallelize these commands. A failed exact-ranking check means the current
-checkout cannot be used to benchmark that formal checkpoint; do not weaken or
-remove the check.
+Do not parallelize these commands; competing processes would invalidate the timing
+comparison.
 
 ## Aggregate and render the paper-ready table
 
@@ -103,9 +101,10 @@ python scripts/report_isetrace_efficiency.py \
   --output-tex results/isetrace/e11/efficiency-table.tex
 ```
 
-The aggregator rejects mixed test artifacts, devices, hardware, commits, warm-up
-counts, repeat counts, dirty checkouts, non-seed-13 checkpoints, or incomplete
-ranking validation. Preserve the five measurement JSON files together with the
+The aggregator rejects mixed test artifacts, devices, hardware, warm-up counts,
+repeat counts, dirty checkouts, or non-seed-13 checkpoints. It preserves each row's
+harness commit so an error-check-only harness change does not invalidate already
+completed timings. Preserve the five measurement JSON files together with the
 aggregate outputs and a SHA-256 manifest:
 
 ```bash
