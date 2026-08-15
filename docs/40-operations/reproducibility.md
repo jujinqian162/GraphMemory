@@ -53,3 +53,15 @@ uv run python scripts/aggregate_main_results.py `
 ```
 
 For final multi-seed results, repeat each trainable label with seeds 13/17/29. Explicit `LABEL=PATH` syntax keeps method names stable when aggregating multiple runs of the same raw method ID.
+
+Render the aggregate JSON as a compact Markdown report instead of writing one-off formatting snippets:
+
+```powershell
+uv run python scripts/deliver/report_experiment_results.py `
+  --input results/isetrace/main_results_natural.json `
+  --name-prefix isetrace_v7_main_ `
+  --metrics "Recall@5,MRR,Full Support@2048 Tokens" `
+  --output results/isetrace/main_results_natural.md
+```
+
+The report includes mean ± standard deviation, paired 95% intervals with direction markers, stratum tables, and—when matching run directories are supplied—selected checkpoint epochs and graph-control diagnostics. See [`run-naming.md`](run-naming.md) for the canonical `name=` grammar required by prefix discovery.

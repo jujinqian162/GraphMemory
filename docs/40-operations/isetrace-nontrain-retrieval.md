@@ -42,7 +42,7 @@ For another authoring file, override `dataset.natural_query_source`. `dataset.tr
 Smoke runs:
 
 ```bash
-uv run python experiment/run.py name=isetrace_v7_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cpu
+uv run python experiment/run.py name=isetrace_v7_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cuda:0
 uv run python experiment/run.py name=isetrace_v7_dense_smoke dataset=isetrace profile=smoke method=dense device=cuda:0
 uv run python experiment/run.py name=isetrace_v7_provenance_unit_dense_smoke dataset=isetrace profile=smoke method=dense method.variant=provenance_unit device=cuda:0
 uv run python experiment/run.py name=isetrace_v7_graphrag_smoke dataset=isetrace profile=smoke method=graphrag device=cuda:0

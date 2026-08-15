@@ -71,7 +71,7 @@ There are no independently annotated provenance edge/path labels in the natural 
 ```bash
 uv run python experiment/run.py \
   name=isetrace_rgcn_smoke dataset=isetrace profile=smoke \
-  method=provenance_rgcn device=cpu
+  method=provenance_rgcn device=cuda:0
 
 uv run python experiment/run.py \
   name=isetrace_rgcn_natural_s13 dataset=isetrace profile=full \

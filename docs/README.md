@@ -9,6 +9,7 @@ Maintained reference docs only. Historical plans, brainstorms, and paper sources
 | [`20-contracts/data-contracts.md`](20-contracts/data-contracts.md) | Artifacts and graph/input contracts |
 | [`20-contracts/retrieval-contracts.md`](20-contracts/retrieval-contracts.md) | Method matrix, requests, ranking/trace surface |
 | [`40-operations/commands.md`](40-operations/commands.md) | How to run jobs |
+| [`40-operations/run-naming.md`](40-operations/run-naming.md) | Canonical `name=` grammar, abbreviations, cohort discovery, and readable reports |
 | [`40-operations/reproducibility.md`](40-operations/reproducibility.md) | Cache, run layout, delivery |
 | [`40-operations/stateless-graph-retrieval.md`](40-operations/stateless-graph-retrieval.md) | GraphRAG |
 | [`40-operations/isetrace-split.md`](40-operations/isetrace-split.md) | Complete ISETrace provisioning and fixed split |

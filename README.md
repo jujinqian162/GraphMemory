@@ -13,13 +13,14 @@ Two retrieval domains, no cross-projection:
 
 ```powershell
 uv run pytest -q
-uv run python experiment/run.py name=quick_bm25 profile=quick method=bm25
-uv run python experiment/run.py name=isetrace_bm25 dataset=isetrace profile=smoke method=bm25 device=cpu
+uv run python experiment/run.py name=musique_pilot_bm25_smoke profile=smoke method=bm25
+uv run python experiment/run.py name=isetrace_v7_pilot_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cuda:0
 uv run python experiment/inspect.py kind=methods
 ```
 
 One Hydra job = one method (optional one R-GCN variant) = one Prefect Flow = one MLflow run. Scientific assets reuse under `data/processed/`; `runs/<name>/` is output-only.
 
 - Commands: [`docs/40-operations/commands.md`](docs/40-operations/commands.md)
+- Run naming and report generation: [`docs/40-operations/run-naming.md`](docs/40-operations/run-naming.md)
 - Retrieval matrix: [`docs/20-contracts/retrieval-contracts.md`](docs/20-contracts/retrieval-contracts.md)
 - Doc index: [`docs/README.md`](docs/README.md)

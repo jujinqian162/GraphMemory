@@ -1,6 +1,6 @@
 # Experiment commands
 
-One command runs one final method and one resolved variant where supported. Dense/Dense-FT/Cross-Encoder use `flat|provenance_unit`; R-GCN uses its ablation variants. Hydra composes config; Prefect runs one Flow; MLflow records one run.
+One command runs one final method and one resolved variant where supported. Dense/Dense-FT/Cross-Encoder use `flat|provenance_unit`; R-GCN uses its ablation variants. Hydra composes config; Prefect runs one Flow; MLflow records one run. Every new command must follow the canonical [`name=` convention](run-naming.md); older examples below may retain historical names only when reproducing an existing run.
 
 ## Single jobs
 
@@ -8,7 +8,7 @@ One command runs one final method and one resolved variant where supported. Dens
 uv run python experiment/run.py name=hotpot_bm25 dataset=hotpotqa profile=quick method=bm25
 
 uv run python experiment/run.py `
-  name=hotpot_rgcn dataset=hotpotqa profile=smoke device=cpu `
+  name=hotpot_rgcn dataset=hotpotqa profile=smoke device=cuda:0 `
   method=dense_rgcn_graph_retriever method.variant=full_rgcn
 ```
 
@@ -17,12 +17,12 @@ uv run python experiment/run.py `
 ## ISETrace non-training pilot
 
 ```powershell
-uv run python experiment/run.py name=isetrace_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cpu
-uv run python experiment/run.py name=isetrace_provenance_unit_dense_smoke dataset=isetrace profile=smoke method=dense method.variant=provenance_unit device=cpu
-uv run python experiment/run.py name=isetrace_provenance_unit_dense_ft_smoke dataset=isetrace profile=smoke method=dense_ft method.variant=provenance_unit device=cpu
+uv run python experiment/run.py name=isetrace_bm25_smoke dataset=isetrace profile=smoke method=bm25 device=cuda:0
+uv run python experiment/run.py name=isetrace_provenance_unit_dense_smoke dataset=isetrace profile=smoke method=dense method.variant=provenance_unit device=cuda:0
+uv run python experiment/run.py name=isetrace_provenance_unit_dense_ft_smoke dataset=isetrace profile=smoke method=dense_ft method.variant=provenance_unit device=cuda:0
 uv run python experiment/run.py name=isetrace_cross_encoder_flat_smoke dataset=isetrace profile=smoke method=cross_encoder method.variant=flat device=cuda:0
 uv run python experiment/run.py name=isetrace_cross_encoder_pu_smoke dataset=isetrace profile=smoke method=cross_encoder method.variant=provenance_unit device=cuda:0
-uv run python experiment/run.py name=isetrace_path_smoke dataset=isetrace profile=smoke method=provenance_path device=cpu
+uv run python experiment/run.py name=isetrace_path_smoke dataset=isetrace profile=smoke method=provenance_path device=cuda:0
 
 uv run python experiment/run.py -m `
   name=isetrace_nontrain_pilot dataset=isetrace profile=full device=cuda:0 `
@@ -32,7 +32,7 @@ uv run python experiment/run.py -m `
 ## ISETrace Provenance R-GCN engineering run
 
 ```powershell
-uv run python experiment/run.py name=isetrace_rgcn_smoke dataset=isetrace profile=smoke method=provenance_rgcn device=cpu
+uv run python experiment/run.py name=isetrace_rgcn_smoke dataset=isetrace profile=smoke method=provenance_rgcn device=cuda:0
 uv run python experiment/run.py name=isetrace_rgcn_no_graph dataset=isetrace profile=quick method=provenance_rgcn method.variant=wo_graph device=cuda:0
 uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_full dataset=isetrace profile=full method=provenance_unit_dense_ft_rgcn method.variant=full_rgcn device=cuda:0
 uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_wo_graph dataset=isetrace profile=full method=provenance_unit_dense_ft_rgcn method.variant=wo_graph device=cuda:1
