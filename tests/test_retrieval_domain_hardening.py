@@ -117,7 +117,6 @@ def test_graphrag_preserves_query_and_passage_prefixes() -> None:
 
     assert encoder.calls
     assert all(
-        call[0].startswith("Q::")
-        and all(text.startswith("P::") for text in call[1:])
+        call[0].startswith("Q::") and all(text.startswith("P::") for text in call[1:])
         for call in encoder.calls
     )

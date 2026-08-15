@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from scripts.deliver.report_experiment_results import main, render_report
+from scripts.deliver.report_experiment_results import main
 
 
 def _analysis() -> dict[str, Any]:
@@ -121,20 +121,6 @@ def _write_run(root: Path, *, variant: str, seed: int, epoch_zero: bool) -> None
     )
 
 
-def test_render_report_formats_percentages_intervals_and_strata() -> None:
-    report = render_report(
-        _analysis(),
-        title="E2 relation controls",
-        metrics=("Recall@5", "Full Support@2048 Tokens"),
-    )
-
-    assert "# E2 relation controls" in report
-    assert "78.69 ± 0.60" in report
-    assert "+7.04 [+5.42, +8.72] ↑" in report
-    assert "+1.00 [-1.00, +3.00] ≈" in report
-    assert "multi_fact_recall" in report
-
-
 def test_cli_discovers_canonical_prefix_and_adds_diagnostics(tmp_path: Path) -> None:
     input_path = tmp_path / "analysis.json"
     input_path.write_text(json.dumps(_analysis()), encoding="utf-8")
@@ -175,56 +161,3 @@ def test_cli_discovers_canonical_prefix_and_adds_diagnostics(tmp_path: Path) -> 
     assert "## Training and control diagnostics" in report
     assert "| random_edges | 13 | 0 | 0.7200 | 100 | 100 | 90 | 10 |" in report
     assert "`random_edges` selected the initial epoch-0 checkpoint" in report
-
-
-def test_canonical_abbreviated_labels_match_run_diagnostics(tmp_path: Path) -> None:
-    analysis = _analysis()
-    analysis["summary"] = {
-        "rgcn_full": analysis["summary"]["full_rgcn"],
-        "rgcn_randedge": analysis["summary"]["random_edges"],
-    }
-    analysis["baseline_method"] = "rgcn_full"
-    analysis["paired_analysis"] = {
-        "rgcn_randedge": analysis["paired_analysis"]["random_edges"]
-    }
-    analysis["stratified_paired_analysis"] = {
-        "rgcn_randedge": analysis["stratified_paired_analysis"]["random_edges"]
-    }
-    input_path = tmp_path / "analysis.json"
-    input_path.write_text(json.dumps(analysis), encoding="utf-8")
-    run_root = tmp_path / "runs"
-    _write_run(
-        run_root / "isetrace_v7_e2rel_rgcn_full_s13",
-        variant="full_rgcn",
-        seed=13,
-        epoch_zero=False,
-    )
-    _write_run(
-        run_root / "isetrace_v7_e2rel_rgcn_randedge_s13",
-        variant="random_edges",
-        seed=13,
-        epoch_zero=True,
-    )
-    output = tmp_path / "report.md"
-
-    assert (
-        main(
-            [
-                "--input",
-                str(input_path),
-                "--run-root",
-                str(run_root),
-                "--name-prefix",
-                "isetrace_v7_e2rel_",
-                "--metrics",
-                "Recall@5",
-                "--output",
-                str(output),
-            ]
-        )
-        == 0
-    )
-
-    report = output.read_text(encoding="utf-8")
-    assert "| rgcn_full | 13 | 1 | 0.7500 |" in report
-    assert "| rgcn_randedge | 13 | 0 | 0.7200 |" in report

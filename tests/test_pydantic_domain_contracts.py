@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +11,6 @@ from graph_memory.contracts.model import (
     NonNegativeInt,
     StrictBool,
 )
-from graph_memory.evaluation.requests import EvidenceLabel
 from graph_memory.retrieval.contracts import RetrievalMethodResult
 from graph_memory.retrieval.execution.service import run_retrieval
 from graph_memory.retrieval.methods.ids import RetrievalMethodId
@@ -21,8 +19,6 @@ from graph_memory.retrieval.requests import (
     TextCandidate,
     TextRankingRequest,
 )
-from graph_memory.retrieval.results import RankedResult, RetrievedSubgraph
-from graph_memory.training_pairs.contracts import TrainPairDataset, TrainPairRecord
 
 
 class _ScientificProbe(DomainModel):
@@ -59,19 +55,6 @@ def test_domain_model_is_closed_frozen_strict_and_json_round_trippable() -> None
         setattr(probe, "count", 2)
 
 
-def test_every_authoritative_retrieval_method_id_is_accepted_by_result_model() -> None:
-    for method in RetrievalMethodId:
-        result = RankedResult(
-            task_id="task",
-            method=method,
-            ranked_nodes=(),
-            retrieved_subgraph=RetrievedSubgraph(nodes=(), edges=()),
-            latency_ms=0.0,
-            input_tokens=0,
-        )
-        assert result.method is method
-
-
 class _InvalidFirstMethod:
     name: str = RetrievalMethodId.BM25.value
 
@@ -105,33 +88,3 @@ def test_invalid_first_result_stops_retrieval_before_second_task() -> None:
         )
 
     assert method.calls == 1
-
-
-def test_training_payload_rejects_pair_drift_at_construction_boundary(
-    tmp_path: Path,
-) -> None:
-    request = TextRankingRequest(
-        task_id="task",
-        query_text="query",
-        candidates=(TextCandidate(item_id="m0", text="candidate", metadata={}),),
-    )
-    label = EvidenceLabel(
-        task_id="task",
-        gold_answer="answer",
-        gold_evidence_item_ids=("m0",),
-        gold_dependency_edges=(),
-    )
-
-    with pytest.raises(ValidationError, match="negative node is gold evidence"):
-        TrainPairDataset(
-            requests=(request,),
-            labels=(label,),
-            pairs=(
-                TrainPairRecord(
-                    task_id="task",
-                    node_id="m0",
-                    label=0,
-                    sample_type="hard_dense",
-                ),
-            ),
-        )

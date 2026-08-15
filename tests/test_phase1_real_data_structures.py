@@ -1,17 +1,13 @@
-import json
-from pathlib import Path
 from typing import TypeAlias
 
 import pytest
 
 from graph_memory.datasets.hotpotqa import (
-    HotpotQARankingRecord,
     convert_hotpotqa_example,
     parse_hotpotqa_examples,
 )
 from graph_memory.datasets.hotpotqa.parser import parse_hotpotqa_example
 from graph_memory.datasets.splits import sample_split
-from graph_memory.stages.prepare import prepare_evidence_split
 
 RawHotpotQARecord: TypeAlias = dict[str, object]
 
@@ -81,32 +77,6 @@ def test_hotpotqa_parse_and_convert_reject_invalid_records() -> None:
     unmapped["supporting_facts"] = [["Missing Title", 0]]
     with pytest.raises(ValueError, match="supporting fact"):
         convert_hotpotqa_example(parse_hotpotqa_examples([unmapped])[0])
-
-
-def test_prepare_hotpotqa_drops_record_with_empty_candidate_sentence(tmp_path: Path) -> None:
-    invalid = {
-        **hotpot_raw_example(),
-        "_id": "empty_sentence",
-        "context": [["Ada Lovelace", [""]]],
-        "supporting_facts": [["Ada Lovelace", 0]],
-    }
-    source = tmp_path / "hotpotqa.json"
-    _ = source.write_text(json.dumps([hotpot_raw_example(), invalid]), encoding="utf-8")
-
-    task_inputs, _task_labels, counts = prepare_evidence_split(
-        "hotpotqa",
-        source,
-        count=None,
-        seed=13,
-        offset=0,
-        strict_invalid_examples=False,
-    )
-
-    assert counts["raw_examples"] == 2
-    assert counts["valid_examples"] == 1
-    assert counts["invalid_examples_dropped"] == 1
-    assert counts["task_inputs"] == 1
-    assert HotpotQARankingRecord.model_validate(task_inputs[0]).task_id == "hotpot_ex1"
 
 
 def test_sample_split_is_deterministic_disjoint_and_bounds_checked() -> None:

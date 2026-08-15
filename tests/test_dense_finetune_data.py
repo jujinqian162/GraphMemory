@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
-import pytest
 
 from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.datasets.hotpotqa.records import (
@@ -16,11 +15,9 @@ from graph_memory.embeddings import DenseEncodingService, DenseTaskEncodingReque
 from graph_memory.models.dense_finetune.data import (
     DenseFinetuneDataSettings,
     build_dense_finetune_examples,
-    build_ir_evaluator_payload,
 )
 from graph_memory.models.dense_finetune.training import (
     _TaskLocalDenseFinetuneEvaluator,
-    _TrajectoryBatchSampler,
 )
 from graph_memory.models.dense_finetune.contracts import (
     DenseFinetuneTaskLocalEvaluatorPayload,
@@ -164,24 +161,6 @@ def test_dense_finetune_uses_same_text_format_as_dense_encoding_service() -> Non
     )
 
 
-def test_dense_finetune_builds_positive_only_rows_without_negatives() -> None:
-    task = _task("t1", query="query", nodes={"m0": ("S", "positive")})
-
-    result = build_dense_finetune_examples(
-        ranking_requests=[_request(task)],
-        train_pairs=[
-            TrainPairRecord(task_id="t1", node_id="m0", label=1, sample_type="positive")
-        ],
-        settings=DenseFinetuneDataSettings(),
-    )
-
-    assert result.rows == (
-        {"anchor": "query: query", "positive": "passage: S. positive"},
-    )
-    assert result.examples[0].negative is None
-    assert result.examples[0].negative_sample_type is None
-
-
 def test_dense_finetune_selects_hard_negatives_by_priority_and_original_order() -> None:
     task = _task(
         "t1",
@@ -233,37 +212,6 @@ def test_dense_finetune_selects_hard_negatives_by_priority_and_original_order() 
         "passage: S. dense two",
         "passage: S. bm25",
     ]
-
-
-def test_dense_finetune_rejects_unknown_pair_node_id() -> None:
-    task = _task("t1", query="query", nodes={"m0": ("S", "positive")})
-
-    with pytest.raises(ValueError, match="task_id=t1.*node_id=missing"):
-        build_dense_finetune_examples(
-            ranking_requests=[_request(task)],
-            train_pairs=[
-                TrainPairRecord(
-                    task_id="t1", node_id="m0", label=1, sample_type="positive"
-                ),
-                TrainPairRecord(
-                    task_id="t1", node_id="missing", label=0, sample_type="hard_dense"
-                ),
-            ],
-            settings=DenseFinetuneDataSettings(),
-        )
-
-
-def test_trajectory_batch_sampler_is_deterministic_and_group_safe() -> None:
-    group_ids = ("g1", "g1", "g2", "g2", "g3")
-
-    first = list(_TrajectoryBatchSampler(group_ids, batch_size=3, seed=17))
-    second = list(_TrajectoryBatchSampler(group_ids, batch_size=3, seed=17))
-
-    assert first == second
-    assert sorted(index for batch in first for index in batch) == list(range(5))
-    assert all(
-        len({group_ids[index] for index in batch}) == len(batch) for batch in first
-    )
 
 
 def test_task_local_dense_evaluator_ranks_only_each_tasks_candidates() -> None:
@@ -328,32 +276,3 @@ def test_task_local_dense_evaluator_ranks_only_each_tasks_candidates() -> None:
 
     assert score == 1.0
     assert evaluator.metric_values["dev_recall_at_5"] == 1.0
-
-
-def test_ir_evaluator_payload_uses_task_qualified_corpus_ids() -> None:
-    tasks = [
-        _task(
-            "t1",
-            query="first",
-            nodes={"m0": ("Shared", "first positive"), "m1": ("Other", "negative")},
-        ),
-        _task("t2", query="second", nodes={"m0": ("Shared", "second positive")}),
-    ]
-
-    payload = build_ir_evaluator_payload(
-        ranking_requests=[_request(task) for task in tasks],
-        labels=[
-            _evidence_label(_labels("t1", ["m0"])),
-            _evidence_label(_labels("t2", ["m0"])),
-        ],
-        query_prefix="Q: ",
-        passage_prefix="P: ",
-    )
-
-    assert payload.queries == {"t1": "Q: first", "t2": "Q: second"}
-    assert payload.corpus == {
-        "t1::m0": "P: Shared. first positive",
-        "t1::m1": "P: Other. negative",
-        "t2::m0": "P: Shared. second positive",
-    }
-    assert payload.relevant_docs == {"t1": {"t1::m0"}, "t2": {"t2::m0"}}

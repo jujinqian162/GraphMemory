@@ -10,9 +10,7 @@ def _tool(name: str, properties: dict[str, object]) -> dict[str, object]:
         "function": {
             "name": name,
             "description": f"{name} tool",
-            "parameters": json.dumps(
-                {"type": "object", "properties": properties}
-            ),
+            "parameters": json.dumps({"type": "object", "properties": properties}),
         },
     }
 
@@ -91,7 +89,9 @@ def isetrace_record() -> dict[str, object]:
                 "role": "assistant",
                 "content": "I will write it.",
                 "reasoning_content": "The requested path is explicit.",
-                "tool_calls": [_call("c1", "write", {"path": path, "content": "draft"})],
+                "tool_calls": [
+                    _call("c1", "write", {"path": path, "content": "draft"})
+                ],
             },
             {
                 "role": "tool",

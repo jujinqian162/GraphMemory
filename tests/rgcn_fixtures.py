@@ -55,33 +55,35 @@ class FakeTextEmbeddingProvider(TextEmbeddingProvider):
 
 def tiny_task_inputs() -> list[HotpotQARankingRecord]:
     return [
-        HotpotQARankingRecord.model_validate({
-            "task_id": "hotpot_rgcn_train",
-            "question": "Which evidence mentions Alpha?",
-            "candidate_sentences": [
-                {
-                    "sentence_id": "m0",
-                    "text": "Alpha is the answer evidence.",
-                    "title": "A",
-                    "sentence_index": 0,
-                    "position": 0,
-                },
-                {
-                    "sentence_id": "m1",
-                    "text": "Beta is unrelated.",
-                    "title": "B",
-                    "sentence_index": 0,
-                    "position": 1,
-                },
-                {
-                    "sentence_id": "m2",
-                    "text": "Gamma connects to Alpha.",
-                    "title": "C",
-                    "sentence_index": 0,
-                    "position": 2,
-                },
-            ],
-        })
+        HotpotQARankingRecord.model_validate(
+            {
+                "task_id": "hotpot_rgcn_train",
+                "question": "Which evidence mentions Alpha?",
+                "candidate_sentences": [
+                    {
+                        "sentence_id": "m0",
+                        "text": "Alpha is the answer evidence.",
+                        "title": "A",
+                        "sentence_index": 0,
+                        "position": 0,
+                    },
+                    {
+                        "sentence_id": "m1",
+                        "text": "Beta is unrelated.",
+                        "title": "B",
+                        "sentence_index": 0,
+                        "position": 1,
+                    },
+                    {
+                        "sentence_id": "m2",
+                        "text": "Gamma connects to Alpha.",
+                        "title": "C",
+                        "sentence_index": 0,
+                        "position": 2,
+                    },
+                ],
+            }
+        )
     ]
 
 
@@ -106,29 +108,31 @@ def _graph_nodes(task: HotpotQARankingRecord) -> list[GraphItemNode]:
 def tiny_graphs() -> list[EvidenceGraph]:
     task = tiny_task_inputs()[0]
     return [
-        EvidenceGraph.model_validate({
-            "task_id": task.task_id,
-            "nodes": [
-                {"id": "q", "node_type": "question", "text": task.question},
-                *_graph_nodes(task),
-            ],
-            "edges": [
-                {
-                    "source": "q",
-                    "target": "m0",
-                    "edge_type": "query_overlap",
-                    "weight": 1.0,
-                    "directed": True,
-                },
-                {
-                    "source": "m0",
-                    "target": "m2",
-                    "edge_type": "bridge",
-                    "weight": 0.8,
-                    "directed": False,
-                },
-            ],
-        })
+        EvidenceGraph.model_validate(
+            {
+                "task_id": task.task_id,
+                "nodes": [
+                    {"id": "q", "node_type": "question", "text": task.question},
+                    *_graph_nodes(task),
+                ],
+                "edges": [
+                    {
+                        "source": "q",
+                        "target": "m0",
+                        "edge_type": "query_overlap",
+                        "weight": 1.0,
+                        "directed": True,
+                    },
+                    {
+                        "source": "m0",
+                        "target": "m2",
+                        "edge_type": "bridge",
+                        "weight": 0.8,
+                        "directed": False,
+                    },
+                ],
+            }
+        )
     ]
 
 

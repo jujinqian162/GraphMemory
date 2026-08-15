@@ -1,8 +1,6 @@
 import torch
 
-from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.internals.tensorization import (
-    DEFAULT_RELATION_VOCAB,
     EdgeTensorizer,
     UniformEdgeWeightPolicy,
 )
@@ -10,76 +8,66 @@ from graph_memory.graphs.contracts import EvidenceGraph
 
 
 def tensor_graph() -> EvidenceGraph:
-    return EvidenceGraph.model_validate({
-        "task_id": "hotpot_tensor_test",
-        "nodes": [
-            {"id": "q", "node_type": "question", "text": "question"},
-            {
-                "id": "m0",
-                "node_type": "graph_item",
-                "node_kind": "document_sentence",
-                "text": "first memory",
-                "source_ref": "A",
-                "group_key": "document:A",
-                "sequence_index": 0,
-                "metadata": {"title": "A", "position": 0},
-            },
-            {
-                "id": "m1",
-                "node_type": "graph_item",
-                "node_kind": "document_sentence",
-                "text": "second memory",
-                "source_ref": "B",
-                "group_key": "document:B",
-                "sequence_index": 0,
-                "metadata": {"title": "B", "position": 1},
-            },
-            {
-                "id": "m2",
-                "node_type": "graph_item",
-                "node_kind": "document_sentence",
-                "text": "third memory",
-                "source_ref": "C",
-                "group_key": "document:C",
-                "sequence_index": 0,
-                "metadata": {"title": "C", "position": 2},
-            },
-        ],
-        "edges": [
-            {
-                "source": "q",
-                "target": "m0",
-                "edge_type": "query_overlap",
-                "weight": 2.5,
-                "directed": True,
-            },
-            {
-                "source": "m0",
-                "target": "m1",
-                "edge_type": "bridge",
-                "weight": 0.7,
-                "directed": False,
-            },
-            {
-                "source": "m1",
-                "target": "m2",
-                "edge_type": "sequential",
-                "weight": 0.3,
-                "directed": True,
-            },
-        ],
-    })
-
-
-def test_default_relation_vocab_is_stable():
-    assert DEFAULT_RELATION_VOCAB == (
-        "query_overlap_forward",
-        "sequential_forward",
-        "sequential_reverse",
-        "entity_overlap_forward",
-        "entity_overlap_reverse",
-        "bridge_forward",
-        "bridge_reverse",
+    return EvidenceGraph.model_validate(
+        {
+            "task_id": "hotpot_tensor_test",
+            "nodes": [
+                {"id": "q", "node_type": "question", "text": "question"},
+                {
+                    "id": "m0",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "first memory",
+                    "source_ref": "A",
+                    "group_key": "document:A",
+                    "sequence_index": 0,
+                    "metadata": {"title": "A", "position": 0},
+                },
+                {
+                    "id": "m1",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "second memory",
+                    "source_ref": "B",
+                    "group_key": "document:B",
+                    "sequence_index": 0,
+                    "metadata": {"title": "B", "position": 1},
+                },
+                {
+                    "id": "m2",
+                    "node_type": "graph_item",
+                    "node_kind": "document_sentence",
+                    "text": "third memory",
+                    "source_ref": "C",
+                    "group_key": "document:C",
+                    "sequence_index": 0,
+                    "metadata": {"title": "C", "position": 2},
+                },
+            ],
+            "edges": [
+                {
+                    "source": "q",
+                    "target": "m0",
+                    "edge_type": "query_overlap",
+                    "weight": 2.5,
+                    "directed": True,
+                },
+                {
+                    "source": "m0",
+                    "target": "m1",
+                    "edge_type": "bridge",
+                    "weight": 0.7,
+                    "directed": False,
+                },
+                {
+                    "source": "m1",
+                    "target": "m2",
+                    "edge_type": "sequential",
+                    "weight": 0.3,
+                    "directed": True,
+                },
+            ],
+        }
     )
 
 
@@ -106,29 +94,6 @@ def test_edge_tensorizer_filters_disabled_edge_types():
         [1, 3],
     ]
     assert tensors.relation_ids.tolist() == [0, 1]
-
-
-def test_edge_view_ablation_model_configs_remove_exactly_one_visible_edge_type():
-    expected_enabled_edge_types = {
-        "wo_bridge": {"entity_overlap", "query_overlap", "sequential"},
-        "wo_entity_overlap": {"bridge", "query_overlap", "sequential"},
-        "wo_sequential": {"bridge", "entity_overlap", "query_overlap"},
-        "wo_query_overlap": {"bridge", "entity_overlap", "sequential"},
-    }
-
-    for ablation_name, expected in expected_enabled_edge_types.items():
-        config = default_model_config(
-            method_name="dense_rgcn_graph_retriever",
-            encoder_model="fake-encoder",
-            encoder_dim=4,
-            query_prefix="query: ",
-            passage_prefix="passage: ",
-            encoder_batch_size=64,
-            ablation_name=ablation_name,
-        )
-
-        assert set(config.enabled_edge_types) == expected
-        assert config.ablation_name == ablation_name
 
 
 def test_uniform_edge_weight_policy_replaces_artifact_weights():

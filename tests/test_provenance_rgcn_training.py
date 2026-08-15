@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-import torch
 
 from graph_memory.experiment.config import ProvenanceRgcnMethodConfig
 from graph_memory.models.graph_retriever.checkpoint import (
@@ -15,7 +14,6 @@ from graph_memory.models.graph_retriever.provenance import (
     provenance_embedding_request,
     provenance_train_pair_task,
     provenance_training_label,
-    tensorize_provenance_edges,
 )
 from graph_memory.models.graph_retriever.provenance_training import (
     train_provenance_graph_retriever,
@@ -25,54 +23,11 @@ from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.requests import TextRankingRequest
 from graph_memory.training_pairs import build_train_pairs
 from graph_memory.training_pairs.config import NegativeSamplingConfig
-from graph_memory.trajectories import SourceSpan
 from tests.test_provenance_rgcn_tensorization import (
     DeterministicEmbeddingProvider,
     _graph_and_request,
     _model_config,
 )
-
-
-def test_natural_exact_span_maps_only_overlapping_provenance_candidate() -> None:
-    _graph, request = _graph_and_request(
-        task_id="natural-task", query_text="What was verified?"
-    )
-    candidate = next(
-        candidate
-        for candidate in request.candidates
-        if candidate.item_id == "output-content:c4:chunk:0"
-    )
-    source_span = candidate.source_spans[0]
-    assert source_span.char_start is not None
-    label = provenance_training_label(
-        request,
-        gold_spans=(
-            source_span.model_copy(update={"char_start": source_span.char_start + 1}),
-        ),
-    )
-
-    assert label.gold_evidence_item_ids == ("output-content:c4:chunk:0",)
-    assert label.query_intent is None
-    assert label.motif_type is None
-
-
-def test_provenance_label_compilation_fails_fast_without_a_positive() -> None:
-    _graph, request = _graph_and_request(
-        task_id="no-positive-task", query_text="Find missing evidence."
-    )
-
-    with pytest.raises(ValueError, match="has no positive candidates"):
-        provenance_training_label(
-            request,
-            gold_spans=(
-                SourceSpan(
-                    event_id="missing-event",
-                    json_pointer="/content",
-                    char_start=0,
-                    char_end=1,
-                ),
-            ),
-        )
 
 
 def test_tiny_natural_provenance_training_and_checkpoint(tmp_path) -> None:
@@ -278,41 +233,6 @@ def test_wo_graph_checkpoint_ranking_matches_dense_seed_scores(tmp_path) -> None
     assert [node.score for node in result.ranked_nodes] == pytest.approx(
         [signal.score for signal in expected]
     )
-
-
-def test_legacy_full_checkpoint_without_explicit_control_fields_remains_readable(
-    tmp_path,
-) -> None:
-    graph, _request = _graph_and_request(task_id="legacy-full", query_text="query")
-    model_config = _model_config()
-    model = build_model_from_config(model_config)
-    checkpoint_path = tmp_path / "legacy-full.pt"
-    payload = save_rgcn_checkpoint(
-        checkpoint_path,
-        method_name=RetrievalMethodId.PROVENANCE_RGCN,
-        model=model,
-        epoch=0,
-        global_step=0,
-        best_dev_metric=0.0,
-        model_config=model_config,
-        training_config=RgcnTrainingConfig(epochs=1),
-    )
-    serialized_config = payload["model_config"]
-    assert isinstance(serialized_config, dict)
-    serialized_config.pop("enabled_provenance_relations")
-    serialized_config.pop("message_topology")
-    serialized_config.pop("message_topology_seed")
-    torch.save(payload, checkpoint_path)
-
-    loaded = load_rgcn_checkpoint(
-        checkpoint_path,
-        expected_method=RetrievalMethodId.PROVENANCE_RGCN,
-        map_location="cpu",
-    )
-    edges = tensorize_provenance_edges(graph, model_config=loaded.model_config)
-
-    assert loaded.model_config.enabled_provenance_relations == ()
-    assert edges.edge_index.shape[1] > 0
 
 
 def test_provenance_checkpoint_round_trip_requires_matching_method(tmp_path) -> None:

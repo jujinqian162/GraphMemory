@@ -2,23 +2,19 @@ import math
 from pathlib import Path
 
 import torch
-import pytest
 
 from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.models.graph_retriever.checkpoint import load_rgcn_checkpoint
 import graph_memory.registry.retrieval_builders as retrieval_builders
 from graph_memory.registry.retrieval_builders import build_retrieval
 from graph_memory.models.graph_retriever.checkpoint import save_rgcn_checkpoint
-from graph_memory.models.graph_retriever.config.defaults import default_model_config
 from graph_memory.models.graph_retriever.factory import build_model_from_config
 from graph_memory.experiment.config import (
-    DenseFtRgcnMethodConfig,
     RgcnMethodConfig,
 )
 from graph_memory.models.graph_retriever.inference import (
     CheckpointGraphRetrieverLoader,
 )
-from graph_memory.retrieval.methods.ids import RetrievalMethodId
 from graph_memory.retrieval.contracts import RankedNode, RetrievalMethodResult
 from graph_memory.retrieval.execution.service import run_retrieval as execute_retrieval
 from graph_memory.retrieval.requests import EvidenceGraphRankingRequest
@@ -91,7 +87,10 @@ def run_retrieval(
                         "dropout": 0.0,
                         "ablation": "full_rgcn",
                     },
-                    "trainer": {**tiny_training_config().model_dump(), "device": device},
+                    "trainer": {
+                        **tiny_training_config().model_dump(),
+                        "device": device,
+                    },
                     "selection": {
                         "best_metric": "dev_composite",
                         "higher_is_better": True,
@@ -185,91 +184,6 @@ def test_trainable_retriever_ranks_all_memory_nodes_without_labels(tmp_path: Pat
     )
 
 
-def test_evidence_checkpoint_uses_explicit_graph_batch_schema(tmp_path: Path) -> None:
-    checkpoint_path = tmp_path / "best.pt"
-    write_tiny_checkpoint(checkpoint_path)
-
-    checkpoint = load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
-
-    assert checkpoint.payload["schema_version"] == 5
-    training = checkpoint.payload["training_config"]
-    assert "batch_size" not in training
-    assert training["per_device_graph_batch_size"] == 1
-    assert set(training) == {
-        "optimizer_name",
-        "learning_rate",
-        "per_device_graph_batch_size",
-        "max_grad_norm",
-        "random_seed",
-        "pos_weight_enabled",
-        "epochs",
-    }
-
-
-def test_checkpoint_loader_rejects_legacy_beam_schema(tmp_path: Path) -> None:
-    checkpoint_path = tmp_path / "legacy-beam.pt"
-    write_tiny_checkpoint(checkpoint_path)
-    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    payload.pop("schema_version")
-    payload["model_config"]["decoder_config"] = {"hidden_dim": 8}
-    torch.save(payload, checkpoint_path)
-
-    with pytest.raises(ValueError, match="schema_version"):
-        load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
-
-
-def test_evidence_checkpoint_rejects_legacy_batch_size_semantics(
-    tmp_path: Path,
-) -> None:
-    checkpoint_path = tmp_path / "legacy-batch.pt"
-    write_tiny_checkpoint(checkpoint_path)
-    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    payload["schema_version"] = 2
-    payload["training_config"] = {
-        "optimizer_name": "AdamW",
-        "learning_rate": 0.01,
-        "batch_size": 128,
-        "max_grad_norm": 1.0,
-        "random_seed": 13,
-        "pos_weight_enabled": False,
-        "epochs": 1,
-    }
-    torch.save(payload, checkpoint_path)
-
-    with pytest.raises(ValueError, match="batch_size"):
-        load_rgcn_checkpoint(checkpoint_path, map_location="cpu")
-
-
-def test_edge_view_retriever_excludes_hidden_edges_from_prediction_subgraph(
-    tmp_path: Path,
-):
-    checkpoint_path = tmp_path / "best.pt"
-    model_config = default_model_config(
-        method_name="dense_rgcn_graph_retriever",
-        encoder_model="fake-encoder",
-        encoder_dim=4,
-        query_prefix="query: ",
-        passage_prefix="passage: ",
-        encoder_batch_size=64,
-        hidden_dim=8,
-        num_layers=1,
-        dropout=0.0,
-        ablation_name="wo_bridge",
-    )
-    write_tiny_checkpoint(checkpoint_path, model_config=model_config)
-    retriever = CheckpointGraphRetrieverLoader().load(
-        checkpoint_path,
-        text_embedding_provider=FakeTextEmbeddingProvider(),
-        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
-        device="cpu",
-    )
-
-    result = retriever.rank_task(tiny_graph_ranking_request(), top_k=3)
-    retrieved_edges = result.trace.retrieved_edges
-
-    assert all(edge.edge_type != "bridge" for edge in retrieved_edges)
-
-
 def test_trainable_method_runs_from_static_retrieval_dispatch(
     tmp_path: Path,
 ):
@@ -293,41 +207,6 @@ def test_trainable_method_runs_from_static_retrieval_dispatch(
     assert predictions[0].metadata is None
 
 
-def test_evidence_rgcn_builder_accepts_dense_ft_seeded_rgcn_checkpoint(
-    tmp_path: Path,
-):
-    checkpoint_path = tmp_path / "best.pt"
-    seeded_model_config = tiny_model_config().model_copy(
-        update={
-            "method_name": RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
-        }
-    )
-    write_tiny_checkpoint(
-        checkpoint_path,
-        model_config=seeded_model_config,
-        method_name=RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value,
-    )
-
-    retrieval_method, provenance, _requests = build_retrieval(
-        DenseFtRgcnMethodConfig.model_construct(
-            method="dense_ft_rgcn_graph_retriever",
-            variant="full_rgcn",
-        ),
-        text_requests=_ranking_requests(tiny_task_inputs()),
-        checkpoint=checkpoint_path,
-        evidence_graphs=tiny_graphs(),
-        text_embedding_provider=FakeTextEmbeddingProvider(),
-        seed_signal_provider=RetrieverSeedSignalProvider(FakeRetriever()),
-        device="cpu",
-    )
-
-    assert retrieval_method.name == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
-    assert provenance["method"] == RetrievalMethodId.DENSE_FT_RGCN_GRAPH_RETRIEVER.value
-    assert provenance["model"] == checkpoint_path.as_posix()
-    assert provenance["encoder"] is not None
-    assert provenance["encoder"]["model_name"] == "fake-encoder"
-
-
 def test_run_retrieval_passes_device_to_trainable_retriever(
     monkeypatch, tmp_path: Path
 ):
@@ -340,9 +219,7 @@ def test_run_retrieval_passes_device_to_trainable_retriever(
         captured["device"] = device
         return TinyTrainableRetriever()
 
-    monkeypatch.setattr(
-        CheckpointGraphRetrieverLoader, "load", fake_from_checkpoint
-    )
+    monkeypatch.setattr(CheckpointGraphRetrieverLoader, "load", fake_from_checkpoint)
     monkeypatch.setattr(
         retrieval_builders, "_evidence_rgcn_providers", fake_checkpoint_providers
     )

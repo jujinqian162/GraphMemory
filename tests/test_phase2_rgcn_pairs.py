@@ -142,7 +142,9 @@ def test_train_pair_validation_rejects_question_node_sample() -> None:
         )
 
 
-def test_build_train_pairs_creates_valid_positive_random_and_graph_neighbor_samples() -> None:
+def test_build_train_pairs_creates_valid_positive_random_and_graph_neighbor_samples() -> (
+    None
+):
     result = build_train_pairs(
         _pair_tasks(),
         NegativeSamplingConfig(

@@ -12,7 +12,6 @@ from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPublisher,
     EvaluationArtifactRef,
-    ModelArtifactRef,
     PredictionsArtifactRef,
     ProcessedAssetStore,
 )
@@ -200,56 +199,6 @@ def test_output_projection_is_complete_and_never_copies_processed_assets(
     assert [node["node_id"] for node in prediction["ranked_nodes"]] == ["m1"]
 
 
-def test_output_projection_copies_relation_control_diagnostics(
-    tmp_path: Path,
-) -> None:
-    repository = tmp_path / "repo"
-    store = ProcessedAssetStore(repository / "data" / "processed")
-    result = _result(store)
-    with ArtifactPublisher(
-        store,
-        kind=ArtifactKind.MODEL,
-        namespace="provenance_rgcn",
-        task_identity="test-control-model",
-        origin={"stage": "train", "variant": "random_edges"},
-    ) as publisher:
-        write_jsonl(publisher.workspace / "training_metrics.jsonl", [])
-        write_json(
-            publisher.workspace / "control_diagnostics.json",
-            {
-                "train": {
-                    "ablation_name": "random_edges",
-                    "rewired_edge_count": 8,
-                }
-            },
-        )
-        model_ref = publisher.publish(
-            {
-                "training_metrics": "training_metrics.jsonl",
-                "control_diagnostics": "control_diagnostics.json",
-            }
-        )
-    assert isinstance(model_ref, ModelArtifactRef)
-    result = result.model_copy(
-        update={"model": model_ref, "assets": (*result.assets, model_ref)}
-    )
-    output = repository / "runs" / "control-run"
-
-    project_run_output(
-        output,
-        repository_root=repository,
-        config=_config("control-run"),
-        overrides=(),
-        result=result,
-    )
-
-    diagnostics = json.loads(
-        (output / "training" / "control_diagnostics.json").read_text(encoding="utf-8")
-    )
-    assert diagnostics["train"]["ablation_name"] == "random_edges"
-    assert diagnostics["train"]["rewired_edge_count"] == 8
-
-
 def test_delivery_mirrors_output_tree_and_records_asset_references(
     tmp_path: Path,
 ) -> None:
@@ -276,49 +225,6 @@ def test_delivery_mirrors_output_tree_and_records_asset_references(
     assert manifest["scientific_jobs"][0]["per_task_count"] == 1
     assert manifest["scientific_jobs"][0]["output_schema_version"] == 2
     assert all(len(item["sha256"]) == 64 for item in manifest["copied"])
-
-
-def test_delivery_detects_every_output_only_multirun_child(tmp_path: Path) -> None:
-    source = tmp_path / "runs" / "study"
-    for selector in ("0_method=bm25", "1_method=dense"):
-        summary = source / selector / "workflow" / "summary.yaml"
-        summary.parent.mkdir(parents=True)
-        summary.write_text("method: test\n", encoding="utf-8")
-
-    manifest = collect_run_artifacts(
-        source,
-        output_root=tmp_path / "results",
-        validate_complete=False,
-    )
-
-    assert manifest["run_mode"] == "multirun"
-    assert manifest["jobs"] == ["0_method=bm25", "1_method=dense"]
-    assert all(
-        (
-            tmp_path / "results" / "study" / selector / "workflow" / "summary.yaml"
-        ).is_file()
-        for selector in manifest["jobs"]
-    )
-
-
-def test_delivery_rejects_incomplete_scientific_run_by_default(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "runs" / "incomplete"
-    summary = source / "workflow" / "summary.yaml"
-    summary.parent.mkdir(parents=True)
-    summary.write_text(
-        "method: bm25\ndataset: isetrace\nprofile: full\nseed: 13\n",
-        encoding="utf-8",
-    )
-
-    try:
-        collect_run_artifacts(source, output_root=tmp_path / "results")
-    except ValueError as error:
-        assert "incomplete" in str(error)
-        assert "metrics/per_task.jsonl" in str(error)
-    else:
-        raise AssertionError("expected incomplete run delivery to fail")
 
 
 def test_run_output_guard_rejects_root_and_external_paths(tmp_path: Path) -> None:

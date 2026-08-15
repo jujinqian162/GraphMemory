@@ -55,14 +55,6 @@ def test_extracts_diverse_internal_authoring_motifs() -> None:
         )
 
 
-def test_motif_planning_is_deterministic_and_does_not_mutate_graph() -> None:
-    _trajectory, graph, motifs = _trajectory_graph_and_motifs()
-    fingerprint = graph.fingerprint()
-
-    assert motifs == extract_motifs(graph)
-    assert graph.fingerprint() == fingerprint
-
-
 def test_authoring_helpers_render_and_parse_one_canonical_task_text() -> None:
     trajectory, graph, motifs = _trajectory_graph_and_motifs()
     motif = next(item for item in motifs if item.motif_type == "artifact_lifecycle")

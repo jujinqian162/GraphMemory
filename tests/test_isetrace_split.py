@@ -14,7 +14,9 @@ def _trajectory(
     texts: tuple[str, ...] | None = None,
 ) -> TrajectoryIdentity:
     active_intent_ids = intent_ids or (f"intent-{index}",)
-    active_texts = texts or tuple(f"task {intent_id}" for intent_id in active_intent_ids)
+    active_texts = texts or tuple(
+        f"task {intent_id}" for intent_id in active_intent_ids
+    )
     return TrajectoryIdentity(
         trajectory_id=f"trajectory-{index}",
         source_intent_ids=active_intent_ids,

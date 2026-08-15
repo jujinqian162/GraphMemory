@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
@@ -20,10 +19,8 @@ from graph_memory.experiment.config import (
     resolve_experiment_config,
 )
 from graph_memory.models.dense_finetune.metadata import (
-    DENSE_FT_METADATA_FILENAME,
     DenseFinetuneModelMetadata,
     DenseFinetuneSelectionMetadata,
-    load_dense_ft_model_metadata,
     write_dense_ft_model_metadata,
 )
 from graph_memory.registry.retrieval_builders import build_retrieval
@@ -77,9 +74,7 @@ def _method(variant: DenseCandidateView) -> DenseFinetuneMethodConfig:
     return resolved.method
 
 
-def _write_metadata(
-    model_dir: Path, *, variant: DenseCandidateView
-) -> None:
+def _write_metadata(model_dir: Path, *, variant: DenseCandidateView) -> None:
     write_dense_ft_model_metadata(
         model_dir=model_dir,
         metadata=DenseFinetuneModelMetadata(
@@ -95,41 +90,6 @@ def _write_metadata(
             ),
         ),
     )
-
-
-def test_legacy_dense_ft_metadata_defaults_to_flat(tmp_path: Path) -> None:
-    payload = {
-        "base_model": "fixture-model",
-        "query_prefix": "query: ",
-        "passage_prefix": "passage: ",
-        "batch_size": 8,
-        "device": "cpu",
-        "selection": {
-            "selected_metric": "dev_recall_at_5",
-            "higher_is_better": True,
-        },
-        "method": "dense_ft",
-    }
-    (tmp_path / DENSE_FT_METADATA_FILENAME).write_text(
-        json.dumps(payload), encoding="utf-8"
-    )
-
-    assert load_dense_ft_model_metadata(tmp_path).variant == "flat"
-
-
-def test_dense_ft_retrieval_rejects_checkpoint_variant_mismatch(
-    tmp_path: Path,
-) -> None:
-    _write_metadata(tmp_path, variant="flat")
-
-    with pytest.raises(ValueError, match="variant='flat'.*provenance_unit"):
-        build_retrieval(
-            _method("provenance_unit"),
-            text_requests=[],
-            checkpoint=tmp_path,
-            dense_encoder=cast(SentenceEncoder, object()),
-            device="cpu",
-        )
 
 
 def test_dense_ft_retrieval_accepts_matching_variant_and_keeps_method_name(

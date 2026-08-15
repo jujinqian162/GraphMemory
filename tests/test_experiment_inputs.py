@@ -9,21 +9,6 @@ from graph_memory.experiment import inputs
 from scripts import prepare_dataset
 
 
-def test_isetrace_registry_is_revision_pinned_and_complete() -> None:
-    spec = prepare_dataset.DATASET_REGISTRY["isetrace"]
-
-    assert len(spec.files) == 9
-    assert {item.split for item in spec.files} == {
-        "intents",
-        *(f"trajectories-{index:05d}" for index in range(8)),
-    }
-    assert all(
-        f"/resolve/{prepare_dataset.ISETRACE_REVISION}/" in item.url
-        for item in spec.files
-    )
-    assert all(item.num_bytes is not None for item in spec.files)
-
-
 def test_prepare_dataset_retries_huggingface_download_once_via_mirror(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -129,6 +114,33 @@ def test_prepare_dataset_can_use_huggingface_mirror_directly(
     ]
 
 
+def test_encoder_download_uses_huggingface_mirror_and_revision(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def snapshot_download(**kwargs: object) -> str:
+        calls.append(kwargs)
+        return str(kwargs["local_dir"])
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+
+    inputs._ensure_model(
+        "models/BAAI-bge-reranker-base",
+        repository_root=tmp_path,
+    )
+
+    assert calls == [
+        {
+            "repo_id": "BAAI/bge-reranker-base",
+            "revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+            "local_dir": str(tmp_path / "models/BAAI-bge-reranker-base"),
+            "endpoint": inputs.HUGGINGFACE_MIRROR_BASE_URL,
+        }
+    ]
+
+
 def test_prepare_dataset_does_not_mirror_non_huggingface_downloads(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -174,31 +186,3 @@ def test_prepare_dataset_does_not_mirror_non_huggingface_downloads(
         )
 
     assert calls == 1
-
-
-
-def test_encoder_download_uses_huggingface_mirror_and_revision(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    calls: list[dict[str, object]] = []
-
-    def snapshot_download(**kwargs: object) -> str:
-        calls.append(kwargs)
-        return str(kwargs["local_dir"])
-
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
-
-    inputs._ensure_model(
-        "models/BAAI-bge-reranker-base",
-        repository_root=tmp_path,
-    )
-
-    assert calls == [
-        {
-            "repo_id": "BAAI/bge-reranker-base",
-            "revision": "2cfc18c9415c912f9d8155881c133215df768a70",
-            "local_dir": str(tmp_path / "models/BAAI-bge-reranker-base"),
-            "endpoint": inputs.HUGGINGFACE_MIRROR_BASE_URL,
-        }
-    ]

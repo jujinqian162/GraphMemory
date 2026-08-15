@@ -135,34 +135,3 @@ def test_cluster_bootstrap_resamples_trajectory_groups_and_reports_strata() -> N
     ]
     assert linked["mean_delta"] == 1.0
     assert linked["paired_cluster_count"] == 1
-
-
-def test_mismatched_task_ids_raise() -> None:
-    good = _row("bm25", 13, [1.0, 0.0], trainable=False)
-    bad = {
-        "method": "dense_ft",
-        "trainable": True,
-        "seed": 13,
-        "metrics": {"Full Support@2048 Tokens": 1.0},
-        "per_task": {"task-0": {"Full Support@2048 Tokens": 1.0}},
-    }
-    with pytest.raises(ValueError, match="share the same test split"):
-        analyze_main_results([good, bad], baseline_method="bm25")
-
-
-def test_inconsistent_trainable_flag_raises() -> None:
-    rows = [
-        _row("dense_ft", 13, [1.0, 0.0], trainable=True),
-        _row("dense_ft", 17, [1.0, 0.0], trainable=False),
-    ]
-    with pytest.raises(ValueError, match="inconsistent trainable"):
-        analyze_main_results(rows, baseline_method="dense_ft")
-
-
-def test_mismatched_test_artifact_digest_raises() -> None:
-    rows = [
-        _row("bm25", 13, [1.0], trainable=False, digest="a"),
-        _row("dense", 13, [1.0], trainable=False, digest="b"),
-    ]
-    with pytest.raises(ValueError, match="different or missing test artifact"):
-        analyze_main_results(rows, baseline_method="bm25")

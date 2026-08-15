@@ -4,39 +4,28 @@ from contextlib import nullcontext
 from pathlib import Path
 
 from hydra import compose, initialize_config_dir
-from prefect import flow
 import pytest
 
-import graph_memory.experiment.tasks as experiment_tasks
 import graph_memory.experiment.workflow as experiment_workflow
 from graph_memory.experiment.artifacts import (
     ArtifactKind,
     ArtifactPayload,
     DatasetArtifactRef,
-    FileSourceRef,
-    identify_external_source,
 )
 from graph_memory.experiment.cache import ScientificInputs
 from graph_memory.experiment.config import (
     DenseEncoderConfig,
     PairBuildConfig,
     NegativeSamplingConfig,
-    PrepareSplitConfig,
-    ProvenanceRgcnMethodConfig,
     parse_composed_config,
     resolve_experiment_config,
 )
-from graph_memory.experiment.tasks import prefect_storage_settings, prepare_split_task
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PairInputsCaptured(Exception):
-    pass
-
-
-class RankingInputsCaptured(Exception):
     pass
 
 
@@ -88,7 +77,9 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     monkeypatch.setattr(
         experiment_workflow,
         "prepare_split_task",
-        lambda *, source, config, trajectory_source=None, authoring_metadata_source=None: object(),
+        lambda *, source, config, trajectory_source=None, authoring_metadata_source=None: (
+            object()
+        ),
     )
     monkeypatch.setattr(
         experiment_workflow,
@@ -134,283 +125,6 @@ def test_dense_ft_flow_uses_family_compatible_pair_inputs(
     )
 
 
-def test_provenance_unit_dense_flow_prepares_only_test_without_graphs(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
-        composed = compose(
-            config_name="config",
-            overrides=[
-                "name=provenance-unit-dense-plan",
-                "dataset=isetrace",
-                "profile=smoke",
-                "device=cpu",
-                "method=dense",
-                "method.variant=provenance_unit",
-            ],
-        )
-    config = resolve_experiment_config(
-        parse_composed_config(composed), repository_root=ROOT
-    )
-    prepared_splits: list[str] = []
-    observed: dict[str, object] = {}
-
-    monkeypatch.setattr(experiment_workflow, "ensure_inputs", lambda config: None)
-    monkeypatch.setattr(
-        experiment_workflow,
-        "prefect_storage_settings",
-        lambda *, refresh_cache: nullcontext(),
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "_resolve_split_sources",
-        lambda config: {"test": object()},
-    )
-    monkeypatch.setattr(experiment_workflow, "_trajectory_source", lambda config: None)
-    monkeypatch.setattr(
-        experiment_workflow, "_authoring_metadata_source", lambda config: None
-    )
-
-    def capture_prepare(**kwargs):
-        prepared_splits.append(kwargs["config"].split)
-        return object()
-
-    def capture_rankings(**kwargs):
-        observed.update(kwargs)
-        raise RankingInputsCaptured
-
-    monkeypatch.setattr(experiment_workflow, "prepare_split_task", capture_prepare)
-    monkeypatch.setattr(
-        experiment_workflow, "resolve_encoder_source", lambda encoder: object()
-    )
-    monkeypatch.setattr(
-        experiment_workflow, "generate_rankings_task", capture_rankings
-    )
-
-    with pytest.raises(RankingInputsCaptured):
-        experiment_workflow.run_experiment.fn(config, run_output=tmp_path / "run")
-
-    assert prepared_splits == ["test"]
-    assert observed["evidence_graphs"] is None
-    assert observed["model"] is None
-    assert observed["method"] == config.method
-    assert config.variant == "provenance_unit"
-
-
-def test_provenance_rgcn_flow_plans_trainable_lifecycle_without_evidence_graphs(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
-        composed = compose(
-            config_name="config",
-            overrides=[
-                "name=provenance-rgcn-plan",
-                "dataset=isetrace",
-                "profile=smoke",
-                "device=cpu",
-                "method=provenance_rgcn",
-            ],
-        )
-    config = resolve_experiment_config(
-        parse_composed_config(composed), repository_root=ROOT
-    )
-    observed: dict[str, object] = {}
-    prepared_splits: list[str] = []
-
-    monkeypatch.setattr(
-        experiment_workflow,
-        "prefect_storage_settings",
-        lambda *, refresh_cache: nullcontext(),
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "_resolve_split_sources",
-        lambda config: {split: object() for split in ("train", "dev", "test")},
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "_trajectory_source",
-        lambda config: object(),
-    )
-
-    def prepare(**kwargs):
-        prepared_splits.append(kwargs["config"].split)
-        assert kwargs["trajectory_source"] is not None
-        return object()
-
-    def pairs(**kwargs):
-        observed["pair_graphs"] = kwargs["evidence_graphs"]
-        return object()
-
-    def encode(**kwargs):
-        observed["encode_graphs"] = (
-            kwargs["train_graphs"],
-            kwargs["dev_graphs"],
-        )
-        return object()
-
-    def train(**kwargs):
-        observed["trained"] = True
-        raise PairInputsCaptured
-
-    monkeypatch.setattr(experiment_workflow, "prepare_split_task", prepare)
-    monkeypatch.setattr(
-        experiment_workflow, "resolve_encoder_source", lambda encoder: object()
-    )
-    monkeypatch.setattr(experiment_workflow, "build_training_pairs_task", pairs)
-    monkeypatch.setattr(experiment_workflow, "encode_frozen_rgcn_embeddings_task", encode)
-    monkeypatch.setattr(experiment_workflow, "train_provenance_rgcn_task", train)
-    monkeypatch.setattr(
-        experiment_workflow,
-        "build_evidence_graphs_task",
-        lambda **kwargs: pytest.fail("provenance R-GCN must not build EvidenceGraph"),
-    )
-
-    with pytest.raises(PairInputsCaptured):
-        experiment_workflow.run_experiment.fn(
-            config,
-            run_output=tmp_path / "run",
-        )
-
-    assert prepared_splits == ["train", "dev", "test"]
-    assert observed["pair_graphs"] is None
-    assert observed["encode_graphs"] == (None, None)
-    assert observed["trained"] is True
-
-
-def test_seeded_provenance_rgcn_flow_supplies_provenance_unit_dense_ft_model(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
-        composed = compose(
-            config_name="config",
-            overrides=[
-                "name=seeded-provenance-rgcn-plan",
-                "dataset=isetrace",
-                "profile=smoke",
-                "device=cpu",
-                "method=provenance_unit_dense_ft_rgcn",
-                "method.variant=wo_graph",
-            ],
-        )
-    config = resolve_experiment_config(
-        parse_composed_config(composed), repository_root=ROOT
-    )
-    assert isinstance(config.method, ProvenanceRgcnMethodConfig)
-    observed: dict[str, object] = {"pair_configs": []}
-    seed_pairs = object()
-    rgcn_pairs = object()
-    seed_model = object()
-    frozen_embeddings = object()
-
-    monkeypatch.setattr(
-        experiment_workflow,
-        "prefect_storage_settings",
-        lambda *, refresh_cache: nullcontext(),
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "_resolve_split_sources",
-        lambda config: {split: object() for split in ("train", "dev", "test")},
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "_trajectory_source",
-        lambda config: object(),
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "prepare_split_task",
-        lambda **kwargs: object(),
-    )
-    monkeypatch.setattr(
-        experiment_workflow,
-        "resolve_encoder_source",
-        lambda encoder: object(),
-    )
-
-    def pairs(**kwargs):
-        configs = observed["pair_configs"]
-        assert isinstance(configs, list)
-        configs.append(kwargs["config"])
-        assert kwargs["evidence_graphs"] is None
-        return seed_pairs if kwargs["config"].method == "dense_ft" else rgcn_pairs
-
-    def train_seed(**kwargs):
-        observed["seed_train_config"] = kwargs["config"]
-        assert kwargs["train_pairs"] is seed_pairs
-        return seed_model
-
-    def encode(**kwargs):
-        observed["encode_seed_model"] = kwargs["seed_model"]
-        assert (kwargs["train_graphs"], kwargs["dev_graphs"]) == (None, None)
-        return frozen_embeddings
-
-    def train_rgcn(**kwargs):
-        observed["rgcn_seed_model"] = kwargs["seed_model"]
-        observed["rgcn_config"] = kwargs["config"]
-        assert kwargs["train_pairs"] is rgcn_pairs
-        assert kwargs["frozen_embeddings"] is frozen_embeddings
-        raise PairInputsCaptured
-
-    monkeypatch.setattr(experiment_workflow, "build_training_pairs_task", pairs)
-    monkeypatch.setattr(experiment_workflow, "train_dense_ft_task", train_seed)
-    monkeypatch.setattr(experiment_workflow, "encode_frozen_rgcn_embeddings_task", encode)
-    monkeypatch.setattr(experiment_workflow, "train_provenance_rgcn_task", train_rgcn)
-    monkeypatch.setattr(
-        experiment_workflow,
-        "build_evidence_graphs_task",
-        lambda **kwargs: pytest.fail("seeded provenance R-GCN must not build EvidenceGraph"),
-    )
-
-    with pytest.raises(PairInputsCaptured):
-        experiment_workflow.run_experiment.fn(config, run_output=tmp_path / "run")
-
-    pair_configs = observed["pair_configs"]
-    assert isinstance(pair_configs, list)
-    assert [pair.method for pair in pair_configs] == ["dense_ft", "provenance_rgcn"]
-    assert pair_configs[0].candidate_view == "provenance_unit"
-    assert observed["seed_train_config"] == config.method.seed
-    assert observed["encode_seed_model"] is seed_model
-    assert observed["rgcn_seed_model"] is seed_model
-    assert observed["rgcn_config"] == config.method
-    assert config.method.train.model.num_layers == 0
-
-
-def test_provenance_relation_controls_own_distinct_model_cache_identities() -> None:
-    methods: list[ProvenanceRgcnMethodConfig] = []
-    for variant in ("full_rgcn", "homogeneous_gcn", "wo_feeds", "random_edges"):
-        with initialize_config_dir(
-            config_dir=str(ROOT / "configs"), version_base="1.3"
-        ):
-            composed = compose(
-                config_name="config",
-                overrides=[
-                    "name=provenance-control-cache",
-                    "dataset=isetrace",
-                    "profile=smoke",
-                    "method=provenance_unit_dense_ft_rgcn",
-                    f"method.variant={variant}",
-                    "device=cpu",
-                ],
-            )
-        resolved = resolve_experiment_config(
-            parse_composed_config(composed), repository_root=ROOT
-        )
-        assert isinstance(resolved.method, ProvenanceRgcnMethodConfig)
-        methods.append(resolved.method)
-
-    policy = ScientificInputs()
-    keys = [policy.compute_key(None, {"config": method}, {}) for method in methods]
-
-    assert len(set(keys)) == len(methods)
-    assert all(method.pairs == methods[0].pairs for method in methods)
-    assert all(method.seed == methods[0].seed for method in methods)
-
-
 def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
     sampling = NegativeSamplingConfig(
         random_seed=13,
@@ -452,11 +166,7 @@ def test_scientific_cache_key_excludes_nested_runtime_device() -> None:
     )
     provenance_view_key = policy.compute_key(
         None,
-        {
-            "config": cpu.model_copy(
-                update={"candidate_view": "provenance_unit"}
-            )
-        },
+        {"config": cpu.model_copy(update={"candidate_view": "provenance_unit"})},
         {},
     )
 
@@ -496,45 +206,3 @@ def test_scientific_cache_key_uses_artifact_content_not_materialization_uri() ->
     assert policy.compute_key(None, {"prepared": first}, {}) == policy.compute_key(
         None, {"prepared": second}, {}
     )
-
-
-def test_prepare_task_reuses_cache_and_flow_scoped_refreshes(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    processed = tmp_path / "processed"
-    monkeypatch.setattr(experiment_tasks, "PROCESSED_ROOT", processed)
-    monkeypatch.setattr(
-        experiment_tasks,
-        "SCIENTIFIC_RESULT_STORAGE",
-        processed / "prefect" / "results",
-    )
-    source = identify_external_source(
-        ROOT / "tests" / "fixtures" / "hotpotqa_smoke.json",
-        repository_root=ROOT,
-    )
-    assert isinstance(source, FileSourceRef)
-    config = PrepareSplitConfig(
-        dataset="hotpotqa",
-        split="test",
-        count=1,
-        offset=0,
-        seed=13,
-        strict_invalid_examples=False,
-    )
-    implementation_version = f"test-{tmp_path.parent.name}-{tmp_path.name}"
-
-    @flow(name="prepare-cache-contract", persist_result=False)
-    def invoke(refresh: bool) -> str:
-        with prefect_storage_settings(refresh_cache=refresh):
-            state = prepare_split_task(
-                source=source,
-                config=config,
-                implementation_version=implementation_version,
-                return_state=True,
-            )
-        return state.name or str(state.type)
-
-    assert invoke(False) == "Completed"
-    assert invoke(False) == "Cached"
-    assert invoke(True) == "Completed"

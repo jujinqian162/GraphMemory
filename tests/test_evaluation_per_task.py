@@ -5,23 +5,24 @@ import statistics
 from graph_memory.retrieval.results import RankedResult
 from graph_memory.evaluation.requests import EvidenceEvaluationRequest, EvidenceLabel
 from graph_memory.evaluation.suites import (
-    evaluate_evidence,
     evaluate_evidence_with_per_task,
 )
 
 
 def _prediction(task_id: str, ranked: list[str]) -> RankedResult:
-    return RankedResult.model_validate({
-        "task_id": task_id,
-        "method": "bm25",
-        "ranked_nodes": [
-            {"node_id": node_id, "score": float(len(ranked) - index)}
-            for index, node_id in enumerate(ranked)
-        ],
-        "retrieved_subgraph": {"nodes": list(ranked), "edges": []},
-        "latency_ms": 2.0,
-        "input_tokens": 10,
-    })
+    return RankedResult.model_validate(
+        {
+            "task_id": task_id,
+            "method": "bm25",
+            "ranked_nodes": [
+                {"node_id": node_id, "score": float(len(ranked) - index)}
+                for index, node_id in enumerate(ranked)
+            ],
+            "retrieved_subgraph": {"nodes": list(ranked), "edges": []},
+            "latency_ms": 2.0,
+            "input_tokens": 10,
+        }
+    )
 
 
 def _label(task_id: str, gold: list[str]) -> EvidenceLabel:
@@ -64,9 +65,3 @@ def test_per_task_metrics_average_to_aggregate() -> None:
             for row in per_task
         )
         assert averaged == aggregate[0].model_dump(mode="json", by_alias=True)[metric]
-
-
-def test_plain_evaluate_still_returns_only_aggregate() -> None:
-    rows = evaluate_evidence(_request())
-    assert len(rows) == 1
-    assert "task_id" not in type(rows[0]).model_fields

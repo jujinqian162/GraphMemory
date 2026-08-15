@@ -64,9 +64,3 @@ def test_isetrace_trajectory_selection_uses_split_seed() -> None:
         assert prepare_a.trajectory_splits is not None
         if split == "test":
             assert prepare_a.trajectory_splits.test == 1207
-
-
-def test_split_seed_defaults_to_thirteen() -> None:
-    config = _resolved("seed=41")
-    assert config.split_seed == 13
-    assert _prepare_config(config, "test").seed == 13

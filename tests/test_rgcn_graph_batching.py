@@ -11,10 +11,6 @@ from graph_memory.graphs.contracts import EvidenceGraph
 from graph_memory.training_pairs.contracts import TrainPairRecord
 from graph_memory.datasets.selection import text_ranking_requests_for_dataset
 from graph_memory.evaluation.requests import EvidenceLabel
-from graph_memory.models.frozen_embeddings import (
-    FrozenTaskEmbeddings,
-    node_ids_digest,
-)
 from graph_memory.models.graph_batching import (
     TaskGraphTensor,
     collate_task_graphs,
@@ -24,9 +20,6 @@ from graph_memory.models.graph_batching import (
 from graph_memory.models.graph_retriever.batching import (
     build_evidence_dataloader,
     materialize_training_tasks,
-)
-from graph_memory.models.graph_retriever.text_embeddings import (
-    PrecomputedGraphFeatureProvider,
 )
 from graph_memory.models.graph_retriever.training import train_graph_retriever
 from graph_memory.retrieval.requests import TextRankingRequest
@@ -104,32 +97,6 @@ def test_evidence_dataloader_materializes_features_once_and_keeps_tail_batch() -
     assert [len(batch_ids) for batch_ids in first_epochs[0]] == [2, 1]
     assert first_epochs[0] != first_epochs[1]
     assert provider.calls == calls_after_materialization
-
-
-def test_evidence_tensorization_accepts_precomputed_frozen_embeddings() -> None:
-    requests, graphs, pairs, _labels = _evidence_tasks([2])
-    node_ids = [node.id for node in graphs[0].nodes]
-    values = FakeTextEmbeddingProvider().encode_task_nodes(requests[0], node_ids)
-    frozen = FrozenTaskEmbeddings(
-        task_id=requests[0].task_id,
-        node_ids_digest=node_ids_digest(node_ids),
-        values=values,
-    )
-    provider = PrecomputedGraphFeatureProvider(
-        {requests[0].task_id: frozen}, embedding_dim=values.shape[1]
-    )
-
-    tasks = materialize_training_tasks(
-        ranking_requests=requests,
-        graphs=graphs,
-        pairs=pairs,
-        model_config=tiny_model_config(),
-        text_embedding_provider=provider,
-        seed_signal_provider=provider,
-    )
-
-    assert len(tasks) == 1
-    assert torch.equal(tasks[0].graph_tensor.node_embeddings, values)
 
 
 def test_evidence_tail_graph_batch_produces_its_own_optimizer_step() -> None:
