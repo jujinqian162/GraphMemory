@@ -165,3 +165,57 @@ def test_cli_aggregates_token_metrics_and_legacy_trajectory_metadata(
     assert {row["Method"] for row in rows} == {"dense_natural", "rgcn_natural"}
     rgcn_row = next(row for row in rows if row["Method"] == "rgcn_natural")
     assert float(rgcn_row["Coverage@1024 Tokens"]) == 1.0
+
+
+def test_cli_filters_to_explicit_task_subset(tmp_path: Path) -> None:
+    dense = tmp_path / "dense"
+    rgcn = tmp_path / "rgcn"
+    _write_run(dense, method="dense_ft", seed=13, coverage=(0.0, 1.0))
+    _write_run(rgcn, method="provenance_rgcn", seed=13, coverage=(1.0, 1.0))
+    task_ids = tmp_path / "task_ids.json"
+    task_ids.write_text(json.dumps(["q0"]) + "\n", encoding="utf-8")
+    output = tmp_path / "subset.json"
+
+    assert (
+        main(
+            [
+                "--run",
+                f"dense_natural={dense}",
+                "--run",
+                f"rgcn_natural={rgcn}",
+                "--baseline",
+                "dense_natural",
+                "--trainable",
+                "dense_natural",
+                "--trainable",
+                "rgcn_natural",
+                "--task-ids",
+                str(task_ids),
+                "--expected-task-count",
+                "1",
+                "--bootstrap-samples",
+                "100",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["test_task_count"] == 1
+    assert result["task_subset"]["task_count"] == 1
+    assert (
+        result["summary"]["dense_natural"]["metrics"]["Coverage@1024 Tokens"]["mean"]
+        == 0.0
+    )
+    assert (
+        result["summary"]["rgcn_natural"]["metrics"]["Coverage@1024 Tokens"]["mean"]
+        == 1.0
+    )
+    assert (
+        result["paired_analysis"]["rgcn_natural"]["metrics"]["Coverage@1024 Tokens"][
+            "mean_delta"
+        ]
+        == 1.0
+    )

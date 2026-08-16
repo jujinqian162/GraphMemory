@@ -131,6 +131,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         help="Fail unless every run contains exactly this many unique tasks.",
     )
+    parser.add_argument(
+        "--task-ids",
+        type=Path,
+        help=(
+            "Optional JSON array of task IDs. Filter every complete run to this exact "
+            "subset before aggregation and fail if a selected task is absent."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--output-csv",
@@ -142,12 +150,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     metadata, metadata_source_digest = _load_query_metadata(args.query_metadata)
+    selected_task_ids = _load_task_ids(args.task_ids)
     trainable_methods = set(args.trainable)
     rows = [
         _row_from_run(
             _parse_run_spec(value),
             trainable_methods=trainable_methods,
             query_metadata=metadata,
+            selected_task_ids=selected_task_ids,
             expected_task_count=args.expected_task_count,
         )
         for value in args.runs
@@ -164,6 +174,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         metadata,
         rows=rows,
     )
+    if selected_task_ids is not None:
+        result["task_subset"] = {
+            "task_count": len(selected_task_ids),
+            "task_ids_sha256": _sha256(args.task_ids),
+        }
     write_json(args.output, result)
     if args.output_csv is not None:
         _write_main_table_csv(args.output_csv, result)
@@ -175,6 +190,7 @@ def _row_from_run(
     *,
     trainable_methods: set[str],
     query_metadata: Mapping[str, QueryMetadata],
+    selected_task_ids: set[str] | None,
     expected_task_count: int | None,
 ) -> dict[str, object]:
     run = spec.path
@@ -264,6 +280,23 @@ def _row_from_run(
                 task_groups[task_id] = graph_id
             if memory_mode is not None:
                 task_strata[task_id] = memory_mode
+    if selected_task_ids is not None:
+        missing_selected = sorted(selected_task_ids - set(per_task))
+        if missing_selected:
+            raise ValueError(
+                f"run={run} is missing selected tasks: {missing_selected[:5]}"
+            )
+        per_task = {task_id: per_task[task_id] for task_id in selected_task_ids}
+        task_groups = {
+            task_id: task_groups[task_id]
+            for task_id in selected_task_ids
+            if task_id in task_groups
+        }
+        task_strata = {
+            task_id: task_strata[task_id]
+            for task_id in selected_task_ids
+            if task_id in task_strata
+        }
     if not per_task:
         raise ValueError(f"no per-task rows in {per_task_path}")
     if expected_task_count is not None and len(per_task) != expected_task_count:
@@ -318,6 +351,22 @@ def _parse_run_spec(value: str) -> RunSpec:
     if not label or not raw_path:
         raise ValueError(f"invalid --run value={value!r}; expected LABEL=PATH")
     return RunSpec(label=label, path=Path(raw_path))
+
+
+def _load_task_ids(path: Path | None) -> set[str] | None:
+    if path is None:
+        return None
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"task-ID file must be a nonempty JSON array: {path}")
+    task_ids: set[str] = set()
+    for index, task_id in enumerate(value):
+        if not isinstance(task_id, str) or not task_id:
+            raise ValueError(f"task-ID file has invalid item at index={index}: {path}")
+        if task_id in task_ids:
+            raise ValueError(f"task-ID file has duplicate task_id={task_id!r}: {path}")
+        task_ids.add(task_id)
+    return task_ids
 
 
 def _load_query_metadata(
