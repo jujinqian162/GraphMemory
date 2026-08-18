@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.aggregate_main_results import main as aggregate_main_results  # noqa: E402
@@ -34,44 +34,56 @@ def _run(path: str) -> Path:
     return ROOT / "results/isetrace/evalv8/runs" / path
 
 
+MODEL_SEEDS = (13, 17, 29, 37, 41)
+
+
+def _flat_dense_ft_run(seed: int) -> Path:
+    if seed == 37:
+        return _run("dense-ft/flat/isetrace_v7_main_dft_flat_s37_recovery")
+    return _run(f"dense-ft/flat/isetrace_v7_dense_ft_flat_s{seed}_evalv8")
+
+
+def _rgcn_run(kind: str, seed: int) -> Path:
+    if seed in (13, 17, 29):
+        suffix = "full" if kind == "residual" else "wo_graph"
+        return _run(
+            f"rgcn/{kind}/isetrace_v7_pu_dense_ft_rgcn_{suffix}_s{seed}_evalv8"
+        )
+    directory = "full_rgcn" if kind == "residual" else "wo_graph"
+    suffix = "full" if kind == "residual" else "nograph"
+    return _run(f"rgcn/{directory}/isetrace_v7_e2rel_rgcn_{suffix}_s{seed}")
+
+
 MAIN_RUNS: dict[str, tuple[Path, ...]] = {
     "bm25": (_run("deterministic/isetrace_v7_bm25_evalv8"),),
     "dense_flat": (_run("deterministic/isetrace_v7_dense_flat_evalv8"),),
     "provenance_unit_dense": (_run("deterministic/isetrace_v7_dense_pu_evalv8"),),
     "graphrag": (_run("deterministic/isetrace_v7_graphrag_evalv8"),),
     "provenance_path": (_run("deterministic/isetrace_v7_provenance_path_evalv8"),),
-    "dense_ft_flat": tuple(
-        _run(f"dense-ft/flat/isetrace_v7_dense_ft_flat_s{seed}_evalv8")
-        for seed in (13, 17, 29)
-    ),
+    "dense_ft_flat": tuple(_flat_dense_ft_run(seed) for seed in MODEL_SEEDS),
     "cross_encoder_flat": tuple(
         _run(f"cross-encoder-ft/flat/isetrace_v7_cross_encoder_flat_s{seed}_evalv8")
-        for seed in (13, 17, 29)
+        for seed in MODEL_SEEDS
     ),
     "dense_ft_provenance_unit": tuple(
         _run(f"dense-ft/provenance-unit/isetrace_v7_dense_ft_pu_s{seed}_evalv8")
-        for seed in (13, 17, 29)
+        for seed in MODEL_SEEDS
     ),
     "cross_encoder_provenance_unit": tuple(
         _run(
             f"cross-encoder-ft/provenance-unit/"
             f"isetrace_v7_cross_encoder_provenance_unit_s{seed}_evalv8"
         )
-        for seed in (13, 17, 29)
+        for seed in MODEL_SEEDS
     ),
     "residual_rgcn": tuple(
-        _run(f"rgcn/residual/isetrace_v7_pu_dense_ft_rgcn_full_s{seed}_evalv8")
-        for seed in (13, 17, 29)
+        _rgcn_run("residual", seed) for seed in MODEL_SEEDS
     ),
 }
 
 RGCN_PASSTHROUGH_RUNS: dict[str, tuple[Path, ...]] = {
     "pu_seed": tuple(
-        _run(
-            f"rgcn/seed-passthrough/"
-            f"isetrace_v7_pu_dense_ft_rgcn_wo_graph_s{seed}_evalv8"
-        )
-        for seed in (13, 17, 29)
+        _rgcn_run("seed-passthrough", seed) for seed in MODEL_SEEDS
     ),
     "residual_rgcn": MAIN_RUNS["residual_rgcn"],
 }

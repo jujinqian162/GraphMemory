@@ -26,3 +26,6 @@ docs/raw/wsdm2027/
 .pi-subagents/
 # Large raw ablation dumps; regenerate with scripts/analyze_provenance_ablation.py
 report/provenance/ablation_rows.json
+
+# Local review interfaces; durable annotations belong under data/.
+.ui/
