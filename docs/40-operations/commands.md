@@ -40,6 +40,61 @@ uv run python experiment/run.py name=isetrace_pu_dense_ft_rgcn_wo_graph dataset=
 
 The seeded config composes the canonical `dense_ft variant=provenance_unit` stage. Its pair and checkpoint Task inputs are identical to the standalone baseline, so Prefect reuses that checkpoint across `full_rgcn`, `wo_graph`, and the E2 controls. `wo_graph` returns the cached seed's cosine scores exactly; `full_rgcn` adds a zero-initialized learned graph residual and dev selection may retain epoch 0 when training does not improve the seed. E2 variants are `homogeneous_gcn`, `wo_feeds`, `wo_execution_ownership`, `wo_artifact_io`, `wo_chunk_adjacency`, and `random_edges`; each changes only its checkpointed message relation/topology policy. The remaining trainable lifecycle builds provenance candidate pairs, reloads the strict checkpoint, and evaluates the natural-only test split. `profile=full` does not apply the evidence benchmark's fixed dev cap to ISETrace.
 
+## ISETrace Training-Size Robustness
+
+Training size is controlled by the existing trajectory count, not by a task-row cap. With fixed `split_seed=13`, smaller train counts select nested prefixes while the 352-trajectory dev and 1,207-trajectory test partitions remain unchanged. Keep `profile=full` so every condition evaluates the same 580 dev tasks and 2,000 test tasks.
+
+```bash
+PERCENTAGES=(10 25 50 100)
+TRAIN_TRAJECTORIES=(241 603 1205 2410)
+SEEDS=(13 17 29 37 41)
+DEVICE=cuda:0
+
+for index in "${!PERCENTAGES[@]}"; do
+  percentage="${PERCENTAGES[$index]}"
+  train_trajectories="${TRAIN_TRAJECTORIES[$index]}"
+  for seed in "${SEEDS[@]}"; do
+    common=(
+      dataset=isetrace
+      profile=full
+      "device=${DEVICE}"
+      split_seed=13
+      "seed=${seed}"
+      "dataset.trajectories.splits.train=${train_trajectories}"
+    )
+
+    uv run python experiment/run.py \
+      "name=isetrace_v7_trainsize${percentage}_dft_pu_s${seed}" \
+      "${common[@]}" method=dense_ft method.variant=provenance_unit
+
+    uv run python experiment/run.py \
+      "name=isetrace_v7_trainsize${percentage}_rgcn_nograph_s${seed}" \
+      "${common[@]}" method=provenance_unit_dense_ft_rgcn \
+      method.variant=wo_graph
+
+    uv run python experiment/run.py \
+      "name=isetrace_v7_trainsize${percentage}_rgcn_full_s${seed}" \
+      "${common[@]}" method=provenance_unit_dense_ft_rgcn \
+      method.variant=full_rgcn
+  done
+done
+```
+
+The four conditions correspond to 10%, 25%, 50%, and 100% of the 2,410 training trajectories, rounded to whole trajectories. They intentionally keep the one-epoch Dense-FT and 15-epoch residual recipes unchanged; this is fixed-recipe robustness, not per-size hyperparameter tuning. The standalone PU Dense-FT, exact `wo_graph` passthrough, and residual runs share content-addressed preparation and Dense checkpoint artifacts whenever their scientific inputs match.
+
+After all 60 runs complete, validate the frozen cohort and aggregate five-seed means, sample standard deviations, and residual-versus-exact-seed trajectory-cluster bootstrap intervals:
+
+```bash
+uv run python scripts/analyze_isetrace_training_size.py \
+  --run-root runs \
+  --output results/isetrace/training-size/analysis.json \
+  --output-csv results/isetrace/training-size/analysis.csv \
+  --report results/isetrace/training-size/report.md \
+  --figure results/isetrace/training-size/training-size.pdf
+```
+
+The analysis rejects missing seeds, incorrect method variants, changed split counts or split seed, non-2,000-query test outputs, and inconsistent test artifacts or trajectory clusters before reporting results.
+
 The committed generated queries are unreviewed engineering inputs only. See [`isetrace-provenance-rgcn.md`](isetrace-provenance-rgcn.md) and [`isetrace-nontrain-retrieval.md`](isetrace-nontrain-retrieval.md) before interpreting metrics.
 
 ## Multirun and multi-GPU

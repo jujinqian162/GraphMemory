@@ -37,6 +37,34 @@ def test_isetrace_smoke_profile_caps_each_split_to_one_task() -> None:
     assert _prepare_config(resolved, "test").count == 1
 
 
+def test_isetrace_training_size_override_reaches_prepare_identity() -> None:
+    resolved = resolve_experiment_config(
+        parse_composed_config(
+            _compose(
+                "dataset=isetrace",
+                "profile=full",
+                "method=provenance_unit_dense_ft_rgcn",
+                "dataset.trajectories.splits.train=241",
+            )
+        ),
+        repository_root=ROOT,
+    )
+
+    assert resolved.dataset.trajectories is not None
+    assert resolved.dataset.trajectories.splits.model_dump() == {
+        "train": 241,
+        "dev": 352,
+        "test": 1207,
+    }
+    prepare_train = _prepare_config(resolved, "train")
+    assert prepare_train.trajectory_splits is not None
+    assert prepare_train.trajectory_splits.model_dump() == {
+        "train": 241,
+        "dev": 352,
+        "test": 1207,
+    }
+
+
 def test_isetrace_dense_ft_uses_effective_text_only_sampling() -> None:
     composed = parse_composed_config(
         _compose("dataset=isetrace", "method=dense_ft", "profile=full")
