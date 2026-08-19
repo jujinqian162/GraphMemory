@@ -139,6 +139,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             "subset before aggregation and fail if a selected task is absent."
         ),
     )
+    parser.add_argument(
+        "--metric",
+        dest="metrics",
+        action="append",
+        choices=PER_TASK_METRICS,
+        default=[],
+        help=(
+            "Metric to aggregate and bootstrap (repeatable). By default all shared "
+            "per-task metrics are analyzed."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--output-csv",
@@ -162,6 +173,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         for value in args.runs
     ]
+    if args.metrics:
+        rows = [_select_metrics(row, args.metrics) for row in rows]
     result = analyze_main_results(
         rows,
         baseline_method=args.baseline,
@@ -325,6 +338,32 @@ def _row_from_run(
         "task_strata": task_strata,
         "test_artifact_digest": _test_artifact_digest(run),
     }
+
+
+def _select_metrics(
+    row: dict[str, object], selected_metrics: Sequence[str]
+) -> dict[str, object]:
+    metrics = cast(Mapping[str, float], row["metrics"])
+    per_task = cast(Mapping[str, Mapping[str, float]], row["per_task"])
+    missing_aggregate = [
+        metric for metric in selected_metrics if metric not in metrics
+    ]
+    if missing_aggregate:
+        raise ValueError(f"run lacks selected aggregate metrics: {missing_aggregate}")
+    selected_per_task: dict[str, dict[str, float]] = {}
+    for task_id, task_metrics in per_task.items():
+        missing = [metric for metric in selected_metrics if metric not in task_metrics]
+        if missing:
+            raise ValueError(
+                f"task_id={task_id!r} lacks selected per-task metrics: {missing}"
+            )
+        selected_per_task[task_id] = {
+            metric: task_metrics[metric] for metric in selected_metrics
+        }
+    selected = dict(row)
+    selected["metrics"] = {metric: metrics[metric] for metric in selected_metrics}
+    selected["per_task"] = selected_per_task
+    return selected
 
 
 def _aggregate_from_per_task(

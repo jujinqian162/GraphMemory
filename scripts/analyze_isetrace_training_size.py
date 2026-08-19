@@ -88,6 +88,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 str(args.bootstrap_samples),
                 "--bootstrap-seed",
                 str(args.bootstrap_seed),
+                "--metric",
+                METRICS[0],
+                "--metric",
+                METRICS[1],
                 "--output",
                 str(aggregate_path),
             ]

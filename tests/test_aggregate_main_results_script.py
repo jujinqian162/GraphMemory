@@ -195,6 +195,8 @@ def test_cli_filters_to_explicit_task_subset(tmp_path: Path) -> None:
                 "1",
                 "--bootstrap-samples",
                 "100",
+                "--metric",
+                "Coverage@1024 Tokens",
                 "--output",
                 str(output),
             ]
@@ -205,6 +207,9 @@ def test_cli_filters_to_explicit_task_subset(tmp_path: Path) -> None:
     result = json.loads(output.read_text(encoding="utf-8"))
     assert result["test_task_count"] == 1
     assert result["task_subset"]["task_count"] == 1
+    assert set(result["summary"]["dense_natural"]["metrics"]) == {
+        "Coverage@1024 Tokens"
+    }
     assert (
         result["summary"]["dense_natural"]["metrics"]["Coverage@1024 Tokens"]["mean"]
         == 0.0
