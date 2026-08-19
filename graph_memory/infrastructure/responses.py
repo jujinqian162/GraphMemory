@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -36,6 +38,11 @@ class _CacheRecord:
     value: dict[str, object]
     response_id: str | None
     usage: dict[str, object]
+
+
+_RATE_LIMIT_LOCK = threading.Lock()
+_RATE_LIMIT_INTERVALS: dict[tuple[str, str], float] = {}
+_RATE_LIMIT_NEXT_REQUESTS: dict[tuple[str, str], float] = {}
 
 
 def load_responses_settings(path: Path) -> ResponsesSettings:
@@ -133,9 +140,10 @@ def complete_structured_request(
         )
 
     last_error: Exception | None = None
+    request_body = body
     for validation_attempt in range(validation_retries + 1):
         response = _post_response(
-            body,
+            request_body,
             settings=settings,
             timeout_seconds=timeout_seconds,
             max_retries=transport_retries,
@@ -145,6 +153,7 @@ def complete_structured_request(
         except (TypeError, ValueError, json.JSONDecodeError) as error:
             last_error = ValueError(f"{error}; {_response_diagnostic(response)}")
             if validation_attempt < validation_retries:
+                request_body = _validation_retry_body(body)
                 time.sleep(min(2.0**validation_attempt, 30.0))
             continue
         response_id_value = response.get("id")
@@ -204,7 +213,10 @@ def _post_response(
     if not endpoint.endswith("/responses"):
         endpoint += "/responses"
     payload = json.dumps(body).encode("utf-8")
-    for attempt in range(max_retries + 1):
+    transient_attempt = 0
+    rate_limit_key = (endpoint, settings.model_id)
+    while True:
+        _wait_for_rate_limit_slot(rate_limit_key)
         request = urllib.request.Request(
             endpoint,
             data=payload,
@@ -225,12 +237,30 @@ def _post_response(
                 return _json_object(value)
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", "replace")[:1000]
+            if error.code == 429:
+                retry_after = error.headers.get("Retry-After")
+                delay, requests_per_minute = _register_rate_limit(
+                    rate_limit_key,
+                    detail=detail,
+                    retry_after=retry_after,
+                )
+                rate_limit_message = (
+                    "Responses API rate limited; "
+                    f"waiting at least {delay:.1f}s and pacing this model at "
+                    f"{requests_per_minute} RPM"
+                )
+                print(
+                    rate_limit_message,
+                    file=sys.stderr,
+                    flush=True,
+                )
+                continue
             retryable_gateway_403 = error.code == 403 and (
                 "bad_response_status_code" in detail
                 or "please try again" in detail.lower()
             )
-            retryable = error.code == 429 or error.code >= 500 or retryable_gateway_403
-            if not retryable or attempt == max_retries:
+            retryable = error.code >= 500 or retryable_gateway_403
+            if not retryable or transient_attempt >= max_retries:
                 raise RuntimeError(
                     f"Responses API HTTP {error.code}: {detail}"
                 ) from error
@@ -239,9 +269,10 @@ def _post_response(
                 retry_after_value if isinstance(retry_after_value, str) else None
             )
             try:
-                delay = float(retry_after) if retry_after else 2.0**attempt
+                delay = float(retry_after) if retry_after else 2.0**transient_attempt
             except ValueError:
-                delay = 2.0**attempt
+                delay = 2.0**transient_attempt
+            transient_attempt += 1
             time.sleep(min(delay, 30.0))
         except (
             urllib.error.URLError,
@@ -249,12 +280,62 @@ def _post_response(
             json.JSONDecodeError,
             ValueError,
         ) as error:
-            if attempt == max_retries:
+            if transient_attempt >= max_retries:
                 raise RuntimeError(
                     f"Responses API failed after {max_retries + 1} attempts: {error}"
                 ) from error
-            time.sleep(min(2.0**attempt, 30.0))
-    raise AssertionError("unreachable")
+            time.sleep(min(2.0**transient_attempt, 30.0))
+            transient_attempt += 1
+
+
+def _wait_for_rate_limit_slot(key: tuple[str, str]) -> None:
+    with _RATE_LIMIT_LOCK:
+        now = time.monotonic()
+        interval = _RATE_LIMIT_INTERVALS.get(key, 0.0)
+        request_at = max(now, _RATE_LIMIT_NEXT_REQUESTS.get(key, now))
+        _RATE_LIMIT_NEXT_REQUESTS[key] = request_at + interval
+    delay = request_at - now
+    if delay > 0:
+        time.sleep(delay)
+
+
+def _register_rate_limit(
+    key: tuple[str, str],
+    *,
+    detail: str,
+    retry_after: object,
+) -> tuple[float, int]:
+    limit = _rate_limit_from_detail(detail) or 10
+    requests_per_minute = max(1, limit - 1)
+    interval = 60.0 / requests_per_minute
+    try:
+        delay = float(retry_after) if isinstance(retry_after, str) else 60.0
+    except ValueError:
+        delay = 60.0
+    delay = max(delay, interval)
+    with _RATE_LIMIT_LOCK:
+        now = time.monotonic()
+        _RATE_LIMIT_INTERVALS[key] = max(
+            interval,
+            _RATE_LIMIT_INTERVALS.get(key, 0.0),
+        )
+        _RATE_LIMIT_NEXT_REQUESTS[key] = max(
+            now + delay,
+            _RATE_LIMIT_NEXT_REQUESTS.get(key, now),
+        )
+    return delay, requests_per_minute
+
+
+def _rate_limit_from_detail(detail: str) -> int | None:
+    try:
+        value = cast(object, json.loads(detail))
+    except json.JSONDecodeError:
+        return None
+    mapping = _string_mapping(value)
+    if mapping is None:
+        return None
+    limit = mapping.get("limit")
+    return limit if isinstance(limit, int) and not isinstance(limit, bool) else None
 
 
 def _response_json(response: Mapping[str, object]) -> object:
@@ -281,6 +362,33 @@ def _response_json(response: Mapping[str, object]) -> object:
     if not texts:
         raise ValueError("Responses API returned no non-empty output_text")
     return cast(object, json.loads("".join(texts)))
+
+
+def _validation_retry_body(body: Mapping[str, object]) -> dict[str, object]:
+    text = _string_mapping(body.get("text")) or {}
+    output_format = _string_mapping(text.get("format")) or {}
+    schema = _string_mapping(output_format.get("schema")) or {}
+    required = [
+        item
+        for item in _object_sequence(schema.get("required"))
+        if isinstance(item, str)
+    ]
+    required_text = ", ".join(required) if required else "all schema-required fields"
+    instruction = (
+        "Your previous output failed strict JSON schema validation. Return a complete "
+        "JSON object with every required field and no text outside the JSON object. "
+        f"Required fields: {required_text}. Do not omit fields; every required string "
+        "must be non-empty."
+    )
+    retry_body = dict(body)
+    retry_body["input"] = [
+        *_object_sequence(body.get("input")),
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": instruction}],
+        },
+    ]
+    return retry_body
 
 
 def _response_diagnostic(response: Mapping[str, object]) -> str:

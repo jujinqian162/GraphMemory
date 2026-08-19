@@ -25,6 +25,7 @@ MECHANISM_METRICS = (
 TEMPORAL_RELATION = "temporal.precedes"
 OWNER_NODE_KINDS = {"execution.tool_call", "execution.tool_output"}
 FRAGMENTATION_BIN_ORDER = ("1", "2", "3+")
+GOLD_EVENT_BIN_ORDER = ("1", "2", "3+")
 PROVENANCE_BIN_ORDER = ("1", "2", "3+", "disconnected")
 
 
@@ -50,6 +51,10 @@ class TaskFeature:
     @property
     def fragmentation_bin(self) -> str:
         return "3+" if self.minimum_flat_chunks >= 3 else str(self.minimum_flat_chunks)
+
+    @property
+    def gold_event_bin(self) -> str:
+        return "3+" if self.gold_event_count >= 3 else str(self.gold_event_count)
 
     @property
     def provenance_bin(self) -> str | None:
@@ -92,6 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path, required=True)
     parser.add_argument("--figure", type=Path)
+    parser.add_argument("--dispersion-figure", type=Path)
     parser.add_argument("--bootstrap-samples", type=int, default=10_000)
     parser.add_argument("--bootstrap-seed", type=int, default=13)
     args = parser.parse_args(argv)
@@ -156,6 +162,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             bootstrap_samples=args.bootstrap_samples,
             bootstrap_seed=args.bootstrap_seed,
         ),
+        "gold_event_dispersion": _analyze_comparison(
+            baseline_runs=seed_runs,
+            method_runs=rgcn_runs,
+            features=task_features,
+            bin_name="gold_event_count",
+            bin_order=GOLD_EVENT_BIN_ORDER,
+            bin_getter=lambda feature: feature.gold_event_bin,
+            bootstrap_samples=args.bootstrap_samples,
+            bootstrap_seed=args.bootstrap_seed,
+        ),
     }
 
     result: dict[str, object] = {
@@ -184,6 +200,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "gold-bearing tool-call/tool-output event nodes after excluding "
                 "temporal.precedes; undefined for one-event queries."
             ),
+            "gold_event_count": (
+                "Number of distinct event IDs containing at least one gold "
+                "evidence span; bins are 1, 2, and 3+."
+            ),
         },
         "feature_counts": _feature_counts(task_features.values()),
         "comparisons": comparisons,
@@ -207,6 +227,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     _write_summary_csv(args.output_csv, comparisons)
     if args.figure is not None:
         _write_figure(args.figure, comparisons)
+    if args.dispersion_figure is not None:
+        _write_dispersion_figure(
+            args.dispersion_figure,
+            _mapping(comparisons["gold_event_dispersion"], "gold_event_dispersion"),
+        )
     return 0
 
 
@@ -835,6 +860,75 @@ def _write_figure(path: Path, comparisons: Mapping[str, object]) -> None:
         frameon=False,
         fontsize=8.2,
     )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(
+        path,
+        bbox_inches="tight",
+        metadata={"CreationDate": None, "ModDate": None},
+    )
+    plt.close(figure)
+
+
+def _write_dispersion_figure(
+    path: Path, comparison: Mapping[str, object]
+) -> None:
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as error:  # pragma: no cover - environment-specific
+        raise RuntimeError(
+            "matplotlib is required to render the dispersion figure"
+        ) from error
+
+    figure, axis = plt.subplots(1, 1, figsize=(4.0, 2.75), constrained_layout=True)
+    styles = {
+        "Coverage@1024 Tokens": ("#0072B2", "o", "Coverage@1024"),
+        "Full Support@2048 Tokens": ("#D55E00", "s", "Full Support@2048"),
+    }
+    bins = [
+        _mapping(value, "comparison bin")
+        for value in cast(Sequence[object], comparison["bins"])
+    ]
+    x_values = list(range(len(bins)))
+    for metric_name, (color, marker, legend_label) in styles.items():
+        means: list[float] = []
+        lower: list[float] = []
+        upper: list[float] = []
+        for bin_result in bins:
+            metric = _mapping(
+                _mapping(bin_result["metrics"], "bin.metrics")[metric_name],
+                f"bin.metrics.{metric_name}",
+            )
+            mean = 100.0 * _required_number(metric["mean_delta"], "mean_delta")
+            ci = cast(Sequence[object], metric["ci_95"])
+            means.append(mean)
+            lower.append(mean - 100.0 * _required_number(ci[0], "ci_95[0]"))
+            upper.append(100.0 * _required_number(ci[1], "ci_95[1]") - mean)
+        axis.errorbar(
+            x_values,
+            means,
+            yerr=[lower, upper],
+            color=color,
+            marker=marker,
+            markersize=4.2,
+            linewidth=1.35,
+            capsize=2.5,
+            label=legend_label,
+        )
+    axis.axhline(0.0, color="#777777", linewidth=0.8, linestyle="--")
+    axis.set_xticks(
+        x_values,
+        [
+            f"{bin_result['bin']}\n$n$={cast(int, bin_result['task_count'])}"
+            for bin_result in bins
+        ],
+    )
+    axis.set_xlabel("Distinct gold-bearing execution events", fontsize=8.5)
+    axis.set_ylabel("Mean paired gain (percentage points)", fontsize=8.5)
+    axis.set_title("Graph residual by evidence dispersion", fontsize=9.2)
+    axis.grid(axis="y", color="#DDDDDD", linewidth=0.6)
+    axis.tick_params(labelsize=7.8)
+    axis.legend(frameon=False, fontsize=8.2)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(
         path,

@@ -13,6 +13,7 @@ import graph_memory.datasets.isetrace.end_to_end_qa.runner as runner
 from graph_memory.datasets.isetrace.end_to_end_qa.contracts import (
     AnswerCorrectness,
     AnswerFaithfulness,
+    JUDGE_SCHEMA,
     AnswerArtifact,
     AnswerResponse,
     Condition,
@@ -30,6 +31,7 @@ from graph_memory.datasets.isetrace.end_to_end_qa.prompts import (
     ANSWER_SYSTEM_PROMPT,
     NO_EVIDENCE_SYSTEM_PROMPT,
     answer_system_prompt,
+    validate_judgment,
 )
 from graph_memory.datasets.isetrace.end_to_end_qa.reporting import build_report
 from graph_memory.datasets.isetrace.end_to_end_qa.runner import Paths, report
@@ -179,16 +181,28 @@ def test_select_ranked_evidence_stops_at_first_over_budget() -> None:
     assert used_tokens == 1200
 
 
-def test_structured_outputs_enforce_abstention_consistency() -> None:
+def test_judge_validation_ignores_non_metric_fields() -> None:
+    output = validate_judgment(
+        {
+            "correctness": "not_answered",
+            "faithfulness": "not_applicable",
+            "abstained": "The answer explicitly abstained.",
+        }
+    )
+
+    assert output == {
+        "correctness": "not_answered",
+        "faithfulness": "not_applicable",
+    }
+    assert set(cast(dict[str, object], JUDGE_SCHEMA["properties"])) == {
+        "correctness",
+        "faithfulness",
+    }
+
+
+def test_answer_output_enforces_abstention_consistency() -> None:
     with pytest.raises(ValidationError, match="INSUFFICIENT_EVIDENCE"):
         _ = AnswerResponse(answer="unsupported answer", abstained=True)
-    with pytest.raises(ValidationError, match="faithfulness=not_applicable"):
-        _ = JudgeResponse(
-            correctness=AnswerCorrectness.NOT_ANSWERED,
-            faithfulness=AnswerFaithfulness.FAITHFUL,
-            abstained=True,
-            reason="The answer abstained.",
-        )
 
 
 def test_report_pairs_tasks_by_trajectory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,8 +262,6 @@ def test_report_pairs_tasks_by_trajectory(monkeypatch: pytest.MonkeyPatch) -> No
                             if abstained
                             else AnswerFaithfulness.FAITHFUL
                         ),
-                        abstained=abstained,
-                        reason="reason",
                     ),
                     request_digest="request",
                     response_id=None,

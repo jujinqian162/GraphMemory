@@ -4,8 +4,9 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar, cast
@@ -403,7 +404,38 @@ def report(paths: Paths) -> None:
     if judgments_identity.get("judgments_sha256") != sha256_file(judgments_path):
         raise ValueError("judgment artifact digest disagrees with manifest")
     judgments = _read_jsonl(judgments_path, JudgmentArtifact)
-    result = build_report(prepared, judgments)
+    report_start_message = (
+        f"report: loaded {len(judgments)}/{len(prepared)} judgments; "
+        f"starting {BOOTSTRAP_SAMPLES:,}-sample trajectory-cluster bootstrap"
+    )
+    print(
+        report_start_message,
+        file=sys.stderr,
+        flush=True,
+    )
+    started_at = time.monotonic()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        report_future = executor.submit(build_report, prepared, judgments)
+        while not report_future.done():
+            done, _ = wait({report_future}, timeout=30.0)
+            if not done:
+                elapsed = time.monotonic() - started_at
+                print(
+                    f"report: bootstrap still running ({elapsed:.0f}s elapsed)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        result = report_future.result()
+    elapsed = time.monotonic() - started_at
+    report_complete_message = (
+        f"report: bootstrap and aggregation complete in {elapsed:.1f}s; "
+        "writing artifacts"
+    )
+    print(
+        report_complete_message,
+        file=sys.stderr,
+        flush=True,
+    )
     write_json_atomic(paths.output / "report.json", result)
     write_summary_csv(paths.output / "summary.csv", result)
     print(f"wrote {paths.output / 'report.json'} and {paths.output / 'summary.csv'}")
@@ -467,21 +499,101 @@ def _run_parallel(
     if not records:
         print(f"nothing pending for {output_path}")
         return
+    total = len(current) + len(records)
+    start_message = (
+        f"{output_path.name}: starting with {len(current)}/{total} complete, "
+        f"{len(records)} pending, workers={workers}"
+    )
+    print(
+        start_message,
+        file=sys.stderr,
+        flush=True,
+    )
     executor = ThreadPoolExecutor(max_workers=workers)
-    futures = {executor.submit(request, record): record for record in records}
+    record_iterator = iter(records)
+    remaining: set[Future[_OutputT]] = set()
+    for _ in range(min(workers, len(records))):
+        remaining.add(executor.submit(request, next(record_iterator)))
     first_error: BaseException | None = None
-    for future in as_completed(futures):
-        try:
-            result = future.result()
-        except BaseException as error:
+    completed_since_checkpoint = 0
+    checkpoint_interval = max(1, workers)
+    progress_interval = max(1, min(25, len(records) // 100))
+    next_progress = len(current) + progress_interval
+    interrupted = False
+    try:
+        while remaining:
+            done, remaining = wait(
+                remaining,
+                timeout=30.0,
+                return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                heartbeat_message = (
+                    f"{output_path.name}: heartbeat {len(current)}/{total} "
+                    f"complete, {len(remaining)} in flight"
+                )
+                print(
+                    heartbeat_message,
+                    file=sys.stderr,
+                    flush=True,
+                )
+                continue
+            for future in done:
+                try:
+                    result = future.result()
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+                    continue
+                current[result.record_id] = result
+                completed_since_checkpoint += 1
             if first_error is None:
-                first_error = error
-        else:
+                for _ in done:
+                    try:
+                        record = next(record_iterator)
+                    except StopIteration:
+                        break
+                    remaining.add(executor.submit(request, record))
+            if completed_since_checkpoint >= checkpoint_interval:
+                _write_jsonl_atomic(output_path, current.values())
+                completed_since_checkpoint = 0
+            if len(current) >= next_progress or not remaining:
+                progress_message = (
+                    f"{output_path.name}: {len(current)}/{total} complete "
+                    f"({len(current) / total:.1%})"
+                )
+                print(
+                    progress_message,
+                    file=sys.stderr,
+                    flush=True,
+                )
+                next_progress = len(current) + progress_interval
+    except BaseException as error:
+        first_error = error
+        interrupted = True
+        for future in remaining:
+            _ = future.cancel()
+    executor.shutdown(wait=True, cancel_futures=interrupted)
+    if interrupted:
+        for future in remaining:
+            if future.cancelled():
+                continue
+            try:
+                result = future.result()
+            except BaseException:
+                continue
             current[result.record_id] = result
-            print(f"{output_path.name}: {len(current)} complete", file=sys.stderr)
-    executor.shutdown(wait=True)
     _write_jsonl_atomic(output_path, current.values())
     if first_error is not None:
+        stopped_message = (
+            f"{output_path.name}: stopped after checkpointing "
+            f"{len(current)}/{total} complete"
+        )
+        print(
+            stopped_message,
+            file=sys.stderr,
+            flush=True,
+        )
         raise first_error
 
 

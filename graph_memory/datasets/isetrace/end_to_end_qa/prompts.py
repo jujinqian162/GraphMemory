@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
+
 from graph_memory.datasets.isetrace.end_to_end_qa.contracts import (
     AnswerResponse,
     Condition,
@@ -35,7 +38,7 @@ Do not infer the retrieval method from wording or metadata. Apply these labels e
 - faithfulness=mixed: some but not all substantive claims are supported.
 - faithfulness=unsupported: no substantive answer claim is supported.
 - faithfulness=not_applicable: the answer abstains and makes no substantive claim.
-The abstained field must describe the answer itself."""
+Return only the correctness and faithfulness labels."""
 
 
 def answer_system_prompt(record: PreparedRecord) -> str:
@@ -71,7 +74,16 @@ def validate_answer(value: object) -> dict[str, object]:
 
 
 def validate_judgment(value: object) -> dict[str, object]:
-    return JudgeResponse.model_validate(value).model_dump(mode="json")
+    if not isinstance(value, Mapping):
+        raise ValueError("judge output must be a JSON object")
+    mapping = cast(Mapping[object, object], value)
+    labels = JudgeResponse.model_validate(
+        {
+            "correctness": mapping.get("correctness"),
+            "faithfulness": mapping.get("faithfulness"),
+        }
+    )
+    return labels.model_dump(mode="json", exclude_none=True)
 
 
 __all__ = [

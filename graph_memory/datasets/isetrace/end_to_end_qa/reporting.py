@@ -154,7 +154,7 @@ def _report_row(
         "full_support": prepared.full_support,
         "correctness": judgment.judgment.correctness,
         "faithfulness": judgment.judgment.faithfulness,
-        "abstained": judgment.judgment.abstained,
+        "abstained": (judgment.judgment.correctness is AnswerCorrectness.NOT_ANSWERED),
     }
 
 

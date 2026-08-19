@@ -48,19 +48,13 @@ class AnswerResponse(StrictModel):
         return self
 
 
-class JudgeResponse(StrictModel):
+class _JudgeLabels(StrictModel):
     correctness: AnswerCorrectness
     faithfulness: AnswerFaithfulness
-    abstained: bool
-    reason: str = Field(min_length=1, max_length=2000)
 
-    @model_validator(mode="after")
-    def validate_abstention(self) -> JudgeResponse:
-        if self.abstained != (self.correctness is AnswerCorrectness.NOT_ANSWERED):
-            raise ValueError("abstained must match correctness=not_answered")
-        if self.abstained != (self.faithfulness is AnswerFaithfulness.NOT_APPLICABLE):
-            raise ValueError("abstained must match faithfulness=not_applicable")
-        return self
+
+class JudgeResponse(_JudgeLabels):
+    reason: str | None = Field(default=None, min_length=1, max_length=2000)
 
 
 class EvidenceItem(StrictModel):
@@ -188,7 +182,7 @@ class JudgmentArtifact(StrictModel):
 
 
 ANSWER_SCHEMA = AnswerResponse.model_json_schema()
-JUDGE_SCHEMA = JudgeResponse.model_json_schema()
+JUDGE_SCHEMA = _JudgeLabels.model_json_schema()
 
 
 __all__ = [
